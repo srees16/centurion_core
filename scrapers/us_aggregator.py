@@ -26,6 +26,7 @@ from scrapers.us_news.finviz import FinvizScraper
 from scrapers.us_news.investing import InvestingScraper
 from scrapers.us_news.tradingview import TradingViewScraper
 from scrapers.us_news.wallstreetbets import WallStreetBetsScraper
+from scrapers.morningstar import MorningstarScraper
 from scrapers.cache import ScraperCache, get_scraper_cache
 from models import NewsItem
 from config import Config
@@ -36,19 +37,21 @@ logger = logging.getLogger(__name__)
 _SOURCE_WEIGHTS: Dict[str, float] = {
     "Yahoo Finance": 0.9,
     "Finviz": 0.8,
+    "Morningstar": 0.85,
     "Investing.com": 0.75,
     "TradingView": 0.7,
     "WallStreetBets": 0.4,
 }
 
 
-class NewsAggregator:
-    """Aggregates news from multiple sources with caching, dedup & adaptive rate-limiting."""
+class USNewsAggregator:
+    """Aggregates US news from multiple sources with caching, dedup & adaptive rate-limiting."""
     
     def __init__(self):
         self.scrapers: List[BaseNewsScraper] = [
             YahooFinanceScraper(),
             FinvizScraper(),
+            MorningstarScraper(),
             InvestingScraper(),
             TradingViewScraper(),
             WallStreetBetsScraper(),
@@ -282,7 +285,7 @@ class NewsAggregator:
         Items are sorted descending by composite importance; ``importance_rank``
         is 1-based (1 = most important).
         """
-        now = datetime.now()
+        now = datetime.utcnow()
 
         for item in items:
             # Relevance score (keyword-based)
@@ -294,7 +297,11 @@ class NewsAggregator:
             src_w = _SOURCE_WEIGHTS.get(item.source, 0.5)
 
             # Recency: 1.0 for now → 0.0 for articles > 7 days old
-            age_hours = max((now - item.timestamp).total_seconds() / 3600.0, 0.0)
+            try:
+                ts = item.timestamp.replace(tzinfo=None) if item.timestamp.tzinfo else item.timestamp
+                age_hours = max((now - ts).total_seconds() / 3600.0, 0.0)
+            except Exception:
+                age_hours = 168.0  # 7 days fallback
             recency = max(1.0 - age_hours / (7 * 24), 0.0)
 
             # Composite score (used only for sorting — not stored)
