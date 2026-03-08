@@ -244,56 +244,116 @@ class DatabaseManager:
         """Create TimescaleDB hypertables for time-series tables."""
         if not self.config.enable_timescaledb:
             return
-        
+
         hypertables = [
             ('stock_signals', 'created_at'),
             ('fundamental_metrics', 'recorded_at'),
             ('news_items', 'published_at'),
         ]
-        
-        with self.get_session() as session:
-            for table_name, time_column in hypertables:
+
+        # Each table gets its own transaction so one failure doesn't abort the rest
+        for table_name, time_column in hypertables:
+            with self.get_session() as session:
                 try:
-                    # Check if table exists and is not already a hypertable
+                    # Check if table exists
                     exists = session.execute(
-                        text(f"""
+                        text("""
                             SELECT EXISTS (
-                                SELECT FROM information_schema.tables 
+                                SELECT FROM information_schema.tables
                                 WHERE table_name = :table_name
                             )
                         """),
                         {'table_name': table_name}
                     ).scalar()
-                    
-                    if exists:
-                        is_hypertable = session.execute(
-                            text("""
-                                SELECT EXISTS (
-                                    SELECT FROM timescaledb_information.hypertables 
-                                    WHERE hypertable_name = :table_name
-                                )
-                            """),
-                            {'table_name': table_name}
-                        ).scalar()
-                        
-                        if not is_hypertable:
-                            session.execute(
-                                text(f"""
-                                    SELECT create_hypertable(
-                                        :table_name, 
-                                        :time_column,
-                                        if_not_exists => TRUE,
-                                        chunk_time_interval => INTERVAL :chunk_interval
-                                    )
-                                """),
-                                {
-                                    'table_name': table_name,
-                                    'time_column': time_column,
-                                    'chunk_interval': self.config.chunk_interval
-                                }
+
+                    if not exists:
+                        continue
+
+                    # Check if already a hypertable
+                    is_hypertable = session.execute(
+                        text("""
+                            SELECT EXISTS (
+                                SELECT FROM timescaledb_information.hypertables
+                                WHERE hypertable_name = :table_name
                             )
-                            logger.info(f"Created hypertable for {table_name}")
-                    
+                        """),
+                        {'table_name': table_name}
+                    ).scalar()
+
+                    if is_hypertable:
+                        continue
+
+                    # TimescaleDB requires every unique index (including the PK) to
+                    # include the partitioning (time) column.
+                    # 1. Fix the PK: drop with CASCADE, recreate as (id, <time_column>).
+                    # 2. Drop any remaining UNIQUE constraints that lack the time column
+                    #    (e.g. uq_news_content_ticker on news_items) — TimescaleDB
+                    #    rejects create_hypertable if any such index exists.
+                    session.execute(text(f"""
+                        DO $$
+                        DECLARE
+                            pk_name   text;
+                            col_in_pk boolean;
+                            uc_rec    record;
+                        BEGIN
+                            -- Step 1: fix primary key
+                            SELECT EXISTS (
+                                SELECT FROM information_schema.key_column_usage kcu
+                                JOIN information_schema.table_constraints tc
+                                    ON kcu.constraint_name = tc.constraint_name
+                                   AND kcu.table_name = tc.table_name
+                                WHERE tc.table_name = '{table_name}'
+                                  AND tc.constraint_type = 'PRIMARY KEY'
+                                  AND kcu.column_name = '{time_column}'
+                            ) INTO col_in_pk;
+
+                            IF NOT col_in_pk THEN
+                                SELECT constraint_name INTO pk_name
+                                FROM information_schema.table_constraints
+                                WHERE table_name = '{table_name}'
+                                  AND constraint_type = 'PRIMARY KEY';
+
+                                IF pk_name IS NOT NULL THEN
+                                    EXECUTE 'ALTER TABLE {table_name} DROP CONSTRAINT ' || pk_name || ' CASCADE';
+                                    EXECUTE 'ALTER TABLE {table_name} ADD PRIMARY KEY (id, {time_column})';
+                                END IF;
+                            END IF;
+
+                            -- Step 2: drop any UNIQUE constraints that don't include the time column
+                            FOR uc_rec IN
+                                SELECT DISTINCT tc.constraint_name
+                                FROM information_schema.table_constraints tc
+                                WHERE tc.table_name = '{table_name}'
+                                  AND tc.constraint_type = 'UNIQUE'
+                                  AND tc.constraint_name NOT IN (
+                                      SELECT kcu.constraint_name
+                                      FROM information_schema.key_column_usage kcu
+                                      WHERE kcu.table_name = '{table_name}'
+                                        AND kcu.column_name = '{time_column}'
+                                  )
+                            LOOP
+                                EXECUTE 'ALTER TABLE {table_name} DROP CONSTRAINT ' || uc_rec.constraint_name;
+                            END LOOP;
+                        END $$;
+                    """))
+
+                    session.execute(
+                        text("""
+                            SELECT create_hypertable(
+                                :table_name,
+                                :time_column,
+                                if_not_exists => TRUE,
+                                chunk_time_interval => INTERVAL :chunk_interval
+                            )
+                        """),
+                        {
+                            'table_name': table_name,
+                            'time_column': time_column,
+                            'chunk_interval': self.config.chunk_interval
+                        }
+                    )
+                    logger.info(f"Created hypertable for {table_name}")
+
                 except Exception as e:
                     logger.warning(f"Could not create hypertable for {table_name}: {e}")
     
