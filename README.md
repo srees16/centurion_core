@@ -85,15 +85,8 @@ python run_api.py
 ```
 API docs at: **http://localhost:9001/docs** (auth required)
 
-Open Minio at **http://localhost:9002/login**
+**Open Minio at http://localhost:9002/login**
 login with: `minioadmin` / `minioadmin123`
-
-### Verify Everything Works
-- [ ] Streamlit opens at http://localhost:9000
-- [ ] Login succeeds with `admin` / `admin123`
-- [ ] No database errors in console
-- [ ] Run a quick analysis with 2 tickers (AAPL, MSFT) — should complete in <2 min
-- [ ] Check **History** tab — results persist to PostgreSQL
 
 **Stuck?** Jump to **Section 13: Troubleshooting** or **Section 10: Installation** for detailed setup.
 
