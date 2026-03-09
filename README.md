@@ -32,12 +32,11 @@ export STREAMLIT_SERVER_PORT=9000 API_PORT=9001 ZERODHA_API_KEY="YOUR_KEY_HERE" 
 ### 2⃣ Start PostgreSQL (Docker)
 Windows powershell:
 ```
-docker run -d --name centurion-postgres -p 9003:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=superadmin1 -e POSTGRES_DB=centurion_trading timescale/timescaledb:latest-pg15; Start-Sleep 5; docker exec centurion-postgres psql -U postgres -c "CREATE DATABASE livestocks_ind;"; docker exec centurion-postgres psql -U postgres -c "CREATE DATABASE centurion_rag;"
+docker run -d --name centurion-postgres -p 9003:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=superadmin1 -e POSTGRES_DB=centurion_trading timescale/timescaledb:latest-pg15; Start-Sleep 9; docker exec centurion-postgres psql -U postgres -c "CREATE DATABASE livestocks_ind;"; docker exec centurion-postgres psql -U postgres -c "CREATE DATABASE centurion_rag;"
 ```
-
 MacOS:
 ```
-docker run -d --name centurion-postgres -p 9003:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=superadmin1 -e POSTGRES_DB=centurion_trading timescale/timescaledb:latest-pg15 && sleep 5 && docker exec centurion-postgres psql -U postgres -c "CREATE DATABASE livestocks_ind;" && docker exec centurion-postgres psql -U postgres -c "CREATE DATABASE centurion_rag;"
+docker run -d --name centurion-postgres -p 9003:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=superadmin1 -e POSTGRES_DB=centurion_trading timescale/timescaledb:latest-pg15 && sleep 9 && docker exec centurion-postgres psql -U postgres -c "CREATE DATABASE livestocks_ind;" && docker exec centurion-postgres psql -U postgres -c "CREATE DATABASE centurion_rag;"
 ```
 
 ### 3⃣ Initialize Database
@@ -54,12 +53,18 @@ docker run -d --name centurion-minio -p 9004:9000 -p 9002:9001 -e MINIO_ROOT_USE
 ```
 
 ### 5⃣ (Optional) Install Ollama — for RAG Document Q&A
-Windows powershell & MacOS:
+Windows powershell:
 ```
 # Download from https://ollama.ai/download
 OR
-curl -fsSL https://ollama.com/install.sh | sh
+winget install Ollama.Ollama
+# then:
+ollama pull qwen2.5:3b
 
+MacOS:
+# Download from https://ollama.ai/download
+OR
+curl -fsSL https://ollama.com/install.sh | sh
 # then:
 ollama pull qwen2.5:3b
 ```
