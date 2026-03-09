@@ -127,8 +127,8 @@ class RetrievalEvaluator:
 
     def __init__(self, db_manager: Optional[Any] = None) -> None:
         if db_manager is None:
-            from database.connection import get_db_manager
-            db_manager = get_db_manager()
+            from database.connection import get_rag_db_manager
+            db_manager = get_rag_db_manager()
         self._db = db_manager
 
     # ------------------------------------------------------------------

@@ -21,10 +21,10 @@ logger = logging.getLogger(__name__)
 class DatabaseConfig:
     """Database configuration from environment variables."""
     
-    def __init__(self):
+    def __init__(self, database_name: Optional[str] = None):
         self.host = os.getenv('CENTURION_DB_HOST', os.getenv('DB_HOST', 'localhost'))
         self.port = int(os.getenv('CENTURION_DB_PORT', os.getenv('DB_PORT', '9003')))
-        self.database = os.getenv('CENTURION_DB_NAME', os.getenv('DB_NAME', 'centurion_trading'))
+        self.database = database_name or os.getenv('CENTURION_DB_NAME', os.getenv('DB_NAME', 'centurion_trading'))
         self.username = os.getenv('CENTURION_DB_USER', os.getenv('DB_USER', ''))
         self.password = os.getenv('CENTURION_DB_PASSWORD', os.getenv('DB_PASSWORD', ''))
         self.pool_size = int(os.getenv('CENTURION_DB_POOL_SIZE', os.getenv('DB_POOL_SIZE', '10')))
@@ -78,6 +78,17 @@ class DatabaseManager:
         self._scoped_session = None
         DatabaseManager._initialized = True
         logger.info("DatabaseManager initialized")
+
+    @classmethod
+    def create_for_database(cls, database_name: str) -> 'DatabaseManager':
+        """Create a non-singleton DatabaseManager for a specific database."""
+        instance = object.__new__(cls)
+        instance.config = DatabaseConfig(database_name=database_name)
+        instance._engine = None
+        instance._session_factory = None
+        instance._scoped_session = None
+        logger.info(f"DatabaseManager created for database: {database_name}")
+        return instance
     
     @property
     def engine(self):
@@ -324,3 +335,18 @@ def get_db_manager() -> DatabaseManager:
 def get_db_session() -> Generator[Session, None, None]:
     """Get a database session from the global manager."""
     return get_db_manager().get_session()
+
+
+_rag_db_manager: Optional[DatabaseManager] = None
+
+
+def get_rag_db_manager() -> DatabaseManager:
+    """Get a database manager for the RAG pipeline database (centurion_rag)."""
+    global _rag_db_manager
+    if _rag_db_manager is None:
+        rag_db_name = os.getenv(
+            'CENTURION_RAG_DB_NAME',
+            os.getenv('CENTURION_DB_NAME', 'centurion_rag'),
+        )
+        _rag_db_manager = DatabaseManager.create_for_database(rag_db_name)
+    return _rag_db_manager
