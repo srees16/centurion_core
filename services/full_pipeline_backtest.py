@@ -140,11 +140,21 @@ class BacktestResult:
 # ── Helpers ───────────────────────────────────────────────────
 
 def _download(sym: str, period: str, market: str,
-              start: str = "", end: str = "") -> Optional[pd.DataFrame]:
-    """Download OHLCV via yfinance.  Prefers start/end dates over period."""
+              start: str = "", end: str = "",
+              min_rows: int = 120,
+              jump_threshold: float = 0.35) -> Optional[pd.DataFrame]:
+    """Download OHLCV via yfinance.  Prefers start/end dates over period.
+
+    The frame is validated and repaired with
+    ``nse_engine.data.validation.clean_ohlcv`` (duplicates, phantom rows, bad
+    ticks such as GOLDBEES 2019-12-19/20, unadjusted corporate actions).
+    Failures (exception / empty / fewer than ``min_rows`` rows) are logged
+    at WARNING and return None.
+    """
     try:
         import yfinance as yf
         import warnings
+        from nse_engine.data.validation import clean_ohlcv
         # Add .NS for IND market, but NOT for symbols already suffixed (.NS/.BO)
         # or non-NSE tickers like BTC-USD, USDINR=X, ^NSEI
         suffix = ".NS" if market == "IND" and not any(c in sym for c in '.-=^') else ""
@@ -158,14 +168,153 @@ def _download(sym: str, period: str, market: str,
             else:
                 df = yf.download(ticker, period=period,
                                  auto_adjust=True, progress=False)
-        if df is not None and len(df) >= 120:
-            # Flatten multi-level columns if present
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
+        if df is None or len(df) == 0:
+            logger.warning("Download empty for %s", ticker)
+            return None
+        # Flatten multi-level columns if present
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        df, report = clean_ohlcv(df, ticker, jump_threshold=jump_threshold)
+        if (report.adjustments or report.bad_ticks or report.large_moves
+                or report.duplicates or report.invalid_rows or report.phantom_rows):
+            logger.info("Validated %s: %s", ticker, report.summary())
+        if len(df) >= min_rows:
             return df
+        logger.warning("Download too short for %s: %d rows (< %d)", ticker, len(df), min_rows)
     except Exception as e:
         logger.warning("Download failed for %s: %s", sym, e)
     return None
+
+
+def _slice_until(df: pd.DataFrame, current_ts) -> pd.DataFrame:
+    """Rows of ``df`` dated on or before ``current_ts`` (date-based, no look-ahead).
+
+    ``df`` must have a sorted DatetimeIndex.  Replaces positional slicing,
+    which scrambled dates when symbols trade on different calendars.
+    """
+    n = int(df.index.searchsorted(pd.Timestamp(current_ts), side="right"))
+    return df.iloc[:n]
+
+
+def _has_bar_on(df_slice: pd.DataFrame, current_ts) -> bool:
+    """True when the (already date-sliced) frame has a bar exactly on ``current_ts``."""
+    return len(df_slice) > 0 and df_slice.index[-1] == pd.Timestamp(current_ts)
+
+
+def _is_non_equity_ticker(sym: str) -> bool:
+    """Crypto / FX / index tickers (BTC-USD, USDINR=X, ^NSEI)."""
+    return any(c in sym for c in '-=^')
+
+
+def _build_master_calendar(ohlcv_full: Dict[str, pd.DataFrame], market: str) -> pd.DatetimeIndex:
+    """Sorted union of trading dates of exchange-traded symbols.
+
+    IND: only ``.NS`` symbols define the calendar.  Other markets: all
+    symbols except crypto/FX/index tickers.  Falls back to every symbol when
+    that leaves nothing.
+    """
+    if market == "IND":
+        members = [s for s in ohlcv_full if s.endswith(".NS")]
+    else:
+        members = [s for s in ohlcv_full if not _is_non_equity_ticker(s)]
+    if not members:
+        members = list(ohlcv_full)
+    idx = pd.DatetimeIndex([])
+    for s in members:
+        idx = idx.union(pd.DatetimeIndex(ohlcv_full[s].index))
+    return idx.sort_values()
+
+
+def _value_before(series: Optional[pd.Series], current_ts) -> Optional[float]:
+    """Last finite value of ``series`` dated strictly BEFORE ``current_ts``."""
+    if series is None or len(series) == 0:
+        return None
+    n = int(series.index.searchsorted(pd.Timestamp(current_ts), side="left"))
+    if n <= 0:
+        return None
+    val = float(series.iloc[n - 1])
+    return val if np.isfinite(val) else None
+
+
+def _vix_leverage_cap(base_cap: float, vix: Optional[float],
+                      caution: float = 20.0, panic: float = 30.0,
+                      kill: float = 40.0) -> float:
+    """Leverage cap scaled by India VIX; monotone non-increasing in ``vix``.
+
+    >= caution -> x0.75, >= panic -> x0.5, >= kill -> x0.25.
+    """
+    if vix is None or not np.isfinite(vix):
+        return base_cap
+    if vix >= kill:
+        return base_cap * 0.25
+    if vix >= panic:
+        return base_cap * 0.5
+    if vix >= caution:
+        return base_cap * 0.75
+    return base_cap
+
+
+def _realized_vol_vix_proxy(close: pd.Series, window: int = 20, mult: float = 1.25) -> pd.Series:
+    """Fallback VIX: annualised ``window``-day realized vol of an index, x1.25, in VIX points."""
+    rets = close.astype(float).pct_change()
+    return rets.rolling(window, min_periods=window).std() * np.sqrt(252) * 100.0 * mult
+
+
+class _ForecastNormaliser:
+    """Point-in-time per-source forecast normaliser.
+
+    scalar(source) = target_abs / mean(|forecast|) where the mean is taken
+    over PAST observation days only (each day contributes the cross-sectional
+    mean |forecast|).  Until ``min_obs`` days are seen the scalar is 1.0.
+    Only running sums are kept.  Call ``apply`` before ``update`` each day.
+    """
+
+    def __init__(self, target_abs: float = 10.0, min_obs: int = 60, cap: float = 20.0):
+        self.target_abs = target_abs
+        self.min_obs = min_obs
+        self.cap = cap
+        self.sum_abs: Dict[str, float] = {}
+        self.n_obs: Dict[str, int] = {}
+
+    def scalar(self, source: str) -> float:
+        n = self.n_obs.get(source, 0)
+        if n < self.min_obs:
+            return 1.0
+        mean_abs = self.sum_abs.get(source, 0.0) / n
+        if not np.isfinite(mean_abs) or mean_abs <= 1e-12:
+            return 1.0
+        return self.target_abs / mean_abs
+
+    def apply(self, forecasts: Dict[str, Dict[str, float]]) -> Dict[str, Dict[str, float]]:
+        scalars: Dict[str, float] = {}
+        out: Dict[str, Dict[str, float]] = {}
+        for sym, fc in forecasts.items():
+            row = {}
+            for src, val in fc.items():
+                if src not in scalars:
+                    scalars[src] = self.scalar(src)
+                v = val * scalars[src]
+                row[src] = max(-self.cap, min(self.cap, v)) if np.isfinite(v) else v
+            out[sym] = row
+        return out
+
+    def update(self, forecasts: Dict[str, Dict[str, float]]) -> None:
+        per_src: Dict[str, List[float]] = defaultdict(list)
+        for fc in forecasts.values():
+            for src, val in fc.items():
+                if val is not None and np.isfinite(val):
+                    per_src[src].append(abs(float(val)))
+        for src, vals in per_src.items():
+            self.sum_abs[src] = self.sum_abs.get(src, 0.0) + float(np.mean(vals))
+            self.n_obs[src] = self.n_obs.get(src, 0) + 1
+
+    def state(self) -> Dict:
+        return {"sum_abs": dict(self.sum_abs), "n_obs": dict(self.n_obs)}
+
+    def load_state(self, state: Optional[Dict]) -> None:
+        if state:
+            self.sum_abs = dict(state.get("sum_abs", {}))
+            self.n_obs = dict(state.get("n_obs", {}))
 
 
 def _annual_yield_at(sym: str, date, div_history: Dict[str, pd.Series],
@@ -337,6 +486,9 @@ def run_full_backtest(
     from services.event_strategy import generate_event_forecasts
     from services.sentiment_forecast import compute_sentiment_batch
 
+    # Module-level FDM history must not leak across runs
+    _rolling_forecast_history.clear()
+
     # Phase B: Point-in-time universe flag (read once, used in ticker loading + sim loop)
     _pit_universe_on = getattr(_Cfg, 'PIT_UNIVERSE_ENABLED', False) if _Cfg else False
 
@@ -365,6 +517,10 @@ def run_full_backtest(
                         if verbose:
                             print(f"  NSE universe: {len(tickers)} tickers (PIT union)")
                     else:
+                        if raw_syms is None:
+                            logger.warning(
+                                "PIT constituents file missing/empty — universe is NOT "
+                                "point-in-time; results will be survivorship-biased")
                         raise ValueError("PIT union returned too few symbols")
                 else:
                     _tier = getattr(_Cfg, 'NSE_UNIVERSE_TIER', 'DEFAULT') if _Cfg else 'DEFAULT'
@@ -390,6 +546,7 @@ def run_full_backtest(
     # ── Godmode Phase 2b: Multi-asset diversification ──────────
     # Add uncorrelated assets (gold ETFs, CPSE, liquid) to reduce portfolio correlation.
     _multi_asset_on = getattr(_Cfg, 'MULTI_ASSET_ENABLED', False) if _Cfg else False
+    tickers = list(tickers)  # never mutate the caller's list
     if _multi_asset_on and market == "IND":
         _ma_tickers = getattr(_Cfg, 'MULTI_ASSET_TICKERS_IND', []) if _Cfg else []
         for _mat in _ma_tickers:
@@ -399,7 +556,8 @@ def run_full_backtest(
             print(f"  Multi-asset: +{len(_ma_tickers)} tickers ({', '.join(_ma_tickers)})")
 
     # ── Crypto ticker for crypto_correlation signal ────────────
-    if _SAVE_FORECASTS_MODE or _multi_asset_on:
+    # Never for IND: BTC trades 7 days a week and scrambled the NSE calendar.
+    if (_SAVE_FORECASTS_MODE or _multi_asset_on) and market != "IND":
         _crypto_tk = getattr(_Cfg, 'CRYPTO_TICKER', 'BTC-USD') if _Cfg else 'BTC-USD'
         if _crypto_tk and _crypto_tk not in tickers:
             tickers.append(_crypto_tk)
@@ -416,6 +574,7 @@ def run_full_backtest(
         print("Downloading OHLCV data...")
 
     ohlcv_full: Dict[str, pd.DataFrame] = {}
+    _failed_tickers: List[str] = []   # download failed / empty / < 120 rows
     for sym in tickers:
         df = _download(sym, period, market, start=start_date, end=end_date)
         if df is not None:
@@ -423,6 +582,14 @@ def run_full_backtest(
             if verbose:
                 ret = (float(df["Close"].iloc[-1]) / float(df["Close"].iloc[0]) - 1) * 100
                 print(f"  {sym:20s} {len(df):4d} bars  ret={ret:+.1f}%")
+        else:
+            _failed_tickers.append(sym)
+    if _failed_tickers:
+        logger.warning("%d/%d tickers failed download/validation: %s",
+                       len(_failed_tickers), len(tickers), ", ".join(_failed_tickers))
+        if verbose:
+            print(f"\n  WARNING: {len(_failed_tickers)}/{len(tickers)} tickers failed download "
+                  f"(error/empty/<120 rows): {', '.join(_failed_tickers)}")
 
     symbols = list(ohlcv_full.keys())
     n_symbols = len(symbols)
@@ -438,9 +605,11 @@ def run_full_backtest(
     if _short_syms:
         for s in _short_syms:
             del ohlcv_full[s]
+        logger.warning("Dropped %d symbols with < %d bars: %s",
+                       len(_short_syms), _min_required, ", ".join(_short_syms))
         if verbose:
-            print(f"\n  Dropped {len(_short_syms)} symbols with <{_min_required} bars: "
-                  f"{', '.join(_short_syms[:5])}{'...' if len(_short_syms) > 5 else ''}")
+            print(f"\n  WARNING: Dropped {len(_short_syms)} symbols with <{_min_required} bars: "
+                  f"{', '.join(_short_syms)}")
     symbols = list(ohlcv_full.keys())
     n_symbols = len(symbols)
     if n_symbols < 2:
@@ -448,24 +617,15 @@ def run_full_backtest(
         return {"sharpe": 0, "report": "Insufficient data"}
 
     # ── Date-align all symbols to a common calendar ──────────
-    # Use the longest-running symbol's dates as the master calendar.
-    # For efficiency: precompute each symbol's offset into the master index
-    # instead of reindexing (which adds NaN rows that must be dropna'd every day).
-    _longest_sym = max(ohlcv_full.keys(), key=lambda s: len(ohlcv_full[s]))
-    master_index = ohlcv_full[_longest_sym].index
+    # Master calendar = sorted union of exchange trading dates (.NS symbols
+    # for IND).  Each symbol is sliced BY DATE every day (_slice_until), so
+    # symbols with different histories / missing days never misalign.
+    master_index = _build_master_calendar(ohlcv_full, market)
     n_days = len(master_index)
-
-    # Map each symbol to its starting position in master calendar
-    # sym_start[sym] = master_index position where this symbol's first date falls
-    _master_dates_set = {d: i for i, d in enumerate(master_index)}
-    sym_start: Dict[str, int] = {}
-    for sym, df in ohlcv_full.items():
-        first_date = df.index[0]
-        sym_start[sym] = _master_dates_set.get(first_date, 0)
 
     if verbose:
         print(f"\n  Symbols loaded: {n_symbols}")
-        print(f"  Master bars:    {n_days}  (from {_longest_sym})")
+        print(f"  Master bars:    {n_days}  (union of {'.NS' if market == 'IND' else 'equity'} calendars)")
         print(f"  Warmup period:  {min_history} bars")
         print(f"  Trading days:   {n_days - min_history}\n")
 
@@ -647,6 +807,29 @@ def run_full_backtest(
 
     _cached_forecasts: Dict[str, Dict[str, float]] = {}  # signal cache for recompute optimization
     _cached_idm: float = 1.7  # IDM cache — recompute on recompute days only
+    # Point-in-time forecast normaliser (per-source |f| -> 10, past data only)
+    _fc_normaliser = _ForecastNormaliser(target_abs=10.0, min_obs=60, cap=20.0)
+
+    # ── India VIX for leverage scaling (downloaded once per run) ──
+    # Value used on day t is the close of the PREVIOUS trading day (no look-ahead).
+    _vix_scaling = getattr(_Cfg, 'VIX_PIPELINE_SCALING_ENABLED', False) if _Cfg else False
+    _vix_series: Optional[pd.Series] = None
+    _vix_source = "none"
+    if _vix_scaling and market == "IND":
+        # VIX legitimately jumps > 35% in a day; use a wider bad-tick threshold
+        _vdf = _download("^INDIAVIX", period, market, start=start_date, end=end_date,
+                         jump_threshold=0.60)
+        if _vdf is not None and "Close" in _vdf.columns:
+            _vix_series = _vdf["Close"].astype(float).dropna()
+            _vix_source = "^INDIAVIX"
+        else:
+            _ndf = _download("^NSEI", period, market, start=start_date, end=end_date)
+            if _ndf is not None and "Close" in _ndf.columns:
+                _vix_series = _realized_vol_vix_proxy(_ndf["Close"]).dropna()
+                _vix_source = "^NSEI 20d realized vol x1.25"
+            logger.warning("India VIX unavailable — using fallback: %s", _vix_source)
+        if verbose:
+            print(f"  VIX source: {_vix_source}")
 
     # OPT: Pre-load config once outside the loop
     try:
@@ -700,6 +883,7 @@ def run_full_backtest(
                 dd_deep_days = _ckpt['dd_deep_days']
                 _cached_forecasts = _ckpt.get('cached_forecasts', {})
                 _cached_idm = _ckpt.get('cached_idm', 1.7)
+                _fc_normaliser.load_state(_ckpt.get('forecast_normaliser'))
                 trade_pnls = _ckpt.get('trade_pnls', [])
                 entry_prices = _ckpt.get('entry_prices', {})
                 # PBO-FIX: restore per-signal daily returns
@@ -763,20 +947,40 @@ def run_full_backtest(
 
     _consecutive_day_errors = 0
     _MAX_CONSECUTIVE_ERRORS = 10  # abort if 10+ days crash in a row
+    _sector_map_warned = False
 
     # ── Phase B: Point-in-Time universe state ──────────────────
     # Tracks which subset of downloaded symbols are valid NIFTY500 constituents
-    # at the current simulation date.  Updated at semi-annual boundaries.
+    # at the current simulation date.  Checked at each month change.
+    # PIT behaviour (documented in kite_connect/nse/nse_universe.py):
+    #   * PIT file missing/empty  -> _pit_active_set stays None (no filter) and a
+    #     loud WARNING says results are survivorship-biased.
+    #   * date before first real snapshot -> no filter for those days (never
+    #     backfilled with a later list), WARNING; filtering starts on the
+    #     earliest snapshot's own effective date.
     _pit_active_set: Optional[set] = None   # set of ".NS" tickers currently in-universe
-    _pit_last_period: Optional[str] = None  # "YYYY-MM" of last universe reload
+    _pit_last_period: Optional[str] = None  # "YYYY-MM" of last universe check
+    _pit_enabled_run = False
+    _pit_exempt = set(getattr(_Cfg, 'MULTI_ASSET_TICKERS_IND', []) if (_Cfg and _multi_asset_on) else [])
     if _pit_universe_on and market == "IND":
-        from kite_connect.nse.nse_universe import get_nse_universe_pit
-        # Initialize with earliest period
-        _pit_syms = get_nse_universe_pit("2012-01-01")
-        _pit_active_set = {f"{s}.NS" for s in _pit_syms}
-        _pit_last_period = "2012-03"
-        if verbose:
-            print(f"  PIT Universe: initialized with {len(_pit_active_set)} symbols (2012-03)")
+        from kite_connect.nse.nse_universe import (
+            get_nse_universe_pit, get_nse_universe_pit_first_date,
+        )
+        _pit_first = get_nse_universe_pit_first_date()
+        if _pit_first is None:
+            _msg = ("PIT universe enabled but data/nifty500_historical_constituents.json is "
+                    "missing or empty — using CURRENT constituents; results are "
+                    "SURVIVORSHIP-BIASED")
+            logger.warning(_msg)
+            print(f"  WARNING: {_msg}")
+        else:
+            _pit_enabled_run = True
+            _sim_start = master_index[min(_start_day_idx, n_days - 1)].date()
+            if _sim_start < _pit_first:
+                _msg = (f"Backtest starts {_sim_start} before first PIT snapshot {_pit_first} — "
+                        f"no PIT filter before {_pit_first} (survivorship-biased until then)")
+                logger.warning(_msg)
+                print(f"  WARNING: {_msg}")
 
     for day_idx in range(_start_day_idx, n_days):
       try:
@@ -785,36 +989,34 @@ def run_full_backtest(
         # Build OHLCV slices up to current day (views, not copies)
         ohlcv_slice: Dict[str, pd.DataFrame] = {}
         # T3-1: Extract current simulation date for look-ahead bias prevention
-        current_date = master_index[day_idx]
-        if hasattr(current_date, 'date'):
-            current_date = current_date.date()
+        current_ts = pd.Timestamp(master_index[day_idx])
+        current_date = current_ts.date()
 
-        # ── Phase B: PIT universe rotation at semi-annual boundaries ──
-        if _pit_active_set is not None:
-            import datetime as _dt
-            _cd = current_date if isinstance(current_date, _dt.date) else _dt.date.fromisoformat(str(current_date))
-            _m = _cd.month
-            if _m >= 9:
-                _cur_period = f"{_cd.year}-09"
-            elif _m >= 3:
-                _cur_period = f"{_cd.year}-03"
-            else:
-                _cur_period = f"{_cd.year - 1}-09"
+        # ── Phase B: PIT universe rotation (checked monthly) ──
+        if _pit_enabled_run:
+            _cur_period = f"{current_date.year}-{current_date.month:02d}"
             if _cur_period != _pit_last_period:
-                _pit_syms_new = get_nse_universe_pit(_cd)
-                _pit_new_set = {f"{s}.NS" for s in _pit_syms_new}
-                _removed = _pit_active_set - _pit_new_set
-                _added = _pit_new_set - _pit_active_set
+                _pit_syms_new = get_nse_universe_pit(current_date)
+                _pit_new_set = None if _pit_syms_new is None else {f"{s}.NS" for s in _pit_syms_new}
+                if _pit_new_set is None:
+                    _removed, _added = set(), set()
+                elif _pit_active_set is None:
+                    _removed = {s for s, q in prev_positions.items()
+                                if q != 0 and s not in _pit_new_set and s not in _pit_exempt}
+                    _added = _pit_new_set
+                else:
+                    _removed = _pit_active_set - _pit_new_set
+                    _added = _pit_new_set - _pit_active_set
                 # Force-sell positions in removed tickers (delisted / dropped from index)
                 for _rsym in _removed:
                     _rqty = prev_positions.get(_rsym, 0)
                     if _rqty != 0 and _rsym in ohlcv_full:
-                        _rc = ohlcv_full[_rsym]["Close"]
+                        _rc = _slice_until(ohlcv_full[_rsym], current_ts)["Close"]
                         if hasattr(_rc, "squeeze"):
                             _rc = _rc.squeeze()
-                        _ridx = day_idx - sym_start.get(_rsym, 0)
-                        if 0 < _ridx < len(_rc):
-                            _rpx = float(_rc.iloc[_ridx])
+                        _rc = _rc.dropna()
+                        if len(_rc) > 0:
+                            _rpx = float(_rc.iloc[-1])  # last close on/before today
                             if np.isfinite(_rpx) and _rpx > 0:
                                 day_pnl -= abs(_rqty) * _rpx * _sym_cost_map.get(_rsym, cost_pct)
                                 trades_count += 1
@@ -832,16 +1034,17 @@ def run_full_backtest(
                 if verbose and (_removed or _added):
                     print(f"  PIT Rebalance {_cur_period}: +{len(_added)} / -{len(_removed)} → {len(_pit_active_set)} symbols", flush=True)
 
+        _fresh_syms: set = set()  # symbols with a bar exactly on current_date
         for sym, df in ohlcv_full.items():
-            # Phase B: Skip symbols not in current PIT universe
-            if _pit_active_set is not None and sym not in _pit_active_set:
+            # Phase B: Skip symbols not in current PIT universe (diversifier ETFs exempt)
+            if _pit_active_set is not None and sym not in _pit_active_set and sym not in _pit_exempt:
                 continue
-            # Compute how many bars this symbol has up to current master day_idx
-            local_len = day_idx - sym_start.get(sym, 0) + 1
-            actual_len = len(df)
-            use_len = min(local_len, actual_len)
-            if use_len >= 50:  # need at least 50 valid bars
-                ohlcv_slice[sym] = df.iloc[:use_len]
+            # Date-based slice: never includes rows after current_date
+            _sl = _slice_until(df, current_ts)
+            if len(_sl) >= 50:  # need at least 50 valid bars
+                ohlcv_slice[sym] = _sl
+                if _has_bar_on(_sl, current_ts):
+                    _fresh_syms.add(sym)
 
         # ── 1. Mark-to-market existing positions ───────────────
         for sym in symbols:
@@ -850,6 +1053,8 @@ def run_full_backtest(
                 continue
             if sym not in ohlcv_slice:
                 continue  # no data for this symbol yet
+            if sym not in _fresh_syms:
+                continue  # no bar today: no MTM (next bar's return covers the gap)
             c = ohlcv_slice[sym]["Close"]
             if hasattr(c, "squeeze"):
                 c = c.squeeze()
@@ -868,7 +1073,12 @@ def run_full_backtest(
                         low_col = low_col.squeeze()
                     low = float(low_col.iloc[-1])
                     if np.isfinite(low) and low <= stop_levels[sym]:
+                        # Gap-down through the stop fills at the open, not the stop
                         exit_price = stop_levels[sym]
+                        if "Open" in ohlcv_slice[sym].columns:
+                            _open = float(ohlcv_slice[sym]["Open"].iloc[-1])
+                            if np.isfinite(_open) and _open > 0:
+                                exit_price = min(_open, exit_price)
                         daily_ret = (exit_price - prev_price) / prev_price
                         day_pnl += prev_qty * prev_price * daily_ret
                         day_pnl -= abs(prev_qty) * exit_price * _sym_cost_map.get(sym, cost_pct)
@@ -887,7 +1097,12 @@ def run_full_backtest(
                         high_col = high_col.squeeze()
                     high = float(high_col.iloc[-1])
                     if np.isfinite(high) and high >= stop_levels[sym]:
+                        # Gap-up through a short stop fills at the open
                         exit_price = stop_levels[sym]
+                        if "Open" in ohlcv_slice[sym].columns:
+                            _open = float(ohlcv_slice[sym]["Open"].iloc[-1])
+                            if np.isfinite(_open) and _open > 0:
+                                exit_price = max(_open, exit_price)
                         daily_ret = (prev_price - exit_price) / prev_price
                         day_pnl += abs(prev_qty) * prev_price * daily_ret
                         day_pnl -= abs(prev_qty) * exit_price * _sym_cost_map.get(sym, cost_pct)
@@ -965,7 +1180,8 @@ def run_full_backtest(
                     fast_ewma = close.ewm(span=fast, adjust=False).mean()
                     slow_ewma = close.ewm(span=slow, adjust=False).mean()
                     raw = float(fast_ewma.iloc[-1] - slow_ewma.iloc[-1])
-                    fc = ewmac_to_forecast(raw, dpv, fast, slow)
+                    # dpv is a decimal %; ewmac_to_forecast needs price units
+                    fc = ewmac_to_forecast(raw, price * dpv, fast, slow)
                     key = f"ewmac_{fast}_{slow}"
                     all_forecasts[sym][key] = fc
 
@@ -1308,6 +1524,16 @@ def run_full_backtest(
 
 
             _cached_forecasts = {sym: dict(fc) for sym, fc in all_forecasts.items()}
+
+        # ── 2z. Point-in-time forecast normalisation ───────────
+        # Scalars use only PAST observation days (apply before update), so
+        # sources with very different magnitudes (carver_value |f|~17,
+        # ehlers_dsp ~1.3) contribute comparably.  The cache keeps raw values.
+        _raw_forecasts = all_forecasts
+        all_forecasts = _fc_normaliser.apply(_raw_forecasts)
+        if _recompute:
+            _fc_normaliser.update(_raw_forecasts)
+
         # ── 3. Combine forecasts + size positions ──────────────
         # R12: SIMPLEST POSSIBLE SYSTEM — strip all whipsaw sources
         # Meta-analysis of R1-R11: every scaling mechanism (DD, regime, warmup)
@@ -1472,7 +1698,7 @@ def run_full_backtest(
                 # Log alert (for UI/email notification)
                 _r22_date_str = ""
                 try:
-                    _r22_date_str = ohlcv_slice[symbols[0]]["Close"].index[day_idx].strftime("%Y-%m-%d")
+                    _r22_date_str = current_ts.strftime("%Y-%m-%d")
                 except Exception:
                     _r22_date_str = f"Day {_trading_day_num_r22}"
                 _r22_alert_events.append((_trading_day_num_r22, _r22_date_str))
@@ -1582,7 +1808,8 @@ def run_full_backtest(
                 _recent_rets = np.array(daily_returns[-60:])
                 _baseline_rets = np.array(daily_returns[-252:-60]) if len(daily_returns) > 252 else np.array(daily_returns[:-60])
                 if len(_baseline_rets) >= 30:
-                    _shift = detect_distribution_shift(_baseline_rets, _recent_rets)
+                    # Fixed-threshold verdict only: bootstrap p-values every day would be slow
+                    _shift = detect_distribution_shift(_baseline_rets, _recent_rets, n_bootstrap=0)
                     if _shift.get('verdict') == 'regime_break':
                         # Severe shift — halve all forecasts
                         _all_combined = {s: f * 0.50 for s, f in _all_combined.items()}
@@ -1620,6 +1847,8 @@ def run_full_backtest(
                     # entry_day tracked via day_idx offset
                     _held_days = _trading_day - entry_prices.get(f'_day_{sym}', _trading_day)
                     if _held_days >= _max_hold:
+                        if sym in ohlcv_slice and sym not in _fresh_syms:
+                            continue  # no bar today — exit on the next traded day
                         # Force exit stale position
                         if sym in ohlcv_slice:
                             _exit_c = ohlcv_slice[sym]["Close"]
@@ -1627,6 +1856,9 @@ def run_full_backtest(
                                 _exit_c = _exit_c.squeeze()
                             _exit_price = float(_exit_c.iloc[-1])
                             day_pnl -= abs(prev_positions[sym]) * _exit_price * _sym_cost_map.get(sym, cost_pct)
+                            # Execution-gap penalty, as for other full exits
+                            if _EXECUTION_GAP_ENABLED:
+                                day_pnl -= abs(prev_positions[sym]) * _exit_price * _EXECUTION_GAP_BPS
                             trades_count += 1
                             if sym in entry_prices and entry_prices[sym] > 0:
                                 ep = entry_prices.pop(sym)
@@ -1637,13 +1869,15 @@ def run_full_backtest(
                         prev_positions[sym] = 0
                         peak_prices.pop(sym, None)
                         stop_levels.pop(sym, None)
+                        # Cooldowns were already ticked today: 1 blocks same-day re-entry
+                        stop_cooldown[sym] = max(stop_cooldown.get(sym, 0), 1)
 
         # R21a: Save per-source forecasts + close prices for weight optimization
         if _SAVE_FORECASTS_MODE:
             _fc_snap = {}
             _px_snap = {}
             _vol_snap = {}
-            for sym, fc_dict in all_forecasts.items():
+            for sym, fc_dict in _raw_forecasts.items():  # raw (un-normalised) values
                 if fc_dict:
                     _fc_snap[sym] = dict(fc_dict)
                 if sym in ohlcv_slice:
@@ -1682,9 +1916,17 @@ def run_full_backtest(
 
         # ── Godmode: Sector enforcement — max N stocks per sector ──
         _sector_enforce = getattr(_Cfg, 'SECTOR_ENFORCEMENT_ENABLED', False) if _Cfg else False
+        _sector_map = getattr(_Cfg, 'NSE_SECTOR_MAP', {}) if _Cfg else {}
+        if _sector_enforce and not _sector_map:
+            # Without a sector map every name would be "Unknown" and the book
+            # would be capped at MAX_STOCKS_PER_SECTOR names in total.
+            if not _sector_map_warned:
+                logger.warning("NSE_SECTOR_MAP is empty (data/nse_sector_map.json missing) — "
+                               "sector enforcement DISABLED for this backtest")
+                _sector_map_warned = True
+            _sector_enforce = False
         if _sector_enforce:
             _max_per_sector = getattr(_Cfg, 'MAX_STOCKS_PER_SECTOR', 3) if _Cfg else 3
-            _sector_map = getattr(_Cfg, 'NSE_SECTOR_MAP', {}) if _Cfg else {}
             _sector_counts: Dict[str, int] = defaultdict(int)
             _filtered_top: List[str] = []
             for s, _ in _ranked:
@@ -1765,6 +2007,9 @@ def run_full_backtest(
             # - Top-21 to top-30: HOLD existing positions, but no new entries
             # - Below top-30: force exit (truly low-conviction stocks)
             # This prevents the R6 churn (hard exit at 15) and R4/R5 leak (no exit at all)
+            # No bar today (holiday/suspension/stale data): no entries, resizes or exits
+            if sym not in _fresh_syms:
+                continue
             forecast = _all_combined.get(sym, 0.0)
             is_held = prev_positions.get(sym, 0) != 0
             if sym not in _top_syms:
@@ -1954,7 +2199,7 @@ def run_full_backtest(
                 _m1_fc = _all_combined.get(_m1_sym, 0.0)
                 if _m1_fc <= 0:
                     continue
-                if _m1_sym not in ohlcv_slice:
+                if _m1_sym not in ohlcv_slice or _m1_sym not in _fresh_syms:
                     continue
                 _m1_c = ohlcv_slice[_m1_sym]["Close"]
                 if hasattr(_m1_c, "squeeze"):
@@ -1988,8 +2233,16 @@ def run_full_backtest(
         # M7 FIX: VIX-like leverage scaler — realized vol proxy from portfolio
         # Use cross-sectional 20-day realized vol of top positions as India VIX proxy.
         # When vol > CAUTION → reduce leverage by VIX_POSITION_SCALE; PANIC → halve again.
-        _vix_scaling = getattr(_Cfg, 'VIX_PIPELINE_SCALING_ENABLED', False) if _Cfg else False
-        if _vix_scaling and len(ohlcv_slice) >= 5:
+        _caution = getattr(_Cfg, 'VIX_CAUTION_THRESHOLD', 20.0) if _Cfg else 20.0
+        _panic = getattr(_Cfg, 'VIX_PANIC_THRESHOLD', 30.0) if _Cfg else 30.0
+        _kill = getattr(_Cfg, 'KILL_SWITCH_VIX_THRESHOLD', 40.0) if _Cfg else 40.0
+        if _vix_scaling and market == "IND":
+            # India VIX (or ^NSEI realized-vol fallback) as of the PREVIOUS trading day
+            _vix_prev = _value_before(_vix_series, current_ts)
+            _effective_max_lev = _vix_leverage_cap(_effective_max_lev, _vix_prev,
+                                                   _caution, _panic, _kill)
+        elif _vix_scaling and len(ohlcv_slice) >= 5:
+            # Non-IND: legacy cross-sectional realized-vol proxy (monotone scaling)
             _vix_rets = []
             for _vs, _vdf in list(ohlcv_slice.items())[:20]:
                 _vc = _vdf["Close"]
@@ -1998,37 +2251,43 @@ def run_full_backtest(
                 if len(_vc) >= 25:
                     _vr = _vc.pct_change().dropna().iloc[-20:]
                     if len(_vr) >= 15:
-                        _vix_rets.append(float(_vr.std()) * 16.0 * 100)  # annualized vol %
+                        _vix_rets.append(float(_vr.std()) * np.sqrt(252) * 100)  # annualized vol %
             if _vix_rets:
                 _realized_vix = float(np.median(_vix_rets))  # median across stocks
-                _caution = getattr(_Cfg, 'VIX_CAUTION_THRESHOLD', 20.0) if _Cfg else 20.0
-                _panic = getattr(_Cfg, 'VIX_PANIC_THRESHOLD', 30.0) if _Cfg else 30.0
-                _kill = getattr(_Cfg, 'KILL_SWITCH_VIX_THRESHOLD', 40.0) if _Cfg else 40.0
-                _vix_scale = getattr(_Cfg, 'VIX_POSITION_SCALE', 0.5) if _Cfg else 0.5
-                if _realized_vix >= _kill:
-                    _effective_max_lev = 1.0  # kill switch: delever to 1×
-                elif _realized_vix >= _panic:
-                    _effective_max_lev *= _vix_scale * 0.5  # severe scale-down
-                elif _realized_vix >= _caution:
-                    _effective_max_lev *= _vix_scale  # cautious scale-down
+                _effective_max_lev = _vix_leverage_cap(_effective_max_lev, _realized_vix,
+                                                       _caution, _panic, _kill)
+
+        def _last_close(_s: str) -> float:
+            _c = ohlcv_slice[_s]["Close"]
+            if hasattr(_c, "squeeze"):
+                _c = _c.squeeze()
+            _c = _c.dropna()
+            return float(_c.iloc[-1]) if len(_c) > 0 else 0.0
 
         # FIX-LEV: Portfolio-wide leverage cap enforcement
-        # Sum of all |position × price| must not exceed equity × max_leverage
+        # Sum of all |position × price| must not exceed equity × max_leverage.
+        # Only symbols trading today are scaled; removed shares pay costs.
         total_exposure = 0.0
+        _stale_exposure = 0.0
         for sym, qty in prev_positions.items():
             if qty == 0 or sym not in ohlcv_slice:
                 continue
-            c = ohlcv_slice[sym]["Close"]
-            if hasattr(c, "squeeze"):
-                c = c.squeeze()
-            p = float(c.dropna().iloc[-1]) if len(c.dropna()) > 0 else 0
+            p = _last_close(sym)
             total_exposure += abs(qty) * p
+            if sym not in _fresh_syms:
+                _stale_exposure += abs(qty) * p
         max_total_exposure = max(equity, capital * 0.10) * _effective_max_lev
-        if total_exposure > max_total_exposure and total_exposure > 0:
-            scale_down = max_total_exposure / total_exposure
+        if total_exposure > max_total_exposure and total_exposure > _stale_exposure:
+            scale_down = max(0.0, min(1.0, (max_total_exposure - _stale_exposure)
+                                      / (total_exposure - _stale_exposure)))
             for sym in list(prev_positions.keys()):
-                if prev_positions[sym] != 0:
-                    prev_positions[sym] = round(prev_positions[sym] * scale_down)
+                if prev_positions[sym] != 0 and sym in _fresh_syms:
+                    _old_q = prev_positions[sym]
+                    prev_positions[sym] = round(_old_q * scale_down)
+                    _cut = abs(_old_q - prev_positions[sym])
+                    if _cut > 0:
+                        day_pnl -= _cut * _last_close(sym) * _sym_cost_map.get(sym, cost_pct)
+                        trades_count += 1
 
         # M6 FIX: Multi-asset allocation cap — non-equity assets capped at 15%
         if _multi_asset_on:
@@ -2047,8 +2306,13 @@ def run_full_backtest(
                 if _ma_exposure > _ma_max and _ma_exposure > 0:
                     _ma_scale = _ma_max / _ma_exposure
                     for sym in list(prev_positions.keys()):
-                        if sym in _ma_set and prev_positions[sym] != 0:
-                            prev_positions[sym] = round(prev_positions[sym] * _ma_scale)
+                        if sym in _ma_set and prev_positions[sym] != 0 and sym in _fresh_syms:
+                            _old_q = prev_positions[sym]
+                            prev_positions[sym] = round(_old_q * _ma_scale)
+                            _cut = abs(_old_q - prev_positions[sym])
+                            if _cut > 0:
+                                day_pnl -= _cut * _last_close(sym) * _sym_cost_map.get(sym, cost_pct)
+                                trades_count += 1
 
         # ── 4. Update equity ───────────────────────────────────
         if not np.isfinite(day_pnl):
@@ -2128,6 +2392,7 @@ def run_full_backtest(
                     'dd_deep_days': dd_deep_days,
                     'cached_forecasts': {s: dict(f) for s, f in _cached_forecasts.items()},
                     'cached_idm': _cached_idm,
+                    'forecast_normaliser': _fc_normaliser.state(),
                     'trade_pnls': list(trade_pnls),
                     'entry_prices': dict(entry_prices),
                     'source_daily_returns': {k: list(v) for k, v in source_daily_returns.items()},
@@ -2165,6 +2430,7 @@ def run_full_backtest(
                     'dd_deep_days': dd_deep_days,
                     'cached_forecasts': {s: dict(f) for s, f in _cached_forecasts.items()},
                     'cached_idm': _cached_idm,
+                    'forecast_normaliser': _fc_normaliser.state(),
                     'trade_pnls': list(trade_pnls),
                     'entry_prices': dict(entry_prices),
                     'source_daily_returns': {k: list(v) for k, v in source_daily_returns.items()},
@@ -2184,6 +2450,7 @@ def run_full_backtest(
         # Per-day fault tolerance: log error, skip day (pnl=0), continue
         _consecutive_day_errors += 1
         d = day_idx - min_history
+        logger.warning("Day %d error (%s: %s) — skipping day", d, type(_day_err).__name__, _day_err)
         if verbose:
             print(f"  WARNING: Day {d} error ({type(_day_err).__name__}: {_day_err}) — skipping day", flush=True)
             traceback.print_exc()
@@ -2218,6 +2485,7 @@ def run_full_backtest(
                     'dd_deep_days': dd_deep_days,
                     'cached_forecasts': {s: dict(f) for s, f in _cached_forecasts.items()},
                     'cached_idm': _cached_idm,
+                    'forecast_normaliser': _fc_normaliser.state(),
                     'trade_pnls': list(trade_pnls),
                     'entry_prices': dict(entry_prices),
                     'source_daily_returns': {k: list(v) for k, v in source_daily_returns.items()},
@@ -2257,19 +2525,34 @@ def run_full_backtest(
         daily_equity=daily_equity,
     )
 
+    # Risk-free rate for excess-return Sharpe/Sortino
+    if market == "IND":
+        _rf_annual = float(getattr(_Cfg, 'RISK_FREE_RATE_IND', 0.07)) if _Cfg else 0.07
+    else:
+        _rf_annual = float(getattr(_Cfg, 'RISK_FREE_RATE_US', 0.04)) if _Cfg else 0.04
+    _rf_daily = _rf_annual / 252.0
+    _ann = float(np.sqrt(252.0))
+    excess_arr = ret_arr - _rf_daily if len(ret_arr) else ret_arr
+
+    # Years from the calendar span of the traded date range (not bar count)
+    _n_sim = len(ret_arr)
+    _span_start = master_index[max(min_history - 1, 0)]
+    _span_end = master_index[min(min_history + _n_sim - 1, n_days - 1)] if _n_sim > 0 else _span_start
+    _cal_years = max((_span_end - _span_start).days, 0) / 365.25
+
     if len(ret_arr) > 1:
-        avg_ret = float(np.mean(ret_arr))
+        avg_ret = float(np.mean(excess_arr))
         std_ret = float(np.std(ret_arr, ddof=1))
 
-        # Sharpe (annualized)
+        # Sharpe (annualized, excess over risk-free)
         if std_ret > 0:
-            result.sharpe = round(avg_ret / std_ret * 16.0, 3)  # sqrt(252) ≈ 16
+            result.sharpe = round(avg_ret / std_ret * _ann, 3)
 
-        # Sortino
-        downside = ret_arr[ret_arr < 0]
+        # Sortino (downside deviation of excess returns)
+        downside = excess_arr[excess_arr < 0]
         ds_std = float(np.std(downside, ddof=1)) if len(downside) > 1 else std_ret
         if ds_std > 0:
-            result.sortino = round(avg_ret / ds_std * 16.0, 3)
+            result.sortino = round(avg_ret / ds_std * _ann, 3)
 
         # Max drawdown
         eq_arr = np.array(daily_equity)
@@ -2280,13 +2563,13 @@ def run_full_backtest(
         # Calmar
         if result.max_drawdown_pct > 0:
             total_ret = (equity / capital - 1)
-            n_years = len(ret_arr) / 252
+            n_years = _cal_years
             ann_ret = ((1 + total_ret) ** (1 / n_years) - 1) if n_years > 0 else 0
             result.calmar = round(ann_ret / (result.max_drawdown_pct / 100), 3)
 
         # Returns
         total_return = (equity - capital) / capital
-        n_years = len(ret_arr) / 252
+        n_years = _cal_years
         if n_years > 0:
             result.annual_return_pct = round(
                 ((1 + total_return) ** (1 / n_years) - 1) * 100, 2
@@ -2333,7 +2616,7 @@ def run_full_backtest(
             _dt_mean = float(np.mean(_dt_arr))
             _dt_std = float(np.std(_dt_arr, ddof=1))
             if _dt_std > 0:
-                result.detrended_sharpe = round(_dt_mean / _dt_std * 16.0, 3)
+                result.detrended_sharpe = round(_dt_mean / _dt_std * np.sqrt(252), 3)
 
         # Trimmed Sharpe (5% winsorized)
         result.trimmed_sharpe = round(_trimmed_sharpe(ret_arr, trim_pct=0.05), 3)
@@ -2440,10 +2723,10 @@ def run_full_backtest(
                     _boot_idx.extend([(_st + j) % _n_ret for j in range(_block_len)])
                 _boot_idx = _boot_idx[:_n_ret]
                 _b = ret_arr[_boot_idx]
-                _bm = float(np.mean(_b))
+                _bm = float(np.mean(_b)) - _rf_daily  # excess, consistent with Sharpe
                 _bs = float(np.std(_b, ddof=1))
                 if _bs > 0:
-                    boot_sharpes.append(_bm / _bs * 16.0)
+                    boot_sharpes.append(_bm / _bs * np.sqrt(252))
             if boot_sharpes:
                 result.bootstrap_ci_sharpe = (
                     round(float(np.percentile(boot_sharpes, 5)), 3),
@@ -2460,7 +2743,7 @@ def run_full_backtest(
                 tp_boot_sharpes = []
                 for _bs_val in boot_sharpes:
                     # Subtract turnover drag from annualized Sharpe
-                    tp_boot_sharpes.append(_bs_val - _tp_drag * 16.0)
+                    tp_boot_sharpes.append(_bs_val - _tp_drag * np.sqrt(252))
                 if tp_boot_sharpes:
                     result.turnover_penalized_ci = (
                         round(float(np.percentile(tp_boot_sharpes, 5)), 3),
@@ -2501,6 +2784,15 @@ def run_full_backtest(
         lines.append(f"    {src:20s}  weight={w*100:5.1f}%  hit_rate={rate:5.1f}%")
 
     lines.append("")
+    lines.append(f"  Sharpe/Sortino: excess over rf={_rf_annual:.2%}, x sqrt(252); "
+                 f"years={_cal_years:.2f} (calendar)")
+    if _failed_tickers or _short_syms:
+        lines.append(f"  Failed downloads ({len(_failed_tickers)}): {', '.join(_failed_tickers) or '-'}")
+        lines.append(f"  Dropped short history ({len(_short_syms)}): {', '.join(_short_syms) or '-'}")
+    if market == "IND" and _vix_scaling:
+        lines.append(f"  VIX leverage source: {_vix_source}")
+    if _pit_universe_on and market == "IND" and not _pit_enabled_run:
+        lines.append("  WARNING: no PIT constituents file — survivorship-biased universe")
     lines.append(f"  Transaction cost: {cost_pct*100:.2f}% round-trip")
     lines.append(f"  Regime-adaptive stop: 3.0-5.0σ  |  Inertia: 15%  |  Cooldown: 5d")
     lines.append(f"  Position sizing: Vol-target  |  IDM=dynamic  |  MaxLev={max_leverage:.1f}x")
@@ -2608,6 +2900,8 @@ def run_full_backtest(
         "source_hit_rates": result.source_hit_rates,
         "daily_equity": result.daily_equity,
         "report": result.report,
+        "failed_tickers": list(_failed_tickers),
+        "dropped_short_history": list(_short_syms),
         # Aronson EBTA enrichment
         "detrended_sharpe": result.detrended_sharpe,
         "trimmed_sharpe": result.trimmed_sharpe,

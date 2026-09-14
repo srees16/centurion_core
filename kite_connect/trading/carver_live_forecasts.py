@@ -140,13 +140,18 @@ def _compute_ewmac(
         dpv = daily_price_volatility(close)
         if dpv is None or dpv <= 0:
             continue
+        # daily_price_volatility returns a decimal percentage; ewmac_to_forecast
+        # needs volatility in price units (same units as the crossover).
+        dpv_price = float(close.iloc[-1]) * dpv
+        if not np.isfinite(dpv_price) or dpv_price <= 0:
+            continue
 
         for name, fast, slow in pairs:
             try:
                 fast_ewma = close.ewm(span=fast, adjust=False).mean()
                 slow_ewma = close.ewm(span=slow, adjust=False).mean()
                 raw = float(fast_ewma.iloc[-1] - slow_ewma.iloc[-1])
-                fc = ewmac_to_forecast(raw, dpv, fast, slow)
+                fc = ewmac_to_forecast(raw, dpv_price, fast, slow)
                 if np.isfinite(fc):
                     result[sym][name] = float(fc)
             except Exception:

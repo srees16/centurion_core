@@ -24,6 +24,23 @@ import math
 import time
 import numpy as np
 from typing import Dict, List, Tuple, Optional
+import logging
+import warnings
+
+logger = logging.getLogger(__name__)
+
+_DEPRECATION_MSG = (
+    "optimize_weights_v28.py is DEPRECATED: the PBO/DSR/lag-test/walk-forward outputs of its fast "
+    "simulator are NOT valid (PBO fed shares of one P&L, DSR mixed annual Sharpe "
+    "with daily n, lag test read a 5-day refresh grid). Use nse_engine.validation "
+    "and runners/run_nse_engine.py instead."
+)
+
+
+def _warn_deprecated() -> None:
+    """Emit the deprecation warning (entry points only)."""
+    warnings.warn(_DEPRECATION_MSG, DeprecationWarning, stacklevel=3)
+    logger.warning(_DEPRECATION_MSG)
 
 os.environ["PYTHONUNBUFFERED"] = "1"
 try:
@@ -670,6 +687,7 @@ def _run_bull_leverage_sensitivity(
 
 def run_optimization():
     """Main optimization loop."""
+    _warn_deprecated()
     global _G_FORECASTS, _G_PRICES, _G_VOLS, _G_SIGNALS, _G_CORR, _G_TRAIN_END
     from scipy.optimize import differential_evolution
     from scipy.optimize._differentialevolution import DifferentialEvolutionSolver

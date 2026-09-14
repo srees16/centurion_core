@@ -40,6 +40,14 @@ _MAX_POSITIONS = 10
 _INERTIA_BONUS = 0.20        # 20% forecast bonus for existing positions
 _STOP_COOLDOWN_DAYS = 5      # days to avoid re-entering after stop
 _R22_INFUSION_AMOUNT = 50_000.0
+_MAX_POSITION_WEIGHT = 0.20  # cap single-name notional at 20% of equity (CNC, gross <= 1)
+_VOL_SPAN = 35               # EWMA span for daily return volatility (Carver)
+_MIN_DAILY_VOL = 0.005       # floor to avoid huge notionals on stale/flat series
+
+
+def _paper_mode_from_env() -> bool:
+    """System-wide paper switch: CENTURION_PAPER_TRADE (default true)."""
+    return os.environ.get("CENTURION_PAPER_TRADE", "true").strip().lower() in ("true", "1", "yes")
 
 
 @dataclass
@@ -106,11 +114,20 @@ class DailyRebalancer:
     def __init__(
         self,
         kite=None,
-        paper_mode: bool = True,
+        paper_mode: Optional[bool] = None,
         symbols: Optional[List[str]] = None,
     ):
         self.kite = kite
-        self.paper_mode = paper_mode if kite is None else paper_mode
+        env_paper = _paper_mode_from_env()
+        if paper_mode is None:
+            paper_mode = env_paper
+        elif not paper_mode and env_paper:
+            logger.warning("DailyRebalancer: live requested but CENTURION_PAPER_TRADE=true — forcing paper mode")
+            paper_mode = True
+        if not paper_mode and kite is None:
+            logger.warning("DailyRebalancer: no Kite session — forcing paper mode")
+            paper_mode = True
+        self.paper_mode = paper_mode
         self._symbols = symbols
 
         # Lazy imports to avoid circular deps at module load
@@ -231,7 +248,7 @@ class DailyRebalancer:
                 self._log_paper_trades(targets, exits)
             else:
                 _cb("Executing orders via Kite...")
-                placed, failed = self._execute_orders(targets, exits)
+                placed, failed = self._execute_orders(targets, exits, current_positions)
                 report.orders_placed = placed
                 report.orders_failed = failed
 
@@ -391,16 +408,43 @@ class DailyRebalancer:
         effective_vol = base_vol * vol_scale
         daily_cash_target = portfolio_value * effective_vol / 16.0
 
-        # Equal-weight among selected (simplified Carver)
+        # Equal risk budget among selected (simplified Carver)
         per_position = daily_cash_target / len(selected)
 
         target: Dict[str, float] = {}
         for sym, fc in selected:
-            # Scale by forecast strength: fc/10 is the Carver multiplier
+            # Carver: notional = daily cash risk × (forecast/10) / instrument daily vol
+            daily_vol = self._daily_vol(sym, ohlcv_cache)
+            if daily_vol is None:
+                logger.warning("Rebalance: no volatility for %s — skipped", sym)
+                continue
             fc_scale = min(abs(fc) / 10.0, 2.0)
-            target[sym] = per_position * fc_scale
+            notional = per_position * fc_scale / max(daily_vol, _MIN_DAILY_VOL)
+            target[sym] = min(notional, portfolio_value * _MAX_POSITION_WEIGHT)
+
+        # Long-only CNC: total notional cannot exceed equity
+        total = sum(target.values())
+        if portfolio_value > 0 and total > portfolio_value:
+            scale = portfolio_value / total
+            target = {s: v * scale for s, v in target.items()}
+            logger.info("Rebalance: scaled targets by %.2f to keep gross <= 1", scale)
 
         return target
+
+    @staticmethod
+    def _daily_vol(sym: str, ohlcv_cache: Dict[str, pd.DataFrame]) -> Optional[float]:
+        """EWMA daily return volatility (fraction) from the OHLCV cache."""
+        df = ohlcv_cache.get(sym)
+        if df is None or len(df) < 20 or "Close" not in df:
+            return None
+        close = df["Close"]
+        if hasattr(close, "squeeze"):
+            close = close.squeeze()
+        rets = close.pct_change().dropna()
+        if len(rets) < 10:
+            return None
+        vol = float(rets.ewm(span=_VOL_SPAN).std().iloc[-1])
+        return vol if vol > 0 and np.isfinite(vol) else None
 
     # ── Delta computation ─────────────────────────────────────
 
@@ -452,8 +496,6 @@ class DailyRebalancer:
 
             if delta == 0:
                 action = "HOLD"
-            elif current_qty == 0:
-                action = "BUY"
             elif delta > 0:
                 action = "BUY"
             else:
@@ -536,12 +578,20 @@ class DailyRebalancer:
 
     # ── Order execution ───────────────────────────────────────
 
+    @staticmethod
+    def _held_qty(sym: str, current: Optional[Dict[str, int]]) -> int:
+        if not current:
+            return 0
+        bare = sym.replace(".NS", "").replace(".BO", "")
+        return int(current.get(sym, current.get(bare, current.get(f"{bare}.NS", 0))) or 0)
+
     def _execute_orders(
         self,
         targets: List[TargetPosition],
         exits: List[str],
+        current: Optional[Dict[str, int]] = None,
     ) -> Tuple[int, int]:
-        """Place orders via Kite OrderService."""
+        """Place orders via Kite OrderService (sells first, CNC)."""
         placed = 0
         failed = 0
 
@@ -551,40 +601,36 @@ class DailyRebalancer:
             logger.error("OrderService not available")
             return 0, len(targets) + len(exits)
 
-        # Exits first
-        for sym in exits:
+        def _send(bare, side, qty, is_exit):
+            nonlocal placed, failed
             try:
-                bare = sym.replace(".NS", "").replace(".BO", "")
-                place_order(
-                    self.kite, symbol=bare,
-                    qty=0,  # close position
-                    side="SELL",
-                    product="CNC",
-                    order_type="MARKET",
+                res = place_order(
+                    self.kite, symbol=bare, exchange="NSE",
+                    transaction_type=side, quantity=int(qty),
+                    order_type="MARKET", product="CNC",
+                    is_exit=is_exit,
                 )
-                placed += 1
             except Exception as e:
-                logger.error("Exit order failed for %s: %s", sym, e)
+                res = {"success": False, "error": str(e)}
+            if res.get("success"):
+                placed += 1
+            else:
                 failed += 1
+                logger.error("%s order failed for %s x %d: %s", side, bare, qty, res.get("error"))
 
-        # Entries and rebalances
-        for tp in targets:
-            if tp.delta_qty == 0:
+        # Exits first (full held quantity, reduce-only)
+        for sym in exits:
+            qty = self._held_qty(sym, current)
+            if qty <= 0:
+                logger.warning("Exit skipped for %s: no held quantity", sym)
                 continue
-            try:
-                bare = tp.symbol.replace(".NS", "").replace(".BO", "")
-                side = "BUY" if tp.delta_qty > 0 else "SELL"
-                place_order(
-                    self.kite, symbol=bare,
-                    qty=abs(tp.delta_qty),
-                    side=side,
-                    product="CNC",
-                    order_type="MARKET",
-                )
-                placed += 1
-            except Exception as e:
-                logger.error("Order failed for %s: %s", tp.symbol, e)
-                failed += 1
+            _send(sym.replace(".NS", "").replace(".BO", ""), "SELL", qty, True)
+
+        # Reductions before additions
+        ordered = sorted((t for t in targets if t.delta_qty != 0), key=lambda t: t.delta_qty)
+        for tp in ordered:
+            side = "BUY" if tp.delta_qty > 0 else "SELL"
+            _send(tp.symbol.replace(".NS", "").replace(".BO", ""), side, abs(tp.delta_qty), side == "SELL")
 
         return placed, failed
 
@@ -597,14 +643,16 @@ class DailyRebalancer:
         try:
             from kite_connect.trading.order_service import place_order
             for sym in symbols:
-                qty = current.get(sym, 0)
+                qty = self._held_qty(sym, current)
                 if qty > 0:
                     bare = sym.replace(".NS", "").replace(".BO", "")
-                    place_order(
-                        self.kite, symbol=bare,
-                        qty=qty, side="SELL",
-                        product="CNC", order_type="MARKET",
+                    res = place_order(
+                        self.kite, symbol=bare, exchange="NSE",
+                        transaction_type="SELL", quantity=qty,
+                        order_type="MARKET", product="CNC", is_exit=True,
                     )
+                    if not res.get("success"):
+                        logger.error("DD HALT exit failed for %s: %s", bare, res.get("error"))
         except Exception as e:
             logger.error("DD HALT exit failed: %s", e)
 

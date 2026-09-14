@@ -2,7 +2,8 @@
 Tests for the Aronson EBTA statistical validation module.
 
 Covers:
-  - detrend_returns
+  - detrend_returns / demean_returns (benchmark detrending, deprecation)
+  - compute_alpha_beta date alignment
   - compute_signal_tstat
   - benjamini_hochberg
   - whites_reality_check
@@ -28,9 +29,11 @@ from services.aronson_validator import (
     SignalValidation,
     ValidationSummary,
     benjamini_hochberg,
+    compute_alpha_beta,
     compute_confidence_score,
     compute_signal_tstat,
     count_signal_fires,
+    demean_returns,
     detrend_returns,
     estimate_data_mining_bias,
     trimmed_sharpe,
@@ -46,21 +49,68 @@ class TestDetrendReturns:
     def test_short_series_subtracts_mean(self):
         """With <30 data points, just subtract global mean."""
         rets = pd.Series([0.01, -0.01, 0.02, -0.02, 0.01])
-        dt = detrend_returns(rets)
+        with pytest.warns(DeprecationWarning):
+            dt = detrend_returns(rets)
         assert abs(dt.mean()) < 1e-10
 
     def test_longer_series_zero_centres(self):
         """With 252+ points, rolling mean should roughly zero-centre."""
         np.random.seed(42)
         rets = pd.Series(np.random.normal(0.001, 0.02, 500))
-        dt = detrend_returns(rets, window=252)
+        with pytest.warns(DeprecationWarning):
+            dt = detrend_returns(rets, window=252)
         # The detrended series should have lower mean than original
         assert abs(dt.mean()) < abs(rets.mean()) + 0.01
 
     def test_preserves_length(self):
         rets = pd.Series(np.random.normal(0, 0.01, 300))
-        dt = detrend_returns(rets)
+        dt = demean_returns(rets)
         assert len(dt) == len(rets)
+
+    def test_single_argument_form_equals_demean(self):
+        rets = pd.Series(np.random.normal(0, 0.01, 300))
+        with pytest.warns(DeprecationWarning):
+            dt = detrend_returns(rets)
+        pd.testing.assert_series_equal(dt, demean_returns(rets))
+
+    def test_benchmark_detrending_subtracts_drift_times_exposure(self):
+        """Aronson: remove average benchmark return x exposure, not own mean."""
+        dates = pd.bdate_range("2020-01-01", periods=400)
+        rng = np.random.default_rng(0)
+        bench = pd.Series(rng.normal(0.001, 0.01, 400), index=dates)
+        exposure = pd.Series(np.where(np.arange(400) % 2 == 0, 1.0, 0.0), index=dates)
+        strat = bench * exposure + 0.0005
+        dt = detrend_returns(strat, benchmark_returns=bench, exposure=exposure)
+        expected = strat - bench.mean() * exposure
+        pd.testing.assert_series_equal(dt, expected)
+        # unlike own-mean demeaning, detrended returns keep a non-zero mean
+        assert abs(dt.mean()) > 1e-4
+
+    def test_benchmark_detrending_aligns_by_date(self):
+        dates = pd.bdate_range("2020-01-01", periods=300)
+        bench = pd.Series(np.linspace(-0.01, 0.03, 300), index=dates)
+        strat = pd.Series(0.001, index=dates[200:])
+        dt = detrend_returns(strat, benchmark_returns=bench)
+        assert np.allclose(strat - dt, bench.iloc[200:].mean())
+
+    def test_benchmark_length_mismatch_raises_for_arrays(self):
+        with pytest.raises(ValueError):
+            detrend_returns(pd.Series(np.zeros(100)), benchmark_returns=np.zeros(90))
+
+
+class TestComputeAlphaBeta:
+
+    def test_aligns_series_by_date(self):
+        dates = pd.bdate_range("2019-01-01", periods=600)
+        rng = np.random.default_rng(1)
+        bench = pd.Series(rng.normal(0.0005, 0.01, 600), index=dates)
+        port = (0.7 * bench + rng.normal(0, 0.001, 600)).iloc[150:]
+        out = compute_alpha_beta(port, bench)
+        assert abs(out["beta"] - 0.7) < 0.02
+
+    def test_array_length_mismatch_raises(self):
+        with pytest.raises(ValueError):
+            compute_alpha_beta(np.zeros(100), np.zeros(120))
 
 
 # ── compute_signal_tstat ──────────────────────────────────────

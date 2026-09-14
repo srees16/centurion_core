@@ -207,11 +207,12 @@ class Config:
 
     # Multi-asset diversification (NSE-listed ETFs/futures)
     MULTI_ASSET_ENABLED: bool = True
+    # Only genuine diversifiers.  Removed: CPSEETF (an equity basket, not a
+    # diversifier), GOLDIETF (short history, duplicates GOLDBEES) and
+    # LIQUIDBEES (cash — idle-cash yield is modelled separately).
     MULTI_ASSET_TICKERS_IND: List[str] = [
-        "GOLDBEES.NS",       # Gold ETF — uncorrelated with equity
-        "GOLDIETF.NS",       # Gold ETF alternate
-        "CPSEETF.NS",        # CPSE ETF — govt enterprises
-        "LIQUIDBEES.NS",     # Liquid fund — near-cash parking
+        "GOLDBEES.NS",       # Gold ETF — low correlation with equity
+        "SILVERBEES.NS",     # Silver ETF — low correlation with equity
     ]
     MULTI_ASSET_MAX_ALLOCATION: float = 0.15  # Max 15% of portfolio in non-equity
 
@@ -224,6 +225,11 @@ class Config:
     DISPERSION_WEIGHT: float = 0.02          # C5: starter weight
     GOLD_EQUITY_ROTATION_WEIGHT: float = 0.02  # C5: starter weight
     CRYPTO_CORRELATION_WEIGHT: float = 0.01  # C5: smallest — most speculative
+
+    # Regime-Sharpe² weight tilt in forecast_combiner.  OFF: the
+    # REGIME_SHARPE_SCORES table was estimated in-sample on the backtest
+    # period (post R21A backtest), so blending it in inflates backtests.
+    REGIME_SHARPE_BLEND_ENABLED: bool = False
 
     # =================================================================
     # Godmode Gap Fixes (April 2026)
@@ -339,6 +345,17 @@ class Config:
         """
         if horizon != "swing":
             return 60
+        # Accept the equity-curve regime labels used by the backtesters too.
+        _ALIASES = {
+            "strong_bull": "trending_bull",
+            "bull":        "trending_bull",
+            "bear":        "trending_bear",
+            "severe_bear": "trending_bear",
+            "neutral":     "range_bound",
+            "sideways":    "range_bound",
+        }
+        _key = (regime or "").lower().strip()
+        _key = _ALIASES.get(_key, _key)
         _HOLD = {
             "trending_bull":    12,   # P5: was 18 → 12 (BULL 10D Sharpe=0.73, lock profits)
             "trending_bear":     5,   # P5: was 7 → 5 (BEAR signals broken, rapid exit)
@@ -346,7 +363,7 @@ class Config:
             "high_volatility":   5,   # P5: was 5, unchanged (chaos = fast exits)
             "crisis":            3,   # Unchanged — emergency exits
         }
-        return _HOLD.get((regime or "").lower().strip(), 15)
+        return _HOLD.get(_key, 15)
 
     # =================================================================
     # HMM Regime Detection (Gap B1)

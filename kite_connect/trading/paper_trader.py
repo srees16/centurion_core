@@ -42,6 +42,35 @@ logger = logging.getLogger(__name__)
 _IST = timezone(timedelta(hours=5, minutes=30))
 _DB_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "paper_trades.sqlite3"
 
+# Fallback statutory cost model (used only if nse_engine.costs is unavailable):
+# per-side STT/exchange/SEBI/stamp/GST ≈ 11 bp, plus a DP charge per sell.
+_FALLBACK_BUY_COST_BPS = 11.0
+_FALLBACK_SELL_COST_BPS = 11.0
+_FALLBACK_DP_CHARGE_INR = 15.93
+
+
+def statutory_cost_inr(side: str, value_inr: float, as_of=None) -> float:
+    """Per-side statutory cost for a CNC equity trade of ``value_inr``.
+
+    Uses ``nse_engine.costs.statutory_cost`` (historical schedule, DP charge on
+    sells) when importable, else 11 bp per side + DP charge on sells.
+    """
+    value_inr = abs(float(value_inr or 0.0))
+    if value_inr <= 0:
+        return 0.0
+    side = str(side).upper()
+    try:
+        from nse_engine.costs import statutory_cost  # (value_inr, side, date, dp_charge_inr)
+        when = pd.Timestamp(as_of) if as_of is not None else pd.Timestamp(datetime.now(_IST).date())
+        return round(float(statutory_cost(value_inr, side, when)), 2)
+    except Exception:
+        pass
+    bps = _FALLBACK_BUY_COST_BPS if side == "BUY" else _FALLBACK_SELL_COST_BPS
+    cost = value_inr * bps / 10_000.0
+    if side == "SELL":
+        cost += _FALLBACK_DP_CHARGE_INR
+    return round(cost, 2)
+
 
 # ═══════════════════════════════════════════════════════════════
 # Data classes
@@ -119,11 +148,14 @@ class PaperTrader:
         kite=None,
         initial_capital: float = 100_000.0,
         slippage_bps: Optional[float] = None,
+        cloud=None,
     ):
         self.kite = kite
         self.initial_capital = initial_capital
         self.cash = initial_capital
         self._positions: List[PaperPosition] = []
+        self._price_overrides: Dict[str, float] = {}  # e.g. latest daily close (mark-to-market)
+        self.restored_from: str = "new"               # new | local | cloud
 
         if slippage_bps is not None:
             self._slippage_bps = slippage_bps
@@ -151,7 +183,7 @@ class PaperTrader:
             except Exception:
                 pass
 
-        self._cloud = None  # lazy-init cloud sync
+        self._cloud = cloud  # injected store, else lazy-init cloud sync
         self._init_db()
         self._load_state()
 
@@ -239,7 +271,13 @@ class PaperTrader:
         conn.close()
 
     def _load_state(self):
-        """Restore positions and cash from DB."""
+        """Restore positions and cash from local SQLite, else from the cloud.
+
+        GitHub Actions runs start on a fresh disk, so when local SQLite has
+        no state and ``CENTURION_DATABASE_URL`` is set (or a cloud store was
+        injected) the book is restored from Neon: cash, initial capital,
+        open positions (with stops and entry dates) and equity snapshots.
+        """
         conn = sqlite3.connect(str(_DB_PATH))
         conn.row_factory = sqlite3.Row
 
@@ -247,8 +285,14 @@ class PaperTrader:
         row = conn.execute(
             "SELECT value FROM paper_state WHERE key='cash'"
         ).fetchone()
+        has_local = row is not None
         if row:
             self.cash = float(row["value"])
+        cap_row = conn.execute(
+            "SELECT value FROM paper_state WHERE key='initial_capital'"
+        ).fetchone()
+        if cap_row:
+            self.initial_capital = float(cap_row["value"])
 
         # Open positions
         rows = conn.execute(
@@ -260,13 +304,97 @@ class PaperTrader:
                 quantity=r["quantity"], entry_price=r["entry_price"],
                 stop_loss=r["stop_loss"], target_price=r["target_price"],
                 opened_at=r["opened_at"], is_open=True,
+                peak_price=r["entry_price"],
             ))
-
+        has_local = has_local or bool(rows)
         conn.close()
+
+        if has_local:
+            self.restored_from = "local"
+        elif self._cloud is not None or os.environ.get("CENTURION_DATABASE_URL"):
+            try:
+                if self._restore_from_cloud():
+                    self.restored_from = "cloud"
+                else:
+                    # Very first run: persist the starting book (sets the cloud epoch)
+                    self._save_cash()
+            except Exception as exc:
+                # Never let a fresh local book overwrite an unreadable cloud book
+                logger.error("Paper cloud restore FAILED — cloud sync disabled for this run: %s", exc)
+                self._cloud = False
+                self.restored_from = "cloud_restore_failed"
+
         logger.info(
-            "Paper trader loaded: cash=%.2f, %d open positions",
-            self.cash, len(self._positions),
+            "Paper trader loaded (%s): cash=%.2f, initial=%.0f, %d open positions",
+            self.restored_from, self.cash, self.initial_capital, len(self._positions),
         )
+
+    def _restore_from_cloud(self) -> bool:
+        """Rebuild local SQLite state from the cloud store. Returns True if restored."""
+        cloud = self._get_cloud()
+        if not cloud:
+            raise RuntimeError("cloud store configured but unavailable")
+        from database.paper_cloud import restore_paper_state
+        state = restore_paper_state(cloud)
+        if not state:
+            return False
+        if state.get("initial_capital"):
+            self.initial_capital = float(state["initial_capital"])
+        if state.get("cash") is not None:
+            self.cash = float(state["cash"])
+        conn = sqlite3.connect(str(_DB_PATH))
+        try:
+            for p in state.get("positions", []):
+                pos = PaperPosition(
+                    symbol=p["symbol"], side=p.get("side", "BUY"),
+                    quantity=int(p["quantity"]), entry_price=float(p["entry_price"]),
+                    stop_loss=float(p.get("stop_loss") or 0.0),
+                    target_price=float(p.get("target_price") or 0.0),
+                    opened_at=str(p["opened_at"]), is_open=True,
+                    peak_price=float(p.get("peak_price") or p["entry_price"]),
+                )
+                self._positions.append(pos)
+                conn.execute("""
+                    INSERT INTO paper_positions
+                    (symbol, side, quantity, entry_price, stop_loss, target_price,
+                     opened_at, closed_at, exit_price, exit_reason, pnl, pnl_pct, is_open)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, '', 0, '', 0, 0, 1)
+                """, (pos.symbol, pos.side, pos.quantity, pos.entry_price,
+                      pos.stop_loss, pos.target_price, pos.opened_at))
+            for s in state.get("closed_positions", []):
+                conn.execute("""
+                    INSERT INTO paper_positions
+                    (symbol, side, quantity, entry_price, stop_loss, target_price,
+                     opened_at, closed_at, exit_price, exit_reason, pnl, pnl_pct, is_open)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                """, (s["symbol"], s.get("side", "BUY"), int(s["quantity"]), float(s["entry_price"]),
+                      float(s.get("stop_loss") or 0), float(s.get("target_price") or 0),
+                      str(s["opened_at"]), str(s.get("closed_at") or ""),
+                      float(s.get("exit_price") or 0), str(s.get("exit_reason") or ""),
+                      float(s.get("pnl") or 0), float(s.get("pnl_pct") or 0)))
+            for snap in state.get("snapshots", []):
+                conn.execute("""
+                    INSERT OR REPLACE INTO daily_snapshots
+                    (date, equity, cash, open_positions, closed_today, day_pnl,
+                     cumulative_pnl, cumulative_pnl_pct, max_drawdown_pct,
+                     signals_generated, signals_traded, snapshot_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (snap["date"], float(snap["equity"]), float(snap.get("cash") or 0),
+                      int(snap.get("open_positions") or 0), int(snap.get("closed_today") or 0),
+                      float(snap.get("day_pnl") or 0), float(snap.get("cumulative_pnl") or 0),
+                      float(snap.get("cumulative_pnl_pct") or 0), float(snap.get("max_drawdown_pct") or 0),
+                      int(snap.get("signals_generated") or 0), int(snap.get("signals_traded") or 0),
+                      snap.get("snapshot_json") or "{}"))
+            conn.execute("INSERT OR REPLACE INTO paper_state (key, value) VALUES ('cash', ?)",
+                         (str(self.cash),))
+            conn.execute("INSERT OR REPLACE INTO paper_state (key, value) VALUES ('initial_capital', ?)",
+                         (str(self.initial_capital),))
+            conn.commit()
+        finally:
+            conn.close()
+        logger.info("Paper state restored from cloud: cash=%.2f, %d open positions, %d snapshots",
+                    self.cash, len(self._positions), len(state.get("snapshots", [])))
+        return True
 
     def _save_cash(self):
         conn = sqlite3.connect(str(_DB_PATH))
@@ -274,8 +402,15 @@ class PaperTrader:
             "INSERT OR REPLACE INTO paper_state (key, value) VALUES ('cash', ?)",
             (str(self.cash),),
         )
+        conn.execute(
+            "INSERT OR REPLACE INTO paper_state (key, value) VALUES ('initial_capital', ?)",
+            (str(self.initial_capital),),
+        )
         conn.commit()
         conn.close()
+        cloud = self._get_cloud()
+        if cloud and hasattr(cloud, "sync_state"):
+            cloud.sync_state({"cash": self.cash, "initial_capital": self.initial_capital})
 
     def _get_cloud(self):
         """Lazy-init cloud sync (best-effort, never blocks)."""
@@ -328,7 +463,9 @@ class PaperTrader:
     # ── Price helpers ──────────────────────────────────────────
 
     def _get_ltp(self, symbol: str) -> Optional[float]:
-        """Get last traded price from Kite or yfinance."""
+        """Get last traded price from overrides, Kite or yfinance."""
+        if symbol in self._price_overrides:
+            return float(self._price_overrides[symbol])
         if self.kite:
             try:
                 key = f"NSE:{symbol}"
@@ -390,14 +527,28 @@ class PaperTrader:
 
     # ── Execution ──────────────────────────────────────────────
 
-    def execute_plans(self, plans: list) -> List[dict]:
+    def execute_plans(self, plans: list, skip_held: bool = False) -> List[dict]:
         """Simulate order fills for a list of TradePlan objects.
+
+        Long-only CNC: only BUY plans open positions (SELL plans are
+        rejected — exits go through :meth:`close_position`).  ``skip_held``
+        ignores plans for symbols already held (repeated intraday runs).
+        Statutory buy costs are charged to cash.
 
         Returns a list of result dicts compatible with OrderResult.
         """
         results = []
+        held = {p.symbol for p in self._positions if p.is_open}
         for plan in plans:
             symbol = plan.symbol
+            if plan.side != "BUY":
+                results.append({"symbol": symbol, "success": False,
+                                "error": "Paper CNC is long-only: SELL plans are not opened"})
+                continue
+            if skip_held and symbol in held:
+                results.append({"symbol": symbol, "success": False,
+                                "error": "Already held (skip_held)"})
+                continue
             ltp = self._get_ltp(symbol)
             if ltp is None:
                 results.append({
@@ -407,7 +558,8 @@ class PaperTrader:
                 continue
 
             fill_price = self._apply_slippage(ltp, plan.side, order_qty=plan.quantity, symbol=symbol)
-            cost = fill_price * plan.quantity
+            charges = statutory_cost_inr("BUY", fill_price * plan.quantity)
+            cost = fill_price * plan.quantity + charges
 
             if plan.side == "BUY":
                 if cost > self.cash:
@@ -429,6 +581,7 @@ class PaperTrader:
                 peak_price=fill_price,  # G5: initialize peak at entry
             )
             self._positions.append(pos)
+            held.add(symbol)
             self._save_position(pos)
             self._save_cash()
 
@@ -559,41 +712,222 @@ class PaperTrader:
             closed = False
             reason = ""
 
-            if ltp <= pos.stop_loss:
+            if pos.stop_loss > 0 and ltp <= pos.stop_loss:
                 closed = True
                 reason = "TRAILING_SL" if pos.stop_loss > pos.entry_price * 0.97 else "SL"
-                exit_price = self._apply_slippage(pos.stop_loss, "SELL", symbol=pos.symbol)
-            elif ltp >= pos.target_price:
+                # GTT semantics: fill at the first observed price if it gapped through
+                exit_price = self._apply_slippage(min(ltp, pos.stop_loss), "SELL", symbol=pos.symbol)
+            elif pos.target_price > 0 and ltp >= pos.target_price:
                 closed = True
                 reason = "TP"
                 exit_price = self._apply_slippage(pos.target_price, "SELL", symbol=pos.symbol)
 
             if closed:
-                pos.is_open = False
-                pos.exit_price = exit_price
-                pos.exit_reason = reason
-                pos.closed_at = datetime.now(_IST).isoformat()
-                pos.pnl = (exit_price - pos.entry_price) * pos.quantity
-                pos.pnl_pct = (exit_price / pos.entry_price - 1) * 100
-                self.cash += exit_price * pos.quantity
-                self._close_position_db(pos)
-                self._save_cash()
-
-                logger.info(
-                    "PAPER CLOSE [%s]: %s @ %.2f → %.2f | P&L=%.2f (%.1f%%)",
-                    reason, pos.symbol, pos.entry_price, exit_price,
-                    pos.pnl, pos.pnl_pct,
-                )
-                events.append({
-                    "type": f"PAPER_{reason}",
-                    "symbol": pos.symbol,
-                    "entry": pos.entry_price,
-                    "exit": exit_price,
-                    "pnl": round(pos.pnl, 2),
-                    "pnl_pct": round(pos.pnl_pct, 2),
-                })
+                events.append(self._book_close(pos, exit_price, reason))
 
         return events
+
+    # ── Exits, GTT simulation and engine helpers ───────────────
+
+    def _book_close(self, pos: PaperPosition, exit_price: float, reason: str,
+                    when: Optional[str] = None) -> dict:
+        """Close ``pos`` at ``exit_price`` net of statutory costs (both sides)."""
+        sell_value = exit_price * pos.quantity
+        sell_cost = statutory_cost_inr("SELL", sell_value)
+        buy_cost = statutory_cost_inr("BUY", pos.entry_price * pos.quantity)
+        pos.is_open = False
+        pos.exit_price = exit_price
+        pos.exit_reason = reason
+        pos.closed_at = when or datetime.now(_IST).isoformat()
+        pos.pnl = (exit_price - pos.entry_price) * pos.quantity - sell_cost - buy_cost
+        basis = pos.entry_price * pos.quantity
+        pos.pnl_pct = (pos.pnl / basis * 100) if basis > 0 else 0.0
+        self.cash += sell_value - sell_cost
+        self._close_position_db(pos)
+        self._save_cash()
+        logger.info(
+            "PAPER CLOSE [%s]: %s @ %.2f → %.2f | P&L=%.2f (%.1f%%) costs=%.2f",
+            reason, pos.symbol, pos.entry_price, exit_price, pos.pnl, pos.pnl_pct,
+            sell_cost + buy_cost,
+        )
+        return {
+            "type": f"PAPER_{reason}",
+            "symbol": pos.symbol,
+            "entry": pos.entry_price,
+            "exit": exit_price,
+            "quantity": pos.quantity,
+            "pnl": round(pos.pnl, 2),
+            "pnl_pct": round(pos.pnl_pct, 2),
+        }
+
+    def simulate_gtt_stops(self, bars: Dict[str, dict]) -> List[dict]:
+        """Simulate GTT stop fills from daily bars.
+
+        ``bars``: {symbol: {"date", "open", "low", "close"}}.  A stop
+        triggers when ``low <= stop``; the fill is ``min(open, stop)`` (a gap
+        through the stop fills at the open).  Bars dated on or before the
+        position's entry date are ignored (the entry happened intraday).
+        The close is recorded as a price override for mark-to-market.
+        """
+        events = []
+        for pos in self._positions:
+            if not pos.is_open:
+                continue
+            bar = bars.get(pos.symbol)
+            if not bar:
+                continue
+            if bar.get("close"):
+                self._price_overrides[pos.symbol] = float(bar["close"])
+            try:
+                bar_date = pd.Timestamp(bar.get("date")).date() if bar.get("date") is not None else None
+                opened = datetime.fromisoformat(pos.opened_at.replace("Z", "+00:00")).date()
+            except Exception:
+                bar_date, opened = None, None
+            if bar_date is not None and opened is not None and bar_date <= opened:
+                continue
+            low = float(bar.get("low") or bar.get("close") or 0.0)
+            if pos.stop_loss <= 0 or low <= 0 or low > pos.stop_loss:
+                continue
+            open_px = float(bar.get("open") or pos.stop_loss)
+            raw_fill = min(open_px, pos.stop_loss)
+            exit_price = self._apply_slippage(raw_fill, "SELL", symbol=pos.symbol)
+            when = f"{bar_date.isoformat()}T09:15:00+05:30" if bar_date else None
+            reason = "GTT_SL_GAP" if open_px <= pos.stop_loss else "GTT_SL"
+            events.append(self._book_close(pos, exit_price, reason, when=when))
+        return events
+
+    def holdings(self) -> Dict[str, dict]:
+        """Aggregate open positions per symbol (quantity, avg price, stop, entry date)."""
+        out: Dict[str, dict] = {}
+        for p in self._positions:
+            if not p.is_open:
+                continue
+            h = out.setdefault(p.symbol, {"quantity": 0, "cost": 0.0, "stop_price": None,
+                                          "entry_date": p.opened_at})
+            h["quantity"] += p.quantity
+            h["cost"] += p.entry_price * p.quantity
+            if p.stop_loss:
+                h["stop_price"] = max(h["stop_price"] or 0.0, p.stop_loss)
+            h["entry_date"] = min(h["entry_date"], p.opened_at)
+        for h in out.values():
+            h["avg_price"] = h["cost"] / h["quantity"] if h["quantity"] else 0.0
+        return out
+
+    def buy(self, symbol: str, quantity: int, price: Optional[float] = None,
+            stop_loss: float = 0.0, target_price: float = 0.0, reason: str = "") -> dict:
+        """Open a CNC long of ``quantity`` shares (cash + statutory costs checked)."""
+        quantity = int(quantity)
+        if quantity <= 0:
+            return {"symbol": symbol, "success": False, "error": "quantity must be positive"}
+        ref = price if price is not None else self._get_ltp(symbol)
+        if not ref:
+            return {"symbol": symbol, "success": False, "error": "No price available"}
+        fill = self._apply_slippage(float(ref), "BUY", order_qty=quantity, symbol=symbol)
+        charges = statutory_cost_inr("BUY", fill * quantity)
+        total = fill * quantity + charges
+        if total > self.cash + 1e-6:
+            return {"symbol": symbol, "success": False,
+                    "error": f"Insufficient capital: need {total:.0f}, have {self.cash:.0f}"}
+        self.cash -= total
+        pos = PaperPosition(symbol=symbol, side="BUY", quantity=quantity, entry_price=fill,
+                            stop_loss=float(stop_loss or 0.0), target_price=float(target_price or 0.0),
+                            opened_at=datetime.now(_IST).isoformat(), peak_price=fill)
+        self._positions.append(pos)
+        self._save_position(pos)
+        self._save_cash()
+        logger.info("PAPER BUY %s x %d @ %.2f (costs %.2f) %s", symbol, quantity, fill, charges, reason)
+        return {"symbol": symbol, "side": "BUY", "success": True, "fill_price": fill,
+                "quantity": quantity, "costs": charges, "reason": reason}
+
+    def close_position(self, symbol: str, quantity: Optional[int] = None,
+                       price: Optional[float] = None, reason: str = "EXIT") -> dict:
+        """Sell ``quantity`` (default: all) of ``symbol``, oldest lots first.
+
+        A partial lot sale shrinks the open lot in place and books the sold
+        shares as a separate closed row (opened_at = time of the trim).
+        """
+        lots = sorted((p for p in self._positions if p.is_open and p.symbol == symbol),
+                      key=lambda p: p.opened_at)
+        held = sum(p.quantity for p in lots)
+        if held <= 0:
+            return {"symbol": symbol, "success": False, "error": "no open position"}
+        remaining = held if quantity is None else min(int(quantity), held)
+        ref = price if price is not None else self._get_ltp(symbol)
+        if not ref:
+            return {"symbol": symbol, "success": False, "error": "No price available"}
+        exit_price = self._apply_slippage(float(ref), "SELL", order_qty=remaining, symbol=symbol)
+        events = []
+        sold = 0
+        for lot in lots:
+            if remaining <= 0:
+                break
+            if lot.quantity <= remaining:
+                remaining -= lot.quantity
+                sold += lot.quantity
+                events.append(self._book_close(lot, exit_price, reason))
+                continue
+            # Partial: shrink the open lot, book the trimmed shares separately
+            trim = PaperPosition(symbol=symbol, side=lot.side, quantity=remaining,
+                                 entry_price=lot.entry_price, stop_loss=lot.stop_loss,
+                                 target_price=lot.target_price,
+                                 opened_at=datetime.now(_IST).isoformat(), peak_price=lot.peak_price)
+            lot.quantity -= remaining
+            self._update_quantity_db(lot)
+            self._save_position(trim)
+            self._positions.append(trim)
+            sold += remaining
+            events.append(self._book_close(trim, exit_price, reason))
+            remaining = 0
+        return {"symbol": symbol, "side": "SELL", "success": True, "quantity": sold,
+                "fill_price": exit_price, "events": events, "reason": reason}
+
+    def recent_stop_exits(self, days: int = 30, as_of=None) -> Dict[str, pd.Timestamp]:
+        """{symbol: date of its latest stop exit} within ``days`` (engine cooldown)."""
+        end = pd.Timestamp(as_of) if as_of is not None else pd.Timestamp(datetime.now(_IST).date())
+        cutoff = (end - pd.Timedelta(days=days)).date().isoformat()
+        out: Dict[str, pd.Timestamp] = {}
+        conn = sqlite3.connect(str(_DB_PATH))
+        try:
+            rows = conn.execute(
+                "SELECT symbol, closed_at FROM paper_positions WHERE is_open=0 AND closed_at >= ? "
+                "AND (exit_reason LIKE '%SL%' OR exit_reason LIKE 'EXIT:STOP%')",
+                (cutoff,),
+            ).fetchall()
+        finally:
+            conn.close()
+        for sym, closed in rows:
+            try:
+                ts = pd.Timestamp(str(closed)[:10])
+            except Exception:
+                continue
+            if sym not in out or ts > out[sym]:
+                out[sym] = ts
+        return out
+
+    def set_stop(self, symbol: str, trigger: float) -> int:
+        """Set the (GTT-like) stop for every open lot of ``symbol``. Returns lots updated."""
+        n = 0
+        for p in self._positions:
+            if p.is_open and p.symbol == symbol and trigger and trigger > 0:
+                p.stop_loss = round(float(trigger), 2)
+                self._update_stop_db(p)
+                n += 1
+        return n
+
+    def _update_quantity_db(self, pos: PaperPosition) -> None:
+        try:
+            conn = sqlite3.connect(str(_DB_PATH))
+            conn.execute(
+                "UPDATE paper_positions SET quantity=? WHERE symbol=? AND is_open=1 AND opened_at=?",
+                (pos.quantity, pos.symbol, pos.opened_at),
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+        cloud = self._get_cloud()
+        if cloud:
+            cloud.sync_position(pos.to_dict())
 
     # ── Dashboard ──────────────────────────────────────────────
 
@@ -788,152 +1122,125 @@ class PaperTrader:
         if cloud:
             cloud.sync_snapshot(snapshot)
 
-        # ── Distribution shift detection (best-effort) ────────
+        # ── Distribution shift: live vs backtest (runs once ≥30 live returns) ──
         try:
-            self._run_distribution_shift(conn=None)
+            shift = self._run_distribution_shift(conn=None)
+            if shift:
+                snapshot["distribution_shift"] = {
+                    k: shift.get(k) for k in (
+                        "verdict", "calibrated_verdict", "effective_verdict", "wasserstein",
+                        "kl_divergence", "sinkhorn", "p_value_wasserstein", "p_value_kl",
+                        "n_live", "reference_mode", "drift_onset",
+                    )
+                }
         except Exception as exc:
-            logger.debug("Distribution shift check failed (non-fatal): %s", exc)
+            logger.warning("Distribution shift check failed (non-fatal): %s", exc)
 
         return snapshot
 
-    def _run_distribution_shift(self, conn=None) -> Optional[dict]:
-        """Compare live daily returns against backtest returns if ≥30 days exist.
+    def _live_daily_returns(self, conn) -> pd.Series:
+        """Dated daily returns of the paper book from ``daily_snapshots``."""
+        rows = conn.execute(
+            "SELECT date, equity FROM daily_snapshots ORDER BY date"
+        ).fetchall()
+        if len(rows) < 2:
+            return pd.Series(dtype="float64")
+        equity = pd.Series(
+            [float(r["equity"]) for r in rows],
+            index=pd.DatetimeIndex(pd.to_datetime([r["date"] for r in rows])),
+        )
+        equity = equity[~equity.index.duplicated(keep="last")]
+        return equity.pct_change().dropna()
 
-        On regime_break: reduces position size multiplier to 0.5 and sends
-        a notification alert. On stable: restores full sizing.
+    def _run_distribution_shift(self, conn=None, min_live_days: int = 30) -> Optional[dict]:
+        """Compare live daily returns with the backtest once ``min_live_days`` exist.
+
+        The backtest reference is chosen by
+        ``services.distribution_shift.load_backtest_reference``: backtest returns
+        for the same dates as the live record when available (e.g.
+        data/shift_reference_returns.csv from ``run_nse_engine shift-reference``
+        or ``CENTURION_SHIFT_REFERENCE_RUN``), otherwise recent backtest history.
+
+        Writes the full report to ``distribution_shift_latest.json`` and a
+        state file with a suggested position-size multiplier (1.0 stable,
+        0.75 drifting, 0.5 regime_break) based on the more severe of the
+        fixed-threshold and calibrated verdicts; sends an alert on regime_break.
         """
-        import pickle
-        import numpy as np
+        from services.distribution_shift import compare_live_to_backtest
 
         _close_conn = False
         if conn is None:
             conn = sqlite3.connect(str(_DB_PATH))
             conn.row_factory = sqlite3.Row
             _close_conn = True
-
         try:
-            rows = conn.execute(
-                "SELECT date, equity FROM daily_snapshots ORDER BY date"
-            ).fetchall()
-
-            if len(rows) < 31:  # need ≥30 returns (31 equity points)
-                return None
-
-            equities = np.array([r["equity"] for r in rows], dtype=np.float64)
-            live_returns = np.diff(equities) / equities[:-1]
-
-            # Load backtest returns from optimization results
-            bt_returns = None
-            candidates = [
-                _DB_PATH.parent / "r21a_optimization_results.pkl",
-                _DB_PATH.parent / "r21a_oos_evaluation.pkl",
-            ]
-            for path in candidates:
-                if path.exists():
-                    with open(path, "rb") as f:
-                        data = pickle.load(f)
-                    # Look for daily returns in test or full results
-                    for key in ("best_test", "best_full", "r21a_test", "r21a_full"):
-                        res = data.get(key, {})
-                        if isinstance(res, dict) and "daily_returns" in res:
-                            bt_returns = np.asarray(res["daily_returns"])
-                            break
-                    if bt_returns is not None:
-                        break
-
-            if bt_returns is None or len(bt_returns) < 30:
-                logger.debug("No backtest returns available for shift detection")
-                return None
-
-            from services.distribution_shift import (
-                detect_distribution_shift,
-                detect_distribution_shift_rolling,
-            )
-
-            result = detect_distribution_shift(bt_returns, live_returns)
-
-            # Rolling window analysis (60-day) for drift onset detection
-            if len(live_returns) >= 60:
-                rolling = detect_distribution_shift_rolling(
-                    bt_returns, live_returns, window=60, step=5,
-                )
-                result["rolling"] = rolling
-                # Find when drift first appeared
-                for entry in rolling:
-                    if entry["verdict"] != "stable":
-                        result["drift_onset_day"] = entry["window_start"]
-                        break
-
-            if result["verdict"] != "insufficient_data":
-                logger.info(
-                    "Distribution shift: %s  Wasserstein=%.4f  KL=%.4f  (live=%d days)",
-                    result["verdict"], result["wasserstein"],
-                    result["kl_divergence"], result["n_live"],
-                )
-
-            # ── Take action based on verdict ──
-            if result["verdict"] == "regime_break":
-                logger.warning(
-                    "REGIME BREAK detected — live returns diverge significantly "
-                    "from backtest. Reducing position sizing to 50%%."
-                )
-                # Persist shift state for position sizer to read
-                _shift_state_path = _DB_PATH.parent / "distribution_shift_state.json"
-                import json as _json
-                _shift_state_path.write_text(_json.dumps({
-                    "verdict": result["verdict"],
-                    "wasserstein": result["wasserstein"],
-                    "kl_divergence": result["kl_divergence"],
-                    "position_size_multiplier": 0.5,
-                    "updated_at": datetime.now(_IST).isoformat(),
-                    "n_live_days": result["n_live"],
-                    "drift_onset_day": result.get("drift_onset_day"),
-                }))
-                # Send notification (best-effort)
-                try:
-                    from services.notifications.manager import NotificationManager
-                    nm = NotificationManager()
-                    nm.send_alert(
-                        subject="REGIME BREAK — Distribution Shift Detected",
-                        body=(
-                            f"Live returns diverge from backtest.\n"
-                            f"Wasserstein={result['wasserstein']:.4f}  "
-                            f"KL={result['kl_divergence']:.4f}\n"
-                            f"Position sizing reduced to 50%. Review strategy weights."
-                        ),
-                    )
-                except Exception:
-                    pass
-
-            elif result["verdict"] == "drifting":
-                logger.info("Distribution DRIFTING — monitoring, no action yet.")
-                _shift_state_path = _DB_PATH.parent / "distribution_shift_state.json"
-                import json as _json
-                _shift_state_path.write_text(_json.dumps({
-                    "verdict": result["verdict"],
-                    "wasserstein": result["wasserstein"],
-                    "kl_divergence": result["kl_divergence"],
-                    "position_size_multiplier": 0.75,
-                    "updated_at": datetime.now(_IST).isoformat(),
-                    "n_live_days": result["n_live"],
-                }))
-
-            elif result["verdict"] == "stable":
-                # Restore full sizing if previously reduced
-                _shift_state_path = _DB_PATH.parent / "distribution_shift_state.json"
-                if _shift_state_path.exists():
-                    import json as _json
-                    _shift_state_path.write_text(_json.dumps({
-                        "verdict": "stable",
-                        "position_size_multiplier": 1.0,
-                        "updated_at": datetime.now(_IST).isoformat(),
-                        "n_live_days": result["n_live"],
-                    }))
-
-            return result
+            live = self._live_daily_returns(conn)
         finally:
             if _close_conn:
                 conn.close()
+
+        if len(live) < min_live_days:
+            logger.info("Distribution shift: %d live daily returns (< %d) — not run yet",
+                        len(live), min_live_days)
+            return None
+
+        result = compare_live_to_backtest(live)
+        verdict = result.get("effective_verdict") or result.get("verdict")
+        if result.get("reference_mode") == "unavailable":
+            logger.info("Distribution shift skipped: no backtest reference returns "
+                        "(create data/shift_reference_returns.csv or set CENTURION_SHIFT_REFERENCE_RUN)")
+            return result
+
+        onset = result.get("drift_onset") or {}
+        logger.info(
+            "Distribution shift: %s (thresholds=%s, calibrated=%s) Wasserstein=%.5f KL=%.3f "
+            "p=(%s, %s) live=%d days reference=%s%s",
+            verdict, result.get("verdict"), result.get("calibrated_verdict"),
+            result.get("wasserstein") or 0.0, result.get("kl_divergence") or 0.0,
+            result.get("p_value_wasserstein"), result.get("p_value_kl"), result.get("n_live", 0),
+            result.get("reference_mode"),
+            f" drift since {onset.get('start_date')}" if onset else "",
+        )
+
+        multiplier = {"stable": 1.0, "drifting": 0.75, "regime_break": 0.5}.get(verdict)
+        now = datetime.now(_IST).isoformat()
+        try:
+            (_DB_PATH.parent / "distribution_shift_latest.json").write_text(
+                json.dumps({**result, "updated_at": now}, default=str, indent=2))
+            if multiplier is not None:
+                (_DB_PATH.parent / "distribution_shift_state.json").write_text(json.dumps({
+                    "verdict": verdict,
+                    "threshold_verdict": result.get("verdict"),
+                    "calibrated_verdict": result.get("calibrated_verdict"),
+                    "wasserstein": result.get("wasserstein"),
+                    "kl_divergence": result.get("kl_divergence"),
+                    "position_size_multiplier": multiplier,
+                    "reference_mode": result.get("reference_mode"),
+                    "drift_onset": onset or None,
+                    "n_live_days": result.get("n_live"),
+                    "updated_at": now,
+                }, default=str))
+        except OSError as exc:
+            logger.warning("Could not persist distribution shift state: %s", exc)
+
+        if verdict == "regime_break":
+            logger.warning("REGIME BREAK — live returns diverge from the backtest distribution")
+            try:
+                from services.notifications.manager import NotificationManager
+                NotificationManager().send_alert(
+                    subject="REGIME BREAK — Distribution Shift Detected",
+                    body=(
+                        f"Live paper returns diverge from the backtest ({result.get('reference_mode')}).\n"
+                        f"Wasserstein={result.get('wasserstein')}  KL={result.get('kl_divergence')}  "
+                        f"p=({result.get('p_value_wasserstein')}, {result.get('p_value_kl')})\n"
+                        f"Live days: {result.get('n_live')}"
+                        + (f"  Drift since: {onset.get('start_date')}" if onset else "")
+                        + "\nReview the strategy before sizing up."
+                    ),
+                )
+            except Exception as exc:
+                logger.debug("Regime-break alert failed (non-fatal): %s", exc)
+        return result
 
     def log_signals(self, date_str: str, signals: list) -> None:
         """Persist forecast signals for backtest-vs-live comparison.

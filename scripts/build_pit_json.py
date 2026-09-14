@@ -1,81 +1,94 @@
-"""Build nifty500_historical_constituents.json from wayback data."""
+"""Build data/nifty500_historical_constituents.json from Wayback snapshots.
+
+Rules (point-in-time, no look-ahead):
+  * Each semi-annual period key "YYYY-03" / "YYYY-09" takes effect on the
+    first day of that month and uses the nearest snapshot captured ON OR
+    BEFORE that day.  A later snapshot is never used for an earlier period.
+  * Periods before the first snapshot are skipped (no backfilling).
+  * A ``_meta`` entry records snapshot dates, source and build time; the
+    loader (kite_connect.nse.nse_universe) ignores keys starting with "_".
+
+Run from anywhere:
+    python scripts/build_pit_json.py
+"""
+
+from __future__ import annotations
+
+import datetime as _dt
 import json
+from pathlib import Path
+from typing import Dict, List
 
-with open('centurion_core/data/nifty500_wayback_raw.json') as f:
-    raw = json.load(f)
+REPO_ROOT = Path(__file__).resolve().parent.parent
+RAW_PATH = REPO_ROOT / "data" / "nifty500_wayback_raw.json"
+OUT_PATH = REPO_ROOT / "data" / "nifty500_historical_constituents.json"
 
-# Map wayback labels to semi-annual periods
-mapping = {
-    '2018-10': '2018-09',
-    '2019-02': '2019-03',
-    '2020-07': '2020-09',
-    '2022-05': '2022-03',
-    '2022-10': '2022-09',
-    '2023-04': '2023-03',
-    '2024-02': '2024-03',
-    '2024-02b': '2024-03',  # duplicate
-    '2025-06': '2025-03',
-    '2025-08': '2025-09',
+# Legacy raw labels (pre-rewrite fetch script) -> capture dates.
+_LEGACY_LABEL_DATES = {
+    "2018-10": "2018-10-04", "2019-02": "2019-02-01", "2020-07": "2020-07-25",
+    "2022-05": "2022-05-04", "2022-10": "2022-10-09", "2023-04": "2023-04-04",
+    "2024-02": "2024-02-07", "2024-02b": "2024-02-26", "2025-06": "2025-06-16",
+    "2025-08": "2025-08-21",
 }
 
-pit = {}
-for label, period in mapping.items():
-    if label in raw:
-        syms = raw[label]
-        if period not in pit or len(syms) > len(pit[period]):
-            pit[period] = sorted(set(syms))
 
-# For missing periods pre-2018, use earliest available (2018-09)
-earliest = pit.get('2018-09', [])
-for y in range(2012, 2019):
-    for m in ['03', '09']:
-        key = f'{y}-{m}'
-        if key not in pit:
-            pit[key] = earliest
+def _snapshot_date(label: str) -> _dt.date:
+    label = _LEGACY_LABEL_DATES.get(label, label)
+    return _dt.date.fromisoformat(label[:10])
 
-# Fill missing intermediate periods from nearest known
-known_sorted = sorted(pit.keys())
-all_needed = []
-for y in range(2012, 2026):
-    for m in ['03', '09']:
-        all_needed.append(f'{y}-{m}')
 
-for period in all_needed:
-    if period not in pit:
-        # Find nearest known period
-        nearest = min(known_sorted, key=lambda k: abs(
-            int(k[:4])*12 + int(k[5:]) - int(period[:4])*12 - int(period[5:])
-        ))
-        pit[period] = pit[nearest]
+def build(raw: Dict, end_year: int | None = None) -> Dict:
+    snapshots = sorted(
+        ((_snapshot_date(k), sorted(set(v))) for k, v in raw.items()
+         if not str(k).startswith("_") and isinstance(v, list) and v),
+        key=lambda x: x[0],
+    )
+    if not snapshots:
+        raise SystemExit(f"No snapshots in {RAW_PATH}")
+    first = snapshots[0][0]
+    end_year = end_year or _dt.date.today().year
 
-# Sort
-pit = dict(sorted(pit.items()))
+    pit: Dict[str, List[str]] = {}
+    used: Dict[str, str] = {}
+    for y in range(first.year, end_year + 1):
+        for m in (3, 9):
+            start = _dt.date(y, m, 1)
+            if start > _dt.date.today():
+                continue
+            past = [s for s in snapshots if s[0] <= start]
+            if not past:
+                continue  # before first snapshot: skip, never backfill
+            snap_date, syms = past[-1]
+            key = f"{y}-{m:02d}"
+            pit[key] = syms
+            used[key] = snap_date.isoformat()
 
-print(f"Periods with data: {len(pit)}")
-for p in sorted(pit.keys()):
-    print(f"  {p}: {len(pit[p])} symbols")
+    out: Dict = dict(sorted(pit.items()))
+    out["_meta"] = {
+        "source": "Wayback Machine snapshots of ind_nifty500list.csv "
+                  "(scripts/fetch_wayback_nifty500.py)",
+        "snapshot_dates": [d.isoformat() for d, _ in snapshots],
+        "period_snapshot": used,
+        "rule": "period effective on 1st of month uses nearest snapshot captured on/before it; "
+                "periods before first snapshot skipped",
+        "built_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+    }
+    return out
 
-# Check key stocks
-print()
-key_stocks = {
-    'DHFL': 'Should be in 2018-09, 2019-03; gone by 2020',
-    'YESBANK': 'Should be in most periods',
-    'JETAIRWAYS': 'Should be in 2018-09',
-    'ZOMATO': 'Should NOT be before 2021-09',
-    'PAYTM': 'Should NOT be before 2021-09',
-    'LIC': 'Should NOT be before 2022-03',
-    'RCOM': 'Should be in 2018, gone later',
-}
-for sym, note in key_stocks.items():
-    found_in = [p for p in sorted(pit.keys()) if sym in pit[p]]
-    not_found = "NONE" if not found_in else ""
-    if found_in:
-        print(f"  {sym}: found in {found_in[0]}..{found_in[-1]} ({len(found_in)} periods) -- {note}")
-    else:
-        print(f"  {sym}: NOT FOUND in any snapshot -- {note}")
 
-# Save
-out = 'centurion_core/data/nifty500_historical_constituents.json'
-with open(out, 'w') as f:
-    json.dump(pit, f, indent=2, sort_keys=True)
-print(f"\nSaved {len(pit)} periods to {out}")
+def main() -> None:
+    raw = json.loads(RAW_PATH.read_text())
+    out = build(raw)
+    periods = [k for k in out if not k.startswith("_")]
+    print(f"Snapshots: {out['_meta']['snapshot_dates']}")
+    for p in periods:
+        print(f"  {p}: {len(out[p])} symbols (snapshot {out['_meta']['period_snapshot'][p]})")
+    for sym in ("DHFL", "YESBANK", "JETAIRWAYS", "ZOMATO", "PAYTM", "LICI", "RCOM"):
+        found = [p for p in periods if sym in out[p]]
+        print(f"  {sym}: {found[0] + '..' + found[-1] if found else 'not found'} ({len(found)} periods)")
+    OUT_PATH.write_text(json.dumps(out, indent=2))
+    print(f"\nSaved {len(periods)} periods to {OUT_PATH}")
+
+
+if __name__ == "__main__":
+    main()

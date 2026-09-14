@@ -638,6 +638,39 @@ def apply_decay_state_filter(
 #   - SIDEWAYS: upweight MR, ehlers_dsp, carver_value (decorrelated)
 #   - BULL: standard trend-following weights
 
+_REGIME_ALIASES = {
+    "bull": "bull", "strong_bull": "bull", "trending_bull": "bull",
+    "bear": "bear", "severe_bear": "bear", "trending_bear": "bear",
+    "high_volatility": "bear", "crisis": "bear",
+    "sideways": "sideways", "neutral": "sideways", "range_bound": "sideways",
+}
+
+
+def normalize_regime(label: Optional[str]) -> str:
+    """Map any regime label used across the codebase to bull/bear/sideways.
+
+    strong_bull/bull/trending_bull -> bull;
+    severe_bear/bear/trending_bear/high_volatility/crisis -> bear;
+    neutral/sideways/range_bound -> sideways; anything else -> sideways.
+    """
+    key = (label or "").lower().strip()
+    mapped = _REGIME_ALIASES.get(key)
+    if mapped is None:
+        if key:
+            logger.debug("Unknown regime label %r -> sideways", label)
+        return "sideways"
+    return mapped
+
+
+def _regime_sharpe_blend_enabled() -> bool:
+    """Config gate for the (in-sample) regime Sharpe² weight tilt."""
+    try:
+        from config import Config
+        return bool(getattr(Config, "REGIME_SHARPE_BLEND_ENABLED", False))
+    except Exception:
+        return False
+
+
 REGIME_SHARPE_SCORES = {
     # C3: Revised scores — aggressive bear penalty, MR boost in sideways
     "ewmac_8_32":      {"bull": 0.65, "sideways": 0.20, "bear": 0.00},  # C3: zero in bear
@@ -695,9 +728,7 @@ def apply_regime_sharpe_weights(
     if not regime or blend_factor <= 0:
         return base_weights
 
-    regime_key = regime.lower().replace("trending_", "").replace("range_bound", "sideways").replace("high_volatility", "bear").replace("crisis", "bear")
-    if regime_key not in ("bull", "sideways", "bear"):
-        regime_key = "sideways"  # default
+    regime_key = normalize_regime(regime)
 
     # Compute Sharpe² for each source in this regime
     sharpe_sq = {}
@@ -836,11 +867,7 @@ def apply_risk_managed_momentum(
     if not regime:
         return base_weights
 
-    regime_key = regime.lower().replace("trending_", "").replace("range_bound", "sideways")
-    regime_key = regime_key.replace("high_volatility", "bear").replace("crisis", "bear")
-    regime_key = regime_key.replace("severe_bear", "bear").replace("strong_bull", "bull")
-    if regime_key not in ("bull", "sideways", "bear"):
-        return base_weights
+    regime_key = normalize_regime(regime)
 
     # In bear: penalize pure momentum/trend signals more aggressively
     # These signals are negatively skewed and reverse hard
@@ -929,7 +956,8 @@ def combine_forecasts(
     # C4 FIX: Load walk-forward optimized weights if available
     weights = load_wf_optimal_weights(weights)
     # C3: Regime blend at 0.50 (RESTORED from 0.70 — too aggressive in zeroing trend signals)
-    if regime:
+    # Gated: REGIME_SHARPE_SCORES was estimated in-sample (Config comment).
+    if regime and _regime_sharpe_blend_enabled():
         weights = apply_regime_sharpe_weights(weights, regime=regime, blend_factor=0.50)
     # C6: Risk-managed momentum — DISABLED (double-stacks with regime blend)
     # weights = apply_risk_managed_momentum(weights, regime=regime)

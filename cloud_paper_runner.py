@@ -123,17 +123,113 @@ def _update_run_status(status: str, message: str):
         logger.warning("Failed to update run status in Neon: %s", exc)
 
 
+# ── Paper book (persistent across GitHub Actions runs) ────────────────────
+
+# Initial capital is used ONLY on the very first run; later runs restore the
+# book (cash, positions, stops, snapshots) from Neon.
+_INITIAL_CAPITAL = float(os.environ.get("CENTURION_PAPER_INITIAL_CAPITAL", "100000"))
+
+
+def _open_paper_trader():
+    """PaperTrader restored from local SQLite or Neon. Raises if the cloud
+    book exists but cannot be read (never start over an unreadable book)."""
+    from kite_connect.trading.paper_trader import PaperTrader
+
+    pt = PaperTrader(kite=None, initial_capital=_INITIAL_CAPITAL)
+    if pt.restored_from == "cloud_restore_failed":
+        raise RuntimeError("Paper book restore from Neon failed — aborting run to protect the track record")
+    logger.info("Paper book: source=%s cash=%.0f open=%d initial=%.0f",
+                pt.restored_from, pt.cash, sum(1 for p in pt._positions if p.is_open),
+                pt.initial_capital)
+    return pt
+
+
+def _latest_daily_bars(symbols):
+    """{symbol: {date, open, low, close}} from the latest daily bar."""
+    from utils import download_ind_ohlcv
+
+    bars = {}
+    for sym in symbols:
+        try:
+            df = download_ind_ohlcv(sym, period="5d")
+            if df is None or df.empty:
+                continue
+            row = df.iloc[-1]
+            val = lambda c: float(row[c].item() if hasattr(row[c], "item") else row[c])  # noqa: E731
+            bars[sym] = {"date": df.index[-1], "open": val("Open"), "low": val("Low"),
+                         "close": val("Close")}
+        except Exception as exc:
+            logger.debug("Daily bar fetch failed for %s: %s", sym, exc)
+    return bars
+
+
+def _mark_and_simulate_stops(pt):
+    """Mark open positions to the latest close and simulate GTT stop fills."""
+    held = sorted({p.symbol for p in pt._positions if p.is_open})
+    if not held:
+        return []
+    bars = _latest_daily_bars(held)
+    events = pt.simulate_gtt_stops(bars)
+    for ev in events:
+        logger.info("Paper GTT stop: %s %s exit=%.2f pnl=%.2f",
+                    ev["symbol"], ev["type"], ev["exit"], ev["pnl"])
+    return events
+
+
 # ── Pipeline execution ────────────────────────────────────────────────────
 
 def _run_paper_pipeline():
     """Run the full screening + CarverPipeline + PaperTrader flow."""
+    # 0. Restore the paper book, mark to market, simulate GTT stops
+    pt = _open_paper_trader()
+    stop_events = _mark_and_simulate_stops(pt)
+    ctx = {"universe_size": 0, "screened_count": 0, "buy_signals": 0}
+    try:
+        status, msg = _signals_and_trades(pt, ctx)
+    finally:
+        # EOD snapshot is recorded on every run (upsert per date), even when
+        # no new trades were generated, so the equity curve has no gaps.
+        try:
+            pt.snapshot_daily()
+        except Exception as exc:
+            logger.warning("Snapshot failed: %s", exc)
+
+    dashboard = pt.dashboard()
+    msg = (
+        f"{msg} | stops={len(stop_events)} | "
+        f"capital={dashboard.current_capital:.0f} | "
+        f"P&L={dashboard.total_pnl:.0f} ({dashboard.total_pnl_pct:.1f}%)"
+    )
+    logger.info("Paper trade: %s", msg)
+
+    # Daily email (best-effort)
+    try:
+        from services.notifications.manager import NotificationManager
+        nm = NotificationManager()
+        sent = nm.email_daily_pipeline_report({
+            **ctx,
+            "sell_signals": len(stop_events) + ctx.get("exits", 0),
+            "status": status,
+        })
+        if not sent:
+            logger.warning("Daily email returned False — check CENTURION_EMAIL_USER / CENTURION_EMAIL_PASS env vars")
+    except Exception as exc:
+        logger.warning("Daily email failed: %s", exc)
+
+    return status, msg
+
+
+def _signals_and_trades(pt, ctx):
+    """Screen → verdicts → CarverPipeline (with holdings) → exits → paper buys."""
     from kite_connect.nse.nse_universe import get_nse_universe
     from kite_connect.nse.screener import NSEScreener, ScreenerConfig
     from services.integrated_scorer import IntegratedScorer
-    from kite_connect.trading.paper_trader import PaperTrader
+
+    holdings = {s: h["quantity"] for s, h in pt.holdings().items()}
 
     # 1. Universe
     symbols = get_nse_universe()
+    ctx["universe_size"] = len(symbols)
     logger.info("Universe: %d symbols", len(symbols))
 
     # 2. Screen
@@ -142,45 +238,46 @@ def _run_paper_pipeline():
     screened_df = screener.screen(symbols)
     logger.info("Screened: %d passed", len(screened_df))
 
-    if screened_df.empty:
-        return "no_stocks_passed", "Screener returned 0 candidates"
+    ctx["screened_count"] = len(screened_df)
+    signal_dict = {}
+    buy_symbols = []
+    if not screened_df.empty:
+        # 3. IntegratedScorer verdicts
+        ns_tickers = [f"{s}.NS" for s in screened_df["symbol"].tolist()]
+        end_dt = date.today()
+        start_dt = end_dt - timedelta(days=365)
 
-    # 3. IntegratedScorer verdicts
-    ns_tickers = [f"{s}.NS" for s in screened_df["symbol"].tolist()]
-    end_dt = date.today()
-    start_dt = end_dt - timedelta(days=365)
+        scorer = IntegratedScorer()
+        verdicts = scorer.evaluate(
+            tickers=ns_tickers,
+            market="IND",
+            date_range=(str(start_dt), str(end_dt)),
+        )
 
-    scorer = IntegratedScorer()
-    verdicts = scorer.evaluate(
-        tickers=ns_tickers,
-        market="IND",
-        date_range=(str(start_dt), str(end_dt)),
-    )
+        signal_dict = {
+            v.ticker.replace(".NS", "").replace(".BO", ""): v.classification
+            for v in verdicts
+        }
+        buy_symbols = [
+            sym for sym, tag in signal_dict.items()
+            if tag in ("BUY", "STRONG_BUY")
+        ]
+    ctx["buy_signals"] = len(buy_symbols)
+    buy_df = screened_df[screened_df["symbol"].isin(buy_symbols)] if buy_symbols else screened_df.iloc[0:0]
 
-    signal_dict = {
-        v.ticker.replace(".NS", "").replace(".BO", ""): v.classification
-        for v in verdicts
-    }
-    buy_symbols = [
-        sym for sym, tag in signal_dict.items()
-        if tag in ("BUY", "STRONG_BUY")
-    ]
-    if not buy_symbols:
-        return "success", f"No BUY signals from {len(verdicts)} verdicts"
+    if not buy_symbols and not holdings:
+        return "success", "No BUY signals and no open positions"
 
-    buy_df = screened_df[screened_df["symbol"].isin(buy_symbols)]
-    if buy_df.empty:
-        return "success", "Buy symbols not in screened set"
-
-    # 4. CarverPipeline
+    # 4. CarverPipeline — buy candidates AND current holdings (for exits)
     plans = None
     pipe_result = None
+    fallback_reason = ""
     try:
         from services.carver_pipeline import CarverPipeline, PipelineConfig
         from utils import download_ind_ohlcv
 
         ohlcv_cache = {}
-        for sym in buy_symbols:
+        for sym in dict.fromkeys(list(buy_symbols) + list(holdings)):
             try:
                 df = download_ind_ohlcv(sym, period="2y")
                 if df is not None and len(df) >= 64:
@@ -200,32 +297,51 @@ def _run_paper_pipeline():
             pipe_result = pipeline.run(
                 ohlcv_cache=ohlcv_cache,
                 screener_scores=screener_scores,
+                current_holdings=holdings or None,
             )
-            plans = pipe_result.trade_plans
-            logger.info("CarverPipeline: %d plans", len(plans))
+            # Only BUY candidates open positions (holdings were included for exits)
+            plans = [p for p in pipe_result.trade_plans if p.symbol in set(buy_symbols)]
+            logger.info("CarverPipeline: %d plans, %d exits", len(plans), len(pipe_result.exits))
+            _fresh = pipe_result.freshness or {}
+            if _fresh.get("dropped") and pipe_result.symbols_processed == 0:
+                fallback_reason = (f"freshness gate dropped all {len(_fresh['dropped'])} symbols "
+                                   f"(expected session {_fresh.get('expected_session')})")
+        else:
+            fallback_reason = "no OHLCV data"
     except Exception as exc:
-        logger.warning("CarverPipeline failed, trying fallback: %s", exc)
+        fallback_reason = f"CarverPipeline error: {exc}"
 
-    # 4b. Fallback: RiskManager
-    if not plans:
+    # 4a. Rank / forecast exits for open paper positions
+    exit_events = []
+    if pipe_result is not None and pipe_result.exits:
+        for sym, reason in pipe_result.exits.items():
+            res = pt.close_position(sym, reason=f"RANK_EXIT:{reason}"[:30])
+            if res.get("success"):
+                exit_events.append(res)
+                logger.info("Paper rank exit: %s x %d (%s)", sym, res["quantity"], reason)
+    ctx["exits"] = len(exit_events)
+
+    # 4b. Fallback: RiskManager — LOUD, with the reason recorded
+    if fallback_reason and buy_symbols:
+        logger.warning("FALLBACK to legacy RiskManager: %s", fallback_reason)
+        ctx["fallback_reason"] = fallback_reason
         try:
             from kite_connect.trading.risk_manager import RiskManager, RiskConfig
             rm = RiskManager(RiskConfig())
             plans = rm.plan_trades(buy_df)
-            logger.info("Fallback RiskManager: %d plans", len(plans))
+            logger.warning("Fallback RiskManager: %d plans (reason: %s)", len(plans), fallback_reason)
         except Exception as exc:
-            return "error", f"Both pipelines failed: {exc}"
+            return "error", f"Both pipelines failed: {fallback_reason}; {exc}"
 
     if not plans:
-        return "success", "No plans met R:R threshold"
+        return "success", f"No new plans | exits={len(exit_events)}"
 
-    # 5. Execute via PaperTrader
-    pt = PaperTrader(kite=None, initial_capital=100_000)
-    results = pt.execute_plans(plans)
+    # 5. Execute via PaperTrader (restored book; skip symbols already held)
+    results = pt.execute_plans(plans, skip_held=True)
     filled = sum(1 for r in results if r.get("success"))
 
     # 6. SL/TP poll
-    close_events = pt.poll()
+    pt.poll()
 
     # 7. Signal audit log
     try:
@@ -245,43 +361,35 @@ def _run_paper_pipeline():
                 "stop_loss": plan.stop_loss,
                 "target_price": plan.target_price,
                 "quantity": plan.quantity,
-                "pipeline_sources": ",".join(_active) if _active else "CarverPipeline",
+                "pipeline_sources": (",".join(_active) if _active else
+                                     ("RiskManager-fallback" if fallback_reason else "CarverPipeline")),
                 "was_traded": plan.symbol in traded_symbols,
             })
         pt.log_signals(today_str, signal_entries)
     except Exception as exc:
         logger.debug("Signal logging failed (non-fatal): %s", exc)
 
-    # 8. EOD snapshot
+    planner = "legacy_risk_manager" if fallback_reason else "carver"
+    return "success", f"{filled}/{len(plans)} filled ({planner}) | exits={len(exit_events)}"
+
+
+def _run_engine_paper():
+    """NSE engine path: targets -> paper orders + simulated GTT stops."""
+    from kite_connect.trading.nse_engine_executor import EngineExecutor
+
+    pt = _open_paper_trader()
+    stop_events = _mark_and_simulate_stops(pt)
+    executor = EngineExecutor(kite=None, paper=True, paper_trader=pt)
+    plan = executor.plan()
+    results = executor.execute(plan)
     try:
         pt.snapshot_daily()
     except Exception as exc:
-        logger.debug("Snapshot failed (non-fatal): %s", exc)
-
-    dashboard = pt.dashboard()
-    msg = (
-        f"{filled}/{len(plans)} filled | "
-        f"capital={dashboard.current_capital:.0f} | "
-        f"P&L={dashboard.total_pnl:.0f} ({dashboard.total_pnl_pct:.1f}%)"
-    )
-    logger.info("Paper trade: %s", msg)
-
-    # 9. Daily email (best-effort)
-    try:
-        from services.notifications.manager import NotificationManager
-        nm = NotificationManager()
-        sent = nm.email_daily_pipeline_report({
-            "universe_size": len(symbols),
-            "screened_count": len(screened_df),
-            "buy_signals": len(buy_symbols),
-            "sell_signals": len(close_events),
-            "status": "success",
-        })
-        if not sent:
-            logger.warning("Daily email returned False — check CENTURION_EMAIL_USER / CENTURION_EMAIL_PASS env vars")
-    except Exception as exc:
-        logger.warning("Daily email failed: %s", exc)
-
+        logger.warning("Snapshot failed: %s", exc)
+    ok = sum(1 for r in results if r.get("success"))
+    msg = (f"engine as_of={plan.as_of} orders={len(plan.orders)} ok={ok} "
+           f"skipped={len(plan.skipped)} stops={len(stop_events)} cash={pt.cash:.0f}")
+    logger.info("NSE engine paper run: %s", msg)
     return "success", msg
 
 
@@ -294,10 +402,9 @@ def _run_weekly_checkpoint():
     Called only on Saturdays via the Saturday GitHub Actions cron.
     """
     import sqlite3 as _sq3
-    from kite_connect.trading.paper_trader import PaperTrader
     from services.notifications.manager import NotificationManager
 
-    pt = PaperTrader(kite=None, initial_capital=100_000)
+    pt = _open_paper_trader()
     checkpoint = pt.checkpoint_weekly()
 
     if not checkpoint:
@@ -427,8 +534,23 @@ def _run_weekly_checkpoint():
 
 # ── Entrypoint ─────────────────────────────────────────────────────────
 
-def main():
+def _engine_enabled(argv=None) -> bool:
+    """``--engine`` runs the NSE engine only when CENTURION_NSE_ENGINE=true."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Cloud paper trading runner")
+    parser.add_argument("--engine", action="store_true",
+                        help="Use the NSE engine executor (requires CENTURION_NSE_ENGINE=true)")
+    args, _ = parser.parse_known_args(argv)
+    env_on = os.environ.get("CENTURION_NSE_ENGINE", "false").lower() in ("true", "1", "yes")
+    if args.engine and not env_on:
+        logger.warning("--engine ignored: CENTURION_NSE_ENGINE is not 'true' — running legacy pipeline")
+    return bool(args.engine and env_on)
+
+
+def main(argv=None):
     logger.info("=== Cloud Paper Trading Runner ===")
+    use_engine = _engine_enabled(argv)
 
     if not _check_active():
         logger.info("Paper trading is NOT active in Neon — skipping.")
@@ -450,9 +572,12 @@ def main():
             logger.exception("Weekly checkpoint failed: %s", exc)
             sys.exit(1)
     else:
-        # Weekday: run full daily pipeline
+        # Weekday: run full daily pipeline (or the NSE engine when enabled)
         try:
-            status, message = _run_paper_pipeline()
+            if use_engine:
+                status, message = _run_engine_paper()
+            else:
+                status, message = _run_paper_pipeline()
             _update_run_status(status, message[:500])
             logger.info("Run complete: [%s] %s", status, message)
         except Exception as exc:

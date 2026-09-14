@@ -418,37 +418,79 @@ def get_nse_universe(kite=None, tier: Optional[str] = None) -> List[str]:
 # ── Point-in-Time (PIT) NIFTY500 Universe ─────────────────────
 # Phase B: Eliminate survivorship bias by using historical constituent lists.
 # Data source: Wayback Machine snapshots → nifty500_historical_constituents.json
+# (built by scripts/build_pit_json.py).  Keys are "YYYY-MM" (or "YYYY-MM-DD")
+# effective dates; keys starting with "_" (e.g. "_meta") are metadata and
+# are ignored by the loader.
+#
+# Behaviour:
+#   * file missing / empty      -> the getters return None (caller must treat
+#                                  the universe as survivorship-biased)
+#   * date before first period  -> get_nse_universe_pit returns None; lists are
+#                                  NEVER backfilled to earlier dates
+#   * otherwise                 -> constituents of the latest period whose
+#                                  effective date is <= as_of_date
 
 _PIT_DATA: Optional[Dict[str, List[str]]] = None  # lazy-loaded cache
+_PIT_META: Dict = {}
 
 
-def _load_pit_data() -> Dict[str, List[str]]:
-    """Load the historical constituents JSON (lazy, cached)."""
-    global _PIT_DATA
-    if _PIT_DATA is not None:
-        return _PIT_DATA
-    import json
-    _pit_path = os.path.join(
+def _pit_path() -> str:
+    return os.path.join(
         os.path.dirname(os.path.abspath(__file__)), '..', '..', 'data',
         'nifty500_historical_constituents.json',
     )
+
+
+def _load_pit_data() -> Dict[str, List[str]]:
+    """Load the historical constituents JSON (lazy, cached; metadata stripped)."""
+    global _PIT_DATA, _PIT_META
+    if _PIT_DATA is not None:
+        return _PIT_DATA
+    import json
+    path = _pit_path()
     try:
-        with open(_pit_path) as f:
-            _PIT_DATA = json.load(f)
-        logger.info("PIT universe loaded: %d periods", len(_PIT_DATA))
+        with open(path) as f:
+            raw = json.load(f)
     except FileNotFoundError:
-        logger.warning("PIT universe file not found at %s", _pit_path)
-        _PIT_DATA = {}
+        logger.warning("PIT universe file not found at %s", path)
+        raw = {}
+    except Exception as exc:
+        logger.warning("PIT universe file unreadable at %s: %s", path, exc)
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    _PIT_META = raw.get("_meta", {}) if isinstance(raw.get("_meta"), dict) else {}
+    _PIT_DATA = {
+        k: list(v) for k, v in raw.items()
+        if not str(k).startswith("_") and isinstance(v, list) and v
+    }
+    if _PIT_DATA:
+        logger.info("PIT universe loaded: %d periods", len(_PIT_DATA))
     return _PIT_DATA
 
 
-def get_nse_universe_pit(as_of_date) -> List[str]:
+def _period_start(key: str):
+    """Effective date of a PIT key ("YYYY-MM" -> first of month)."""
+    import datetime
+    key = str(key)
+    if len(key) == 7:
+        return datetime.date(int(key[:4]), int(key[5:7]), 1)
+    return datetime.date.fromisoformat(key[:10])
+
+
+def get_nse_universe_pit_first_date():
+    """Effective date of the earliest PIT period, or None when no PIT data."""
+    pit = _load_pit_data()
+    if not pit:
+        return None
+    return min(_period_start(k) for k in pit)
+
+
+def get_nse_universe_pit(as_of_date) -> Optional[List[str]]:
     """
     Return the NIFTY500 constituent list as it existed on *as_of_date*.
 
-    Looks up the closest semi-annual period (YYYY-03 or YYYY-09) that is
-    <= as_of_date.  Falls back to the earliest available period if the date
-    is before all snapshots.
+    Uses the latest period whose effective date is <= as_of_date.
 
     Parameters
     ----------
@@ -457,49 +499,42 @@ def get_nse_universe_pit(as_of_date) -> List[str]:
 
     Returns
     -------
-    list[str]  — Plain NSE symbols (no .NS suffix).
+    list[str] | None
+        Plain NSE symbols (no .NS suffix).  ``None`` when the PIT file is
+        missing or empty, or when *as_of_date* precedes the first snapshot
+        period (no backfilling: the earliest list only applies from its own
+        date onward).
     """
     import datetime
     pit = _load_pit_data()
     if not pit:
-        return []
+        return None
 
     if isinstance(as_of_date, str):
-        as_of_date = datetime.date.fromisoformat(as_of_date)
-    elif hasattr(as_of_date, 'date'):
+        as_of_date = datetime.date.fromisoformat(as_of_date[:10])
+    elif isinstance(as_of_date, datetime.datetime) or hasattr(as_of_date, 'to_pydatetime'):
         as_of_date = as_of_date.date()
 
-    # Build period key: closest semi-annual <= as_of_date
-    y, m = as_of_date.year, as_of_date.month
-    if m >= 9:
-        period = f"{y}-09"
-    elif m >= 3:
-        period = f"{y}-03"
-    else:
-        period = f"{y - 1}-09"
-
-    # Walk backwards to find the nearest available period
-    sorted_periods = sorted(pit.keys())
     best = None
-    for p in sorted_periods:
-        if p <= period:
-            best = p
+    best_date = None
+    for k in pit:
+        d = _period_start(k)
+        if d <= as_of_date and (best_date is None or d > best_date):
+            best, best_date = k, d
     if best is None:
-        best = sorted_periods[0] if sorted_periods else None
-
-    if best is None:
-        return []
+        return None
     return list(pit[best])
 
 
-def get_nse_universe_pit_union() -> List[str]:
+def get_nse_universe_pit_union() -> Optional[List[str]]:
     """
     Return the UNION of all historical NIFTY500 constituents across all periods.
-    Used for pre-downloading OHLCV data in backtest mode.
+    Used for pre-downloading OHLCV data in backtest mode.  ``None`` when the
+    PIT file is missing or empty.
     """
     pit = _load_pit_data()
     if not pit:
-        return []
+        return None
     all_syms: set = set()
     for syms in pit.values():
         all_syms.update(syms)

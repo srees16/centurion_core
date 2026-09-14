@@ -369,7 +369,8 @@ def generate_signals_from_backtest(
                 fast_ewma = close.ewm(span=fast, adjust=False).mean()
                 slow_ewma = close.ewm(span=slow, adjust=False).mean()
                 raw = float(fast_ewma.iloc[-1] - slow_ewma.iloc[-1])
-                fc = ewmac_to_forecast(raw, dpv, fast, slow)
+                # dpv is a decimal percentage; convert to price units
+                fc = ewmac_to_forecast(raw, float(close.iloc[-1]) * dpv, fast, slow)
                 all_forecasts[sym][f"ewmac_{fast}_{slow}"] = fc
 
         # Momentum

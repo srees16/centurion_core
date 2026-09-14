@@ -47,6 +47,13 @@ mywinenv/
 !config.json
 !data/thematic_portfolio.json
 !sample_tickers.csv
+# Reference data that results depend on must be versioned
+!data/nse_sector_map.json
+!data/nifty500_historical_constituents.json
+!data/nifty500_wayback_raw.json
+!data/shift_reference_returns.csv
+# NSE engine archives, parquet store and run directories (large, regenerable)
+data/nse_engine/
 *.log
 logs/
 *.jsonl

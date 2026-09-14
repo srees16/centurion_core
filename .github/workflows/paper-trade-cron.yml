@@ -23,6 +23,12 @@ on:
 permissions:
   contents: read
 
+# The paper book lives in Neon and is restored every run: never let two runs
+# mutate it concurrently.
+concurrency:
+  group: paper-trade-book
+  cancel-in-progress: false
+
 jobs:
   paper-trade:
     runs-on: ubuntu-latest
@@ -51,5 +57,13 @@ jobs:
           CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
           CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
           CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+          # Starting capital for the very first run only (later runs restore from Neon)
+          CENTURION_PAPER_INITIAL_CAPITAL: ${{ vars.CENTURION_PAPER_INITIAL_CAPITAL || '100000' }}
+          # NSE engine path is opt-in until validated (repository variable)
+          CENTURION_NSE_ENGINE: ${{ vars.CENTURION_NSE_ENGINE || 'false' }}
         run: |
-          python cloud_paper_runner.py
+          if [ "$CENTURION_NSE_ENGINE" = "true" ]; then
+            python cloud_paper_runner.py --engine
+          else
+            python cloud_paper_runner.py
+          fi

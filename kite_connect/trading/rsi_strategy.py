@@ -1,12 +1,12 @@
 """
 RSI-based Auto-Order Strategy Service for Zerodha Kite Connect.
 
-Scans a watchlist of stocks, calculates 14-period RSI on 5-minute candles,
-and places BUY orders when RSI < 30 (oversold) with a bullish close reversal.
-SELL signals fire when RSI > 70 (overbought) with a bearish close reversal.
+Scans a watchlist of stocks and calculates 14-period RSI (any candle
+interval for analysis).  BUY signals fire when RSI < 30 (oversold) with a
+bullish close reversal; SELL signals when RSI > 70 with a bearish reversal.
 
-Uses Cover Orders (CO / MIS) with an auto-calculated stop-loss derived from
-a fixed capital-per-trade and max-loss-per-trade.
+Auto-placement is long-only CNC swing: daily candles only, BUY via
+``order_service`` plus a GTT stop, SELL only exits an existing holding.
 
 Designed to be called from the Streamlit UI or run standalone via CLI.
 """
@@ -116,113 +116,122 @@ def detect_signal(candles: list[dict], rsi_low: float = 30, rsi_high: float = 70
 
 
 # ═══════════════════════════════════════════════════════════════
-# Auto-Order Placement (Cover Order with SL)
+# Auto-Order Placement (long-only CNC swing, via order_service)
 # ═══════════════════════════════════════════════════════════════
+# The mandate is long-only CNC swing/positional.  Auto-placement therefore:
+#   * uses DAILY candles only (intraday RSI is analysis-only);
+#   * BUY  -> CNC BUY through order_service (kill switch, market hours,
+#             idempotency, DB/email hooks) + a GTT stop for the new holding;
+#   * SELL -> only exits an EXISTING CNC holding (is_exit=True); never shorts.
+
+AUTO_PLACE_INTERVAL = "day"
+
+
+def _order_service():
+    try:
+        from . import order_service as _svc
+    except Exception:  # loaded as top-level "trading.rsi_strategy"
+        from kite_connect.trading import order_service as _svc
+    return _svc
+
+
+def _gtt_stops():
+    try:
+        from . import gtt_stops as _g
+    except Exception:
+        from kite_connect.trading import gtt_stops as _g
+    return _g
+
 
 def compute_sl_and_qty(kite: KiteConnect, symbol: str, side: str,
                        capital: float, max_loss: float) -> dict:
     """
-    Derive quantity and stop-loss trigger from capital / max-loss constraints.
+    Derive CNC quantity and stop trigger from capital / max-loss constraints.
 
-    Parameters
-    ----------
-    kite : KiteConnect
-    symbol : str
-    side : str  ``"BUY"`` or ``"SELL"``
-    capital : float  total capital allocated for this trade
-    max_loss : float  maximum acceptable loss in ₹ for this trade
+    ``qty = floor(capital / LTP)`` (delivery needs full cash) and the stop is
+    ``max_loss / qty`` below LTP, rounded down to the 0.05 tick.
 
     Returns
     -------
     dict
         ``{"qty": int, "trigger_price": float, "last_price": float}``
     """
-    # Margin check to determine affordable qty
-    margin_params = [{
-        "exchange": "NSE",
-        "tradingsymbol": symbol,
-        "transaction_type": "BUY",
-        "variety": "CO",
-        "product": "MIS",
-        "order_type": "MARKET",
-        "quantity": 1,
-    }]
-    try:
-        margin = kite.order_margins(margin_params)
-        margin_per_unit = margin[0]["total"]
-    except Exception:
-        margin_per_unit = capital  # fallback: 1 unit
-
-    qty = max(1, int(capital / margin_per_unit))
-    sl_offset = max_loss / qty  # per-share SL offset
-
-    # Get LTP for SL price
     quote = kite.quote([f"NSE:{symbol}"])
-    ltp = quote[f"NSE:{symbol}"]["last_price"]
-
-    if side == "BUY":
-        trigger = ltp - sl_offset
-    else:
-        trigger = ltp + sl_offset
-
-    # Round to tick size (0.05)
-    trigger = round(trigger, 2)
-    trigger = int(trigger * 100)
-    trigger = (trigger - trigger % 5) / 100
-
+    ltp = float(quote[f"NSE:{symbol}"]["last_price"])
+    qty = int(capital // ltp) if ltp > 0 else 0
+    if qty <= 0:
+        return {"qty": 0, "trigger_price": 0.0, "last_price": ltp}
+    sl_offset = max_loss / qty
+    raw = ltp - sl_offset if side == "BUY" else ltp + sl_offset
+    trigger = _gtt_stops().round_to_tick(max(raw, 0.05), mode="down" if side == "BUY" else "up")
     return {"qty": qty, "trigger_price": trigger, "last_price": ltp}
+
+
+def _held_cnc_quantity(kite: KiteConnect, symbol: str) -> int:
+    try:
+        return int(_gtt_stops().get_held_quantities(kite).get(symbol, 0))
+    except Exception as e:
+        log.warning("Holdings lookup failed for %s: %s", symbol, e)
+        return 0
 
 
 def place_strategy_order(kite: KiteConnect, symbol: str, side: str,
                          capital: float, max_loss: float,
                          order_type: str = "MARKET") -> dict:
     """
-    Place a Cover Order (CO / MIS) with auto-calculated SL.
+    Long-only CNC order for an RSI signal (routed through ``order_service``).
+
+    * ``BUY``: CNC BUY of ``floor(capital / LTP)`` shares, then a GTT stop at
+      ``LTP - max_loss / qty`` for the new holding (best-effort).
+    * ``SELL``: exits the existing CNC holding only (``is_exit=True``); with no
+      holding nothing is placed (no short selling).
 
     Returns
     -------
     dict
         ``{"success": bool, "order_id": str | None, "error": str | None,
-           "qty": int, "trigger_price": float, "last_price": float}``
+           "qty": int, "trigger_price": float, "last_price": float, "gtt": dict | None}``
     """
+    svc = _order_service()
+    empty = {"success": False, "order_id": None, "qty": 0, "trigger_price": 0,
+             "last_price": 0, "gtt": None}
     try:
-        calc = compute_sl_and_qty(kite, symbol, side, capital, max_loss)
-        qty = calc["qty"]
-        trigger = calc["trigger_price"]
-        ltp = calc["last_price"]
+        if side == "SELL":
+            held = _held_cnc_quantity(kite, symbol)
+            if held <= 0:
+                return {**empty, "error": "SELL signal ignored: no CNC holding (long-only)"}
+            res = svc.place_order(kite, symbol, "NSE", "SELL", held, order_type="MARKET",
+                                  product="CNC", is_exit=True)
+            if res.get("success"):
+                try:
+                    _gtt_stops().delete_stop_gtts_for_symbol(kite, symbol, reason="rsi_exit")
+                except Exception:
+                    pass
+            return {**empty, "success": bool(res.get("success")), "order_id": res.get("order_id"),
+                    "error": res.get("error"), "qty": held}
 
-        params = dict(
-            variety="co",
-            exchange="NSE",
-            tradingsymbol=symbol,
-            transaction_type=side,
-            quantity=qty,
-            product="MIS",
-            order_type=order_type,
-            validity="DAY",
-            trigger_price=trigger,
-        )
+        calc = compute_sl_and_qty(kite, symbol, "BUY", capital, max_loss)
+        qty, trigger, ltp = calc["qty"], calc["trigger_price"], calc["last_price"]
+        if qty <= 0:
+            return {**empty, "error": "Capital below one share", "last_price": ltp}
+        price = None
         if order_type == "LIMIT":
-            params["price"] = ltp
-
-        order_id = kite.place_order(**params)
-        return {
-            "success": True,
-            "order_id": order_id,
-            "qty": qty,
-            "trigger_price": trigger,
-            "last_price": ltp,
-            "error": None,
-        }
+            price = ltp
+        res = svc.place_order(kite, symbol, "NSE", "BUY", qty, order_type=order_type,
+                              product="CNC", price=price)
+        out = {**empty, "success": bool(res.get("success")), "order_id": res.get("order_id"),
+               "error": res.get("error"), "qty": qty, "trigger_price": trigger, "last_price": ltp}
+        if res.get("success") and trigger > 0:
+            try:
+                out["gtt"] = _gtt_stops().place_or_update_stop_gtt(kite, symbol, qty, trigger,
+                                                                   last_price=ltp)
+            except Exception as e:
+                out["gtt"] = {"success": False, "error": str(e)}
+        return out
     except kite_exceptions.InputException as e:
-        return {"success": False, "error": f"Invalid input: {e}", "order_id": None,
-                "qty": 0, "trigger_price": 0, "last_price": 0}
-    except kite_exceptions.OrderException as e:
-        return {"success": False, "error": f"Order rejected: {e}", "order_id": None,
-                "qty": 0, "trigger_price": 0, "last_price": 0}
+        return {**empty, "error": f"Invalid input: {e}"}
     except Exception as e:
-        return {"success": False, "error": str(e), "order_id": None,
-                "qty": 0, "trigger_price": 0, "last_price": 0}
+        return {**empty, "error": str(e)}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -250,7 +259,7 @@ def scan_watchlist(kite: KiteConnect, symbols: list[str],
     rsi_high : float             overbought threshold (default 70)
     interval : str               candle interval (default "5minute")
     lookback_days : int          days of historical data to fetch
-    auto_place : bool            if True, actually places orders; if False, only scans
+    auto_place : bool            if True, places CNC orders (daily interval only); if False, only scans
 
     Returns
     -------
@@ -259,6 +268,11 @@ def scan_watchlist(kite: KiteConnect, symbols: list[str],
     """
     results = []
     orders_placed = 0
+    auto_allowed = interval == AUTO_PLACE_INTERVAL
+    if auto_place and not auto_allowed:
+        log.warning("RSI auto-placement disabled for interval=%s (daily candles only)", interval)
+    if interval == "day":
+        lookback_days = max(lookback_days, 90)  # >= 16 daily candles for RSI(14)
     to_date = datetime.today().strftime("%Y-%m-%d %H:%M:%S")
     from_date = (datetime.today() - timedelta(days=lookback_days)).strftime("%Y-%m-%d") + " 09:15:00"
 
@@ -312,8 +326,11 @@ def scan_watchlist(kite: KiteConnect, symbols: list[str],
         entry["prev_close"] = sig["prev_close"]
         entry["ltp"] = quotes[key].get("last_price", 0)
 
-        # Place order if signal is active
-        if sig["signal"] and auto_place:
+        # Place order if signal is active (daily candles only — swing mandate)
+        if sig["signal"] and auto_place and not auto_allowed:
+            entry["order"] = {"success": False, "order_id": None, "qty": 0, "trigger_price": 0,
+                              "error": f"Auto-placement requires daily candles (interval='{AUTO_PLACE_INTERVAL}')"}
+        elif sig["signal"] and auto_place:
             result = place_strategy_order(
                 kite, symbol, sig["signal"],
                 capital=capital, max_loss=max_loss,

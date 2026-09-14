@@ -2,7 +2,8 @@
 Aronson Evidence-Based Technical Analysis — Statistical Validation Module.
 
 Implements the core statistical tests from David Aronson's EBTA framework:
-  1. Detrended (zero-centred) returns for unbiased signal evaluation
+  1. Aronson benchmark detrending (drift x exposure removed); demean_returns
+     for plain centring
   2. Per-signal t-statistic gating (t >= 2.0 ↔ p < 0.05)
   3. Benjamini-Hochberg FDR control across multiple signals
   4. White's Reality Check (bootstrap null for best-of-N)
@@ -25,6 +26,7 @@ Usage:
 import logging
 import json
 import math
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -110,18 +112,97 @@ class ValidationSummary:
 #  Core Statistical Functions
 # ══════════════════════════════════════════════════════════════
 
-def detrend_returns(returns: pd.Series, window: int = 252) -> pd.Series:
-    """Zero-centre returns by subtracting the expanding (or rolling) mean.
+def demean_returns(returns: pd.Series, window: int = 252) -> pd.Series:
+    """Centre a return series on its OWN rolling mean (not Aronson detrending).
 
-    Aronson Ch 1: Detrending eliminates the confounding of signal timing
-    skill with the market's secular trend.  Uses expanding mean for short
-    histories, rolling 252-day mean once enough data is available.
+    Subtracts the rolling ``window``-day mean (min 30 obs, back/forward
+    filled); series shorter than 30 observations have their global mean
+    removed.  The result has mean ~0 by construction, so a Sharpe ratio of the
+    output says nothing about skill -- use :func:`detrend_returns` with a
+    benchmark for Aronson-style detrending.
     """
     if len(returns) < 30:
         return returns - returns.mean()
     rolling_mean = returns.rolling(window=min(window, len(returns)), min_periods=30).mean()
     rolling_mean = rolling_mean.ffill().bfill()
     return returns - rolling_mean
+
+
+def _has_datetime_index(x: Any) -> bool:
+    return isinstance(x, pd.Series) and isinstance(x.index, pd.DatetimeIndex)
+
+
+def detrend_returns(
+    returns: pd.Series,
+    window: int = 252,
+    benchmark_returns: Optional[Any] = None,
+    exposure: Optional[Any] = None,
+) -> pd.Series:
+    """Aronson benchmark detrending of a rule's returns.
+
+    Aronson (EBTA, ch. 1): a long-biased rule profits from the market's
+    average drift merely by being exposed.  The detrended return is
+
+        r_detrended[t] = r[t] - mean(benchmark_returns) * exposure[t]
+
+    where ``exposure[t]`` is the rule's net exposure on day ``t`` (1.0 for
+    always long, 0 flat; defaults to 1.0).  The benchmark mean is taken over
+    the dates common to ``returns`` and ``benchmark_returns``.
+
+    Alignment: pandas Series with a DatetimeIndex are aligned by date;
+    otherwise inputs must have equal length (a ``ValueError`` is raised
+    instead of silently truncating).
+
+    Backward compatibility: called WITHOUT ``benchmark_returns`` this only
+    centres the series on its own rolling mean (:func:`demean_returns`) and
+    emits a ``DeprecationWarning`` -- that form removes all mean return by
+    construction and must not be used to measure skill.
+    """
+    if benchmark_returns is None:
+        warnings.warn(
+            "detrend_returns(returns) without benchmark_returns only demeans the series "
+            "(Sharpe ~0 by construction); use demean_returns() for that, or pass "
+            "benchmark_returns (and exposure) for Aronson detrending",
+            DeprecationWarning, stacklevel=2,
+        )
+        return demean_returns(returns, window)
+
+    ret = returns if isinstance(returns, pd.Series) else pd.Series(np.asarray(returns, dtype=float))
+    ret = ret.astype(float)
+    if exposure is None:
+        exp = pd.Series(1.0, index=ret.index)
+    elif np.isscalar(exposure):
+        exp = pd.Series(float(exposure), index=ret.index)
+    else:
+        exp = exposure
+
+    if _has_datetime_index(ret) and _has_datetime_index(benchmark_returns):
+        bench = benchmark_returns.astype(float)
+        common = ret.index.intersection(bench.index)
+        if len(common) == 0:
+            raise ValueError("returns and benchmark_returns share no dates")
+        drift = float(bench.loc[common].mean())
+        if _has_datetime_index(exp):
+            exp_aligned = exp.astype(float).reindex(ret.index)
+        elif isinstance(exp, pd.Series) and exp.index.equals(ret.index):
+            exp_aligned = exp.astype(float)
+        else:
+            arr = np.asarray(exp, dtype=float)
+            if arr.shape[0] != len(ret):
+                raise ValueError(f"exposure length {arr.shape[0]} != returns length {len(ret)}")
+            exp_aligned = pd.Series(arr, index=ret.index)
+        return ret - drift * exp_aligned
+
+    bench_arr = np.asarray(benchmark_returns, dtype=float)
+    exp_arr = np.asarray(exp, dtype=float)
+    if bench_arr.shape[0] != len(ret):
+        raise ValueError(
+            f"benchmark_returns length {bench_arr.shape[0]} != returns length {len(ret)}; "
+            "pass date-indexed pandas Series to align by date")
+    if exp_arr.shape[0] != len(ret):
+        raise ValueError(f"exposure length {exp_arr.shape[0]} != returns length {len(ret)}")
+    drift = float(np.nanmean(bench_arr))
+    return ret - drift * pd.Series(exp_arr, index=ret.index)
 
 
 def compute_signal_tstat(
@@ -393,11 +474,25 @@ class AronsonValidator:
 
             # Detrend if benchmark provided
             if benchmark_returns is not None:
-                bm = np.asarray(benchmark_returns, dtype=float)
-                bm = bm[np.isfinite(bm)]
-                min_len = min(len(rets), len(bm))
-                if min_len > 10:
-                    rets_dt = rets[:min_len] - bm[:min_len]
+                raw = signal_returns[name]
+                if _has_datetime_index(raw) and _has_datetime_index(benchmark_returns):
+                    pair = pd.concat([raw.astype(float), benchmark_returns.astype(float)],
+                                     axis=1, join="inner").dropna()
+                    r_al, bm_al = pair.iloc[:, 0].to_numpy(), pair.iloc[:, 1].to_numpy()
+                else:
+                    r_al = np.asarray(raw, dtype=float)
+                    bm_al = np.asarray(benchmark_returns, dtype=float)
+                    if r_al.shape[0] != bm_al.shape[0]:
+                        logger.warning(
+                            "Signal %s: %d returns vs %d benchmark returns cannot be aligned "
+                            "without dates; benchmark-relative stats skipped",
+                            name, r_al.shape[0], bm_al.shape[0])
+                        r_al = bm_al = np.array([])
+                    else:
+                        ok = np.isfinite(r_al) & np.isfinite(bm_al)
+                        r_al, bm_al = r_al[ok], bm_al[ok]
+                if len(r_al) > 10:
+                    rets_dt = r_al - bm_al  # benchmark-relative (excess over benchmark)
                     sv.detrended_sharpe = trimmed_sharpe(rets_dt, self.trim_pct)
                 else:
                     rets_dt = rets
@@ -709,18 +804,24 @@ def compute_pbo(
 # ══════════════════════════════════════════════════════════════
 
 def compute_alpha_beta(
-    portfolio_returns: np.ndarray,
-    benchmark_returns: np.ndarray,
+    portfolio_returns: Any,
+    benchmark_returns: Any,
     annualization: float = 252.0,
 ) -> Dict[str, float]:
     """Decompose portfolio returns into alpha (skill) and beta (market exposure).
 
     Uses OLS regression: R_p = alpha + beta × R_b + epsilon
 
+    Pandas Series with a DatetimeIndex are aligned by date (inner join).
+    Plain arrays must have equal length -- a ``ValueError`` is raised on a
+    mismatch (the legacy behaviour truncated from the start, misaligning
+    dates).  For HAC t-stats on excess returns use
+    ``nse_engine.validation.diagnostics.alpha_beta``.
+
     Parameters
     ----------
-    portfolio_returns : array of daily portfolio returns
-    benchmark_returns : array of daily benchmark returns (e.g. NIFTY50)
+    portfolio_returns : daily portfolio returns (Series with DatetimeIndex or array)
+    benchmark_returns : daily benchmark returns (e.g. NIFTY50), same type
     annualization : float, trading days per year
 
     Returns
@@ -735,20 +836,29 @@ def compute_alpha_beta(
         information_ratio : float — alpha / tracking_error
         beta_contribution_pct : float — % of total return from beta
     """
-    port = np.asarray(portfolio_returns, dtype=float)
-    bench = np.asarray(benchmark_returns, dtype=float)
+    if _has_datetime_index(portfolio_returns) and _has_datetime_index(benchmark_returns):
+        # Align BY DATE (inner join) -- never by position.
+        pair = pd.concat([portfolio_returns.astype(float).rename("p"),
+                          benchmark_returns.astype(float).rename("b")],
+                         axis=1, join="inner")
+        port = pair["p"].to_numpy()
+        bench = pair["b"].to_numpy()
+    else:
+        port = np.asarray(portfolio_returns, dtype=float)
+        bench = np.asarray(benchmark_returns, dtype=float)
+        if port.shape[0] != bench.shape[0]:
+            raise ValueError(
+                f"compute_alpha_beta: portfolio_returns ({port.shape[0]}) and "
+                f"benchmark_returns ({bench.shape[0]}) differ in length. Plain arrays are "
+                "not truncated (that misaligns dates); pass pandas Series with a "
+                "DatetimeIndex to align by date.")
 
-    # Align lengths
-    min_len = min(len(port), len(bench))
-    if min_len < 30:
+    if len(port) < 30:
         return {
             "alpha_daily": 0.0, "alpha_annual_pct": 0.0, "beta": 1.0,
             "alpha_sharpe": 0.0, "r_squared": 0.0, "tracking_error": 0.0,
             "information_ratio": 0.0, "beta_contribution_pct": 100.0,
         }
-
-    port = port[:min_len]
-    bench = bench[:min_len]
 
     # Filter NaN/inf
     mask = np.isfinite(port) & np.isfinite(bench)
