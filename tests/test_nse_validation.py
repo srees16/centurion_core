@@ -218,6 +218,23 @@ class TestDeflatedSharpe(unittest.TestCase):
         self.assertEqual(out["n_trials_eff"], 20)
         self.assertLess(out["dsr"], 0.95)  # best of 20 noise trials must not pass
 
+    def test_parameter_variants_counted_raw_by_default(self):
+        rng = np.random.default_rng(8)
+        t = 1500
+        base = rng.normal(0.0004, 0.01, t)
+        m = pd.DataFrame({f"v{k}": base + rng.normal(0.0001 * k, 0.004, t) for k in range(12)},
+                         index=bdays(t))  # 12 highly correlated variants of one strategy
+        best = m.mean().idxmax()
+        raw = deflated_sharpe(m[best], trials_matrix=m)
+        clustered = deflated_sharpe(m[best], trials_matrix=m, trial_count="clustered")
+        self.assertEqual(raw["n_trials_eff"], 12)
+        self.assertEqual(raw["n_trials_source"], "raw_count")
+        self.assertEqual(clustered["n_trials_clustered"], 1)
+        self.assertEqual(clustered["n_trials_eff"], 1)
+        self.assertLess(raw["dsr"], clustered["dsr"])
+        with self.assertRaises(ValueError):
+            deflated_sharpe(m[best], trials_matrix=m, trial_count="bogus")
+
 
 # ----------------------------------------------------------------------------
 # PBO

@@ -83,8 +83,11 @@ corporate-actions file (`PR{DDMMYY}.zip`, latest revision wins);
 (2) `factors_from_prev_close` only where it explains the observed gap and is
 not contradicted by other symbols that day; (3) rights (theoretical ex-rights
 price) and demergers/capital reductions (ex-date open / prior close);
-(4) price-inferred factors for unexplained large gaps, each logged. Prices
-are price-return (dividends not adjusted). `index_close` has `NIFTY50`, `NIFTY500` and
+(4) price-inferred factors for unexplained large gaps, snapped to exact split/bonus
+ratios where possible (ISIN changes flag face-value splits), each logged. Prices are
+total-return by default: cash dividends from the corporate-actions file are
+back-adjusted (`DataConfig.adjust_dividends`; False gives price-only series).
+`index_close` has `NIFTY50`, `NIFTY50_TRI` (derived from NSE's dividend-points index), `NIFTY500` and
 `INDIAVIX` where available: VIX from NSE index files, back-filled from yfinance
 `^INDIAVIX` before NSE coverage starts.
 
@@ -135,3 +138,20 @@ EngineExecutor(kite=None, paper: bool = True, config: EngineConfig | None = None
 ```
 
 Real orders require `CENTURION_PAPER_TRADE=false` and `CENTURION_NSE_ENGINE_LIVE=true`.
+
+### Deployment and paper trading
+
+`config/nse_engine_deployed.json` (loaded by `nse_engine.deployment`) pins the
+one configuration that paper/live trades: engine config, `status`
+(`placeholder` or `approved`), `source_run_id`, `approved_at`,
+`paper_start_date` and `data_anchor_date`. It is written by
+`runners/run_nse_engine.py promote`, which checks PBO, deflated Sharpe, the
+benchmark gate and the holdout first. Live trading refuses placeholder files.
+
+Paper flow (`EngineExecutor.run_paper_session`, daily after the bhavcopy is
+published): GTT-style stop checks at the open → fill yesterday's pending
+orders at this session's open with the backtest's impact and statutory costs
+→ mark to close → plan from the close (targets scaled by the distribution
+shift multiplier for new risk) → queue orders for the next open. See
+`docs/nse_engine_validation_plan.md` for gates and monitoring.
+

@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from nse_engine.data.validation import (
+    CORPORATE_RATIOS,
     adjust_for_factors,
     clean_ohlcv,
     factors_from_prev_close,
@@ -92,6 +93,14 @@ class FactorTests(unittest.TestCase):
     def test_snap_factor(self):
         self.assertEqual(snap_factor(0.0101), (0.01, True))
         self.assertFalse(snap_factor(0.73)[1] and abs(snap_factor(0.73)[0] - 0.73) > 0.04)
+
+    def test_snap_to_corporate_ratios(self):
+        for ratio in (0.2, 0.5, 0.1, 0.4, 2 / 3, 0.25, 0.01, 10.0, 2 / 15):  # 10->2, 10->5, 10->1, 5->2, bonus 1:2, ...
+            self.assertTrue(any(abs(ratio / c - 1) < 1e-9 for c in CORPORATE_RATIOS), ratio)
+        self.assertEqual(snap_factor(0.1893, 0.12, CORPORATE_RATIOS), (0.2, True))  # SHRIRAMFIN close ratio
+        self.assertEqual(snap_factor(0.2014, 0.06, CORPORATE_RATIOS), (0.2, True))  # its ex-date open
+        self.assertEqual(snap_factor(1.5, 0.06, CORPORATE_RATIOS), (1.5, False))  # nothing common nearby
+        self.assertEqual(snap_factor(float("nan"), 0.06, CORPORATE_RATIOS)[1], False)
 
 
 if __name__ == "__main__":

@@ -289,13 +289,27 @@ def load_sector_map(paths: Iterable[PathLike]) -> Dict[str, str]:
 
 # ------------------------------------------------------- corporate actions
 #: Purposes that change the price scale by a ratio stated in the text.
-_BONUS_RE = re.compile(r"\bBON(?:US)?\b[^0-9/]{0,12}?(\d+)\s*:\s*(\d+)")
-_SPLIT_RE = re.compile(r"SPL?I?T\D*?(\d+(?:\.\d+)?)\s*(?:/-)?\s*(?:PER\s+SH\w*)?\s*TO\s*(?:RS|RE)?\.?\s*(\d+(?:\.\d+)?)")
-_CONSOL_RE = re.compile(r"CONSOL\w*\D*?(\d+(?:\.\d+)?)\s*(?:/-)?\s*TO\s*(?:RS|RE)?\.?\s*(\d+(?:\.\d+)?)")
+#: Bonus issues of other instruments (debentures, preference shares, DVRs) are
+#: value distributions, not share-count changes: see ``_BONUS_OTHER_RE``.
+_NUM = r"(\d+(?:\.\d+)?)"
+_BONUS_RE = re.compile(r"(?<![A-Z])(?:BON(?:US)?(?:\s*ISSUE)?|ADD(?:ITIONAL)?\s*ISSUANCE)[\s\-:]*(\d+)\s*:\s*(\d+)")
+_BONUS_WORD_RE = re.compile(r"(?<![A-Z])BON(?:US)?(?![A-Z])")
+_BONUS_OTHER_RE = re.compile(r"BON\w*\W*(?:\d+\s*)?(?:DEB|NCRPS|PREF|CRPS|DVR|BOND)")
+#: Split: "FV SPLIT RS.10 TO RS.2", "FVSPLT FRM RS 10 TO RS 5", "FV SPL FRM RS 10 TO RE 1",
+#: "SUB DIV FRM RS 10 TO RS 2", "FVS RS.5TORE.1", "FV SPLT2503.61TO250.361", "FVSPLTFRM10TO1".
+_SPLIT_WORD = r"(?:SPLIT|SPLT|SPLI$|(?<![A-Z])SPT(?![A-Z])|FV\s*SPL(?!\s*-?\s*(?:INT\s*)?D)|FVS(?![A-Z])|SUB\s*-?\s*DIV(?:ISION)?\s*(?=FRM|FROM|RS|RE|\d))"
+_SPLIT_RE = re.compile(_SPLIT_WORD + r"[^0-9:]{0,14}?" + _NUM + r"\s*(?:/-)?\s*(?:PER\s+SH\w*)?\s*TO\s*(?:RS|RE)?\.?\s*"
+                       + _NUM)
+_SPLIT_TRUNC_RE = re.compile(_SPLIT_WORD + r"(?:[^0-9:]{0,14}?" + _NUM + r")?")
+_CONSOL_WORD = r"(?:CONSOL\w*|CONSO(?![A-Z])|CNSLDATN)"
+_CONSOL_RE = re.compile(_CONSOL_WORD + r"[^0-9]{0,10}?" + _NUM + r"\s*(?:/-)?\s*TO\s*(?:RS|RE)?\.?\s*" + _NUM)
+_CONSOL_TRUNC_RE = re.compile(_CONSOL_WORD)
 _RIGHTS_RE = re.compile(
-    r"\bR(?:IG)?HTS?\b\s*(\d+)\s*:\s*(\d+)\s*(?:@\s*(?:PREM\w*|PRM)?\s*(?:RS|RE)?\.?\s*(\d+(?:\.\d+)?))?")
+    r"(?<![A-Z])(?:RIGHTS?|RGHTS?|RGTS|RIGTS|RHTS)\s*:?\s*(\d+)\s*:\s*(\d+)"
+    r"\s*(?:(?:@|AT)?\s*(?:(PAR)|(?:PREM\w*|PRM|PERM)\s*@?\s*(?:RS|RE)?\.?\s*(\d+(?:\.\d+)?)))?")
 #: Purposes that change the price scale by an amount only prices reveal.
-_PRICE_BASED_RE = re.compile(r"DEMERGER|SCHEME OF ARRANGEMENT|CAPITAL REDUCTION|REDUCTION OF CAPITAL|RETURN OF CAPITAL")
+_PRICE_BASED_RE = re.compile(r"DEMERGER|DE-MERGER|SCHEME OF ARRANGEMENT|CAPITAL REDUCTION|REDUCTION OF CAPITAL|"
+                             r"RETURN OF CAPITAL|CAP\.?\s*RED\w*|REDUCTION\s*-\s*SHARE CAPITAL")
 
 CA_COLUMNS = ["symbol", "series", "ex_date", "purpose", "file_date"]
 
@@ -335,39 +349,143 @@ def parse_corporate_actions(text: str, file_date: Optional[pd.Timestamp] = None)
     return df.dropna(subset=["ex_date"])[CA_COLUMNS].reset_index(drop=True)
 
 
+#: ``hint`` codes for share-count changes whose ratio the (24-character, often
+#: truncated) purpose does not state: the ratio is then measured from prices.
+HINT_SPLIT, HINT_CONSOLIDATION = -1.0, 1.0
+
+
 def classify_purpose(purpose: str) -> Dict[str, float]:
     """Interpret a corporate-action purpose.
 
     Returns ``{"factor": f}`` for bonus / split / consolidation (product of
-    all components, f = new price scale / old), ``{"rights_new": a,
-    "rights_held": b, "rights_premium": p}`` for rights, ``{"price_based": 1}``
-    for demergers / capital reductions, or ``{}`` for everything else
-    (dividends, meetings, buybacks, mergers).
+    all components, f = new price scale / old), ``{"hint": -1|+1}`` for a
+    split or bonus (-1) / consolidation (+1) whose ratio is missing or
+    truncated, ``{"rights_new": a, "rights_held": b, "rights_premium": p}``
+    for rights, ``{"price_based": 1}`` for demergers / capital reductions /
+    bonus debentures, or ``{}`` for everything else (dividends, meetings,
+    buybacks, mergers).  Dividend amounts come from ``parse_dividend_amount``.
     """
-    text = purpose.upper()
+    text = re.sub(r"\s+", " ", purpose.upper()).strip()
     out: Dict[str, float] = {}
     factor = 1.0
-    for a, b in _BONUS_RE.findall(text):
-        a, b = float(a), float(b)
-        if a > 0 and b > 0:
-            factor *= b / (a + b)
-    for old, new in _SPLIT_RE.findall(text):
+    other_bonus = bool(_BONUS_OTHER_RE.search(text))
+    if not other_bonus:
+        for a, b in _BONUS_RE.findall(text):
+            a, b = float(a), float(b)
+            if a > 0 and b > 0:
+                factor *= b / (a + b)
+    splits = _SPLIT_RE.findall(text)
+    for old, new in splits:
         old, new = float(old), float(new)
         if old > 0 and 0 < new < old:
             factor *= new / old
-    for old, new in _CONSOL_RE.findall(text):
+    consols = _CONSOL_RE.findall(text)
+    for old, new in consols:
         old, new = float(old), float(new)
         if 0 < old < new:
             factor *= new / old
     if factor != 1.0:
         out["factor"] = factor
+    elif not other_bonus and ((not splits and _SPLIT_TRUNC_RE.search(text))
+                              or (_BONUS_WORD_RE.search(text) and not _BONUS_RE.search(text))):
+        out["hint"] = HINT_SPLIT
+    elif not consols and _CONSOL_TRUNC_RE.search(text):
+        out["hint"] = HINT_CONSOLIDATION
     m = _RIGHTS_RE.search(text)
     if m:
-        out.update(rights_new=float(m.group(1)), rights_held=float(m.group(2)),
-                   rights_premium=float(m.group(3)) if m.group(3) else float("nan"))
-    if not out and _PRICE_BASED_RE.search(text):
+        premium = 0.0 if m.group(3) else (float(m.group(4)) if m.group(4) else float("nan"))
+        out.update(rights_new=float(m.group(1)), rights_held=float(m.group(2)), rights_premium=premium)
+    if not out and (_PRICE_BASED_RE.search(text) or other_bonus):
         out["price_based"] = 1.0
+    if "hint" in out and _PRICE_BASED_RE.search(text):
+        out["price_based"] = 1.0  # e.g. "CAP REDN/CONSOLIDATION": measured from prices either way
     return out
+
+
+# ---------------------------------------------------------------- dividends
+_DIV_KEYWORD_RE = re.compile(r"DIV|DVSPDV|(?<![A-Z])IDV(?![A-Z])|(?<![A-Z])(?:SP|SPL|INT)?DV(?![A-Z])|DIVIDND|(?<![A-Z])DI\W*R[SE]"
+                             r"|(?<![A-Z])(?:FIN|INT|SPL)\W*R[SE](?![A-Z])")
+_NOT_DIV_RE = re.compile(r"INTEREST|REDEMPTION|(?<![A-Z])SUB\s*-?\s*DIV")
+#: Clauses removed before reading dividend amounts.
+_STRIP_RES = [
+    re.compile(r"(?<![A-Z])(?:RIGHTS?|RGHTS?|RGTS|RIGTS|RHTS)\s*:?\s*\d+\s*:\s*\d+"
+               r"(?:\s*(?:@|AT)?\s*(?:PAR|PREM\w*|PRM|PERM)?\s*@?\s*(?:RS|RE)?\.?\s*\d+(?:\.\d+)?(?:\s*/-)?)?"),
+    re.compile(r"(?:RS|RE)?\.?\s*\d+(?:\.\d+)?\s*(?:/-)?\s*TO\s*(?:RS|RE)?\.?\s*\d+(?:\.\d+)?"),  # split / consolidation
+    re.compile(_SPLIT_WORD + r"[^/+&]*"),  # truncated split clause
+    re.compile(r"\d+\s*:\s*\d+"),  # bonus ratios
+    re.compile(r"BUY\s*-?\s*BACK[^/+&]*"),
+    re.compile(r"(?<![\d.])[1-9]\s*(?:ST|ND|RD|TH|D)(?=INT|SPL|FIN|SEC|DIV|\s|/|-|$)"),  # 2ND INT DIV, 2D INT DIV
+    re.compile(r"(?<![A-Z])FY\s*\d{2,4}(?:\s*-\s*\d{2,4})?"),
+]
+_AMOUNT_RE = re.compile(r"(?<!\d)(?<!\d\.)(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)")
+
+
+def parse_dividend_amount(purpose: str) -> Optional[float]:
+    """Cash dividend per share (INR) stated in a ``Bc`` purpose, or None.
+
+    Sums every component ("AGM/DIV-FIN RS 22+SPL RS 10" -> 32, "DIV/SPDV - RS 3
+    & RS 3" -> 6) after removing bonus, split, rights and buyback clauses
+    ("BONUS 1:1/DIV-RS 30 PR SH" -> 30, "DIV 1.35+FV SPL RS10TORS2" -> 1.35).
+    Purposes without an amount ("INTERIM DIVIDEND") and percentage forms
+    (a share of face value, which is not known historically) return None.
+    """
+    text = re.sub(r"\s+", " ", str(purpose).upper()).strip()
+    if not _DIV_KEYWORD_RE.search(text) or _NOT_DIV_RE.search(text) or "%" in text:
+        return None
+    text = re.sub(r"(?<![\d,])(\d+),(\d{1,2})(?![\d,])", r"\1.\2", text)  # "RS 2,50" (decimal comma)
+    for rx in _STRIP_RES:
+        text = rx.sub(" ", text)
+    amounts = [float(a.replace(",", "")) for a in _AMOUNT_RE.findall(text)]
+    total = float(sum(amounts))
+    return total if total > 0 else None
+
+
+DIVIDEND_COLUMNS = ["symbol", "ex_date", "dividend", "purpose", "file_date"]
+
+
+def dividend_events(actions: pd.DataFrame, series: Iterable[str] = ("EQ", "BE"),
+                    revision_days: int = 14) -> pd.DataFrame:
+    """Cash dividends per (symbol, ex_date), deduplicated across daily ``Bc`` files.
+
+    The ``Bc`` file lists upcoming actions, so one dividend appears in many
+    files (and in both EQ and BE rows).  Rules:
+
+    * each (symbol, ex_date, purpose) is kept once with its last file date;
+    * revised ex-dates: the same symbol and amount within ``revision_days``
+      keeps only the listing seen in the most recent file;
+    * several purposes on one (symbol, ex_date): only those still listed in
+      the latest file are kept (older ones were revisions); distinct amounts
+      among them are summed ("INT DIV RS 5" + "SPL DIV RS 3" rows -> 8).
+    """
+    if actions is None or actions.empty:
+        return pd.DataFrame(columns=DIVIDEND_COLUMNS)
+    df = actions[actions["series"].isin(list(series))][["symbol", "ex_date", "purpose", "file_date"]].copy()
+    df["purpose"] = df["purpose"].str.replace(r"\s+", " ", regex=True).str.strip()
+    amounts = {p: parse_dividend_amount(p) for p in df["purpose"].unique()}
+    df["dividend"] = df["purpose"].map(amounts)
+    df = df.dropna(subset=["dividend"])
+    if df.empty:
+        return pd.DataFrame(columns=DIVIDEND_COLUMNS)
+    df["file_date"] = pd.to_datetime(df["file_date"])
+    df = (df.groupby(["symbol", "ex_date", "purpose"], as_index=False)
+          .agg(dividend=("dividend", "first"), file_date=("file_date", "max")))
+    # revised ex-dates of the same dividend
+    df = df.sort_values(["symbol", "dividend", "ex_date"]).reset_index(drop=True)
+    gap = df.groupby(["symbol", "dividend"])["ex_date"].diff().dt.days
+    df["cluster"] = (gap.isna() | (gap > revision_days)).cumsum()
+    last_seen = df.groupby("cluster")["file_date"].transform("max")
+    df = df[df["file_date"] == last_seen]
+    df = df.sort_values(["ex_date"]).drop_duplicates(["cluster", "purpose"], keep="last")
+    df = df.drop_duplicates(["cluster"], keep="last").drop(columns="cluster")  # one ex-date per revised dividend
+    # several purposes on the same ex-date
+    latest = df.groupby(["symbol", "ex_date"])["file_date"].transform("max")
+    df = df[df["file_date"] == latest]
+    out = (df.drop_duplicates(["symbol", "ex_date", "dividend"])
+           .groupby(["symbol", "ex_date"], as_index=False)
+           .agg(dividend=("dividend", "sum"), purpose=("purpose", " | ".join), file_date=("file_date", "max")))
+    out["ex_date"] = pd.to_datetime(out["ex_date"]).astype("datetime64[ns]")
+    out["file_date"] = pd.to_datetime(out["file_date"]).astype("datetime64[ns]")
+    return out[DIVIDEND_COLUMNS].sort_values(["ex_date", "symbol"]).reset_index(drop=True)
 
 
 def corporate_action_events(actions: pd.DataFrame, series: Iterable[str] = ("EQ", "BE")) -> pd.DataFrame:
@@ -378,7 +496,7 @@ def corporate_action_events(actions: pd.DataFrame, series: Iterable[str] = ("EQ"
     Columns: symbol, ex_date, purpose, factor, rights_new, rights_held,
     rights_premium, price_based.
     """
-    cols = ["symbol", "ex_date", "purpose", "factor", "rights_new", "rights_held", "rights_premium", "price_based"]
+    cols = EVENT_COLUMNS
     if actions is None or actions.empty:
         return pd.DataFrame(columns=cols)
     df = actions[actions["series"].isin(list(series))].copy()
@@ -403,8 +521,12 @@ def corporate_action_events(actions: pd.DataFrame, series: Iterable[str] = ("EQ"
     return df[cols].sort_values(["ex_date", "symbol"]).reset_index(drop=True)
 
 
+EVENT_COLUMNS = ["symbol", "ex_date", "purpose", "factor", "rights_new", "rights_held", "rights_premium",
+                 "price_based", "hint"]
+
+
 def _category(parsed: Dict[str, float]) -> str:
-    if "factor" in parsed:
+    if "factor" in parsed or "hint" in parsed:
         return "ratio"
     return "rights" if "rights_new" in parsed else "price"
 

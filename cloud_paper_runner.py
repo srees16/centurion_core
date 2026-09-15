@@ -373,22 +373,56 @@ def _signals_and_trades(pt, ctx):
     return "success", f"{filled}/{len(plans)} filled ({planner}) | exits={len(exit_events)}"
 
 
+def _load_engine_deployment():
+    """Deployed engine config (config/nse_engine_deployed.json or $CENTURION_NSE_DEPLOYMENT).
+
+    A placeholder deployment is paper traded with a warning; live trading is
+    refused by the executor.
+    """
+    from nse_engine.deployment import load_deployment
+
+    dep = load_deployment(os.environ.get("CENTURION_NSE_DEPLOYMENT") or None)
+    if dep.is_placeholder:
+        logger.warning("NSE engine deployment %s is a PLACEHOLDER (status='placeholder'): "
+                       "paper trading the default EngineConfig; live trading is refused until the "
+                       "file is replaced with an approved configuration", dep.path)
+    logger.info("NSE engine deployment: %s", dep.summary())
+    return dep
+
+
 def _run_engine_paper():
-    """NSE engine path: targets -> paper orders + simulated GTT stops."""
+    """NSE engine path (EOD, after the bhavcopy is in the store).
+
+    Processes the latest store session — gap stops, pending orders filled at
+    that session's open, intraday stops — marks to the close, plans from the
+    close (distribution-shift multiplier applied) and queues the new orders
+    as PENDING for the next open.  Stops and prices come from the NSE store,
+    not yfinance, so paper and backtest see the same bars.
+    """
     from kite_connect.trading.nse_engine_executor import EngineExecutor
 
+    dep = _load_engine_deployment()
     pt = _open_paper_trader()
-    stop_events = _mark_and_simulate_stops(pt)
-    executor = EngineExecutor(kite=None, paper=True, paper_trader=pt)
-    plan = executor.plan()
-    results = executor.execute(plan)
+    executor = EngineExecutor(kite=None, paper=True, paper_trader=pt, deployment=dep)
+    session = executor.run_paper_session()
+    snapshot = {}
     try:
-        pt.snapshot_daily()
+        snapshot = pt.snapshot_daily() or {}
     except Exception as exc:
         logger.warning("Snapshot failed: %s", exc)
-    ok = sum(1 for r in results if r.get("success"))
-    msg = (f"engine as_of={plan.as_of} orders={len(plan.orders)} ok={ok} "
-           f"skipped={len(plan.skipped)} stops={len(stop_events)} cash={pt.cash:.0f}")
+    plan = session.get("plan")
+    fills = session.get("fills") or {}
+    queued = sum(1 for r in session.get("results", []) if r.get("status") == "PENDING")
+    shift = snapshot.get("distribution_shift") or {}
+    msg = (f"engine session={session['session']} deployment={dep.status} "
+           f"filled={len(fills.get('filled', []))} cancelled={len(fills.get('cancelled', []))} "
+           f"stops={len(session.get('stops', []))} queued={queued} "
+           f"skipped={len(plan.skipped) if plan else 0} "
+           f"shift_mult={plan.shift_multiplier if plan else 1.0:.2f} cash={pt.cash:.0f}")
+    if shift.get("reality_gap_alerts"):
+        msg += f" | REALITY GAP: {'; '.join(shift['reality_gap_alerts'])}"
+    for note in session.get("notes", []):
+        msg += f" | {note}"
     logger.info("NSE engine paper run: %s", msg)
     return "success", msg
 

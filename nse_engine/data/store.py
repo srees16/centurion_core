@@ -8,6 +8,7 @@ Layout under ``store_dir``::
     indices/2013.parquet     date, index_name, open, high, low, close
     corpact/2013.parquet     symbol, series, ex_date, purpose, file_date (raw Bc rows)
     corporate_actions.parquet  price-relevant events (whole store, deduplicated)
+    dividends.parquet        cash dividends per (symbol, ex_date) (whole store, deduplicated)
     spans.parquet            symbol, isin, first, last, n   (whole store)
     calendar.parquet         date                           (equity sessions)
     reference/*.csv          copies of the archive reference lists
@@ -45,7 +46,9 @@ logger = logging.getLogger(__name__)
 
 PathLike = Union[str, Path]
 
-STORE_VERSION = 2  # bump when parsing changes so every year is rebuilt
+STORE_VERSION = 3  # bump when parsing changes so every year is rebuilt
+#: bump when corporate-action / dividend event derivation changes (no year rebuild needed)
+EVENTS_VERSION = 3
 KEEP_SERIES = ("EQ", "BE")
 EQUITY_COLUMNS = ["date", "symbol", "series", "isin", "open", "high", "low", "close",
                   "prev_close", "volume", "value_inr", "trades", "deliv_qty", "deliv_pct"]
@@ -94,13 +97,25 @@ def _finish_equity(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ------------------------------------------------------------- parsers
+def _legacy_dates(raw: pd.Series) -> pd.Series:
+    """``19-DEC-2019``; a few files use a two-digit year (``13-Jul-20``, 2020-07-13)."""
+    raw = raw.str.strip()
+    dt = pd.to_datetime(raw, format="%d-%b-%Y", errors="coerce")
+    miss = dt.isna()
+    if miss.any():
+        dt[miss] = pd.to_datetime(raw[miss], format="%d-%b-%y", errors="coerce")
+    if dt.isna().any():
+        raise ValueError(f"unparseable TIMESTAMP values: {raw[dt.isna()].unique()[:3]}")
+    return dt
+
+
 def parse_legacy_bhavcopy(text: str) -> pd.DataFrame:
     """Legacy ``cmDDMONYYYYbhav.csv`` -> normalised equity rows."""
     df = pd.read_csv(io.StringIO(text), dtype=str, skipinitialspace=True)
     df.columns = [c.strip().upper() for c in df.columns]
     df = df.loc[:, [c for c in df.columns if c and not c.startswith("UNNAMED")]]
     out = pd.DataFrame({
-        "date": pd.to_datetime(df["TIMESTAMP"].str.strip(), format="%d-%b-%Y"),
+        "date": _legacy_dates(df["TIMESTAMP"]),
         "symbol": df["SYMBOL"], "series": df["SERIES"], "isin": df.get("ISIN"),
         "open": df["OPEN"], "high": df["HIGH"], "low": df["LOW"], "close": df["CLOSE"],
         "prev_close": df["PREVCLOSE"], "volume": df["TOTTRDQTY"], "value_inr": df["TOTTRDVAL"],
@@ -174,13 +189,48 @@ def normalise_index_name(name: str) -> str:
     return _INDEX_ALIASES.get(key, key)
 
 
-def parse_index_close(text: str) -> pd.DataFrame:
+_INDEX_DATE_FORMATS = ("%d-%m-%Y", "%d/%m/%Y", "%d-%b-%Y", "%Y-%m-%d")
+
+
+def _index_dates(raw: pd.Series, file_date: Optional[pd.Timestamp]) -> pd.Series:
+    """Parse index dates (dd-mm-yyyy, dd/mm/yyyy in 2014-15 files, ...), checked against the file date.
+
+    Some files (2023-04-06/10/11) write mm-dd-yyyy: when a date disagrees with
+    the file's own date but its day/month swap matches, the file date is used;
+    rows matching neither are dropped.
+    """
+    raw = raw.str.strip()
+    dt = pd.Series(pd.NaT, index=raw.index, dtype="datetime64[ns]")
+    for fmt in _INDEX_DATE_FORMATS:
+        miss = dt.isna()
+        if not miss.any():
+            break
+        dt[miss] = pd.to_datetime(raw[miss], format=fmt, errors="coerce")
+    if file_date is None or pd.isna(file_date):
+        return dt
+    fd = pd.Timestamp(file_date).normalize()
+    wrong = dt.notna() & (dt != fd)
+    if wrong.any():
+        swapped = pd.Series(pd.NaT, index=raw.index, dtype="datetime64[ns]")
+        for fmt in ("%m-%d-%Y", "%m/%d/%Y"):
+            miss = swapped.isna() & wrong
+            swapped[miss] = pd.to_datetime(raw[miss], format=fmt, errors="coerce")
+        fixable = wrong & (swapped == fd)
+        dt[fixable] = fd
+        dropped = wrong & ~fixable
+        logger.warning("index file for %s: %d rows with day/month swapped fixed, %d rows with other dates dropped",
+                       fd.date(), int(fixable.sum()), int(dropped.sum()))
+        dt[dropped] = pd.NaT
+    return dt
+
+
+def parse_index_close(text: str, file_date: Optional[pd.Timestamp] = None) -> pd.DataFrame:
     """``ind_close_all_DDMMYYYY.csv`` -> DataFrame[date, index_name, open, high, low, close]."""
     df = pd.read_csv(io.StringIO(text), dtype=str, skipinitialspace=True)
     df.columns = [c.strip() for c in df.columns]
     df = df.dropna(subset=["Index Name", "Index Date"])
     out = pd.DataFrame({
-        "date": pd.to_datetime(df["Index Date"].str.strip(), format="%d-%m-%Y", errors="coerce"),
+        "date": _index_dates(df["Index Date"], file_date),
         "index_name": df["Index Name"].map(normalise_index_name),
         "open": _num(df["Open Index Value"]), "high": _num(df["High Index Value"]),
         "low": _num(df["Low Index Value"]), "close": _num(df["Closing Index Value"]),
@@ -241,7 +291,8 @@ def build_year_frames(sources: Dict[str, List[Path]], keep_series: Sequence[str]
             if df is not None:
                 full_parts.append(df[df["series"].isin(keep_series)])
     for p in sources.get("indices", []):
-        df = _safe(parse_index_close, p)
+        file_date = pd.to_datetime(_date_of(p), format="%Y%m%d", errors="coerce")
+        df = _safe(lambda text, fd=file_date: parse_index_close(text, None if pd.isna(fd) else fd), p)
         if df is not None:
             idx_parts.append(df)
     ca_parts = []
@@ -268,7 +319,8 @@ def build_year_frames(sources: Dict[str, List[Path]], keep_series: Sequence[str]
     if deliv is not None and len(deliv):
         equity = equity.drop(columns=["deliv_qty", "deliv_pct"]).merge(deliv, on=key, how="left")
     equity = equity.sort_values(["date", "symbol", "series"]).reset_index(drop=True)
-    indices = (pd.concat(idx_parts, ignore_index=True).sort_values(["date", "index_name"]).reset_index(drop=True)
+    indices = (pd.concat(idx_parts, ignore_index=True).drop_duplicates(["date", "index_name"], keep="last")
+               .sort_values(["date", "index_name"]).reset_index(drop=True)
                if idx_parts else pd.DataFrame(columns=INDEX_COLUMNS))
     actions = (pd.concat(ca_parts, ignore_index=True).drop_duplicates()
                if ca_parts else pd.DataFrame(columns=reference.CA_COLUMNS))
@@ -343,10 +395,25 @@ def _write_spans_and_calendar(store: Path) -> Dict[str, int]:
     ca = [pd.read_parquet(p) for p in sorted((store / "corpact").glob("*.parquet"))]
     ca = [c for c in ca if len(c)]
     actions = pd.concat(ca, ignore_index=True) if ca else pd.DataFrame(columns=reference.CA_COLUMNS)
+    summary = {"spans": len(spans), "sessions": len(calendar)}
+    summary.update(_write_events(store, actions))
+    return summary
+
+
+def _write_events(store: Path, actions: Optional[pd.DataFrame] = None) -> Dict[str, int]:
+    """Derive corporate_actions.parquet and dividends.parquet from the raw corpact tables."""
+    if actions is None:
+        ca = [pd.read_parquet(p) for p in sorted((store / "corpact").glob("*.parquet"))]
+        ca = [c for c in ca if len(c)]
+        actions = pd.concat(ca, ignore_index=True) if ca else pd.DataFrame(columns=reference.CA_COLUMNS)
     events = reference.corporate_action_events(actions)
     events["ex_date"] = pd.to_datetime(events["ex_date"]).astype("datetime64[ns]")
+    for col in reference.EVENT_COLUMNS[3:]:
+        events[col] = pd.to_numeric(events[col], errors="coerce").astype("float64")
     _write_parquet(events, store / "corporate_actions.parquet")
-    return {"spans": len(spans), "sessions": len(calendar), "corporate_action_events": len(events)}
+    dividends = reference.dividend_events(actions)
+    _write_parquet(dividends, store / "dividends.parquet")
+    return {"corporate_action_events": len(events), "dividend_events": len(dividends)}
 
 
 def build_store(archive_root: PathLike, store_dir: PathLike, workers: Optional[int] = None,
@@ -390,7 +457,10 @@ def build_store(archive_root: PathLike, store_dir: PathLike, workers: Optional[i
         int(y) for y in manifest["years"] if int(y) not in results)}
     if results or not (store / "spans.parquet").exists():
         summary.update(_write_spans_and_calendar(store))
+    elif manifest.get("events_version") != EVENTS_VERSION or not (store / "dividends.parquet").exists():
+        summary.update(_write_events(store))
     manifest["store_version"] = STORE_VERSION
+    manifest["events_version"] = EVENTS_VERSION
     tmp = manifest_path.with_name(f".manifest.json.tmp{os.getpid()}")
     tmp.write_text(json.dumps(manifest, indent=1, sort_keys=True))
     os.replace(tmp, manifest_path)

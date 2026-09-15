@@ -12,6 +12,7 @@ Benchmarks (daily net simple returns on the trading calendar within
   ``config.signals.momentum_lookback/skip``) within the same universe, equal
   weight, monthly.
 * ``nifty50_price_index`` -- NIFTY50 PRICE index (no dividends, no costs);
+* ``nifty50_tri`` -- NIFTY50 total return index when ``index_close`` has it;
   informational only.
 * ``cash`` -- ``config.cash_yield_annual`` accrued daily.
 
@@ -240,6 +241,14 @@ def run_benchmarks(data: Any, config: Any,
         out["nifty50_price_index"] = nifty
     else:
         logger.warning("index_close has no %s column; NIFTY benchmark skipped", idx_col)
+
+    tri_col = f"{idx_col}_TRI"
+    if tri_col in getattr(data, "index_close", pd.DataFrame()).columns:
+        tri = data.index_close[tri_col].astype("float64").pct_change(fill_method=None).iloc[s0:s1 + 1]
+        tri.iloc[0] = 0.0 if not np.isfinite(tri.iloc[0]) else tri.iloc[0]
+        tri = tri.fillna(0.0).rename("nifty50_tri")
+        tri.attrs["note"] = f"{tri_col} total return index (dividends reinvested, no costs)"
+        out["nifty50_tri"] = tri
 
     y = float(config.cash_yield_annual) / 252.0
     out["cash"] = pd.Series(y, index=dates[s0:s1 + 1], name="cash")

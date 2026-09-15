@@ -653,10 +653,28 @@ class TestEngineExecutor(PaperTestBase):
         self.assertIsInstance(seen_stopped["DDD"], pd.Timestamp)
         results = ex.execute(plan)
         self.assertTrue(all(r.get("success") for r in results), results)
+        # Default paper execution queues next-open orders: the book is unchanged
+        self.assertIn("BBB", pt.holdings())
+        pending = {(o["symbol"], o["side"]): o for o in pt.pending_orders()}
+        self.assertEqual(pending[("BBB", "SELL")]["target_qty"], 0)
+        self.assertEqual(pending[("CCC", "BUY")]["stop_price"], 45.0)
+        # Legacy immediate mode fills at the close at once
+        pt.queue_pending_orders("2024-03-28", [])
+        ex.paper_fill = "immediate"
+        results = ex.execute(plan)
+        self.assertTrue(all(r.get("success") for r in results), results)
         held = pt.holdings()
         self.assertNotIn("BBB", held)
         self.assertIn("CCC", held)
         self.assertEqual(held["CCC"]["stop_price"], 45.0)
+
+
+def _deployment(status="approved"):
+    from nse_engine.config import EngineConfig
+    from nse_engine.deployment import Deployment
+    return Deployment(engine=EngineConfig(), paper_start_date=pd.Timestamp("2026-01-01").date(), status=status,
+                      source_run_id="run1" if status == "approved" else None,
+                      approved_at="2026-01-01T00:00:00+05:30" if status == "approved" else None)
 
 
 class TestLiveGuard(unittest.TestCase):
@@ -675,8 +693,13 @@ class TestLiveGuard(unittest.TestCase):
             clean.update(env)
             with mock.patch.dict(os.environ, clean, clear=True):
                 self.assertEqual(ne.live_orders_allowed()[0], expected, env)
-                ex = ne.EngineExecutor(kite=FakeKite(), paper=False, config=object())
+                ex = ne.EngineExecutor(kite=FakeKite(), paper=False, config=object(),
+                                       deployment=_deployment())
                 self.assertEqual(ex.paper, not expected, env)
+                # A placeholder deployment never trades live
+                ex = ne.EngineExecutor(kite=FakeKite(), paper=False, config=object(),
+                                       deployment=_deployment("placeholder"))
+                self.assertTrue(ex.paper, env)
 
     def test_live_without_kite_forces_paper(self):
         from kite_connect.trading import nse_engine_executor as ne

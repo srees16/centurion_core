@@ -1493,11 +1493,19 @@ def _run_nse_engine_executor():
         executor = EngineExecutor(kite=kite, paper=not allowed)
         logger.info("NSE engine executor: mode=%s (%s)", "paper" if executor.paper else "LIVE",
                     executor.mode_reason)
+        if executor.paper:
+            # Paper orders are queued and filled at the next session's open
+            # inside run_paper_session (same fills as the backtest).
+            session = executor.run_paper_session()
+            _save_run("nse_engine_executor", {"status": "success", "mode": "paper",
+                                              **{k: v for k, v in session.items()
+                                                 if isinstance(v, (str, int, float, bool))}})
+            return
         plan = executor.plan()
         results = executor.execute(plan)
         _save_run("nse_engine_executor", {
             "status": "success",
-            "mode": "paper" if executor.paper else "live",
+            "mode": "live",
             "as_of": str(plan.as_of),
             "orders": len(plan.orders),
             "ok": sum(1 for r in results if r.get("success")),

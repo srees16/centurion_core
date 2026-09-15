@@ -287,6 +287,7 @@ def deflated_sharpe(returns: pd.Series, trials_matrix: Optional[pd.DataFrame] = 
                     n_trials: Optional[float] = None, rf_annual: float = 0.0,
                     periods_per_year: int = PERIODS_PER_YEAR, threshold: float = 0.95,
                     min_intra_corr: float = 0.5, sr_variance: Optional[float] = None,
+                    trial_count: str = "raw",
                     ) -> Dict[str, object]:
     """Deflated Sharpe ratio of ``returns`` (daily simple returns).
 
@@ -295,8 +296,15 @@ def deflated_sharpe(returns: pd.Series, trials_matrix: Optional[pd.DataFrame] = 
     returns : daily returns of the selected strategy.
     trials_matrix : optional date x trial daily returns of EVERY configuration
         evaluated (e.g. ``TrialRegistry.returns_matrix()``); supplies the
-        cross-trial Sharpe variance and the clustered effective N.
-    n_trials : explicit effective N (overrides the cluster count).
+        cross-trial Sharpe variance and the number of trials.
+    n_trials : explicit effective N (overrides ``trial_count``).
+    trial_count : how N is derived from ``trials_matrix`` when ``n_trials`` is
+        not given.  ``"raw"`` (default) counts every configuration.
+        ``"clustered"`` uses correlation clusters, which suits genuinely
+        different strategies but merges parameter variants of one strategy
+        (typically correlated 0.55-0.9) into a single trial and so removes
+        the selection penalty of a parameter search.  The clustered count is
+        always reported as ``n_trials_clustered``.
     rf_annual : annual risk-free rate subtracted (geometrically) per day.
     sr_variance : explicit daily-Sharpe variance V (overrides both sources).
 
@@ -316,7 +324,10 @@ def deflated_sharpe(returns: pd.Series, trials_matrix: Optional[pd.DataFrame] = 
     skew = float(sp_stats.skew(ex, bias=False)) if sd > 1e-15 else 0.0
     kurt = float(sp_stats.kurtosis(ex, fisher=False, bias=False)) if sd > 1e-15 else 3.0
 
+    if trial_count not in ("raw", "clustered"):
+        raise ValueError(f"trial_count must be 'raw' or 'clustered', got {trial_count!r}")
     n_raw: Optional[int] = None
+    n_clustered: Optional[float] = None
     n_source = "none"
     n_eff: float = 1.0
     var_source = "estimator"
@@ -330,10 +341,15 @@ def deflated_sharpe(returns: pd.Series, trials_matrix: Optional[pd.DataFrame] = 
             if srs.size >= 2:
                 sr_variance = float(srs.var(ddof=1))
                 var_source = "trials_matrix"
+        clus = effective_number_of_trials(tm, min_intra_corr=min_intra_corr)
+        n_clustered = float(clus["n_eff"])
         if n_trials is None:
-            clus = effective_number_of_trials(tm, min_intra_corr=min_intra_corr)
-            n_eff = float(clus["n_eff"])
-            n_source = f"clusters:{clus['method']}"
+            if trial_count == "clustered":
+                n_eff = n_clustered
+                n_source = f"clusters:{clus['method']}"
+            else:
+                n_eff = float(n_raw)
+                n_source = "raw_count"
     elif sr_variance is not None:
         var_source = "explicit"
     if sr_variance is not None and var_source == "estimator":
@@ -358,6 +374,7 @@ def deflated_sharpe(returns: pd.Series, trials_matrix: Optional[pd.DataFrame] = 
         "sr0_annual": sr0 * ann,
         "n_trials_eff": n_eff,
         "n_trials_raw": n_raw,
+        "n_trials_clustered": n_clustered,
         "n_trials_source": n_source,
         "T": t_obs,
         "skew": skew,

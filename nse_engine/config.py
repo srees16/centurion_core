@@ -26,6 +26,9 @@ class DataConfig:
     # universe filter (UniverseConfig) is what decides tradability.
     load_min_median_value_inr: float = 2.5e6
     float_dtype: str = "float32"
+    # Back-adjust prices for cash dividends (total-return prices).  False gives
+    # price-only series, e.g. for comparisons with price indices.
+    adjust_dividends: bool = True
 
 
 @dataclass(frozen=True)

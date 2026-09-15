@@ -189,8 +189,9 @@ def full_report(result: Any, data: Any, benchmarks: Optional[Dict[str, pd.Series
     if benchmarks:
         attempt("benchmark_gate", lambda: benchmark_gate(r, benchmarks, margin=margin, rf_annual=rf))
     bench = None
-    if benchmarks and "nifty50_price_index" in benchmarks:
-        bench = benchmarks["nifty50_price_index"]
+    bench_key = next((k for k in ("nifty50_tri", "nifty50_price_index") if benchmarks and k in benchmarks), None)
+    if bench_key:
+        bench = benchmarks[bench_key]
     elif data is not None and "NIFTY50" in getattr(data, "index_close", pd.DataFrame()).columns:
         bench = data.index_close["NIFTY50"].astype("float64").pct_change(fill_method=None)
     if bench is not None:

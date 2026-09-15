@@ -56,12 +56,16 @@ def _build_config(args) -> EngineConfig:
     return cfg.replace(**overrides) if overrides else cfg
 
 
-def _load_data(cfg: EngineConfig, warmup_years: int = 2):
+def _load_data(cfg: EngineConfig, warmup_years: int = 2, data_start: str = None):
+    """Load market data from ``data_start`` (the anchor) or Jan 1, ``warmup_years`` before start.
+
+    Rebalance days and expanding normalisers count from the first row, so runs that
+    are compared (validation, holdout, shift reference, live) must share the anchor.
+    """
     from nse_engine.data.panel import load_market_data
 
-    start = (date.fromisoformat(cfg.start).replace(month=1, day=1)).replace(
-        year=date.fromisoformat(cfg.start).year - warmup_years
-    )
+    start = (date.fromisoformat(data_start) if data_start else
+             date(date.fromisoformat(cfg.start).year - warmup_years, 1, 1))
     return load_market_data(
         cfg.data.store_dir,
         start.isoformat(),
@@ -70,6 +74,7 @@ def _load_data(cfg: EngineConfig, warmup_years: int = 2):
         min_median_value_inr=cfg.data.load_min_median_value_inr,
         float_dtype=cfg.data.float_dtype,
         include_symbols=(cfg.sleeves.gold_symbol, cfg.sleeves.silver_symbol),
+        adjust_dividends=cfg.data.adjust_dividends,
     )
 
 
@@ -100,7 +105,7 @@ def cmd_backtest(args) -> None:
     from nse_engine.engine import run_backtest
 
     cfg = _build_config(args)
-    data = _load_data(cfg)
+    data = _load_data(cfg, data_start=getattr(args, "data_start", None))
     result = run_backtest(data, cfg, record=True, tag=args.tag, lag_days=args.lag_days)
     _print_json({"run_id": result.run_id, "run_dir": result.run_dir, "metrics": result.metrics})
 
@@ -131,12 +136,11 @@ def cmd_validate(args) -> None:
     report = {"run_id": run_id, "window": window, "n_configurations": n_configs,
               "metrics": manifest.get("metrics")}
     trials = matrix if n_configs > 1 else None
-    # Clustering merges parameter variants (all highly correlated) into one
-    # effective trial, which removes the selection penalty; the raw count is
-    # the honest N for a parameter search, so report both.
-    report["dsr_clustered"] = deflated_sharpe(returns, trials_matrix=trials, rf_annual=run_cfg.risk_free_annual)
-    report["dsr_raw_count"] = deflated_sharpe(returns, trials_matrix=trials, n_trials=max(n_configs, 1),
-                                              rf_annual=run_cfg.risk_free_annual)
+    # N = every recorded configuration (parameter variants are too correlated
+    # for clustering to count them); the clustered figure is informational.
+    report["dsr"] = deflated_sharpe(returns, trials_matrix=trials, rf_annual=run_cfg.risk_free_annual)
+    report["dsr_clustered"] = deflated_sharpe(returns, trials_matrix=trials, rf_annual=run_cfg.risk_free_annual,
+                                              trial_count="clustered")
     if n_configs >= 2:
         pbo = {k: v for k, v in cscv_pbo(matrix, n_splits=args.splits).items() if k != "logits"}
         pbo["verdict"] = ("likely real" if pbo["pbo"] < 0.30
@@ -159,7 +163,7 @@ def cmd_walk_forward(args) -> None:
     from nse_engine.validation.walk_forward import run_walk_forward
 
     cfg = _build_config(args)
-    data = _load_data(cfg)
+    data = _load_data(cfg, data_start=getattr(args, "data_start", None))
     grid = json.loads(args.grid)
     result = run_walk_forward(data, cfg, grid, train_years=args.train_years,
                               test_months=args.test_months, anchored=not args.rolling)
@@ -170,8 +174,90 @@ def cmd_holdout(args) -> None:
     from nse_engine.validation.holdout import run_holdout
 
     cfg = _build_config(args)
-    data = _load_data(cfg)
+    data = _load_data(cfg, data_start=getattr(args, "data_start", None))
     _print_json(run_holdout(data, cfg, args.start, args.end, force=args.force))
+
+
+PROMOTION_GATES = {
+    "pbo_max": 0.30,                  # CSCV PBO over every same-window configuration
+    "dsr_min": 0.95,                  # deflated Sharpe, N = raw configuration count
+    "benchmark_gate": True,           # beats EW hold and naive momentum by the margin
+    "holdout_excess_sharpe_min": 0.0,
+    "holdout_maxdd_ratio_max": 1.5,   # holdout MaxDD <= 1.5x full-period backtest MaxDD
+}
+
+
+def promotion_checks(run_cfg: EngineConfig, manifest: dict, validation: dict, holdout_lock: dict) -> list:
+    """(name, passed, detail) for each promotion gate."""
+    g = PROMOTION_GATES
+    checks = []
+    pbo = validation.get("pbo")
+    pbo_val = pbo.get("pbo") if isinstance(pbo, dict) else None
+    checks.append(("pbo", pbo_val is not None and pbo_val < g["pbo_max"],
+                   f"PBO={pbo_val} (< {g['pbo_max']}, n={validation.get('n_configurations')})"))
+    dsr = (validation.get("dsr") or validation.get("dsr_raw_count") or {}).get("dsr")
+    checks.append(("dsr", dsr is not None and dsr >= g["dsr_min"], f"DSR={dsr} (>= {g['dsr_min']})"))
+    gate = (validation.get("benchmark_gate") or {}).get("passed")
+    checks.append(("benchmark_gate", bool(gate) == g["benchmark_gate"], f"passed={gate}"))
+
+    evals = [e for e in holdout_lock.get("evaluations", [])
+             if e.get("config_hash") == run_cfg.config_hash() and e.get("status") == "completed"]
+    if not evals:
+        checks.append(("holdout", False, "no completed holdout evaluation for this config"))
+        return checks
+    hm = evals[-1].get("metrics", {})
+    hs = hm.get("excess_sharpe")
+    checks.append(("holdout_sharpe", hs is not None and hs > g["holdout_excess_sharpe_min"],
+                   f"holdout excess Sharpe={hs} ({evals[-1]['window']['start']}..{evals[-1]['window']['end']})"))
+    bt_dd = abs((manifest.get("metrics") or {}).get("max_drawdown") or 0.0)
+    h_dd = abs(hm.get("max_drawdown") or 0.0)
+    checks.append(("holdout_maxdd", bt_dd > 0 and h_dd <= g["holdout_maxdd_ratio_max"] * bt_dd,
+                   f"holdout MaxDD={h_dd:.3f} vs backtest {bt_dd:.3f} (<= {g['holdout_maxdd_ratio_max']}x)"))
+    return checks
+
+
+def cmd_promote(args) -> None:
+    """Write config/nse_engine_deployed.json for a run that passed validation and the holdout."""
+    from datetime import datetime, timedelta, timezone
+
+    from nse_engine.deployment import load_deployment, resolve_path
+
+    runs_dir = Path(EngineConfig().runs_dir)
+    run_dir = runs_dir / args.run_id
+    for name in ("config.json", "manifest.json", "validation.json"):
+        if not (run_dir / name).exists():
+            raise SystemExit(f"{run_dir / name} missing (run `validate --run-id {args.run_id}` first)")
+    run_cfg = EngineConfig.from_dict(json.loads((run_dir / "config.json").read_text()))
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    validation = json.loads((run_dir / "validation.json").read_text())
+    lock_path = Path(args.holdout_lock)
+    holdout_lock = json.loads(lock_path.read_text()) if lock_path.exists() else {}
+
+    checks = promotion_checks(run_cfg, manifest, validation, holdout_lock)
+    failed = [c for c in checks if not c[1]]
+    for name, ok, detail in checks:
+        print(f"  [{'PASS' if ok else 'FAIL'}] {name}: {detail}")
+    if failed and not args.force:
+        raise SystemExit(f"not promoted: {len(failed)} gate(s) failed (use --force to override and record it)")
+
+    ist = timezone(timedelta(hours=5, minutes=30))
+    notes = "; ".join(detail for _, _, detail in checks)
+    if failed:
+        notes = f"FORCED despite failed gates: {[c[0] for c in failed]}; " + notes
+    deployment = {
+        "status": "approved",
+        "paper_start_date": args.paper_start or date.today().isoformat(),
+        "source_run_id": args.run_id,
+        "approved_at": datetime.now(ist).isoformat(timespec="seconds"),
+        "notes": notes,
+        "data_anchor_date": args.data_anchor,
+        "engine": run_cfg.to_dict(),
+    }
+    out = resolve_path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(deployment, indent=2) + "\n")
+    dep = load_deployment(out)  # validates the file we just wrote
+    print(f"promoted {args.run_id} -> {out} (config {dep.engine.config_hash()}, paper from {dep.paper_start_date})")
 
 
 def cmd_shift_reference(args) -> None:
@@ -186,7 +272,7 @@ def cmd_shift_reference(args) -> None:
     else:
         cfg = _build_config(args)
     cfg = cfg.replace(start=args.start, end=args.end or date.today().isoformat())
-    data = _load_data(cfg)
+    data = _load_data(cfg, data_start=getattr(args, "data_start", None))
     result = run_backtest(data, cfg, record=False, tag="shift-reference")
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -198,7 +284,7 @@ def cmd_lag(args) -> None:
     from nse_engine.validation.diagnostics import lag_sensitivity
 
     cfg = _build_config(args)
-    data = _load_data(cfg)
+    data = _load_data(cfg, data_start=getattr(args, "data_start", None))
     _print_json(lag_sensitivity(data, cfg, lags=tuple(args.lags)))
 
 
@@ -213,6 +299,7 @@ def main(argv=None) -> None:
                        help="dotted override, e.g. portfolio.target_positions=25")
         p.add_argument("--start")
         p.add_argument("--end")
+        p.add_argument("--data-start", help="first data row to load (the anchor), e.g. 2011-01-01")
 
     p = sub.add_parser("sync", help="download NSE archives (resumable)")
     p.add_argument("--start", default="2012-01-01")
@@ -247,6 +334,16 @@ def main(argv=None) -> None:
     add_config_args(p)
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=cmd_holdout)
+
+    p = sub.add_parser("promote", help="approve a validated, holdout-tested run for paper/live trading")
+    p.add_argument("--run-id", required=True)
+    p.add_argument("--paper-start", help="first paper decision date (default today)")
+    p.add_argument("--holdout-lock", default="data/nse_engine/holdout.lock")
+    p.add_argument("--out", default=None, help="deployment file (default config/nse_engine_deployed.json)")
+    p.add_argument("--data-anchor", default="2011-01-01",
+                   help="data anchor the validation runs used (pinned for paper/live)")
+    p.add_argument("--force", action="store_true", help="promote despite failed gates (recorded in notes)")
+    p.set_defaults(func=cmd_promote)
 
     p = sub.add_parser("shift-reference",
                        help="backtest returns over the live window for the distribution shift detector")

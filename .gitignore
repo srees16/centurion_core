@@ -52,6 +52,7 @@ mywinenv/
 !data/nifty500_historical_constituents.json
 !data/nifty500_wayback_raw.json
 !data/shift_reference_returns.csv
+!config/nse_engine_deployed.json
 # NSE engine archives, parquet store and run directories (large, regenerable)
 data/nse_engine/
 *.log

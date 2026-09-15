@@ -144,6 +144,86 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(c("AGM/DIV- RS 0.65 PER SH"), {})
         self.assertEqual(c("CAPITAL REDUCTION"), {"price_based": 1.0})
 
+    def test_classify_split_spellings(self):
+        c = reference.classify_purpose
+        cases = {
+            "FVSPLT FRM RS 10 TO RS 5": 0.5, "FV SPL FRM RS 10 TO RE 1": 0.1, "FV SPLIT RS.2/- TO RE.1/-": 0.5,
+            "BONUS1:1/FV SPL-RS10TORS5": 0.25, "SUB DIV FRM RS 10 TO RS 2": 0.2, "ADD ISSUANCE 9:1": 0.1,
+            "BONUS 2:1/FVS RS.5TORE.1": 1 / 15, "FV SPLT2503.61TO250.361": 0.1, "FVSPLTFRM10TO1": 0.1,
+            "DIV 1.35+FV SPL RS10TORS2": 0.2, "BON-1:25/SPLIT RS10TORS.5": 25 / 52, "CNSLDATN RE 1 TO RS 10": 10.0,
+            "FV SPLT FRM RS 10 TO 2": 0.2, "BONUS ISSUE 1 : 1": 0.5, "AGM/DIV-2.50/BONUS 1:10": 10 / 11,
+            "AGM/DIVRS10/STK SPT10 TO1": 0.1,
+        }
+        for purpose, want in cases.items():
+            self.assertAlmostEqual(c(purpose).get("factor", np.nan), want, msg=purpose)
+        # truncated purposes: a split/bonus without its ratio -> measured from prices
+        for purpose in ("FV SPLIT FROM RS10 TO RS", "FV SPLT FRM RS 177.27 TO", "AGM/DIV-RS 29.50/BONUS"):
+            self.assertEqual(c(purpose), {"hint": reference.HINT_SPLIT}, purpose)
+        self.assertEqual(c("CAP REDN/CONSOLIDATION")["hint"], reference.HINT_CONSOLIDATION)
+        # bonus debentures / preference shares are value distributions, not share-count changes
+        for purpose in ("SCH AGMT-BONUS NCRPS 4:1", "AGM/DIV-RS3/BON DEB 1:1", "BON 1 DVR : 4 EQ SHARES"):
+            self.assertEqual(c(purpose), {"price_based": 1.0}, purpose)
+        self.assertEqual(c("SPL INT DIV-RS.13.5 PR SH"), {})
+        self.assertEqual(c("RHTS 7:5 PRM@55/DIV RE.1")["rights_premium"], 55.0)
+
+    def test_dividend_amount_spellings(self):
+        p = reference.parse_dividend_amount
+        cases = {
+            "DIV - RS 3 PER SH": 3, "INTDIV - RS 4.80 PER SH": 4.8, "AGM/DIV - RS 2.50 PER SHARE": 2.5,
+            "INT DIV RS 2.5": 2.5, "SPLDIV - RS 10 PER SH": 10, "DIVIDEND RE 0.50": 0.5, "AGM/DIV RE 0.75/-": 0.75,
+            "AGM/DIV-RE.0.20 PER SHARE": 0.2, "DIVIDEND-RS.10/- PR SHARE": 10, "SPL INT DIV-RS.13.5 PR SH": 13.5,
+            "AGM/DIV-FINRS 22+SPLRS 10": 32, "DIV/SPDIV - RS 3 & RS 3": 6, "AGM/SPDV/DIV- RS 8 & 20": 28,
+            "DIV- 6.75 SPLDV- 2.75": 9.5, "DIV/SPLDIV-RS 35/5 PR SH": 40, "INTDIV-09/SPLDIV-13 PRSH": 22,
+            "BONUS 1:1/DIV-RS 30 PR SH": 30, "AGM/DIV-RS 29.50/BONUS": 29.5, "DIV 1.35+FV SPL RS10TORS2": 1.35,
+            "DIV-RS6/SPLIT RS 10TORE 1": 6, "DIV RE 1 + RIGHTS 5:6": 1, "RHTS 7:5 PRM@55/DIV RE.1": 1,
+            "2ND INT DIV-RS.3/- PR SHR": 3, "2D INT DIV RS 3 PER SHARE": 3, "DIV - RS 2,50 PER SH": 2.5,
+            "INTDVSPDV- RS 5 & RS 3": 8, "FIN RS 18+SPL RS 25": 43, "AGM/DI-RS 5 PER SHARE": 5,
+            "DIV:INTRM 2.2+SPL 0.30 PS": 2.5, "INTDIV-RS6SPLINTDIV-RS10": 16, "SPL DIV RS 1,000 PER SH": 1000,
+        }
+        for purpose, want in cases.items():
+            self.assertAlmostEqual(p(purpose), want, msg=purpose)
+        for purpose in ("INTERIM DIVIDEND", "ANNUAL GENERAL MEETING", "BONUS 1:1", "FV SPLIT RS.10 TO RS.2",
+                        "INTEREST PAYMENT", "SUB DIV FRM RS 10 TO RS 2", "DIV 25%", "BUYBACK", "RIGHTS 1:2 @ PREM RS 5"):
+            self.assertIsNone(p(purpose), purpose)
+
+    def test_dividend_events_dedupe(self):
+        rows = []
+
+        def add(sym, ex, purpose, files, series=("EQ", "BE")):
+            for f in files:
+                for ser in series:
+                    rows.append((sym, ser, pd.Timestamp(ex), purpose, pd.Timestamp(f)))
+
+        add("AAA", "2020-03-10", "INTERIM DIVIDEND", ["2020-02-20"])  # no amount
+        add("AAA", "2020-03-10", "INT DIV-RS 5 PER SHARE", ["2020-03-02", "2020-03-05", "2020-03-09"])
+        add("BBB", "2020-06-10", "DIV - RS 2 PER SH", ["2020-05-20", "2020-05-25"])  # ex-date revised ...
+        add("BBB", "2020-06-12", "DIV - RS 2 PER SH", ["2020-05-27", "2020-06-11"])  # ... to the 12th
+        add("CCC", "2020-07-01", "AGM/DIV-RS 29.50 PER SH", ["2020-06-01"])  # replaced by the combined listing
+        add("CCC", "2020-07-01", "AGM/DIV-RS 29.50/BONUS", ["2020-06-20", "2020-06-30"])
+        add("DDD", "2020-08-03", "INT DIV RS 4", ["2020-07-28", "2020-07-31"])  # two dividends, separate rows
+        add("DDD", "2020-08-03", "SPL DIV RS 3", ["2020-07-28", "2020-07-31"])
+        add("EEE", "2020-09-01", "DIV RS 2", ["2020-08-20"], series=("N1",))  # not an equity series
+        raw = pd.DataFrame(rows, columns=reference.CA_COLUMNS)
+        out = reference.dividend_events(raw).set_index("symbol")
+        self.assertEqual(sorted(out.index), ["AAA", "BBB", "CCC", "DDD"])
+        self.assertAlmostEqual(out.loc["AAA", "dividend"], 5.0)
+        self.assertEqual(out.loc["BBB", "ex_date"], pd.Timestamp("2020-06-12"))
+        self.assertAlmostEqual(out.loc["BBB", "dividend"], 2.0)
+        self.assertAlmostEqual(out.loc["CCC", "dividend"], 29.5)
+        self.assertAlmostEqual(out.loc["DDD", "dividend"], 7.0)
+
+    def test_index_dates_checked_against_file_date(self):
+        text = ("Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,Closing Index Value\n"
+                "Nifty 50,04-11-2023,1,1,1,17722.3\nNifty 500,05-12-2023,1,1,1,9000\n")
+        df = store.parse_index_close(text, pd.Timestamp("2023-04-11"))
+        self.assertEqual(list(df["index_name"]), ["NIFTY50"])  # swapped month/day fixed, other date dropped
+        self.assertEqual(df.iloc[0]["date"], pd.Timestamp("2023-04-11"))
+        slash = "Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,Closing Index Value\n" \
+                "CNX Nifty,09/06/2014,7621.65,7673.7,7580.25,7654.6\n"
+        df = store.parse_index_close(slash, pd.Timestamp("2014-06-09"))
+        self.assertEqual(df.iloc[0]["date"], pd.Timestamp("2014-06-09"))
+        self.assertAlmostEqual(df.iloc[0]["close"], 7654.6)
+
     def test_symbol_changes_and_etf_list(self):
         text = (" NIPPON INDIA MF - Plan, E - GO,RDAXEDG,NDAXEDG,30-OCT-2019\n"
                 "ETERNAL LIMITED,ZOMATO,ETERNAL,09-APR-2025\n")
@@ -292,6 +372,126 @@ class AdjustmentTests(unittest.TestCase):
         np.testing.assert_allclose(mult.to_numpy(), 1.0)
         self.assertEqual(factors.shape[1], 0)
 
+    def _events(self, idx, factor=np.nan, hint=np.nan, day=2):
+        return pd.DataFrame({"symbol": ["A"], "canonical": ["A"], "ex_date": [idx[day]], "purpose": ["x"],
+                             "factor": [factor], "rights_new": [np.nan], "rights_held": [np.nan],
+                             "rights_premium": [np.nan], "price_based": [np.nan], "hint": [hint]})
+
+    def test_isin_change_snaps_inferred_split(self):
+        # SHRIRAMFIN 2025-01-10: FV Rs10 -> Rs2 with no NSE record; ISIN changed, close ratio 0.1893
+        closes = [2958.4, 2898.75, 2809.85, 532.0, 521.1, 544.1, 540.0, 538.0]
+        opens = [2977.05, 2970.0, 2903.75, 566.0, 530.05, 526.95, 541.0, 539.0]
+        close, prev = self._frames(closes, [np.nan] + closes[:-1])
+        open_ = pd.DataFrame({"A": opens}, index=close.index, dtype=float)
+        isin = np.zeros(close.shape, dtype=bool)
+        isin[3, 0] = True
+        mult, factors = panel.adjustment_multipliers(close, prev, open_, isin_change=isin)
+        self.assertEqual(factors["A"].iloc[3], 0.2)
+        self.assertEqual(factors.attrs["source_counts"]["inferred_snapped"], 1)
+        # without the open, the close ratio (8.7% from 0.2) snaps only on an ISIN-change date
+        closes2 = [1000.0, 1000.0, 1000.0, 184.0, 185.0, 184.0, 186.0, 185.0]
+        close2, prev2 = self._frames(closes2, [np.nan] + closes2[:-1])
+        _, f_isin = panel.adjustment_multipliers(close2, prev2, close2, isin_change=isin)
+        self.assertEqual(f_isin["A"].iloc[3], 0.2)
+        _, f_plain = panel.adjustment_multipliers(close2, prev2, close2)
+        self.assertAlmostEqual(f_plain["A"].iloc[3], 0.184)  # unexplained: raw ratio kept
+        self.assertEqual(f_plain.attrs["source_counts"]["inferred_unexplained"], 1)
+
+    def test_unexplained_gap_not_snapped_and_penny_ticks_ignored(self):
+        closes = [100.0, 100.0, 100.0, 160.0, 161.0, 160.0, 159.0, 160.0]  # +60% gap: no common ratio
+        close, prev = self._frames(closes, [np.nan] + closes[:-1])
+        _, factors = panel.adjustment_multipliers(close, prev, close)
+        self.assertAlmostEqual(factors["A"].iloc[3], 1.6)
+        self.assertEqual(factors.attrs["source_counts"]["inferred_unexplained"], 1)
+        ticks = [0.05, 0.05, 0.10, 0.10, 0.10, 0.05, 0.05, 0.05, 0.05]  # Rs 0.05 tick noise
+        close, prev = self._frames(ticks, [np.nan] + ticks[:-1])
+        mult, _ = panel.adjustment_multipliers(close, prev, close)
+        np.testing.assert_allclose(mult["A"].to_numpy(), 1.0)
+
+    def test_ratio_event_moved_to_adjacent_session(self):
+        # NSE lists the 10:1 split a session before the price actually changes
+        closes = [1000.0, 1002.0, 1004.0, 100.5, 101.0, 102.0]
+        close, prev = self._frames(closes, [np.nan] + closes[:-1])
+        _, factors = panel.adjustment_multipliers(close, prev, close, self._events(close.index, 0.1, day=2),
+                                                  infer_gaps=False)
+        self.assertTrue(np.isnan(factors["A"].iloc[2]))
+        self.assertAlmostEqual(factors["A"].iloc[3], 0.1)
+
+    def test_split_without_ratio_measured_from_prices(self):
+        closes = [500.0, 505.0, 102.0, 103.0, 104.0]  # "FV SPLIT FROM RS10 TO RS" (truncated)
+        close, prev = self._frames(closes, [np.nan] + closes[:-1])
+        _, factors = panel.adjustment_multipliers(close, prev, close,
+                                                  self._events(close.index, hint=reference.HINT_SPLIT),
+                                                  infer_gaps=False)
+        self.assertEqual(factors["A"].iloc[2], 0.2)
+
+    def test_dividend_total_return_factors(self):
+        close, _ = self._frames([100, 102, 96, 97], [np.nan] * 4)
+        amounts = np.full(close.shape, np.nan)
+        amounts[2, 0] = 5.1  # ex-date day 2: 5% of the prior close
+        mult, yields = panel.dividend_multipliers(close, amounts)
+        self.assertAlmostEqual(yields["A"].iloc[2], 0.05)
+        adj = (close * mult)["A"].to_numpy()
+        np.testing.assert_allclose(adj, [95.0, 96.9, 96, 97])
+        # ex-date return = P_t / (P_{t-1} - D): the dividend reinvested at the prior close
+        self.assertAlmostEqual(adj[2] / adj[1] - 1, 96 / (102 - 5.1) - 1)
+        amounts[2, 0] = 60.0  # >= 50% of price: ignored
+        mult, _ = panel.dividend_multipliers(close, amounts)
+        np.testing.assert_allclose(mult.to_numpy(), 1.0)
+
+    def test_split_and_dividend_ordering(self):
+        # Rs 2 dividend on day 1; 1:1 bonus with a Rs 1 dividend on the same record date (day 2): the
+        # dividend is per pre-bonus share; Rs 0.5 dividend on day 4, after the bonus
+        closes = [200.0, 196.0, 97.0, 98.0, 97.5, 98.0]
+        close, prev = self._frames(closes, [np.nan] + closes[:-1])
+        split_mult, factors = panel.adjustment_multipliers(close, prev, close,
+                                                           self._events(close.index, 0.5, day=2), infer_gaps=False)
+        amounts = np.full(close.shape, np.nan)
+        amounts[1, 0], amounts[2, 0], amounts[4, 0] = 2.0, 1.0, 0.5
+        f = factors.reindex(columns=close.columns).to_numpy()
+        div_mult, yields = panel.dividend_multipliers(close, amounts, f)
+        self.assertAlmostEqual(yields["A"].iloc[1], 2.0 / 200)
+        self.assertAlmostEqual(yields["A"].iloc[2], 1.0 / 196)  # pre-bonus units
+        self.assertAlmostEqual(yields["A"].iloc[4], 0.5 / 98)
+        adj = (close * split_mult * div_mult)["A"].to_numpy()
+        tr = adj[1:] / adj[:-1] - 1
+        want = [196 / (200 - 2) - 1, 97 / ((196 - 1) * 0.5) - 1, 98 / 97 - 1, 97.5 / (98 - 0.5) - 1, 98 / 97.5 - 1]
+        np.testing.assert_allclose(tr, want, rtol=1e-12)
+        np.testing.assert_allclose(split_mult["A"].to_numpy(), [0.5, 0.5, 1, 1, 1, 1])
+        _, post = panel.dividend_multipliers(close, amounts, f, same_day_units="post")
+        self.assertAlmostEqual(post["A"].iloc[2], 1.0 / 98)
+
+    def test_large_dividend_kept_only_when_prices_confirm(self):
+        # MAJESCO 2020-12-23: Rs 974 interim dividend on a ~Rs 986 share, opened ~Rs 12
+        closes = [985.0, 986.0, 12.2, 12.4, 12.3, 12.5, 12.4]
+        close, prev = self._frames(closes, [np.nan] + closes[:-1])
+        amounts = np.full(close.shape, np.nan)
+        amounts[2, 0] = 974.0
+        mult, factors = panel.adjustment_multipliers(close, prev, close, dividend_amounts=amounts)
+        self.assertEqual(factors.shape[1], 0)  # the drop is the dividend, not a split
+        div_mult, yields = panel.dividend_multipliers(close, amounts, open_=close)
+        self.assertAlmostEqual(yields["A"].iloc[2], 974 / 986)
+        adj = (close * div_mult)["A"]
+        self.assertLess(adj.pct_change().abs().max(), 0.05)
+
+    def test_ex_date_on_non_trading_session_not_double_counted(self):
+        # ETF split listed for a session it did not trade; the next session opens at the new scale
+        closes = [270.0, 272.8, np.nan, 27.4, 27.7, 27.2, 27.4, 27.9]
+        close, prev = self._frames(closes, [np.nan] + closes[:-1])
+        _, factors = panel.adjustment_multipliers(close, prev, close, self._events(close.index, 0.1, day=2))
+        self.assertEqual(factors.attrs["source_counts"]["ca_ratio"], 1)
+        self.assertEqual(int(factors.notna().to_numpy().sum()), 1)
+
+    def test_total_return_index_from_dividend_points(self):
+        idx = pd.bdate_range("2020-03-25", periods=6)
+        price = pd.Series([100.0, 101, 102, 102, 103, 104], index=idx)
+        points = pd.Series([10.0, 11.0, 0.0, 0.5, 0.4, 1.5], index=idx)  # FY reset on day 2, noise dip on day 4
+        tri = panel.total_return_index(price, points)
+        want = [100.0]
+        for p0, p1, d in zip(price[:-1], price[1:], [1.0, 0.0, 0.5, 0.0, 1.0]):
+            want.append(want[-1] * (p1 + d) / p0)
+        np.testing.assert_allclose(tri.to_numpy(), want)
+
     def test_corporate_action_event_used_when_prev_close_unadjusted(self):
         close, prev = self._frames([3350, 3359.6, 33.55, 33.65], [3340, 3350, 3359.6, 33.55])
         events = pd.DataFrame({"symbol": ["A"], "canonical": ["A"], "ex_date": [close.index[2]],
@@ -336,6 +536,9 @@ class PanelIntegrationTests(unittest.TestCase):
             rows.append(("BOTH", "EQ", 30 + i, 30 + i - 1, 300_000, "INE000X01011"))
             rows.append(("GOLDBEES", "EQ", 40 + i, 40 + i - 1, 10, "INF204KB17I5"))  # illiquid but included
             rows.append(("TINY", "EQ", 5, 5, 10, "INE000T01011"))  # illiquid -> dropped
+            # DIVCO: Rs 4 dividend ex day 3 (listed in several daily Bc files, EQ and BE)
+            rows.append(("DIVCO", "EQ", [100, 101, 102, 98, 99, 100][i], [100, 100, 101, 102, 98, 99][i],
+                         1_000_000, "INE000D01011"))
             path = arch_path = cls.arch / "equity" / "2020" / f"cm{day:%Y%m%d}.csv.zip"
             arch_path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(_legacy_file(day, rows))
@@ -346,11 +549,14 @@ class PanelIntegrationTests(unittest.TestCase):
             ind.parent.mkdir(parents=True, exist_ok=True)
             ind.write_text("Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,Closing Index Value\n"
                            f"Nifty 50,{day:%d-%m-%Y},1,1,1,{12000 + i}\nNifty 500,{day:%d-%m-%Y},1,1,1,{9000 + i}\n"
-                           + (f"India VIX,{day:%d-%m-%Y},1,1,1,{15 + i}\n" if i > 0 else ""))
+                           + (f"India VIX,{day:%d-%m-%Y},1,1,1,{15 + i}\n" if i > 0 else "")
+                           + f"Nifty50 Dividend Points,{day:%d-%m-%Y},1,1,1,{[5, 5, 6, 6, 6.5, 6.5][i]}\n")
             bc = cls.arch / "corpact" / "2020" / f"bc{day:%Y%m%d}.csv"
             bc.parent.mkdir(parents=True, exist_ok=True)
             bc.write_text("SERIES,SYMBOL,SECURITY,RECORD_DT,BC_STRT_DT,BC_END_DT,EX_DT,ND_STRT_DT,ND_END_DT,PURPOSE\n"
-                          f"EQ,BONUS,Bonus Ltd,,,,{days[3]:%d/%m/%Y},,,BONUS 1:1\n")
+                          f"EQ,BONUS,Bonus Ltd,,,,{days[3]:%d/%m/%Y},,,BONUS 1:1\n"
+                          + (f"EQ,DIVCO,Div Co,,,,{days[3]:%d/%m/%Y},,,INTDIV - RS 4 PER SH\n"
+                             f"BE,DIVCO,Div Co,,,,{days[3]:%d/%m/%Y},,,INTDIV - RS 4 PER SH\n" if i < 3 else ""))
         ref = cls.arch / "reference"
         ref.mkdir(parents=True)
         (ref / "symbolchange.csv").write_text(f"Rename Ltd,OLDNAME,NEWNAME,{days[4]:%d-%b-%Y}\n".upper())
@@ -360,6 +566,9 @@ class PanelIntegrationTests(unittest.TestCase):
         cls.summary = store.build_store(cls.arch, cls.store, workers=1)
         cls.data = panel.load_market_data(cls.store, "2020-01-01", "2020-01-31", min_median_value_inr=1e6,
                                           vix_fallback=False, sector_map_path=cls.sector_map)
+        cls.price_only = panel.load_market_data(cls.store, "2020-01-01", "2020-01-31", min_median_value_inr=1e6,
+                                                vix_fallback=False, sector_map_path=cls.sector_map,
+                                                adjust_dividends=False)
 
     @classmethod
     def tearDownClass(cls):
@@ -376,7 +585,10 @@ class PanelIntegrationTests(unittest.TestCase):
         self.assertTrue(d.dates.equals(pd.DatetimeIndex(self.days)))
         self.assertEqual(d.close.dtypes.unique().tolist(), [np.dtype("float32")])
         self.assertEqual(d.data_hash, d.compute_hash())
-        self.assertEqual(list(d.index_close.columns), ["NIFTY50", "NIFTY500", "INDIAVIX"])
+        self.assertEqual(list(d.index_close.columns), ["NIFTY50", "NIFTY500", "INDIAVIX", "NIFTY50_TRI"])
+        tri = d.index_close["NIFTY50_TRI"].to_numpy()
+        self.assertAlmostEqual(tri[0], 12000.0)
+        self.assertAlmostEqual(tri[2], 12000.0 * (12001 / 12000) * ((12002 + 1) / 12001), places=2)
         self.assertTrue(np.isnan(d.index_close["INDIAVIX"].iloc[0]))
         self.assertAlmostEqual(float(d.delivery_pct["BONUS"].iloc[0]), 40.0)
 
@@ -396,6 +608,17 @@ class PanelIntegrationTests(unittest.TestCase):
         vol = self.data.volume["BONUS"].to_numpy()
         np.testing.assert_allclose(vol[:3], 2_000_000, rtol=1e-6)
         self.assertAlmostEqual(float(self.data.value["BONUS"].iloc[0]), 200 * 1_000_000, delta=64)
+
+    def test_dividend_adjustment_and_price_only_mode(self):
+        self.assertTrue(pd.read_parquet(self.store / "dividends.parquet")["symbol"].eq("DIVCO").any())
+        tr = self.data.close["DIVCO"].to_numpy(dtype="float64")
+        y = 4.0 / 102.0
+        np.testing.assert_allclose(tr, [100 * (1 - y), 101 * (1 - y), 102 * (1 - y), 98, 99, 100], rtol=1e-6)
+        np.testing.assert_allclose(self.price_only.close["DIVCO"].to_numpy(), [100, 101, 102, 98, 99, 100], rtol=1e-6)
+        # splits and volumes are identical in both modes
+        pd.testing.assert_frame_equal(self.data.volume, self.price_only.volume)
+        np.testing.assert_allclose(self.price_only.close["BONUS"].to_numpy(), [100, 101, 102, 103, 104, 105], rtol=1e-6)
+        self.assertNotEqual(self.data.data_hash, self.price_only.data_hash)
 
     def test_eq_preferred_over_be(self):
         self.assertAlmostEqual(float(self.data.close["BOTH"].iloc[2]), 32.0)

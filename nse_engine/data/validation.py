@@ -69,9 +69,41 @@ class ValidationReport:
         return ", ".join(parts)
 
 
-def snap_factor(ratio: float, tolerance: float = 0.04) -> Tuple[float, bool]:
-    """Snap an observed price ratio to the nearest common split/bonus factor."""
-    best = min(_COMMON_FACTORS, key=lambda f: abs(ratio / f - 1.0))
+def _corporate_ratios() -> List[float]:
+    """Price-scale ratios of the share-count changes NSE companies actually do.
+
+    * face-value splits old -> new (Rs 10 -> 2, 10 -> 5, 10 -> 1, 2 -> 1, 5 -> 1,
+      5 -> 2, 100 -> 1, ...): new / old;
+    * bonus a:b (a new shares per b held) for small a, b: b / (a + b);
+    * a bonus combined with a split on one ex-date;
+    * common consolidations (1 -> 2, 1 -> 10, ...).
+    """
+    face = (0.1, 0.2, 0.5, 1.0, 2.0, 4.0, 5.0, 10.0, 100.0, 1000.0)
+    splits = {new / old for old in face for new in face if new < old and new / old >= 1e-3}
+    bonuses = {b / (a + b) for a in range(1, 6) for b in range(1, 6)} | {1 / 11, 10 / 11, 3 / 13, 10 / 13}
+    common_bonus = (1 / 2, 2 / 3, 1 / 3, 1 / 4, 4 / 5)
+    combos = {bo * sp for bo in common_bonus for sp in (1 / 2, 1 / 5, 1 / 10)}
+    consolidations = {2.0, 4.0, 5.0, 10.0, 20.0, 25.0, 50.0, 100.0}
+    return sorted({round(x, 10) for x in splits | bonuses | combos | consolidations})
+
+
+#: Candidate ratios for price-inferred corporate actions (see ``snap_factor``).
+CORPORATE_RATIOS: List[float] = _corporate_ratios()
+
+
+def snap_factor(ratio: float, tolerance: float = 0.04,
+                candidates: Optional[List[float]] = None) -> Tuple[float, bool]:
+    """Snap an observed price ratio to the nearest common split/bonus factor.
+
+    ``candidates`` defaults to a dense bonus/split grid (used by
+    ``clean_ohlcv``); the data layer passes ``CORPORATE_RATIOS``.  Nearness is
+    measured in log space.  Returns ``(snapped, True)`` within ``tolerance``,
+    else ``(ratio, False)``.
+    """
+    if not np.isfinite(ratio) or ratio <= 0:
+        return ratio, False
+    grid = _COMMON_FACTORS if candidates is None else candidates
+    best = min(grid, key=lambda f: abs(np.log(ratio / f)))
     if abs(ratio / best - 1.0) <= tolerance:
         return best, True
     return ratio, False
