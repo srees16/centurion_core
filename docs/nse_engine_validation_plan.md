@@ -209,6 +209,18 @@ every configuration recorded (so PBO/DSR count them):
    loaded row. Changes engine behaviour, so it re-enters Stage B.
 1. Downtrend defence for the negative OOS years (2018, 2019, 2022): core
    volatility targeting, stronger breadth/trend risk-off, absolute-momentum filter.
+   **Tested 16–17 Sep 2026 (Kaggle, 48-point grid over the existing regime
+   gates: NIFTY MA 100/150/200, confirm 3/10 days, breadth risk-off 0.35/0.45,
+   neutral scale 0.6/1.0, VIX elevated 20/25; base = deployed `679cbd0c`).**
+   Stitched OOS 2017–2025: excess Sharpe 1.25, CAGR 23.5%, MaxDD 21.8%,
+   OOS/IS 1.09 — against 1.24 / 23.7% / 22.3% / 1.18 for the deployed
+   configuration on the same platform. 2018 unchanged (−2.16), 2022 slightly
+   worse (−1.06 vs −0.92), and the folds did not agree on a setting (MA 200
+   then 100, breadth 0.35↔0.45, neutral 1.0 then 0.6, VIX 20↔25). Tuning
+   these gates is closed: the negative years are not a regime-parameter
+   problem in this family. 441 backtests recorded. What remains under this
+   item is a *different* mechanism — portfolio vol targeting or an
+   absolute-momentum filter — not more grid over the same gates.
 2. NSE data signals: delivery % confirmation; earnings dates from NSE board
    meeting records (if obtainable); FII/DII flows (data availability first).
 3. Turnover reduction beyond monthly rebalancing.
