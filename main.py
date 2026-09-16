@@ -170,7 +170,7 @@ class AlgoTradingSystem:
                 from config import Config
                 if getattr(Config, "CARVER_US_ENABLED", False):
                     logger.info("Step 6: Running Carver US pipeline for vol-targeted sizing")
-                    from services.us_carver_pipeline import run_us_carver_pipeline
+                    from services.execution.us_carver_pipeline import run_us_carver_pipeline
                     carver_result = run_us_carver_pipeline(self.tickers)
                     carver_plans = carver_result.trade_plans
                     logger.info(

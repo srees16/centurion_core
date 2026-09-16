@@ -150,7 +150,7 @@ class AutoExecutor:
         try:
             from config import Config
             if getattr(Config, "CARVER_ENABLED", False):
-                from services.volatility_target import VolatilityTarget, VolatilityTargetConfig
+                from services.risk.volatility_target import VolatilityTarget, VolatilityTargetConfig
                 vt_cfg = VolatilityTargetConfig(
                     initial_capital=getattr(Config, "CARVER_INITIAL_CAPITAL", 500_000.0),
                     annual_vol_target_pct=getattr(Config, "CARVER_ANNUAL_VOL_TARGET", 0.20),
@@ -342,7 +342,7 @@ class AutoExecutor:
 
         # -- 3c. P1 fix: Portfolio drawdown halt ---------------
         try:
-            from services.portfolio_vol_monitor import assess_portfolio_risk
+            from services.risk.portfolio_vol_monitor import assess_portfolio_risk
             from kite_connect.trading.order_service import get_holdings
             from config import Config
             if self.kite is not None:
@@ -356,7 +356,7 @@ class AutoExecutor:
                     inst_vols = {s: 0.02 for s in pos_values}  # conservative 2% default
                     # Drawdown vs ACTUAL account equity (configured capital only as fallback)
                     from kite_connect.trading.order_service import get_account_equity
-                    from services.portfolio_vol_monitor import update_live_peak_equity
+                    from services.risk.portfolio_vol_monitor import update_live_peak_equity
                     total_cap, _eq_src = get_account_equity(
                         self.kite, fallback=getattr(Config, "CARVER_INITIAL_CAPITAL", 500_000),
                     )
@@ -519,7 +519,7 @@ class AutoExecutor:
 
         try:
             _cb("Full Carver pipeline: running all forecast sources + HMM regime …")
-            from services.carver_pipeline import CarverPipeline
+            from services.execution.carver_pipeline import CarverPipeline
             from config import Config
             from utils import download_ind_ohlcv
 
@@ -571,7 +571,7 @@ class AutoExecutor:
             # Build decision engine scores if available
             decision_scores = {}
             try:
-                from services.integrated_scorer import IntegratedScorer
+                from services.signals.integrated_scorer import IntegratedScorer
                 scorer = IntegratedScorer()
                 for sym in list(ohlcv_cache.keys())[:20]:
                     try:
@@ -1220,7 +1220,7 @@ class AutoExecutor:
         technical screener.
         """
         try:
-            from services.integrated_scorer import IntegratedScorer
+            from services.signals.integrated_scorer import IntegratedScorer
             from datetime import date, timedelta
 
             symbols = screened_df["symbol"].tolist()
@@ -1576,7 +1576,7 @@ class AutoExecutor:
                 _algo = getattr(plan, 'execution_algo', None)
                 if _algo and _algo.upper() in ("TWAP", "VWAP"):
                     try:
-                        from services.twap_vwap_executor import TWAPExecutor
+                        from services.execution.twap_vwap_executor import TWAPExecutor
                         _twap = TWAPExecutor(self.kite)
                         resp = _twap.execute(
                             symbol=plan.symbol,
@@ -1760,7 +1760,7 @@ class AutoExecutor:
             from database.models import TradeJournal
             regime = None
             try:
-                from services.regime_detector import detect_regime
+                from services.regime.regime_detector import detect_regime
                 regime = detect_regime().name
             except Exception:
                 pass

@@ -292,7 +292,7 @@ def _run_and_render_analysis(tickers: List[str]):
             unsafe_allow_html=True,
         )
 
-    from services.analysis import run_analysis_async  # deferred (heavy)
+    from services.app.analysis import run_analysis_async  # deferred (heavy)
     spinner_slot.markdown(spinner_html("Starting analysis…"), unsafe_allow_html=True)
 
     st.session_state.signals = asyncio.run(

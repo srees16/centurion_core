@@ -298,7 +298,7 @@ def _run_and_render_analysis(tickers: List[str]):
             unsafe_allow_html=True,
         )
 
-    from services.analysis import run_analysis_async  # deferred (heavy)
+    from services.app.analysis import run_analysis_async  # deferred (heavy)
     spinner_slot.markdown(spinner_html("Starting analysis…"), unsafe_allow_html=True)
 
     st.session_state.signals = asyncio.run(
@@ -359,7 +359,7 @@ def _render_quick_verdict_section():
     st.subheader("Quick Verdict & Order")
 
     if st.button("Run IntegratedScorer Verdict", key="ind_main_verdict_btn"):
-        from services.integrated_scorer import IntegratedScorer
+        from services.signals.integrated_scorer import IntegratedScorer
         from datetime import date, timedelta
 
         end_dt = date.today()

@@ -18,10 +18,20 @@ those numbers could not be reproduced or trusted:
 | 1-day lag costs 0.127 Sharpe | Lag test read a 5-day refresh grid |
 | Leverage 2×, fills at the close | Cash (CNC) account cannot hold > 1×; same-close fills |
 
+How much the survivor universe alone was worth (measured 16 Sep 2026 on the
+engine's own adjusted prices, 2013–2025): equal-weight buy-and-hold of
+*today's* NIFTY 50 + Next 50 names returns 23.1% CAGR at excess Sharpe 0.92,
+against 14.4% and 0.52 for the NIFTY 50 TRI that was actually investable.
+That 9 points a year is passive and unrepeatable, and R21A base (30.4% CAGR at
+up to 2× leverage, Sharpe 1.127 with rf = 0 ≈ 0.6 excess) sits barely above
+it. On a like-for-like basis the engine below already scores higher (full
+period excess Sharpe 1.22 ≈ 1.7 at rf = 0) — with lower CAGR only because it
+carries no leverage.
+
 The engine now used for every number below is survivorship-free (NSE bhavcopy
-archives, delisted names included), dividend- and split-adjusted, fills at
-the next open with impact and statutory costs, holds gross ≤ 1, and records
-every run for PBO and DSR.
+archives: 4,232 symbols with history, 1,855 of them no longer trading),
+dividend- and split-adjusted, fills at the next open with impact and statutory
+costs, holds gross ≤ 1, and records every run for PBO and DSR.
 
 ## 2. Target metrics
 
@@ -66,10 +76,24 @@ excess Sharpe 1.27, MaxDD 23.6%, Calmar ≈ 1.0; OOS/IS Sharpe 1.17.
 OOS Sharpe by year: 2017 +2.73, 2018 −1.92, 2019 −0.01, 2020 +1.41,
 2021 +3.18, 2022 −0.78, 2023 +1.96, 2024 +1.09, 2025 +2.16 (3 of 9 ≤ 0).
 
+**Re-run on Kaggle (16 Sep 2026, Linux/x86_64, same grid, same window,
+anchor 2011):** all 9 folds again chose `679cbd0c`. Stitched OOS 2017–2025:
+CAGR 23.7%, vol 12.6%, excess Sharpe 1.24, MaxDD 22.3%, OOS/IS 1.18; OOS
+Sharpe by year 2017 +2.80, 2018 −2.16, 2019 +0.01, 2020 +1.45, 2021 +3.15,
+2022 −0.92, 2023 +2.00, 2024 +1.08, 2025 +2.04 (2 of 9 ≤ 0). 297 backtests in
+two sessions of 19 and 28 minutes. The two platforms differ fold by fold at
+the second decimal (results do not reproduce across machines — see
+`docs/kaggle_research.md`) and agree on every choice and every gate. Files:
+`data/nse_engine/wf_stitched_kaggle.json`, `data/nse_engine/wf_oos_returns_kaggle.csv`.
+
 Validation of its full-period run (`20260914T183003557572Z_679cbd0c`,
 CAGR 24.1%, excess Sharpe 1.22, MaxDD 25.1%): PBO 23.9% over 36
 configurations (likely real), deflated Sharpe 0.994 (N = 36), benchmark gate
 passed — beats naive momentum by 0.53, EW hold by 0.96, NIFTY 50 TRI by 0.71.
+Re-validated after importing the 297 Kaggle runs (registry 1,150 runs): the
+same 23.9% / 0.994 / pass, because PBO and DSR are computed over the 36
+configurations that share the full 2013–2025 window; train- and test-window
+runs are counted as trials but cannot enter a same-window returns matrix.
 
 ```
 python -m runners.run_nse_engine walk-forward --start 2013-01-01 --end 2025-12-31 \
@@ -123,6 +147,24 @@ Setup:
 3. Daily job (19:30 IST): sync NSE archives → rebuild current-year store →
    same-period shift reference → decide after close → fill pending orders at
    the next session's open → GTT-style stops at min(open, stop) → snapshot.
+4. The job runs only while the paper switch in Neon (`paper_trading_state`,
+   toggled from the trade-monitor page or `POST /api/paper-trading
+   {"action":"start","weeks":20}`) is active and unexpired — the page's
+   default is 4 weeks, which is why the first engine runs on 16 Sep 2026
+   skipped with "Paper trading is NOT active". 90 sessions need ~20 weeks.
+5. The book is scoped by an `epoch` in `paper_cloud_state`; dispatch the
+   workflow with `new_book=true` to start a fresh book at
+   `CENTURION_PAPER_INITIAL_CAPITAL` (older rows stay, filtered out). The
+   engine marks `book_owner=nse_engine`, which switches off the legacy paper
+   jobs in the Hugging Face scheduler that would otherwise overwrite the
+   day's snapshot with a stale copy.
+
+Where to watch: https://centurion-core-fe.vercel.app/ind-stocks/trade-monitor —
+active positions and orders pending for the next open, closed trades with
+exit reason, the metrics grid (Sharpe/Sortino/Calmar/MaxDD from the daily
+equity curve), daily P&L bars, the equity curve, weekly checkpoints, and a
+per-day drill-down with that session's signals and fills. All of it reads the
+Neon book directly, so it updates as soon as the day's job finishes.
 
 Daily monitoring (automatic):
 
@@ -170,6 +212,20 @@ every configuration recorded (so PBO/DSR count them):
 2. NSE data signals: delivery % confirmation; earnings dates from NSE board
    meeting records (if obtainable); FII/DII flows (data availability first).
 3. Turnover reduction beyond monthly rebalancing.
+4. R21A's independently viable rules as new signal groups — breakout,
+   acceleration, Ehlers DSP, Carver value — one group per trial with fixed
+   hand-set weights, so FDM does the combining and the registry counts every
+   attempt. R21A's own incremental tests found each hurt v27, but that was on
+   the survivor universe with optimised weights; the question is open here.
+   Expectation: a Sharpe change of ±0.1, not a new regime of returns.
+
+Not on the list, on purpose: re-optimising signal weights (R21A's 247% data-
+mining bias estimate came from exactly that), leverage (MTF at ≈ 14.6%/yr
+roughly doubles drawdown for the CAGR it adds), and anything tuned on 2026.
+
+All research folds run on Kaggle (`docs/kaggle_research.md`): results do not
+reproduce across platforms, so a walk-forward is compared only with
+walk-forwards from the same place.
 
 A research winner is never deployed on its walk-forward alone: it paper
 trades beside the deployed configuration for at least 60 sessions first,
@@ -183,6 +239,7 @@ because the 2026 holdout will already have been used.
 | Build store | `python -m runners.run_nse_engine build-store` |
 | Backtest | `python -m runners.run_nse_engine backtest --set key=value --tag <tag>` |
 | Walk-forward | `python -m runners.run_nse_engine walk-forward --grid '<json>'` |
+| Walk-forward on Kaggle (4 cores, resumable) | `python -m cloud.kaggle_local run --task walk-forward --args "..."` — see `docs/kaggle_research.md` |
 | Validate | `python -m runners.run_nse_engine validate --run-id <id>` |
 | Holdout | `python -m runners.run_nse_engine holdout --config <json> --data-start 2011-01-01 --start <date> --end <date>` |
 | Promote | `python -m runners.run_nse_engine promote --run-id <id> --paper-start <date> --data-anchor 2011-01-01` |

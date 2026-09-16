@@ -216,7 +216,7 @@ def analyze():
     shift_result = None
     if snapshots and len(snapshots) >= 31:
         try:
-            from services.distribution_shift import compare_live_to_backtest
+            from services.research.distribution_shift import compare_live_to_backtest
 
             equity = pd.Series(
                 [float(s["equity"]) for s in snapshots],

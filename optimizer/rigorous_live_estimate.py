@@ -499,7 +499,7 @@ def _compute_true_pbo(signal_daily_returns: Dict[str, np.ndarray], n_partitions:
     Uses the correct CSCV method: each row is one signal's ACTUAL daily
     P&L contribution (not synthetic, not hit-rate-based).
     """
-    from services.aronson_validator import compute_pbo
+    from services.research.aronson_validator import compute_pbo
 
     # Filter to signals with sufficient data
     valid_signals = {s: r for s, r in signal_daily_returns.items()
@@ -539,7 +539,7 @@ def _compute_true_pbo(signal_daily_returns: Dict[str, np.ndarray], n_partitions:
 
 def _deflated_sharpe(observed_sr, n_obs, n_trials, skewness, kurtosis):
     """Deflated Sharpe Ratio (de Prado AFML Ch.14)."""
-    from services.deflated_sharpe import deflated_sharpe_ratio
+    from services.research.deflated_sharpe import deflated_sharpe_ratio
     return deflated_sharpe_ratio(
         observed_sr=observed_sr,
         n_obs=n_obs,

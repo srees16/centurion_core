@@ -27,12 +27,12 @@ _CHECKPOINT = os.path.join(_root, "data", "backtest_checkpoint_extract.pkl")
 
 
 def main():
-    from services.forecast_combiner import DEFAULT_FORECAST_WEIGHTS
+    from services.signals.forecast_combiner import DEFAULT_FORECAST_WEIGHTS
 
     # Use DEFAULT_FORECAST_WEIGHTS as-is (R21A-optimized)
 
     # ── Enable forecast extraction ────
-    import services.full_pipeline_backtest as bt_mod
+    import services.research.full_pipeline_backtest as bt_mod
 
     os.environ["CENTURION_BT_CHECKPOINT"] = _CHECKPOINT
     bt_mod._SAVE_FORECASTS_MODE = True

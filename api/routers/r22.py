@@ -37,7 +37,7 @@ def _run_backtest(capital: float, start_date: str, end_date: str,
                   cooldown_days: int, bull_confirm_days: int) -> dict:
     """Run R22 backtest (blocking — meant to be called via asyncio.to_thread)."""
     import importlib
-    import services.full_pipeline_backtest as bt_mod
+    import services.research.full_pipeline_backtest as bt_mod
 
     # Reset module state
     importlib.reload(bt_mod)

@@ -123,7 +123,7 @@ async def run_screen(req: PipelineRequest):
             try:
                 from config import Config
                 if getattr(Config, "CARVER_ENABLED", False):
-                    from services.volatility_target import VolatilityTarget, VolatilityTargetConfig
+                    from services.risk.volatility_target import VolatilityTarget, VolatilityTargetConfig
                     vt_cfg = VolatilityTargetConfig(
                         initial_capital=getattr(Config, "CARVER_INITIAL_CAPITAL", 500_000.0),
                         annual_vol_target_pct=getattr(Config, "CARVER_ANNUAL_VOL_TARGET", 0.20),
@@ -158,7 +158,7 @@ async def run_full_pipeline(req: PipelineRequest):
         from kite_connect.trading.auto_executor import AutoExecutor
         from kite_connect.nse.screener import ScreenerConfig
         from kite_connect.trading.risk_manager import RiskConfig
-        from services.integrated_scorer import IntegratedScorer
+        from services.signals.integrated_scorer import IntegratedScorer
 
         kite = get_kite_session() if req.auto_place else None
         symbols = req.symbols or get_nse_universe()
@@ -298,7 +298,7 @@ async def carver_efficiency_report(symbols: Optional[List[str]] = None):
     Carver Systematic Trading framework redesign.
     """
     try:
-        from services.carver_calibration import CarverCalibrator, generate_efficiency_report
+        from services.research.carver_calibration import CarverCalibrator, generate_efficiency_report
         from config import Config
         from utils import download_ind_ohlcv
         from kite_connect.nse.nse_universe import get_nse_universe
@@ -349,19 +349,19 @@ async def carver_efficiency_report(symbols: Optional[List[str]] = None):
 def _check_carver_modules() -> Dict[str, bool]:
     """Check which Carver modules are importable."""
     modules = {
-        "instrument_volatility": "services.instrument_volatility",
-        "volatility_target": "services.volatility_target",
-        "forecast_scalar": "services.forecast_scalar",
-        "forecast_combiner": "services.forecast_combiner",
-        "position_sizer": "services.position_sizer",
-        "instrument_weights": "services.instrument_weights",
+        "instrument_volatility": "services.risk.instrument_volatility",
+        "volatility_target": "services.risk.volatility_target",
+        "forecast_scalar": "services.signals.forecast_scalar",
+        "forecast_combiner": "services.signals.forecast_combiner",
+        "position_sizer": "services.risk.position_sizer",
+        "instrument_weights": "services.portfolio.instrument_weights",
         "ewmac": "strategies.ewmac",
         "carry_rule": "strategies.carry_rule",
-        "vol_trailing_stop": "services.vol_trailing_stop",
-        "cost_speed_limit": "services.cost_speed_limit",
-        "portfolio_vol_monitor": "services.portfolio_vol_monitor",
-        "carver_calibration": "services.carver_calibration",
-        "carver_pipeline": "services.carver_pipeline",
+        "vol_trailing_stop": "services.risk.vol_trailing_stop",
+        "cost_speed_limit": "services.risk.cost_speed_limit",
+        "portfolio_vol_monitor": "services.risk.portfolio_vol_monitor",
+        "carver_calibration": "services.research.carver_calibration",
+        "carver_pipeline": "services.execution.carver_pipeline",
     }
     result = {}
     for name, mod_path in modules.items():

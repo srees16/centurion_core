@@ -223,7 +223,7 @@ def _signals_and_trades(pt, ctx):
     """Screen → verdicts → CarverPipeline (with holdings) → exits → paper buys."""
     from kite_connect.nse.nse_universe import get_nse_universe
     from kite_connect.nse.screener import NSEScreener, ScreenerConfig
-    from services.integrated_scorer import IntegratedScorer
+    from services.signals.integrated_scorer import IntegratedScorer
 
     holdings = {s: h["quantity"] for s, h in pt.holdings().items()}
 
@@ -273,7 +273,7 @@ def _signals_and_trades(pt, ctx):
     pipe_result = None
     fallback_reason = ""
     try:
-        from services.carver_pipeline import CarverPipeline, PipelineConfig
+        from services.execution.carver_pipeline import CarverPipeline, PipelineConfig
         from utils import download_ind_ohlcv
 
         ohlcv_cache = {}
@@ -405,12 +405,25 @@ def _run_engine_paper():
     pt = _open_paper_trader()
     executor = EngineExecutor(kite=None, paper=True, paper_trader=pt, deployment=dep)
     session = executor.run_paper_session()
+    plan = session.get("plan")
+    entries = _engine_signal_entries(plan)
+    n_traded = sum(1 for e in entries if e["was_traded"])
+    if entries:
+        try:
+            pt.log_signals(session["session"], entries)
+        except Exception as exc:
+            logger.warning("Signal log failed: %s", exc)
     snapshot = {}
     try:
-        snapshot = pt.snapshot_daily() or {}
+        snapshot = pt.snapshot_daily(signals_generated=len(entries), signals_traded=n_traded) or {}
     except Exception as exc:
         logger.warning("Snapshot failed: %s", exc)
-    plan = session.get("plan")
+    try:
+        cloud = pt._get_cloud()
+        if cloud and hasattr(cloud, "sync_state"):
+            cloud.sync_state({"book_owner": "nse_engine"})   # tells the HF scheduler to leave this book alone
+    except Exception as exc:
+        logger.debug("book_owner sync skipped: %s", exc)
     fills = session.get("fills") or {}
     queued = sum(1 for r in session.get("results", []) if r.get("status") == "PENDING")
     shift = snapshot.get("distribution_shift") or {}
@@ -568,18 +581,81 @@ def _run_weekly_checkpoint():
 
 # ── Entrypoint ─────────────────────────────────────────────────────────
 
-def _engine_enabled(argv=None) -> bool:
-    """``--engine`` runs the NSE engine only when CENTURION_NSE_ENGINE=true."""
+def _parse_args(argv=None):
     import argparse
 
     parser = argparse.ArgumentParser(description="Cloud paper trading runner")
     parser.add_argument("--engine", action="store_true",
                         help="Use the NSE engine executor (requires CENTURION_NSE_ENGINE=true)")
+    parser.add_argument("--new-book", action="store_true",
+                        help="Engine only: start a fresh paper book at CENTURION_PAPER_INITIAL_CAPITAL "
+                             "before this session (history is kept, scoped by epoch)")
     args, _ = parser.parse_known_args(argv)
+    return args
+
+
+def _engine_enabled(argv=None) -> bool:
+    """``--engine`` runs the NSE engine only when CENTURION_NSE_ENGINE=true."""
+    args = _parse_args(argv)
     env_on = os.environ.get("CENTURION_NSE_ENGINE", "false").lower() in ("true", "1", "yes")
     if args.engine and not env_on:
         logger.warning("--engine ignored: CENTURION_NSE_ENGINE is not 'true' — running legacy pipeline")
     return bool(args.engine and env_on)
+
+
+def _start_new_book():
+    """Open a fresh cloud book at the configured capital and drop any local copy.
+
+    The engine's first real session must not inherit the legacy book (its
+    capital, epoch and pending orders); and a stale local SQLite would be
+    restored in preference to the cloud, so it goes too.
+    """
+    from database.paper_cloud import get_paper_cloud
+    from kite_connect.trading.paper_trader import _DB_PATH
+
+    cloud = get_paper_cloud()
+    if cloud is None:
+        raise RuntimeError("--new-book needs a Neon connection (CENTURION_DATABASE_URL)")
+    values = cloud.start_new_book(_INITIAL_CAPITAL, owner="nse_engine")
+    if Path(_DB_PATH).exists():
+        Path(_DB_PATH).unlink()
+        logger.info("Removed local paper book %s so the new cloud book is restored", _DB_PATH)
+    logger.info("New paper book started: capital=%.0f epoch=%s", _INITIAL_CAPITAL, values["epoch"])
+    return values
+
+
+def _engine_signal_entries(plan) -> list:
+    """The session's decisions as signal-log rows: queued orders and skipped names.
+
+    ``was_traded`` means "queued as a PENDING order for the next open"; the fill
+    itself is recorded as a position when it happens.
+    """
+    if plan is None:
+        return []
+    target = getattr(plan, "target", None)
+    forecasts = dict(getattr(target, "forecasts", None) or {})
+    stops = {s.symbol: float(s.trigger) for s in getattr(plan, "stop_instructions", [])}
+    entries = []
+    for o in getattr(plan, "orders", []):
+        entries.append({
+            "symbol": o.symbol, "forecast": float(forecasts.get(o.symbol, 0.0) or 0.0),
+            "combined_forecast": float(forecasts.get(o.symbol, 0.0) or 0.0),
+            "action": o.side, "entry_price": float(o.ref_price), "stop_loss": stops.get(o.symbol, 0.0),
+            "target_price": 0.0, "quantity": int(o.quantity),
+            "pipeline_sources": f"nse_engine:{o.reason}"[:120], "was_traded": True,
+        })
+    for sk in getattr(plan, "skipped", []):
+        sym = sk.get("symbol")
+        if not sym or sym == "*":
+            continue
+        entries.append({
+            "symbol": sym, "forecast": float(forecasts.get(sym, 0.0) or 0.0),
+            "combined_forecast": float(forecasts.get(sym, 0.0) or 0.0),
+            "action": "SKIP", "entry_price": 0.0, "stop_loss": 0.0, "target_price": 0.0,
+            "quantity": int(sk.get("quantity", 0) or 0),
+            "pipeline_sources": f"nse_engine:skipped:{sk.get('reason', '')}"[:120], "was_traded": False,
+        })
+    return entries
 
 
 def main(argv=None):
@@ -609,6 +685,8 @@ def main(argv=None):
         # Weekday: run full daily pipeline (or the NSE engine when enabled)
         try:
             if use_engine:
+                if _parse_args(argv).new_book:
+                    _start_new_book()
                 status, message = _run_engine_paper()
             else:
                 status, message = _run_paper_pipeline()

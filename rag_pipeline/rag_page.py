@@ -96,7 +96,7 @@ def render_rag_page() -> None:
     Can be called from centurion_core's page router or run standalone.
     """
     # Ensure RAG session-state keys exist (deferred from global init)
-    from services.session import ensure_rag_state
+    from services.app.session import ensure_rag_state
     ensure_rag_state()
 
     from rag_pipeline.ui.ui_components import (

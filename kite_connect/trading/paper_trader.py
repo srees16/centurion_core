@@ -35,6 +35,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -674,7 +675,7 @@ class PaperTrader:
     def _trail_stop(self, pos: PaperPosition, ltp: float) -> None:
         """G5: Ratchet stop-loss using vol-based trailing stop.
 
-        Uses services.vol_trailing_stop.compute_trailing_stop() which:
+        Uses services.risk.vol_trailing_stop.compute_trailing_stop() which:
           - Scales stop distance by daily volatility (2.5σ swing, 3.5σ positional)
           - Activates profit-lock after 4σ gain (tightens to 1.5σ)
           - Guarantees break-even once profit-lock activates
@@ -688,8 +689,8 @@ class PaperTrader:
         pos.peak_price = max(pos.peak_price, ltp)
 
         try:
-            from services.vol_trailing_stop import compute_trailing_stop
-            from services.instrument_volatility import daily_price_volatility
+            from services.risk.vol_trailing_stop import compute_trailing_stop
+            from services.risk.instrument_volatility import daily_price_volatility
             from utils import download_ind_ohlcv
 
             df = download_ind_ohlcv(pos.symbol, period="3mo")
@@ -708,7 +709,7 @@ class PaperTrader:
             # Fetch current regime for contra-regime trailing stop
             _paper_regime = ""
             try:
-                from services.regime_detector import detect_regime
+                from services.regime.regime_detector import detect_regime
                 _snap = detect_regime()
                 if _snap and hasattr(_snap, 'regime'):
                     _paper_regime = str(_snap.regime).lower()
@@ -1404,30 +1405,31 @@ class PaperTrader:
             if dd > max_dd:
                 max_dd = dd
 
-        # Sharpe from closed trade returns
-        import numpy as np
+        # Risk metrics from the DAILY equity curve (never from per-trade returns:
+        # annualising those by sqrt(n_trades) makes "Sharpe" scale with activity).
         trade_returns = [t["pnl_pct"] / 100 for t in closed_trades]
-        if len(trade_returns) >= 2:
-            sr = float(
-                np.mean(trade_returns) / (np.std(trade_returns) + 1e-10)
-                * np.sqrt(min(len(trade_returns), 252))
-            )
-        else:
-            sr = 0.0
-
-        # Advanced risk metrics (Phase 0)
-        sortino = calmar = omega = cvar95 = pf = 0.0
+        sr = sortino = calmar = omega = cvar95 = pf = 0.0
+        daily = {}
+        try:
+            daily = self.daily_metrics(conn)
+        except Exception as exc:
+            logger.debug("Daily risk metrics unavailable: %s", exc)
+        if daily:
+            sr = float(daily.get("sharpe") or 0.0)
+            sortino = float(daily.get("sortino") or 0.0)
+            calmar = float(daily.get("calmar") or 0.0)
+            if daily.get("max_drawdown") is not None and np.isfinite(daily["max_drawdown"]):
+                max_dd = abs(float(daily["max_drawdown"]))  # daily curve beats the trade-sequence estimate
         if len(trade_returns) >= 5:
             try:
-                from services.risk_metrics import RiskMetrics
+                from services.risk.risk_metrics import RiskMetrics
                 returns_series = pd.Series(trade_returns)
-                sortino = RiskMetrics.sortino_ratio(returns_series)
-                calmar = RiskMetrics.calmar_ratio(returns_series)
+                # Distribution shape of round trips (no annualisation involved).
                 omega = RiskMetrics.omega_ratio(returns_series)
                 cvar95 = RiskMetrics.cvar(returns_series, alpha=0.05)
                 pf = RiskMetrics.profit_factor(returns_series)
             except Exception as exc:
-                logger.debug("Advanced risk metrics unavailable: %s", exc)
+                logger.debug("Trade distribution metrics unavailable: %s", exc)
 
         return PaperDashboard(
             initial_capital=self.initial_capital,
@@ -1557,6 +1559,43 @@ class PaperTrader:
 
         return snapshot
 
+    def _risk_free_annual(self) -> float:
+        """Risk-free rate used by the engine, so paper and backtest Sharpes match."""
+        try:
+            from nse_engine.deployment import load_deployment
+            return float(load_deployment().engine.risk_free_annual)
+        except Exception:
+            try:
+                from config import Config
+                return float(getattr(Config, "RISK_FREE_RATE_IND", 0.065))
+            except Exception:
+                return 0.065
+
+    def daily_metrics(self, conn=None) -> Dict[str, float]:
+        """Sharpe/Sortino/Calmar/MaxDD from the DAILY equity curve.
+
+        Trade-level returns are not a time series: annualising them by
+        sqrt(n_trades) makes the "Sharpe" grow with trade count.  These use
+        nse_engine.metrics, the same maths (excess over the risk-free rate,
+        ddof=1, calendar-year CAGR) the backtest and the validation gates use.
+        """
+        _close = False
+        if conn is None:
+            conn = sqlite3.connect(str(_DB_PATH))
+            conn.row_factory = sqlite3.Row
+            _close = True
+        try:
+            returns = self._live_daily_returns(conn)
+        finally:
+            if _close:
+                conn.close()
+        if len(returns) < 2:
+            return {}
+        from nse_engine.metrics import compute_metrics
+        equity = (1.0 + returns).cumprod() * float(self.initial_capital)
+        return compute_metrics(returns, equity, rf_annual=self._risk_free_annual(),
+                               initial_capital=float(self.initial_capital))
+
     def _live_daily_returns(self, conn) -> pd.Series:
         """Dated daily returns of the paper book from ``daily_snapshots``."""
         rows = conn.execute(
@@ -1575,7 +1614,7 @@ class PaperTrader:
         """Compare live daily returns with the backtest once ``min_live_days`` exist.
 
         The backtest reference is chosen by
-        ``services.distribution_shift.load_backtest_reference``: backtest returns
+        ``services.research.distribution_shift.load_backtest_reference``: backtest returns
         for the same dates as the live record when available (e.g.
         data/shift_reference_returns.csv from ``run_nse_engine shift-reference``
         or ``CENTURION_SHIFT_REFERENCE_RUN``), otherwise recent backtest history.
@@ -1591,7 +1630,7 @@ class PaperTrader:
         (:func:`reality_gap_alerts`); a breach alerts and counts as
         "drifting" for the multiplier (``position_verdict``).
         """
-        from services.distribution_shift import compare_live_to_backtest, more_severe
+        from services.research.distribution_shift import compare_live_to_backtest, more_severe
 
         _close_conn = False
         if conn is None:
@@ -1809,7 +1848,11 @@ class PaperTrader:
             if prev_eq > 0:
                 daily_returns.append(curr_eq / prev_eq - 1)
         if len(daily_returns) >= 2:
-            sharpe = float(np.mean(daily_returns) / (np.std(daily_returns) + 1e-10) * np.sqrt(252))
+            # Excess over the risk-free rate, ddof=1 — same convention as the backtest
+            rf_daily = self._risk_free_annual() / 252.0
+            excess = np.asarray(daily_returns, dtype=float) - rf_daily
+            sd = float(np.std(excess, ddof=1))
+            sharpe = float(np.mean(excess) / sd * np.sqrt(252)) if sd > 0 else 0.0
         else:
             sharpe = 0.0
 

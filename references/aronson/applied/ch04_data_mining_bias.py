@@ -29,7 +29,7 @@ _ROOT = str(Path(__file__).resolve().parent.parent.parent)
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from services.aronson_validator import estimate_data_mining_bias, trimmed_sharpe
+from services.research.aronson_validator import estimate_data_mining_bias, trimmed_sharpe
 
 
 if __name__ == "__main__":

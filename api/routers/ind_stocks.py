@@ -579,7 +579,7 @@ async def vince_metrics():
     """Return Ralph Vince risk metrics: optimal-f, geometric mean, kelly,
     equalized weights, fundamental equation, and per-symbol snapshots."""
     try:
-        from services.vince_metrics import get_vince_tracker
+        from services.risk.vince_metrics import get_vince_tracker
         tracker = get_vince_tracker()
         data = tracker.to_dict()
         return SuccessResponse(success=True, data=data)
@@ -707,7 +707,7 @@ async def ind_penfold_analysis(tickers: Optional[List[str]] = None):
         # Attach equity curve quality metrics if trade history exists
         risk_metrics = {}
         try:
-            from services.vince_metrics import get_vince_tracker
+            from services.risk.vince_metrics import get_vince_tracker
             vt = get_vince_tracker()
             snap = vt.get_snapshot("__portfolio__")
             if snap and snap.n_trades >= 10:
@@ -749,7 +749,7 @@ async def ind_penfold_calibrate(
     import asyncio
 
     try:
-        from services.penfold_backtest import run_penfold_enhanced_backtest
+        from services.research.penfold_backtest import run_penfold_enhanced_backtest
 
         if not tickers:
             try:

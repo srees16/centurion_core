@@ -15,7 +15,7 @@ Walk-forward training:
 Reuses:
   - strategies.data_service.DataService  for OHLCV fetching
   - config.Config                        for cost / period params
-  - services.regime_detector             for regime context
+  - services.regime.regime_detector             for regime context
 """
 
 import logging
@@ -293,7 +293,7 @@ def _fetch_data(ticker: str, cfg: TrainConfig) -> Optional[pd.DataFrame]:
 def _fetch_regime():
     """Fetch current regime from existing RegimeDetector."""
     try:
-        from services.regime_detector import regime_detector
+        from services.regime.regime_detector import regime_detector
         return regime_detector.detect()
     except Exception:
         return None

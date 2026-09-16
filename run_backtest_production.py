@@ -1,5 +1,5 @@
 """FIX-6: Run full pipeline backtest with PRODUCTION config."""
-from services.full_pipeline_backtest import run_full_backtest
+from services.research.full_pipeline_backtest import run_full_backtest
 from config import Config
 
 print("=== Production Config for Backtest ===")

@@ -27,6 +27,11 @@ on:
         required: false
         type: boolean
         default: false
+      new_book:
+        description: "NSE engine: start a fresh paper book at CENTURION_PAPER_INITIAL_CAPITAL (history kept, scoped by epoch)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -112,6 +117,7 @@ jobs:
       NSE_SYNC_LOOKBACK_DAYS: ${{ vars.CENTURION_NSE_SYNC_LOOKBACK_DAYS || '14' }}
       NSE_ARCHIVE_RPS: ${{ vars.CENTURION_NSE_ARCHIVE_RPS || '2' }}
       FULL_BOOTSTRAP: ${{ github.event.inputs.full_bootstrap || 'false' }}
+      NEW_BOOK: ${{ github.event.inputs.new_book || 'false' }}
 
     steps:
       - name: Checkout
@@ -264,7 +270,10 @@ jobs:
           CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
           CENTURION_SHIFT_MAX_TRACKING_ERROR: ${{ vars.CENTURION_SHIFT_MAX_TRACKING_ERROR || '0.08' }}
           CENTURION_SHIFT_MAX_DAILY_GAP_BPS: ${{ vars.CENTURION_SHIFT_MAX_DAILY_GAP_BPS || '3' }}
-        run: python cloud_paper_runner.py --engine
+        run: |
+          EXTRA=""
+          if [ "$NEW_BOOK" = "true" ]; then EXTRA="--new-book"; fi
+          python cloud_paper_runner.py --engine $EXTRA
 
       - name: Save NSE archive and store cache
         if: always()

@@ -159,13 +159,13 @@ Jump to **Section 15: Troubleshooting** or **Section 12: Installation** for deta
 
 **Streamlit Removal** — Removed legacy Streamlit UI (`app.py`, `ui/` folder, `auth/authenticator.py`). Next.js 14 is now the sole frontend.
 
-**Signal Quality Evaluator** — New `services/signal_quality_evaluator.py` provides regime-conditioned signal analysis with CAGR estimation, stress testing, and auto-generated documentation.
+**Signal Quality Evaluator** — New `services/signals/signal_quality_evaluator.py` provides regime-conditioned signal analysis with CAGR estimation, stress testing, and auto-generated documentation.
 
-**Aronson EBTA Validation** — New `services/aronson_validator.py` implements statistical validation: detrended returns, signal t-statistics, Benjamini-Hochberg FDR, White's Reality Check, and Deflated Sharpe Ratio.
+**Aronson EBTA Validation** — New `services/research/aronson_validator.py` implements statistical validation: detrended returns, signal t-statistics, Benjamini-Hochberg FDR, White's Reality Check, and Deflated Sharpe Ratio.
 
-**Full Pipeline Backtest Fixes** — Fixed 3 incorrect import names in `services/full_pipeline_backtest.py` (`compute_fii_forecast`, `generate_event_forecasts`, `compute_sentiment_batch`) and enabled 6 previously omitted offline sources (penfold_trend, ehlers_dsp, intermarket, acceleration, carver_value, skew_signal) bringing active backtest sources from 11 to 17.
+**Full Pipeline Backtest Fixes** — Fixed 3 incorrect import names in `services/research/full_pipeline_backtest.py` (`compute_fii_forecast`, `generate_event_forecasts`, `compute_sentiment_batch`) and enabled 6 previously omitted offline sources (penfold_trend, ehlers_dsp, intermarket, acceleration, carver_value, skew_signal) bringing active backtest sources from 11 to 17.
 
-**New Services** — `services/hrp_allocator.py` (Hierarchical Risk Parity), `services/deflated_sharpe.py` (Bailey-López de Prado DSR).
+**New Services** — `services/portfolio/hrp_allocator.py` (Hierarchical Risk Parity), `services/research/deflated_sharpe.py` (Bailey-López de Prado DSR).
 
 **Cleanup** — Removed session-generated test scaffolds (3 files, 58 tests), dead code (`_fetch_sentry.py`, `services/portfolio_correlation.py`, unused `CIRCUIT_BREAKER_TIERS` config), and 9 audit-session docs.
 
@@ -197,7 +197,7 @@ New secondary classifier predicts whether primary forecasts will be profitable:
 - **Features**: 20 (expanded from 12) — added FII flow proxy, OI change, VIX term structure, breadth momentum, return_60d, vol-of-vol, skew, volume trend
 - **Gate**: Blocks signals with meta-probability < 0.50; scales remaining by confidence
 - **Scheduler**: Job 18 retrains semi-monthly at 02:00 IST
-- **File**: `services/meta_labeling.py`
+- **File**: `services/signals/meta_labeling.py`
 
 ### Configuration Changes
 
@@ -214,7 +214,7 @@ New secondary classifier predicts whether primary forecasts will be profitable:
 
 ### Regime-Adaptive Weights
 
-5-regime conditional profiles in `services/regime_strategy_mix.py`:
+5-regime conditional profiles in `services/regime/regime_strategy_mix.py`:
 - **Bear/Range/Crisis**: Counter-cyclical signals boosted (PEAD 13-15%, mean-reversion 13-15%, sentiment 3-4%)
 - **Bull**: Trend signals dominate (Penfold 12%, Ehlers 12%, momentum 10%)
 - Trend-following signals (EWMAC, momentum) reduced in non-trending regimes
@@ -266,7 +266,7 @@ Full pipeline backtest on 14 NIFTY50 stocks, 17 offline-capable forecast sources
 
 ### Signal Quality Evaluator (April 2026)
 
-New `services/signal_quality_evaluator.py` provides regime-conditioned signal analysis:
+New `services/signals/signal_quality_evaluator.py` provides regime-conditioned signal analysis:
 - **Regime segmentation**: HMM + ADX + trend slope → BULL / BEAR / SIDEWAYS classification
 - **Signal metrics**: Per-source hit rate, Sharpe, profit factor, expectancy by regime
 - **Backtest**: Delegates to production `full_pipeline_backtest.py` (17 sources, vol-targeted)
@@ -276,7 +276,7 @@ New `services/signal_quality_evaluator.py` provides regime-conditioned signal an
 
 ### Aronson EBTA Statistical Validation (April 2026)
 
-New `services/aronson_validator.py` implements Evidence-Based Technical Analysis (Aronson, 2007):
+New `services/research/aronson_validator.py` implements Evidence-Based Technical Analysis (Aronson, 2007):
 - **Detrended returns**: Remove market beta before evaluating signal performance
 - **Signal t-statistics**: Per-signal statistical significance testing
 - **Benjamini-Hochberg**: FDR-controlled p-value adjustment for multiple comparisons
@@ -337,7 +337,7 @@ FastAPI Backend (port 9001)
 ### IntegratedScorer — 2-Layer Evaluation Pipeline
 
 ```
-IntegratedScorer (services/integrated_scorer.py)
+IntegratedScorer (services/signals/integrated_scorer.py)
   Layer 1 — Core Analysis (45%)
     Fundamental score (P/E, EPS growth, debt ratios)
     Technical score (RSI, MACD, moving averages)

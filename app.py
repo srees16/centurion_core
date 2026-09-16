@@ -45,7 +45,7 @@ from auth.authenticator import check_authentication, render_user_menu
 import auth as _auth_pkg              # noqa: F811
 sys.modules.setdefault('auth', _auth_pkg)
 
-from services.session import initialize_session_state
+from services.app.session import initialize_session_state
 from ui.styles import apply_custom_styles
 
 # Configure logging

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Sentiment analysis module.
 """
 

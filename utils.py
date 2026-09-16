@@ -304,7 +304,7 @@ def download_ind_ohlcv_batch(
 
     # 1. Try Bhavcopy for all tickers
     try:
-        from services.bhavcopy_fetcher import fetch_ohlcv_batch
+        from services.market_data.bhavcopy_fetcher import fetch_ohlcv_batch
         bhav = fetch_ohlcv_batch(tickers, start=start_dt, end=end_dt)
         results.update(bhav)
     except Exception as exc:
@@ -343,7 +343,7 @@ def _try_bhavcopy(
     """Attempt to fetch OHLCV from Bhavcopy."""
     try:
         from datetime import date as _date, timedelta
-        from services.bhavcopy_fetcher import fetch_ohlcv
+        from services.market_data.bhavcopy_fetcher import fetch_ohlcv
 
         if end:
             from datetime import datetime as _dt
@@ -481,7 +481,7 @@ def download_ohlcv_batch_parallel(
     remaining = list(tickers)
     if market.upper() == "IND":
         try:
-            from services.bhavcopy_fetcher import fetch_ohlcv_batch
+            from services.market_data.bhavcopy_fetcher import fetch_ohlcv_batch
             from datetime import date as _date, timedelta, datetime as _dt
 
             end_dt = _dt.strptime(end, "%Y-%m-%d").date() if end else _date.today()

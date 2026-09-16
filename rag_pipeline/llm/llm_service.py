@@ -1,4 +1,4 @@
-﻿"""
+"""
 LLM Service for Centurion Capital LLC RAG Pipeline.
 
 Provides LLM-powered answer generation from RAG-retrieved context.

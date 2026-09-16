@@ -1,4 +1,4 @@
-﻿"""
+"""
 Background Scheduler for Centurion Core â€” IND Stocks Pipeline.
 
 Runs screening and scoring pipelines at configurable times during
@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import sqlite3
 import sys
 from datetime import date, datetime, timedelta, timezone
@@ -341,7 +342,7 @@ def run_pipeline(run_type: str = "pre_market"):
     try:
         from kite_connect.nse.nse_universe import get_nse_universe
         from kite_connect.nse.screener import NSEScreener, ScreenerConfig
-        from services.integrated_scorer import IntegratedScorer
+        from services.signals.integrated_scorer import IntegratedScorer
 
         # 1. Universe
         symbols = get_nse_universe()
@@ -418,6 +419,36 @@ def run_pipeline(run_type: str = "pre_market"):
     except Exception as exc:
         logger.exception("Pipeline run failed: %s", exc)
         _save_run(run_type, {"status": f"error: {exc}"})
+
+
+
+# ── Paper book ownership ──────────────────────────────────────────
+#
+# While the NSE engine job on GitHub Actions owns the cloud paper book, the
+# legacy paper jobs here must not touch it: this process restores the book
+# into its own SQLite once and then reads that stale copy, so its EOD
+# snapshot would overwrite the engine's equity with a frozen number and its
+# 3-minute poll would close engine positions on legacy stop rules.
+
+_BOOK_OWNER_CACHE = {"value": None, "checked_at": 0.0}
+
+
+def _paper_book_owned_by_engine() -> bool:
+    """True when ``paper_cloud_state.book_owner`` is the NSE engine (cached 10 min)."""
+    if os.environ.get("CENTURION_NSE_ENGINE", "false").lower() in ("true", "1", "yes"):
+        return True
+    now = time.time()
+    if _BOOK_OWNER_CACHE["value"] is not None and now - _BOOK_OWNER_CACHE["checked_at"] < 600:
+        return bool(_BOOK_OWNER_CACHE["value"])
+    owner = ""
+    try:
+        from database.paper_cloud import get_paper_cloud
+        cloud = get_paper_cloud()
+        owner = cloud.book_owner() if cloud else ""
+    except Exception as exc:                              # noqa: BLE001 - never block the scheduler
+        logger.debug("book_owner check failed: %s", exc)
+    _BOOK_OWNER_CACHE.update(value=(owner == "nse_engine"), checked_at=now)
+    return owner == "nse_engine"
 
 
 def _send_daily_email(summary: dict):
@@ -498,6 +529,9 @@ def _paper_trade_orders(verdicts: list, screened_df, entries_allowed: bool = Tru
     (all 20+ forecast sources), instead of manual EWMAC+screener stitching.
     Falls back to legacy RiskManager path if CarverPipeline fails.
     """
+    if _paper_book_owned_by_engine():
+        logger.debug("%s: paper book is owned by the NSE engine — skipped", "_paper_trade_orders")
+        return
     try:
         from kite_connect.trading.paper_trader import PaperTrader
 
@@ -525,7 +559,7 @@ def _paper_trade_orders(verdicts: list, screened_df, entries_allowed: bool = Tru
 
         # ── G1 FIX: Full Carver pipeline (all forecast sources) ──
         try:
-            from services.carver_pipeline import CarverPipeline, PipelineConfig
+            from services.execution.carver_pipeline import CarverPipeline, PipelineConfig
             from utils import download_ind_ohlcv
 
             # Download OHLCV (2y ≥ 300 bars) for buy candidates AND holdings
@@ -594,7 +628,7 @@ def _paper_trade_orders(verdicts: list, screened_df, entries_allowed: bool = Tru
                 rm_cfg = RiskConfig()
                 vt_fallback = None
                 try:
-                    from services.volatility_target import VolatilityTarget, VolatilityTargetConfig
+                    from services.risk.volatility_target import VolatilityTarget, VolatilityTargetConfig
                     from config import Config
                     vt_fallback = VolatilityTarget(VolatilityTargetConfig(
                         initial_capital=getattr(Config, "CARVER_INITIAL_CAPITAL", 500_000.0),
@@ -869,7 +903,7 @@ def run_walk_forward_audit():
 
     try:
         from strategies import StrategyRegistry, load_all_strategies
-        from services.walk_forward import walk_forward_validate, save_optimal_params
+        from services.research.walk_forward import walk_forward_validate, save_optimal_params
 
         load_all_strategies()
         all_strategies = StrategyRegistry._strategies
@@ -975,7 +1009,7 @@ def run_walk_forward_audit():
 
         # ── Aronson EBTA signal validation (post walk-forward) ──
         try:
-            from services.aronson_validator import AronsonValidator
+            from services.research.aronson_validator import AronsonValidator
             import numpy as np
 
             validator = AronsonValidator()
@@ -1039,6 +1073,9 @@ def _run_paper_live_reconciliation():
     All discrepancies > 1 % (P&L) or > 0.3 (Sharpe drift) are logged
     and trigger desktop notifications.
     """
+    if _paper_book_owned_by_engine():
+        logger.debug("%s: paper book is owned by the NSE engine — skipped", "_run_paper_live_reconciliation")
+        return
     logger.info("=== Unified Reconciliation started ===")
     report: dict = {"status": "success"}
 
@@ -1523,6 +1560,9 @@ def _run_paper_trade_poll():
     Ensures paper positions are checked intraday, not just at order-placement time.
     Uses the G5 vol-based trailing stop logic added to PaperTrader.poll().
     """
+    if _paper_book_owned_by_engine():
+        logger.debug("%s: paper book is owned by the NSE engine — skipped", "_run_paper_trade_poll")
+        return
     try:
         from config import Config
         if not getattr(Config, "PAPER_TRADE_MODE", True):
@@ -1570,7 +1610,7 @@ def _run_forecast_calibration():
             logger.info("AUTO_CALIBRATE_SCALARS disabled — skipping")
             return
 
-        from services.forecast_scalar import calibrate_all_scalars
+        from services.signals.forecast_scalar import calibrate_all_scalars
         import yfinance as yf
 
         # Build OHLCV cache for representative NIFTY-50 tickers
@@ -1618,7 +1658,7 @@ def _run_hmm_refit():
             return
 
         import yfinance as yf
-        from services.regime_hmm import MarkovRegimeModel, prepare_hmm_observations
+        from services.regime.regime_hmm import MarkovRegimeModel, prepare_hmm_observations
 
         # Fetch 5 years of NIFTY 50 daily data
         nifty_df = yf.download("^NSEI", period="5y", progress=False, timeout=30)
@@ -1658,7 +1698,7 @@ def _run_hmm_refit():
         logger.info("HMM model persisted to disk")
 
         # Update singleton
-        from services.regime_hmm import get_hmm_model
+        from services.regime.regime_hmm import get_hmm_model
         global_model = get_hmm_model()
         global_model._fitted = model._fitted
         global_model._means = model._means
@@ -1685,7 +1725,7 @@ def _run_strategy_tournament():
     logger.info("=== Monthly Strategy Tournament started ===")
     try:
         import pandas as pd
-        from services.strategy_tournament import StrategyTournament
+        from services.research.strategy_tournament import StrategyTournament
         import json, os
 
         # Load recent per-strategy returns from walk-forward results
@@ -2011,6 +2051,9 @@ def _run_paper_eod_snapshot():
     P&L, open positions, and drawdown for equity curve reconstruction.
     Even if the system crashes mid-week, we have daily granularity.
     """
+    if _paper_book_owned_by_engine():
+        logger.debug("%s: paper book is owned by the NSE engine — skipped", "_run_paper_eod_snapshot")
+        return
     try:
         from config import Config
         if not getattr(Config, "PAPER_TRADE_MODE", True):
@@ -2066,6 +2109,9 @@ def _run_paper_weekly_checkpoint():
     Runs Saturday 7:30 AM IST (after reconciliation). Aggregates the
     week's daily snapshots into a summary with return, Sharpe, DD, win rate.
     """
+    if _paper_book_owned_by_engine():
+        logger.debug("%s: paper book is owned by the NSE engine — skipped", "_run_paper_weekly_checkpoint")
+        return
     try:
         from config import Config
         if not getattr(Config, "PAPER_TRADE_MODE", True):
@@ -2104,8 +2150,8 @@ def _run_pead_earnings_feed():
     """
     logger.info("=== PEAD Earnings Feed started ===")
     try:
-        from services.earnings_momentum import _fetch_recent_results, EarningsSurprise as EMSurprise
-        from services.pead_strategy import PEADStrategy, EarningsSurprise as PEADSurprise
+        from services.signals.earnings_momentum import _fetch_recent_results, EarningsSurprise as EMSurprise
+        from services.execution.pead_strategy import PEADStrategy, EarningsSurprise as PEADSurprise
 
         # Fetch recent earnings from Trendlyne
         raw_results = _fetch_recent_results()
@@ -2156,7 +2202,7 @@ def _run_meta_label_retrain():
     """
     logger.info("=== Meta-Label Retrain started ===")
     try:
-        from services.meta_labeling import train_meta_labeler
+        from services.signals.meta_labeling import train_meta_labeler
         import yfinance as yf
 
         # Gather OHLCV for IND symbols
@@ -2222,7 +2268,7 @@ def _run_us_pre_market():
     """
     logger.info("=== US Pre-Market Pipeline started ===")
     try:
-        from services.us_carver_pipeline import run_us_carver_pipeline, DEFAULT_US_CARVER_TICKERS
+        from services.execution.us_carver_pipeline import run_us_carver_pipeline, DEFAULT_US_CARVER_TICKERS
 
         result = run_us_carver_pipeline(DEFAULT_US_CARVER_TICKERS)
 
@@ -2311,7 +2357,7 @@ def _run_pairs_scanner():
     try:
         import numpy as np
         from utils import download_ind_ohlcv
-        from services.pairs_trading_live import scan_all_pairs, DEFAULT_PAIRS
+        from services.execution.pairs_trading_live import scan_all_pairs, DEFAULT_PAIRS
 
         pairs = getattr(Config, "PAIRS_LIST", DEFAULT_PAIRS)
         symbols = set()
@@ -2383,7 +2429,7 @@ def _run_event_calendar_seed():
 
     logger.info("=== Event Calendar Seed ===")
     try:
-        from services.event_calendar import seed_fixed_events
+        from services.market_data.event_calendar import seed_fixed_events
         seed_fixed_events()
     except Exception as exc:
         logger.exception("Event calendar seed failed: %s", exc)
@@ -2406,7 +2452,7 @@ def _execute_options_overlay(kite):
             return
 
         from kite_connect.options.options_executor import OptionsExecutor
-        from services.options_overlay import scan_covered_call_candidates, scan_csp_candidates
+        from services.execution.options_overlay import scan_covered_call_candidates, scan_csp_candidates
 
         executor = OptionsExecutor(kite)
 
@@ -2439,7 +2485,7 @@ def _execute_tail_hedge_if_needed(kite):
         if not getattr(Config, "OPTIONS_TAIL_HEDGE_ENABLED", False):
             return
 
-        from services.tail_risk_hedge import TailRiskHedge
+        from services.risk.tail_risk_hedge import TailRiskHedge
         from kite_connect.options.options_executor import OptionsExecutor
 
         # Get current portfolio state
@@ -2525,8 +2571,8 @@ def _execute_futures_overlay(kite):
         if not getattr(Config, "LEVERAGE_ENABLED", False):
             return
 
-        from services.futures_overlay import compute_futures_overlay
-        from services.regime_detector import get_current_regime
+        from services.execution.futures_overlay import compute_futures_overlay
+        from services.regime.regime_detector import get_current_regime
         from kite_connect.trading.order_service import place_order
 
         # Get current state
@@ -2904,7 +2950,7 @@ def start_scheduler():
     # ── T3-5: Trade returns collector for Monte Carlo bootstrap ──
     def _collect_trade_returns():
         try:
-            from services.trade_returns_collector import run_collection
+            from services.research.trade_returns_collector import run_collection
             run_collection()
         except Exception as e:
             logger.warning("Trade returns collection failed: %s", e)

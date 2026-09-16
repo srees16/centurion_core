@@ -18,7 +18,7 @@ router = APIRouter(prefix="/portfolio", tags=["Portfolio"])
 @router.post("/backtest", response_model=PortfolioBacktestResponse)
 async def run_portfolio_backtest(req: PortfolioBacktestRequest):
     """Run dual-strategy backtest with user-defined capital split."""
-    from services.portfolio_allocator import run_dual_backtest, HARVEST_PRESETS
+    from services.portfolio.portfolio_allocator import run_dual_backtest, HARVEST_PRESETS
 
     hp = None
     if req.harvest_params:
@@ -39,5 +39,5 @@ async def run_portfolio_backtest(req: PortfolioBacktestRequest):
 @router.get("/presets")
 async def get_harvest_presets():
     """Return available Harvest parameter presets."""
-    from services.portfolio_allocator import HARVEST_PRESETS
+    from services.portfolio.portfolio_allocator import HARVEST_PRESETS
     return {"presets": HARVEST_PRESETS}

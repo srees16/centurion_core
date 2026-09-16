@@ -11,7 +11,7 @@ Integration approach:
     skipped and weights re-normalise.
 
 Reuses:
-  - services.integrated_scorer.IntegratedScorer weights system
+  - services.signals.integrated_scorer.IntegratedScorer weights system
   - evaluate_agent.get_latest_signal  for live predictions
   - config.Config                     for model paths and thresholds
 """

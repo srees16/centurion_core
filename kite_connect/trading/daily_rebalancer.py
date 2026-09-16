@@ -207,7 +207,7 @@ class DailyRebalancer:
 
             # ── 5. Combine forecasts ──
             _cb("Combining forecasts with v27 weights...")
-            from services.forecast_combiner import combine_forecasts
+            from services.signals.forecast_combiner import combine_forecasts
             combined: Dict[str, float] = {}
             for sym, fc_dict in raw_forecasts.items():
                 if not fc_dict:

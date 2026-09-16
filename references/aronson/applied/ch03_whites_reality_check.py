@@ -30,7 +30,7 @@ _ROOT = str(Path(__file__).resolve().parent.parent.parent)
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from services.aronson_validator import (
+from services.research.aronson_validator import (
     detrend_returns,
     compute_signal_tstat,
     whites_reality_check,

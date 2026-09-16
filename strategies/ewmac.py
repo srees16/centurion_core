@@ -37,8 +37,8 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from services.forecast_scalar import ewmac_to_forecast, cap_forecast
-from services.instrument_volatility import daily_price_volatility
+from services.signals.forecast_scalar import ewmac_to_forecast, cap_forecast
+from services.risk.instrument_volatility import daily_price_volatility
 
 logger = logging.getLogger(__name__)
 

@@ -35,7 +35,7 @@ def bootstrap_meta_label():
 
     try:
         import yfinance as yf
-        from services.meta_labeling import train_meta_labeler
+        from services.signals.meta_labeling import train_meta_labeler
 
         # IND tickers (NIFTY50 subset)
         ind_tickers = [

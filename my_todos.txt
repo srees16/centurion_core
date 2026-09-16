@@ -1,3 +1,6 @@
+Realistic achievable target: Sharpe >= 1.5, CAGR >=25%, MaxDD<=30%, Calmar >= 1%, PBO <= 30%
+Goal is to have the best possible Sharpe and CAGR, lowest possible maxDD
+
 ================================================================================
   CENTURION_CORE — CONSOLIDATED BACKTEST RESULTS (13 Apr 2026)
   Market: Indian Stocks (NIFTY50 + NEXT50, 95 symbols)
@@ -343,7 +346,7 @@ refer for applicable improvements: https://github.com/paperswithbacktest/awesome
 prompts:
 
 ~~~~~~
-Search the codebase for any implementation of Probability of Backtest Overfitting (PBO) — also known as CSCV (Combinatorially Symmetric Cross-Validation). Look for: partitioning backtest returns into S subsets, computing all C(S, S/2) train/test combinations, ranking strategies by IS vs OOS performance, and calculating the fraction where IS-best underperforms OOS median. Report: (1) Is PBO implemented? If yes, where and what's the current PBO value? (2) If not, which file and function should it be added to? The thresholds are: PBO < 30% = likely real, 30-50% = caution, > 50% = reject.
+Probability of Backtest Overfitting (PBO) — also known as CSCV (Combinatorially Symmetric Cross-Validation). The thresholds are: PBO < 30% = likely real, 30-50% = caution, > 50% = reject.
 ~~~~~~
 verify if a distribution shift detector is already implemented, if not then implement it so that it measures the reality gap between historical backtest returns and live/paper trading returns. Create a function detect_distribution_shift(backtest_returns: np.ndarray, live_returns: np.ndarray) -> dict that computes: (1) Wasserstein distance (scipy.stats.wasserstein_distance), (2) KL divergence (scipy.special.rel_entr with histogram binning), (3) Sinkhorn divergence (geomloss if available, else skip). Return a dict with each metric value plus a verdict: "stable" if Wasserstein < 0.05 and KL < 0.3, "drifting" if Wasserstein 0.05-0.15 or KL 0.3-1.0, "regime_break" if above. Also include a rolling window version that computes shift over trailing 60-day windows to detect when drift began. Add it to the services/ folder. Wire it into the paper trading daily snapshot so it runs automatically once ≥30 live trading days exist, comparing live daily returns against the corresponding backtest period's daily returns.
 ~~~~~~

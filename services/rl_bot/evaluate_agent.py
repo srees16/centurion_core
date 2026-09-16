@@ -113,7 +113,7 @@ def evaluate_agent(
     # Attempt to get regime
     regime = None
     try:
-        from services.regime_detector import regime_detector
+        from services.regime.regime_detector import regime_detector
         regime = regime_detector.detect()
     except Exception:
         pass

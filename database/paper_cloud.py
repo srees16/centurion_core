@@ -13,6 +13,7 @@ All writes are best-effort: a Neon failure never blocks the trading loop.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 import pandas as pd
@@ -32,6 +33,12 @@ def _to_utc(value):
         return ts.tz_convert("UTC")
     except Exception:
         return None
+
+
+def _epoch_from_state(state) -> Optional[pd.Timestamp]:
+    """UTC timestamp of the current book's epoch, or None if no book was started."""
+    ep = (state or {}).get("epoch")
+    return _to_utc(ep) if ep else None
 
 
 def _records(df) -> List[dict]:
@@ -331,29 +338,100 @@ class PaperCloudSync:
             rows = session.execute(text("SELECT key, value FROM paper_cloud_state")).fetchall()
         return {str(k): str(v) for k, v in rows}
 
-    def read_open_positions(self) -> pd.DataFrame:
+    def read_open_positions(self, since_epoch: bool = True) -> pd.DataFrame:
         """Open paper positions (stops and entry dates included)."""
-        return self._read(
+        df = self._read(
             "SELECT * FROM paper_positions WHERE is_open = TRUE ORDER BY opened_at"
         )
+        return self._since_epoch(df, "opened_at", since_epoch)
+
+    # ── Book identity ──────────────────────────────────────────
+    #
+    # Rows are never deleted.  A book is the rows written since its ``epoch``
+    # (``paper_cloud_state``); everything before that is the previous book's
+    # history and is filtered out of the readers by default.
+
+    def epoch(self) -> Optional[pd.Timestamp]:
+        try:
+            return _epoch_from_state(self.read_state())
+        except Exception as exc:                          # noqa: BLE001 - reading only
+            logger.debug("epoch lookup failed: %s", exc)
+            return None
+
+    def book_owner(self) -> str:
+        """``"nse_engine"`` while the GitHub Actions engine job owns the book, else ``""``."""
+        try:
+            return str(self.read_state().get("book_owner") or "")
+        except Exception as exc:                          # noqa: BLE001 - reading only
+            logger.debug("book_owner lookup failed: %s", exc)
+            return ""
+
+    def start_new_book(self, initial_capital: float, owner: str = "nse_engine",
+                       force: bool = False) -> Dict[str, object]:
+        """Open a fresh paper book at ``initial_capital`` without deleting history.
+
+        Writes a new ``epoch`` plus cash, initial capital, owner, and clears the
+        engine's pending orders and last-session marker.  Older rows stay in the
+        tables and stop being part of the current book.  Refuses while the
+        current book holds open positions unless ``force`` is set.
+        """
+        state = self.read_state()
+        current = restore_paper_state(self) or {}
+        open_now = current.get("positions") or []
+        if open_now and not force:
+            raise RuntimeError(f"{len(open_now)} open positions in the current book — "
+                               "close them first or pass force=True")
+        now = datetime.now(timezone.utc).isoformat()
+        values = {
+            "epoch": now,
+            "cash": float(initial_capital),
+            "initial_capital": float(initial_capital),
+            "engine_pending_orders": "[]",
+            "engine_last_session": "",
+            "book_owner": owner,
+            "previous_epoch": state.get("epoch") or "",
+        }
+        if not self.sync_state(values):
+            raise RuntimeError("could not write the new book state to Neon")
+        logger.info("New paper book: epoch=%s capital=%.0f owner=%s (previous epoch %s, %d open positions forced)",
+                    now, initial_capital, owner, values["previous_epoch"] or "none", len(open_now))
+        return values
+
+    def _since_epoch(self, df: pd.DataFrame, column: str, enabled: bool) -> pd.DataFrame:
+        """Rows of the current book only: ``column`` at or after the epoch."""
+        if not enabled or df is None or df.empty or column not in df.columns:
+            return df
+        ep = self.epoch()
+        if ep is None:
+            return df
+        if column in ("date", "week_start"):
+            cutoff = ep.date().isoformat()
+            keep = df[column].astype(str) >= cutoff
+        else:
+            keep = df[column].map(lambda v: (_to_utc(v) or ep) >= ep)
+        return df[keep].reset_index(drop=True)
 
     # ── Read methods (called by Paper Dashboard UI) ────────────
 
-    def read_snapshots(self) -> pd.DataFrame:
-        """Return all daily_snapshots as a DataFrame."""
-        return self._read("SELECT * FROM paper_daily_snapshots ORDER BY date")
+    def read_snapshots(self, since_epoch: bool = True) -> pd.DataFrame:
+        """Daily snapshots of the current book (all books with ``since_epoch=False``)."""
+        df = self._read("SELECT * FROM paper_daily_snapshots ORDER BY date")
+        return self._since_epoch(df, "date", since_epoch)
 
-    def read_signals(self) -> pd.DataFrame:
-        """Return all signal_log rows as a DataFrame."""
-        return self._read("SELECT * FROM paper_signal_log ORDER BY date DESC, symbol")
+    def read_signals(self, since_epoch: bool = True) -> pd.DataFrame:
+        """Signal log rows of the current book."""
+        df = self._read("SELECT * FROM paper_signal_log ORDER BY date DESC, symbol")
+        return self._since_epoch(df, "date", since_epoch)
 
-    def read_positions(self) -> pd.DataFrame:
-        """Return all paper_positions as a DataFrame."""
-        return self._read("SELECT * FROM paper_positions ORDER BY opened_at DESC")
+    def read_positions(self, since_epoch: bool = True) -> pd.DataFrame:
+        """Open and closed positions of the current book."""
+        df = self._read("SELECT * FROM paper_positions ORDER BY opened_at DESC")
+        return self._since_epoch(df, "opened_at", since_epoch)
 
-    def read_weekly(self) -> pd.DataFrame:
-        """Return all weekly_checkpoints as a DataFrame."""
-        return self._read("SELECT * FROM paper_weekly_checkpoints ORDER BY week_number")
+    def read_weekly(self, since_epoch: bool = True) -> pd.DataFrame:
+        """Weekly checkpoints of the current book."""
+        df = self._read("SELECT * FROM paper_weekly_checkpoints ORDER BY week_number")
+        return self._since_epoch(df, "week_start", since_epoch)
 
     def _read(self, sql: str) -> pd.DataFrame:
         try:
