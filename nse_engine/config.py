@@ -20,9 +20,12 @@ HASH_NEUTRAL_DEFAULTS: Dict[Tuple[str, str], Any] = {
     ("signals", "normalizer_window_days"): 0,
     ("signals", "ewm_memory_spans"): 0,
     ("signals", "calendar_schedule"): False,
+    ("signals", "delivery_lookback"): 63,
     ("portfolio", "calendar_schedule"): False,
     ("universe", "calendar_schedule"): False,
     ("universe", "history_window_days"): 0,
+    ("allocator", "target_vol_annual"): 0.0,
+    ("allocator", "vol_target_min_scale"): 0.3,
 }
 
 
@@ -83,6 +86,9 @@ class SignalConfig:
     normalizer_window_days: int = 0   # 0: expanding since the first loaded row; >0: rolling window of dates
     ewm_memory_spans: int = 0         # 0: pandas EWM (infinite memory); k: kernel truncated at k x span rows
     calendar_schedule: bool = False   # FDM refresh on calendar period starts, not row counts
+    # "delivery" group: cross-sectional rank of trailing mean delivery % (share of traded
+    # quantity taken to demat, from NSE's MTO files). Only used when group_weights names it.
+    delivery_lookback: int = 63
 
     def weights(self) -> Dict[str, float]:
         return dict(self.group_weights)
@@ -151,6 +157,11 @@ class AllocatorConfig:
     max_gross: float = 1.0
     vol_lookback_days: int = 60
     risk_off_to_metals: bool = True
+    # Portfolio volatility target (Harvey et al. 2018; Moreira & Muir 2017): scale the
+    # whole book DOWN when its estimated vol exceeds the target. Never up — a CNC
+    # book cannot exceed max_gross. 0 = off (legacy behaviour and hash).
+    target_vol_annual: float = 0.0
+    vol_target_min_scale: float = 0.3   # floor on the scale-down, so a vol spike never empties the book
 
 
 @dataclass(frozen=True)
@@ -230,7 +241,8 @@ class EngineConfig:
         # normaliser pools again; the FDM pools normalised group forecasts over
         # its lookback. Stages add, they do not overlap.
         rule_memory = max(sig.ewm_memory_spans * sig.max_span(),
-                          sig.momentum_lookback + sig.momentum_skip, sig.low_vol_lookback)
+                          sig.momentum_lookback + sig.momentum_skip, sig.low_vol_lookback,
+                          sig.delivery_lookback)
         forecast_chain = (rule_memory + 2 * sig.normalizer_window_days + sig.fdm_lookback_days
                           + sig.normalizer_min_obs)
         return max(

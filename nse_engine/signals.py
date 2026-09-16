@@ -41,7 +41,7 @@ from nse_engine.config import SignalConfig
 
 logger = logging.getLogger(__name__)
 
-GROUPS: Tuple[str, ...] = ("fast_trend", "slow_trend", "low_vol")
+GROUPS: Tuple[str, ...] = ("fast_trend", "slow_trend", "low_vol", "delivery")
 _EWM_CHUNK = 64   # columns per pass of the finite-memory EWM (see _truncated_ewm)
 FDM_MIN_POOLED_OBS = 100  # pooled (date, symbol) observations needed before FDM != 1
 
@@ -356,8 +356,25 @@ def low_vol_forecast(
     return normalise_forecast(raw, mask, cfg)
 
 
+def delivery_forecast(
+    delivery_pct: pd.DataFrame, mask: pd.DataFrame, cfg: SignalConfig
+) -> Tuple[pd.DataFrame, pd.Series]:
+    """Rank of trailing mean delivery %: names whose volume is taken to demat.
+
+    The India evidence (BacktestIndia, 2006-2025) puts the momentum premium in
+    low-turnover, patiently held names; delivery % is the NSE-published proxy
+    for that. Rows before ``delivery_lookback`` sessions of data, and names
+    without MTO coverage, are NaN and drop out of the rank.
+    """
+    d = delivery_pct.astype("float64")
+    mean = d.rolling(cfg.delivery_lookback, min_periods=max(cfg.delivery_lookback // 2, 5)).mean()
+    raw = centred_rank(mean, mask)
+    return normalise_forecast(raw, mask, cfg)
+
+
 def compute_signal_panels(
-    close: pd.DataFrame, universe_mask: pd.DataFrame, cfg: SignalConfig, returns: Optional[pd.DataFrame] = None
+    close: pd.DataFrame, universe_mask: pd.DataFrame, cfg: SignalConfig, returns: Optional[pd.DataFrame] = None,
+    delivery_pct: Optional[pd.DataFrame] = None,
 ) -> SignalPanels:
     """All group forecasts, FDM and the combined forecast."""
     close = close.astype("float64")
@@ -365,10 +382,17 @@ def compute_signal_panels(
         returns = daily_returns(close)
     daily_vol = ewm_daily_vol(returns, cfg.vol_span, cfg.ewm_memory_spans)
     weights = cfg.weights()
+
+    def _delivery():
+        if delivery_pct is None:
+            raise ValueError("signal group 'delivery' needs MarketData.delivery_pct (NSE MTO files in the store)")
+        return delivery_forecast(delivery_pct.reindex(index=close.index, columns=close.columns), universe_mask, cfg)
+
     builders = {
         "fast_trend": lambda: fast_trend_forecast(close, universe_mask, cfg, daily_vol),
         "slow_trend": lambda: slow_trend_forecast(close, universe_mask, cfg, daily_vol),
         "low_vol": lambda: low_vol_forecast(close, universe_mask, cfg, returns),
+        "delivery": _delivery,
     }
     unknown = set(weights) - set(builders)
     if unknown:

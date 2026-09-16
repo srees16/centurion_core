@@ -114,7 +114,8 @@ class EngineCache:
         self.universe = compute_universe_panel(data, config.universe, exclude=self.sleeve_syms)
         self.universe_mask = self.universe.mask.to_numpy()
 
-        self.signals = compute_signal_panels(close_df, self.universe.mask, config.signals, returns_df)
+        self.signals = compute_signal_panels(close_df, self.universe.mask, config.signals, returns_df,
+                                             delivery_pct=data.delivery_pct)
         self.combined = self.signals.combined.to_numpy()
         self.warmup = self.signals.warmup.to_numpy()
 

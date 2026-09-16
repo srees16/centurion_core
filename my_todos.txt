@@ -1,4 +1,4 @@
-Realistic achievable target: Sharpe >= 1.5, CAGR >=25%, MaxDD<=30%, Calmar >= 1%, PBO <= 30%
+Realistically achievable target: Sharpe >= 1.5, CAGR >=25%, MaxDD<=30%, Calmar >= 1%, PBO <= 30%
 Goal is to have the best possible Sharpe and CAGR, lowest possible maxDD
 
 ================================================================================
