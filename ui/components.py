@@ -504,22 +504,10 @@ def render_no_data_warning(page_name: str = "analysis"):
             """)
 
 
-# ── NIFTY 50 constituents (yfinance tickers) ─────────────────────
-_IND_NIFTY50 = [
-    "ADANIENT.NS", "ADANIPORTS.NS", "APOLLOHOSP.NS", "ASIANPAINT.NS",
-    "AXISBANK.NS", "BAJAJ-AUTO.NS", "BAJAJFINSV.NS", "BAJFINANCE.NS",
-    "BEL.NS", "BHARTIARTL.NS", "BPCL.NS", "BRITANNIA.NS",
-    "CIPLA.NS", "COALINDIA.NS", "DRREDDY.NS", "EICHERMOT.NS",
-    "ETERNAL.NS", "GRASIM.NS", "HCLTECH.NS", "HDFCBANK.NS",
-    "HDFCLIFE.NS", "HEROMOTOCO.NS", "HINDALCO.NS", "HINDUNILVR.NS",
-    "ICICIBANK.NS", "INDUSINDBK.NS", "INFY.NS", "ITC.NS",
-    "JIOFIN.NS", "JSWSTEEL.NS", "KOTAKBANK.NS", "LT.NS",
-    "LTIM.NS", "M&M.NS", "MARUTI.NS", "NESTLEIND.NS",
-    "NTPC.NS", "ONGC.NS", "POWERGRID.NS", "RELIANCE.NS",
-    "SBILIFE.NS", "SBIN.NS", "SHRIRAMFIN.NS", "SUNPHARMA.NS",
-    "TMPV.NS", "TATASTEEL.NS", "TCS.NS", "TECHM.NS",
-    "TITAN.NS", "TRENT.NS", "ULTRACEMCO.NS", "WIPRO.NS",
-]
+# ── NIFTY 50 constituents (yfinance tickers) ─────────────────
+from kite_connect.core.config import INDEX_CONSTITUENTS as _INDEX_CONSTITUENTS
+
+_IND_NIFTY50 = [f"{sym}.NS" for sym in _INDEX_CONSTITUENTS["NIFTY50"]]
 
 _US_TOP10 = [
     "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL",

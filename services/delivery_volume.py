@@ -18,6 +18,8 @@ from typing import Dict, List, Optional
 import pandas as pd
 import requests
 
+from infrastructure.nse_http import new_session
+
 logger = logging.getLogger(__name__)
 
 _CACHE: Dict[str, "DeliveryData"] = {}
@@ -26,16 +28,6 @@ _CACHE_TTL = timedelta(minutes=30)
 
 # NSE bhavcopy / equity delivery endpoint
 _NSE_DELIVERY_URL = "https://www.nseindia.com/api/equity-stockIndices"
-_NSE_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/119.0.0.0 Safari/537.36"
-    ),
-    "Accept": "application/json",
-    "Accept-Language": "en-US,en;q=0.9",
-}
-
 
 @dataclass
 class DeliveryData:
@@ -59,13 +51,7 @@ class DeliveryData:
 
 def _get_nse_session() -> requests.Session:
     """Create a session with NSE cookies pre-loaded."""
-    sess = requests.Session()
-    sess.headers.update(_NSE_HEADERS)
-    try:
-        sess.get("https://www.nseindia.com", timeout=5)
-    except Exception:
-        pass
-    return sess
+    return new_session(accept="application/json")
 
 
 def fetch_delivery_data(symbols: Optional[List[str]] = None) -> Dict[str, DeliveryData]:

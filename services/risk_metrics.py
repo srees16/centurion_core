@@ -24,12 +24,16 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+from config import Config
+
 logger = logging.getLogger(__name__)
 
 TRADING_DAYS = 252
-ANNUALISATION = np.sqrt(TRADING_DAYS)
-RISK_FREE_RATE_IND = 0.07  # India 10-year G-Sec
-RISK_FREE_RATE_US = 0.04   # US 10-year Treasury
+#: sqrt(252); the one annualisation factor for daily series in this codebase.
+ANNUALISATION = float(np.sqrt(TRADING_DAYS))
+ANNUALISATION_FACTOR = ANNUALISATION
+RISK_FREE_RATE_IND = float(Config.RISK_FREE_RATE_IND)  # India 10-year G-Sec
+RISK_FREE_RATE_US = float(Config.RISK_FREE_RATE_US)    # US 10-year Treasury
 
 
 @dataclass

@@ -30,6 +30,8 @@ from typing import Dict, List, Optional
 import pandas as pd
 import requests
 
+from infrastructure.nse_http import get_session
+
 logger = logging.getLogger(__name__)
 
 # ── Configuration ──────────────────────────────────────────────
@@ -41,18 +43,6 @@ _BHAV_URL_TPL = "{base}/sec_bhavdata_full_{ddmmyyyy}.csv"
 
 _CACHE_DIR = Path(__file__).resolve().parent.parent / "data" / "bhavcopy_cache"
 
-_NSE_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept": "*/*",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Referer": "https://www.nseindia.com/",
-}
-
 # Column mapping: new Bhavcopy CSV → internal names
 _COL_MAP = {
     "OPEN_PRICE": "OPEN",
@@ -62,31 +52,16 @@ _COL_MAP = {
     "TTL_TRD_QNTY": "TOTTRDQTY",
 }
 
-_SESSION: Optional[requests.Session] = None
-
-
-# ── Session management ─────────────────────────────────────────
+# ── Session management ───────────────────────────────────────
 
 def _get_session() -> requests.Session:
     """Return a requests session with NSE cookies pre-loaded."""
-    global _SESSION
-    if _SESSION is not None:
-        return _SESSION
-    sess = requests.Session()
-    sess.headers.update(_NSE_HEADERS)
-    try:
-        # Hit the main NSE page to get CSRF / session cookies
-        sess.get("https://www.nseindia.com", timeout=10)
-    except Exception as exc:
-        logger.debug("NSE session cookie pre-fetch failed: %s", exc)
-    _SESSION = sess
-    return sess
+    return get_session()
 
 
 def _reset_session() -> None:
     """Force a fresh session on next call (e.g. after 403)."""
-    global _SESSION
-    _SESSION = None
+    get_session(reset=True)
 
 
 # ── Single-day bhavcopy download ───────────────────────────────

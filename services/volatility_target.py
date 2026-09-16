@@ -25,7 +25,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-ANNUALISATION_FACTOR = 16  # sqrt(256)
+from services.risk_metrics import ANNUALISATION_FACTOR  # sqrt(252)
 
 # A4+P2+G3: Regime-adaptive vol scaling — SINGLE dampening layer (Carver approach).
 # G3 FIX: Bull boosted to 1.30× (Sharpe=0.73 in bull, strongest regime).

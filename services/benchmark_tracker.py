@@ -26,8 +26,7 @@ from config import Config
 
 logger = logging.getLogger(__name__)
 
-RISK_FREE_RATE_ANNUAL = 0.07  # India 10-year G-Sec yield ~7%
-TRADING_DAYS = 252
+from services.risk_metrics import RISK_FREE_RATE_IND as RISK_FREE_RATE_ANNUAL, TRADING_DAYS
 
 
 @dataclass

@@ -66,7 +66,7 @@ class PortfolioRiskSnapshot:
     alerts: List[str] = field(default_factory=list)
 
 
-ANNUALISATION_FACTOR = 16.0  # sqrt(252) ≈ 16
+from services.risk_metrics import ANNUALISATION_FACTOR  # sqrt(252)
 
 # Live peak equity (actual account equity, not configured capital)
 import os as _os

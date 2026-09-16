@@ -67,39 +67,6 @@ class CostCheckResult:
     reason: str = ""
 
 
-def estimate_trade_cost(
-    price: float,
-    quantity: int,
-    is_sell: bool = False,
-    config: Optional[CostConfig] = None,
-) -> float:
-    """Estimate total cost for a single trade in ₹.
-
-    Parameters
-    ----------
-    price : float
-        Trade price per share.
-    quantity : int
-        Number of shares.
-    is_sell : bool
-        True for sell (STT is higher on sell delivery).
-    config : CostConfig | None
-
-    Returns
-    -------
-    float
-        Estimated cost in ₹.
-    """
-    cfg = config or CostConfig()
-    turnover = price * quantity
-    # Consistent one-way cost: half of round-trip + half of spread
-    base_cost_pct = cfg.round_trip_cost_pct / 2 + cfg.spread_slippage_pct / 2
-    # STT is 0.1% on sell-side only for delivery trades; buyer pays no STT
-    stt_pct = 0.001 if is_sell else 0.0
-    cost_pct = base_cost_pct + stt_pct
-    return turnover * cost_pct
-
-
 def check_speed_limit(
     symbol: str,
     combined_forecast: float,

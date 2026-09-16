@@ -26,37 +26,14 @@ from typing import Dict, Optional
 import pandas as pd
 import requests
 
+from infrastructure.nse_http import get_session
+
 logger = logging.getLogger(__name__)
 
 _CACHE_DIR = Path(__file__).resolve().parent.parent / "data" / "fo_bhavcopy_cache"
 
-_NSE_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept": "*/*",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Referer": "https://www.nseindia.com/",
-}
-
-_SESSION: Optional[requests.Session] = None
-
-
 def _get_session() -> requests.Session:
-    global _SESSION
-    if _SESSION is not None:
-        return _SESSION
-    sess = requests.Session()
-    sess.headers.update(_NSE_HEADERS)
-    try:
-        sess.get("https://www.nseindia.com", timeout=10)
-    except Exception:
-        pass
-    _SESSION = sess
-    return sess
+    return get_session()
 
 
 def _cache_path(d: date) -> Path:
