@@ -34,7 +34,7 @@ permissions:
 # The paper book lives in Neon and is restored every run: never let two runs
 # mutate it concurrently.
 concurrency:
-  group: paper-trade-book
+  group: paper-trade-book-v2
   cancel-in-progress: false
 
 jobs:
