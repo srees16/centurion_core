@@ -21,6 +21,23 @@ import pickle
 import math
 import numpy as np
 from typing import Dict, List, Tuple, Optional
+import logging
+import warnings
+
+logger = logging.getLogger(__name__)
+
+_DEPRECATION_MSG = (
+    "optimize_weights_r21a.py is DEPRECATED: the PBO/DSR/lag-test/walk-forward outputs of its fast "
+    "simulator are NOT valid (PBO fed shares of one P&L, DSR mixed annual Sharpe "
+    "with daily n, lag test read a 5-day refresh grid). Use nse_engine.validation "
+    "and runners/run_nse_engine.py instead."
+)
+
+
+def _warn_deprecated() -> None:
+    """Emit the deprecation warning (entry points only)."""
+    warnings.warn(_DEPRECATION_MSG, DeprecationWarning, stacklevel=3)
+    logger.warning(_DEPRECATION_MSG)
 
 # Force unbuffered stdout (critical for Kaggle notebook output)
 os.environ["PYTHONUNBUFFERED"] = "1"
@@ -146,7 +163,7 @@ def _load_data() -> dict:
     print(f"ERROR: extracted_forecasts.pkl not found in any of:")
     for p in search_paths:
         print(f"  - {p}")
-    print("Run extract step first: !python centurion_core/cloud/run_kaggle.py --task extract")
+    print("Run extract step first: python -m runners.run_extract_forecasts")
     sys.exit(1)
 
 
@@ -558,6 +575,7 @@ def _objective_parallel(x: np.ndarray) -> float:
 
 def run_optimization():
     """Main optimization loop — sequential (workers=1)."""
+    _warn_deprecated()
     global _G_FORECASTS, _G_PRICES, _G_VOLS, _G_SIGNALS, _G_CORR
     global _G_TRAIN_END, _G_R19C_TRAIN_SHARPE
     from scipy.optimize import differential_evolution

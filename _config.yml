@@ -1,0 +1,41 @@
+# GitHub Pages configuration.
+#
+# This repository is a codebase, not a website: only the README and docs/ are
+# published. Everything else is excluded so that Jekyll's Liquid parser never
+# sees code, notebooks or reading notes. Text such as "{{pi}" in
+# references/financial_ml/readings/ch21_brute_force_and_quantum_computers.md
+# is valid prose but an unterminated Liquid variable, which failed the build.
+theme: jekyll-theme-primer
+title: Centurion Core
+description: Systematic NSE equity research and trading platform
+
+exclude:
+  - api/
+  - auth/
+  - cloud/
+  - config/
+  - data/
+  - database/
+  - deployment/
+  - frontend/
+  - infrastructure/
+  - kite_connect/
+  - myenv/
+  - nse_engine/
+  - optimizer/
+  - rag_pipeline/
+  - references/
+  - runners/
+  - scrapers/
+  - scripts/
+  - services/
+  - strategies/
+  - tests/
+  - trading_strategies/
+  - ui/
+  - "*.py"
+  - "*.txt"
+  - "*.ipynb"
+  - requirements.txt
+  - Gemfile
+  - Gemfile.lock

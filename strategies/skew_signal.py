@@ -32,7 +32,7 @@ from typing import Dict, Optional
 import numpy as np
 import pandas as pd
 
-from services.forecast_scalar import cap_forecast
+from services.signals.forecast_scalar import cap_forecast
 
 logger = logging.getLogger(__name__)
 

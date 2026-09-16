@@ -1,4 +1,4 @@
-﻿"""
+"""
 Pairs Trading (Statistical Arbitrage) Strategy.
 
 Pairs trading is a market-neutral strategy that exploits the mean-reverting

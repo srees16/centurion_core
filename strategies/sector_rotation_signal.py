@@ -1,7 +1,7 @@
 """
 Sector Rotation Forecast Signal — converts sector momentum tiers to per-stock forecasts.
 
-Uses the existing `services.sector_rotation` infrastructure which ranks 12 NIFTY
+Uses the existing `services.signals.sector_rotation` infrastructure which ranks 12 NIFTY
 sectoral indices by dual-timeframe (1M + 3M) momentum into TOP / MID / BOTTOM tiers.
 
 Forecast mapping:

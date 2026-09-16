@@ -39,7 +39,7 @@ class DecisionEngine:
         """Lazily fetch the current market regime."""
         if self._regime_snapshot is None:
             try:
-                from services.regime_detector import regime_detector
+                from services.regime.regime_detector import regime_detector
                 self._regime_snapshot = regime_detector.detect()
             except Exception:
                 pass

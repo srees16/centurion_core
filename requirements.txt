@@ -27,6 +27,7 @@ bcrypt
 minio
 redis
 scipy
+pyarrow
 seaborn
 hmmlearn>=0.3.0
 Backtesting

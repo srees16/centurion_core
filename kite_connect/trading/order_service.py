@@ -51,9 +51,55 @@ def _is_nse_market_open() -> bool:
 
 # ── Order Placement ────────────────────────────────────────────
 
+def is_kill_switch_active() -> bool:
+    """True when the kill switch is on (env ``CENTURION_KILL_SWITCH`` or Config)."""
+    kill_switch = os.environ.get("CENTURION_KILL_SWITCH", "").lower() in ("true", "1", "yes")
+    if not kill_switch:
+        try:
+            from config import Config
+            kill_switch = bool(getattr(Config, "KILL_SWITCH", False))
+        except Exception:
+            pass
+    return kill_switch
+
+
+def _long_quantity(kite, symbol, exchange, product):
+    """Quantity currently held long for ``symbol`` (holdings + net positions)."""
+    qty = 0
+    if str(product).upper() == "CNC":
+        for h in (kite.holdings() or []):
+            if h.get("tradingsymbol") == symbol and (h.get("exchange") or exchange) == exchange:
+                qty += int(h.get("quantity", 0) or 0) + int(h.get("t1_quantity", 0) or 0)
+    for p in ((kite.positions() or {}).get("net", []) or []):
+        if (p.get("tradingsymbol") == symbol and p.get("exchange", exchange) == exchange
+                and str(p.get("product", "")).upper() == str(product).upper()):
+            qty += int(p.get("quantity", 0) or 0)
+    return qty
+
+
+def _kill_switch_allows(kite, symbol, exchange, transaction_type, quantity, product, is_exit):
+    """Kill-switch policy: only reduce-only exits (SELL with is_exit=True) pass.
+
+    CNC sells cannot open a short on NSE cash, so they are allowed without a
+    broker round-trip.  For other products the long quantity is verified so
+    an "exit" can never flip the book short.
+    """
+    if not is_exit or str(transaction_type).upper() != "SELL":
+        return False, "KILL SWITCH active: only reduce-only exits (SELL, is_exit=True) are allowed"
+    if str(product).upper() == "CNC":
+        return True, ""
+    try:
+        held = _long_quantity(kite, symbol, exchange, product)
+    except Exception as exc:
+        return False, f"KILL SWITCH active: cannot verify {product} long quantity ({exc})"
+    if int(quantity) > held:
+        return False, f"KILL SWITCH active: exit qty {quantity} exceeds long qty {held}"
+    return True, ""
+
+
 def place_order(kite, symbol, exchange, transaction_type, quantity,
                 order_type="MARKET", product="CNC", price=None,
-                trigger_price=None, validity="DAY", tag=None):
+                trigger_price=None, validity="DAY", tag=None, is_exit=False):
     """
     Place an order on Zerodha via Kite Connect.
 
@@ -79,6 +125,10 @@ def place_order(kite, symbol, exchange, transaction_type, quantity,
         Required for SL / SL-M orders.
     validity : str
         ``"DAY"`` or ``"IOC"``.
+    is_exit : bool
+        Marks a reduce-only exit (stop, rank exit, liquidation).  While the
+        kill switch is active only ``SELL`` orders with ``is_exit=True`` are
+        accepted; BUYs are always rejected.
 
     Returns
     -------
@@ -86,17 +136,16 @@ def place_order(kite, symbol, exchange, transaction_type, quantity,
         ``{"success": True, "order_id": "..."}`` on success, or
         ``{"success": False, "error": "..."}`` on failure.
     """
-    # ── G2: KILL SWITCH — instant halt of all order placement ──
-    kill_switch = os.environ.get("CENTURION_KILL_SWITCH", "").lower() in ("true", "1", "yes")
-    if not kill_switch:
-        try:
-            from config import Config
-            kill_switch = getattr(Config, "KILL_SWITCH", False)
-        except Exception:
-            pass
-    if kill_switch:
-        logger.critical("KILL SWITCH ACTIVE — rejecting ALL orders for %s", symbol)
-        return {"success": False, "error": "KILL SWITCH active: all order placement halted"}
+    # ── G2: KILL SWITCH — halt new risk, but never block reduce-only exits ──
+    if is_kill_switch_active():
+        allowed, reason = _kill_switch_allows(kite, symbol, exchange, transaction_type,
+                                              quantity, product, is_exit)
+        if not allowed:
+            logger.critical("KILL SWITCH ACTIVE — rejecting %s %s x %s (%s)",
+                            transaction_type, symbol, quantity, reason)
+            return {"success": False, "error": reason}
+        logger.warning("KILL SWITCH ACTIVE — allowing reduce-only exit SELL %s x %s",
+                       symbol, quantity)
 
     # ── Circuit breaker check ──
     if _order_circuit:
@@ -327,6 +376,36 @@ def get_holdings(kite):
         return kite.holdings() or []
     except Exception:
         return []
+
+
+def get_account_equity(kite, fallback=None):
+    """Return ``(equity_inr, source)`` from the live Kite account.
+
+    equity = equity-segment net margin (cash + collateral) + market value of
+    CNC holdings.  Falls back to ``fallback`` (e.g. the configured capital)
+    with a logged warning when Kite data is unavailable.
+    """
+    if kite is not None:
+        try:
+            margins = kite.margins("equity") or {}
+            net = margins.get("net")
+            if net is None:
+                net = (margins.get("available") or {}).get("cash", 0.0)
+            holdings_value = 0.0
+            for h in (kite.holdings() or []):
+                qty = int(h.get("quantity", 0) or 0) + int(h.get("t1_quantity", 0) or 0)
+                price = float(h.get("last_price") or h.get("close_price") or 0.0)
+                holdings_value += qty * price
+            equity = float(net or 0.0) + holdings_value
+            if equity > 0:
+                return equity, "kite"
+            logger.warning("Kite account equity computed as %.0f — using fallback", equity)
+        except Exception as exc:
+            logger.warning("Kite account equity unavailable (%s) — using fallback", exc)
+    if fallback is None:
+        return 0.0, "unavailable"
+    logger.warning("Using configured capital ₹%.0f as equity fallback", float(fallback))
+    return float(fallback), "config_fallback"
 
 
 def cancel_order(kite, order_id, variety="regular"):

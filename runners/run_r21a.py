@@ -24,7 +24,7 @@ sys.stderr.reconfigure(line_buffering=True, encoding="utf-8", errors="replace")
 
 
 def main():
-    from services.forecast_combiner import DEFAULT_FORECAST_WEIGHTS
+    from services.signals.forecast_combiner import DEFAULT_FORECAST_WEIGHTS
 
     # ── Load optimized weights ────
     if os.path.exists(_OPT_RESULTS):
@@ -55,7 +55,7 @@ def main():
             fw.weight = _R21A_WEIGHTS[fw.name]
 
     # ── Set checkpoint path + mode flags ──
-    import services.full_pipeline_backtest as bt_mod
+    import services.research.full_pipeline_backtest as bt_mod
 
     os.environ["CENTURION_BT_CHECKPOINT"] = _R21A_CHECKPOINT
     bt_mod._SAVE_FORECASTS_MODE = False

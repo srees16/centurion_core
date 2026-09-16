@@ -119,8 +119,8 @@ def _compute_ewmac(
 ):
     """EWMA crossover forecasts (Carver Ch. 7)."""
     try:
-        from services.forecast_scalar import ewmac_to_forecast
-        from services.instrument_volatility import daily_price_volatility
+        from services.signals.forecast_scalar import ewmac_to_forecast
+        from services.risk.instrument_volatility import daily_price_volatility
     except ImportError:
         logger.warning("EWMAC: missing forecast_scalar or instrument_volatility")
         return
@@ -140,13 +140,18 @@ def _compute_ewmac(
         dpv = daily_price_volatility(close)
         if dpv is None or dpv <= 0:
             continue
+        # daily_price_volatility returns a decimal percentage; ewmac_to_forecast
+        # needs volatility in price units (same units as the crossover).
+        dpv_price = float(close.iloc[-1]) * dpv
+        if not np.isfinite(dpv_price) or dpv_price <= 0:
+            continue
 
         for name, fast, slow in pairs:
             try:
                 fast_ewma = close.ewm(span=fast, adjust=False).mean()
                 slow_ewma = close.ewm(span=slow, adjust=False).mean()
                 raw = float(fast_ewma.iloc[-1] - slow_ewma.iloc[-1])
-                fc = ewmac_to_forecast(raw, dpv, fast, slow)
+                fc = ewmac_to_forecast(raw, dpv_price, fast, slow)
                 if np.isfinite(fc):
                     result[sym][name] = float(fc)
             except Exception:
@@ -159,7 +164,7 @@ def _compute_momentum(
 ):
     """12-minus-1 month cross-sectional momentum."""
     try:
-        from services.momentum_factor import compute_momentum_forecasts
+        from services.signals.momentum_factor import compute_momentum_forecasts
         fc_map = compute_momentum_forecasts(ohlcv)
         for sym, fc in fc_map.items():
             if sym in result and np.isfinite(fc):
@@ -306,7 +311,7 @@ def _compute_screener(
 def _get_v27_weights() -> Dict[str, float]:
     """Load v27 champion weights from forecast_combiner."""
     try:
-        from services.forecast_combiner import DEFAULT_FORECAST_WEIGHTS
+        from services.signals.forecast_combiner import DEFAULT_FORECAST_WEIGHTS
         return {fw.name: fw.weight for fw in DEFAULT_FORECAST_WEIGHTS}
     except ImportError:
         # Fallback: hardcoded v27 champion

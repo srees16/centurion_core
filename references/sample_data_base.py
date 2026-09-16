@@ -58,7 +58,7 @@ def _bhavcopy_fallback(sym: str, start, end):
     """Try fetching OHLCV from NSE Bhavcopy for an Indian ticker."""
     try:
         from datetime import date as _date
-        from services.bhavcopy_fetcher import fetch_ohlcv
+        from services.market_data.bhavcopy_fetcher import fetch_ohlcv
 
         start_dt = pd.Timestamp(start).date() if not isinstance(start, _date) else start
         end_dt = pd.Timestamp(end).date() if not isinstance(end, _date) else end

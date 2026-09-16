@@ -343,7 +343,7 @@ class NSEScreener:
         Silently degrades to static defaults if no fresh params exist.
         """
         try:
-            from services.walk_forward import load_all_optimal_params
+            from services.research.walk_forward import load_all_optimal_params
 
             all_params = load_all_optimal_params()
             if not all_params:
@@ -439,7 +439,7 @@ class NSEScreener:
 
         # Seed sector rotation cache with the OHLCV data we already have
         try:
-            from services.sector_rotation import get_sector_rotation
+            from services.signals.sector_rotation import get_sector_rotation
             get_sector_rotation(self.cfg.sector_indices, ohlcv)
         except Exception:
             pass
@@ -547,7 +547,7 @@ class NSEScreener:
         if missed:
             try:
                 from datetime import date as _date, timedelta as _td
-                from services.bhavcopy_fetcher import fetch_ohlcv_batch
+                from services.market_data.bhavcopy_fetcher import fetch_ohlcv_batch
 
                 end_dt = _date.today()
                 start_dt = end_dt - _td(days=self.cfg.history_days + 30)
@@ -571,7 +571,7 @@ class NSEScreener:
         # Remove delisted / suspended / dead tickers before any
         # technical analysis is computed.
         try:
-            from services.survivorship_filter import filter_valid_tickers
+            from services.market_data.survivorship_filter import filter_valid_tickers
             valid_syms, rejected = filter_valid_tickers(
                 list(cache.keys()), market="IND",
                 ohlcv_cache=cache, kite=self.kite,
@@ -590,7 +590,7 @@ class NSEScreener:
         # Adjust OHLCV for pending splits/bonuses so technical
         # indicators are computed on adjusted prices.
         try:
-            from services.corporate_actions import get_actions_for_symbols, adjust_ohlcv_for_action
+            from services.market_data.corporate_actions import get_actions_for_symbols, adjust_ohlcv_for_action
             pending = get_actions_for_symbols(list(cache.keys()))
             for sym, action in pending.items():
                 if sym in cache:
@@ -832,7 +832,7 @@ class NSEScreener:
 
         # Delivery volume conviction — high delivery % = institutional buying
         try:
-            from services.delivery_volume import get_delivery_score
+            from services.market_data.delivery_volume import get_delivery_score
             score += get_delivery_score(stock.symbol)
         except Exception:
             pass  # degrade gracefully
@@ -840,7 +840,7 @@ class NSEScreener:
         # Sector rotation overlay — boost top-momentum sectors
         if stock.sector_name:
             try:
-                from services.sector_rotation import get_sector_score_adjustment
+                from services.signals.sector_rotation import get_sector_score_adjustment
                 score += get_sector_score_adjustment(stock.sector_name)
             except Exception:
                 pass

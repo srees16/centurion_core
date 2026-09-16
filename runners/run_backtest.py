@@ -6,7 +6,7 @@ _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-from services.full_pipeline_backtest import run_full_backtest
+from services.research.full_pipeline_backtest import run_full_backtest
 
 MAX_RETRIES = 5
 

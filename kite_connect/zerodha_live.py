@@ -1237,8 +1237,8 @@ def _render_dashboard():
             </style><div class="trade-panel-wrap">""", unsafe_allow_html=True)
 
             # ── Mode tabs ──
-            mode_tab_quick, mode_tab_regular, mode_tab_co, mode_tab_amo = st.tabs(
-                ["Quick", "Regular", "Cover (CO)", "AMO"]
+            mode_tab_quick, mode_tab_regular, mode_tab_gtt, mode_tab_amo = st.tabs(
+                ["Quick", "Regular", "Stop (GTT)", "AMO"]
             )
 
 
@@ -1315,53 +1315,63 @@ def _render_dashboard():
                         st.error(res["error"])
 
             # ================================================
-            # COVER ORDER — Market/Limit + mandatory SL
+            # STOP (GTT) — persistent stop-loss for a CNC holding
             # ================================================
-            with mode_tab_co:
-                st.markdown('<p class="trade-panel-header">Cover order with built-in stop-loss (CNC delivery)</p>',
+            # Cover orders are intraday MIS products; delivery (CNC) swing
+            # positions need a GTT stop, which survives across sessions.
+            with mode_tab_gtt:
+                st.markdown('<p class="trade-panel-header">GTT stop-loss for an existing CNC holding (one per symbol; re-submitting updates it)</p>',
                             unsafe_allow_html=True)
-                c1a, c1b, c1c = st.columns(3)
-                co_sym = c1a.selectbox("Symbol", sorted_stock_list,
-                                       key="co_sym", label_visibility="collapsed")
-                co_exch = c1b.selectbox("Exchange", ["NSE", "BSE"],
-                                        key="co_exch", label_visibility="collapsed")
-                co_type = c1c.selectbox("Order Type", ["MARKET", "LIMIT"],
-                                        key="co_type", label_visibility="collapsed")
-
-                c2a, c2b, c2c = st.columns(3)
-                co_qty = c2a.number_input("Qty", min_value=1, value=1, step=1,
-                                          key="co_qty")
-                co_price = c2b.number_input("Price", min_value=0.0, value=0.0,
-                                            step=0.05, format="%.2f", key="co_price",
-                                            disabled=co_type == "MARKET")
-                co_trigger = c2c.number_input("SL Trigger ✱", min_value=0.05,
-                                              value=1.0, step=0.05, format="%.2f",
-                                              key="co_trigger",
-                                              help="Mandatory stop-loss trigger price")
-
-                co_txn = st.radio("Side", ["BUY", "SELL"], horizontal=True,
-                                  key="co_txn", label_visibility="collapsed")
-                if st.button(f"Place Cover {co_txn}",
-                             key="co_submit", use_container_width=True,
-                             type="primary" if co_txn == "BUY" else "secondary"):
+                try:
+                    from trading import gtt_stops as _gtt
+                except ImportError:
+                    from kite_connect.trading import gtt_stops as _gtt
+                try:
+                    _gtt_held = _gtt.get_held_quantities(kite)
+                except Exception as e:
+                    _gtt_held = {}
+                    st.error(f"Could not load holdings: {e}")
+                if not _gtt_held:
+                    st.info("No CNC holdings to protect.")
+                else:
+                    g1a, g1b, g1c = st.columns(3)
+                    gtt_sym = g1a.selectbox("Holding", sorted(_gtt_held),
+                                            key="gtt_sym", label_visibility="collapsed")
                     try:
-                        _params = dict(
-                            tradingsymbol=co_sym, exchange=co_exch,
-                            transaction_type=co_txn, quantity=int(co_qty),
-                            order_type=co_type, product="CNC",
-                            validity="DAY",
-                            trigger_price=float(co_trigger),
-                        )
-                        if co_type == "LIMIT" and co_price > 0:
-                            _params["price"] = float(co_price)
-                        oid = kite.place_order(**_params)
-                        st.success(f"Cover {co_txn} placed — ID: {oid}")
-                        _persist_order_to_db(co_sym, co_exch, co_txn, int(co_qty),
-                                            co_type, "CNC", co_price, order_id=oid)
-                    except Exception as e:
-                        st.error(f"CO failed: {e}")
-                        _persist_order_to_db(co_sym, co_exch, co_txn, int(co_qty),
-                                            co_type, "CNC", co_price, success=False, error_msg=str(e))
+                        _gtt_existing = _gtt.list_stop_gtts(kite, symbol=gtt_sym)
+                    except Exception:
+                        _gtt_existing = []
+                    _gtt_default_qty = int(_gtt_held.get(gtt_sym, 1))
+                    gtt_qty = g1b.number_input("Qty", min_value=1, max_value=max(_gtt_default_qty, 1),
+                                               value=max(_gtt_default_qty, 1), step=1, key="gtt_qty")
+                    _gtt_default_trig = float(_gtt_existing[0]["trigger"]) if _gtt_existing else 0.05
+                    gtt_trigger = g1c.number_input("Stop trigger ✱", min_value=0.05,
+                                                   value=max(_gtt_default_trig, 0.05), step=0.05,
+                                                   format="%.2f", key="gtt_trigger")
+                    gtt_buf = st.number_input("Limit buffer below trigger (%)", min_value=0.1,
+                                              max_value=5.0, value=float(_gtt.DEFAULT_LIMIT_BUFFER_PCT),
+                                              step=0.1, key="gtt_buf")
+                    if _gtt_existing:
+                        _g0 = _gtt_existing[0]
+                        st.caption(f"Active stop: trigger ₹{_g0['trigger']:.2f}, limit ₹{_g0['limit']:.2f}, "
+                                   f"qty {_g0['quantity']} (id {_g0['id']})")
+                    gb1, gb2 = st.columns(2)
+                    if gb1.button("Place / Update Stop", key="gtt_submit",
+                                  use_container_width=True, type="primary"):
+                        res = _gtt.place_or_update_stop_gtt(kite, gtt_sym, int(gtt_qty),
+                                                            float(gtt_trigger),
+                                                            limit_buffer_pct=float(gtt_buf))
+                        if res["success"]:
+                            st.success(f"GTT stop {res['action']} — trigger ₹{res['trigger']:.2f} "
+                                       f"(id {res['trigger_id']})")
+                        elif res.get("error") == "stop_breached":
+                            st.error(f"Stop is at/above LTP — {res.get('detail')}. Exit the position instead.")
+                        else:
+                            st.error(f"GTT failed: {res.get('error')}")
+                    if _gtt_existing and gb2.button("Delete Stop", key="gtt_delete",
+                                                    use_container_width=True):
+                        n = _gtt.delete_stop_gtts_for_symbol(kite, gtt_sym, reason="manual")
+                        st.success(f"Deleted {n} GTT stop(s) for {gtt_sym}")
 
             # ================================================
             # AMO — After Market Order
@@ -1701,10 +1711,14 @@ def _render_dashboard():
                 rsi_low  = rsi_c5.number_input("RSI oversold", min_value=5, max_value=50, value=30, step=5, key="rsi_low")
                 rsi_high = rsi_c6.number_input("RSI overbought", min_value=50, max_value=95, value=70, step=5, key="rsi_high")
                 rsi_interval = rsi_c7.selectbox("Candle interval", ["5minute", "15minute", "30minute", "60minute", "day"], key="rsi_intv")
-                rsi_auto = rsi_c8.toggle("Auto-place orders", value=False, key="rsi_auto")
+                rsi_auto = rsi_c8.toggle("Auto-place orders", value=False, key="rsi_auto",
+                                         help="Daily candles only. BUY = CNC delivery + GTT stop; "
+                                              "SELL only exits an existing holding.")
     
-                if rsi_auto:
-                    st.warning(" **Live trading enabled** — orders will be placed automatically on signals.")
+                if rsi_auto and rsi_interval != "day":
+                    st.info("Auto-placement needs the **day** candle interval — this scan will only analyse.")
+                elif rsi_auto:
+                    st.warning(" **Live trading enabled** — CNC BUY orders (with GTT stops) and exits of existing holdings will be placed on signals.")
     
                 scan_btn_col, scan_status_col = st.columns([1, 3])
                 run_scan = scan_btn_col.button(" Run Scan", width="stretch", key="rsi_scan_btn")

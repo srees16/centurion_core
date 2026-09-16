@@ -1,0 +1,290 @@
+"""
+Causal forecast panels: fast_trend, slow_trend and low_vol.
+
+Every function returns date x symbol DataFrames whose row ``t`` depends only
+on rows ``<= t`` of the inputs.
+
+Pipeline
+--------
+1. Raw rules
+   * EWMAC(f, s) = (EWMA_f(close) - EWMA_s(close)) / (close * daily_vol), with
+     daily_vol the EWM std (span ``vol_span``) of daily returns.  Dividing by
+     ``close * daily_vol`` converts the price difference into units of daily
+     price volatility, so the forecast is invariant to the price level.
+   * 12-1 momentum: close[t-skip] / close[t-lookback] - 1, turned into a
+     centred rank score (-0.5, 0.5) within the universe of the day.
+   * low vol: centred rank of -(realised vol over ``low_vol_lookback``).
+2. Each rule is normalised with a point-in-time scalar
+   ``target_abs_forecast / expanding mean |raw|`` pooled over universe members
+   on rows strictly before ``t`` (rules within a group are normalised
+   separately so that EWMAC units and rank units are comparable before they
+   are averaged), then the group average is normalised the same way and
+   capped at ``+-forecast_cap``.
+3. Groups are combined with the fixed ``SignalConfig.weights()`` and a
+   forecast diversification multiplier FDM = 1 / sqrt(w' C w), where C is the
+   pooled correlation of group forecasts (negative correlations floored at 0)
+   over the previous ``fdm_lookback_days`` rows, refreshed every
+   ``fdm_refresh_every_n_days`` rows and capped at ``fdm_cap``.
+"""
+
+from __future__ import annotations
+
+import logging
+import warnings
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
+import pandas as pd
+
+from nse_engine.config import SignalConfig
+
+logger = logging.getLogger(__name__)
+
+GROUPS: Tuple[str, ...] = ("fast_trend", "slow_trend", "low_vol")
+FDM_MIN_POOLED_OBS = 100  # pooled (date, symbol) observations needed before FDM != 1
+
+
+# ----------------------------------------------------------------------------
+# raw rules
+# ----------------------------------------------------------------------------
+
+
+def daily_returns(close: pd.DataFrame) -> pd.DataFrame:
+    """Simple daily returns (NaN where either close is missing)."""
+    return close.astype("float64").pct_change(fill_method=None)
+
+
+def ewm_daily_vol(returns: pd.DataFrame, span: int) -> pd.DataFrame:
+    """EWM standard deviation of daily returns."""
+    return returns.ewm(span=span, min_periods=max(span // 2, 2)).std()
+
+
+def ewmac_raw(
+    close: pd.DataFrame, fast: int, slow: int, vol_span: int, daily_vol: Optional[pd.DataFrame] = None
+) -> pd.DataFrame:
+    """(EWMA_fast - EWMA_slow) / (close * daily_vol): price-level invariant."""
+    close = close.astype("float64")
+    if daily_vol is None:
+        daily_vol = ewm_daily_vol(daily_returns(close), vol_span)
+    ew_f = close.ewm(span=fast, min_periods=fast).mean()
+    ew_s = close.ewm(span=slow, min_periods=slow).mean()
+    denom = close * daily_vol
+    denom = denom.where(denom > 0)
+    return (ew_f - ew_s) / denom
+
+
+def momentum_raw(close: pd.DataFrame, lookback: int, skip: int) -> pd.DataFrame:
+    """Return from t-lookback to t-skip (12-1 momentum by default)."""
+    close = close.astype("float64")
+    return close.shift(skip) / close.shift(lookback) - 1.0
+
+
+def realised_vol(returns: pd.DataFrame, lookback: int, annualise: bool = True) -> pd.DataFrame:
+    """Rolling standard deviation of daily returns."""
+    vol = returns.rolling(lookback, min_periods=max(lookback // 2, 2)).std()
+    return vol * np.sqrt(252.0) if annualise else vol
+
+
+def centred_rank(raw: pd.DataFrame, mask: pd.DataFrame) -> pd.DataFrame:
+    """Cross-sectional rank within ``mask`` mapped to (-0.5, 0.5), mean 0.
+
+    score = (rank - 0.5) / n - 0.5 with rank 1 = smallest raw value.
+    """
+    x = raw.where(mask.to_numpy() & np.isfinite(raw.to_numpy()))
+    ranks = x.rank(axis=1, method="average")
+    n = x.notna().sum(axis=1).replace(0, np.nan)
+    return (ranks.sub(0.5)).div(n, axis=0) - 0.5
+
+
+# ----------------------------------------------------------------------------
+# normalisation, FDM, combination
+# ----------------------------------------------------------------------------
+
+
+def pit_forecast_scalar(
+    raw: pd.DataFrame, mask: pd.DataFrame, target_abs: float, min_obs: int
+) -> Tuple[pd.Series, pd.Series]:
+    """Point-in-time forecast scalar and warm-up flag per date.
+
+    scalar[t] = target_abs / mean(|raw|) pooled over (date < t, symbol in
+    mask) observations.  ``warmup[t]`` is True while fewer than ``min_obs``
+    dates with observations precede ``t`` (the scalar is still the causal
+    expanding estimate; it is NaN only when no past observation exists).
+    """
+    a = np.abs(raw.to_numpy(dtype="float64"))
+    valid = mask.to_numpy() & np.isfinite(a)
+    sums = np.where(valid, a, 0.0).sum(axis=1)
+    counts = valid.sum(axis=1)
+    cum_sum = np.concatenate([[0.0], np.cumsum(sums)[:-1]])
+    cum_cnt = np.concatenate([[0], np.cumsum(counts)[:-1]])
+    cum_dates = np.concatenate([[0], np.cumsum(counts > 0)[:-1]])
+    with np.errstate(divide="ignore", invalid="ignore"):
+        mean_abs = np.where(cum_cnt > 0, cum_sum / np.maximum(cum_cnt, 1), np.nan)
+        scalar = np.where(mean_abs > 0, target_abs / mean_abs, np.nan)
+    idx = raw.index
+    return pd.Series(scalar, index=idx), pd.Series(cum_dates < min_obs, index=idx)
+
+
+def normalise_forecast(raw: pd.DataFrame, mask: pd.DataFrame, cfg: SignalConfig) -> Tuple[pd.DataFrame, pd.Series]:
+    """Scale raw forecasts to ``target_abs_forecast`` average and cap."""
+    scalar, warm = pit_forecast_scalar(raw, mask, cfg.target_abs_forecast, cfg.normalizer_min_obs)
+    out = raw.mul(scalar, axis=0).clip(-cfg.forecast_cap, cfg.forecast_cap)
+    return out, warm
+
+
+def _nanmean_frames(frames: List[pd.DataFrame]) -> pd.DataFrame:
+    stack = np.stack([f.to_numpy(dtype="float64") for f in frames])
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        m = np.nanmean(stack, axis=0)
+    return pd.DataFrame(m, index=frames[0].index, columns=frames[0].columns)
+
+
+def fdm_series(groups: Dict[str, pd.DataFrame], weights: Dict[str, float], mask: pd.DataFrame, cfg: SignalConfig) -> pd.Series:
+    """Forecast diversification multiplier per date (causal, stepwise)."""
+    names = [g for g in weights if g in groups]
+    idx = mask.index
+    n = len(idx)
+    if len(names) < 2:
+        return pd.Series(1.0, index=idx)
+    k = len(names)
+    F = np.stack([groups[g].to_numpy(dtype="float64") for g in names], axis=-1)  # n x m x k
+    valid = mask.to_numpy() & np.isfinite(F).all(axis=-1)
+    Fz = np.where(valid[..., None], F, 0.0)
+    cnt = valid.sum(axis=1).astype("float64")  # n
+    s1 = Fz.sum(axis=1)  # n x k
+    s2 = np.einsum("tmi,tmj->tij", Fz, Fz)  # n x k x k
+    c_cnt = np.concatenate([[0.0], np.cumsum(cnt)])
+    c_s1 = np.concatenate([np.zeros((1, k)), np.cumsum(s1, axis=0)])
+    c_s2 = np.concatenate([np.zeros((1, k, k)), np.cumsum(s2, axis=0)])
+    date_has = np.concatenate([[0], np.cumsum(cnt > 0)])
+    w = np.array([weights[g] for g in names], dtype="float64")
+    w = w / w.sum()
+    out = np.ones(n)
+    every = max(int(cfg.fdm_refresh_every_n_days), 1)
+    current = 1.0
+    for pos in range(n):
+        if pos % every == 0:
+            lo = max(0, pos - cfg.fdm_lookback_days)
+            N = c_cnt[pos] - c_cnt[lo]
+            n_dates = date_has[pos] - date_has[lo]
+            current = 1.0
+            if N >= FDM_MIN_POOLED_OBS and n_dates >= cfg.normalizer_min_obs:
+                m1 = (c_s1[pos] - c_s1[lo]) / N
+                cov = (c_s2[pos] - c_s2[lo]) / N - np.outer(m1, m1)
+                sd = np.sqrt(np.clip(np.diag(cov), 0, None))
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    corr = cov / np.outer(sd, sd)
+                corr = np.nan_to_num(corr, nan=0.0)
+                corr = np.clip(corr, 0.0, 1.0)
+                np.fill_diagonal(corr, 1.0)
+                var = float(w @ corr @ w)
+                if var > 0:
+                    current = float(min(1.0 / np.sqrt(var), cfg.fdm_cap))
+        out[pos] = current
+    return pd.Series(out, index=idx)
+
+
+def combine_forecasts(
+    groups: Dict[str, pd.DataFrame], weights: Dict[str, float], fdm: pd.Series, cap: float
+) -> pd.DataFrame:
+    """Weighted group average (weights renormalised over available groups) x FDM, capped."""
+    names = [g for g in weights if g in groups]
+    first = groups[names[0]]
+    num = np.zeros(first.shape)
+    den = np.zeros(first.shape)
+    for g in names:
+        f = groups[g].to_numpy(dtype="float64")
+        ok = np.isfinite(f)
+        num += np.where(ok, f, 0.0) * weights[g]
+        den += ok * weights[g]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        comb = np.where(den > 0, num / den, np.nan)
+    comb = comb * fdm.to_numpy()[:, None]
+    return pd.DataFrame(np.clip(comb, -cap, cap), index=first.index, columns=first.columns)
+
+
+# ----------------------------------------------------------------------------
+# group panels
+# ----------------------------------------------------------------------------
+
+
+@dataclass
+class SignalPanels:
+    groups: Dict[str, pd.DataFrame]
+    combined: pd.DataFrame
+    fdm: pd.Series
+    warmup: pd.Series  # True where any normaliser is still warming up
+    diagnostics: Dict[str, pd.Series] = field(default_factory=dict)
+
+
+def fast_trend_forecast(
+    close: pd.DataFrame, mask: pd.DataFrame, cfg: SignalConfig, daily_vol: Optional[pd.DataFrame] = None
+) -> Tuple[pd.DataFrame, pd.Series]:
+    if daily_vol is None:
+        daily_vol = ewm_daily_vol(daily_returns(close), cfg.vol_span)
+    parts, warm = [], pd.Series(False, index=close.index)
+    for f, s in cfg.fast_ewmac:
+        n, w = normalise_forecast(ewmac_raw(close, f, s, cfg.vol_span, daily_vol), mask, cfg)
+        parts.append(n)
+        warm |= w
+    out, w = normalise_forecast(_nanmean_frames(parts), mask, cfg)
+    return out, warm | w
+
+
+def slow_trend_forecast(
+    close: pd.DataFrame, mask: pd.DataFrame, cfg: SignalConfig, daily_vol: Optional[pd.DataFrame] = None
+) -> Tuple[pd.DataFrame, pd.Series]:
+    if daily_vol is None:
+        daily_vol = ewm_daily_vol(daily_returns(close), cfg.vol_span)
+    parts, warm = [], pd.Series(False, index=close.index)
+    for f, s in cfg.slow_ewmac:
+        n, w = normalise_forecast(ewmac_raw(close, f, s, cfg.vol_span, daily_vol), mask, cfg)
+        parts.append(n)
+        warm |= w
+    mom = centred_rank(momentum_raw(close, cfg.momentum_lookback, cfg.momentum_skip), mask)
+    n, w = normalise_forecast(mom, mask, cfg)
+    parts.append(n)
+    warm |= w
+    out, w = normalise_forecast(_nanmean_frames(parts), mask, cfg)
+    return out, warm | w
+
+
+def low_vol_forecast(
+    close: pd.DataFrame, mask: pd.DataFrame, cfg: SignalConfig, returns: Optional[pd.DataFrame] = None
+) -> Tuple[pd.DataFrame, pd.Series]:
+    if returns is None:
+        returns = daily_returns(close)
+    raw = centred_rank(-realised_vol(returns, cfg.low_vol_lookback), mask)
+    return normalise_forecast(raw, mask, cfg)
+
+
+def compute_signal_panels(
+    close: pd.DataFrame, universe_mask: pd.DataFrame, cfg: SignalConfig, returns: Optional[pd.DataFrame] = None
+) -> SignalPanels:
+    """All group forecasts, FDM and the combined forecast."""
+    close = close.astype("float64")
+    if returns is None:
+        returns = daily_returns(close)
+    daily_vol = ewm_daily_vol(returns, cfg.vol_span)
+    weights = cfg.weights()
+    builders = {
+        "fast_trend": lambda: fast_trend_forecast(close, universe_mask, cfg, daily_vol),
+        "slow_trend": lambda: slow_trend_forecast(close, universe_mask, cfg, daily_vol),
+        "low_vol": lambda: low_vol_forecast(close, universe_mask, cfg, returns),
+    }
+    unknown = set(weights) - set(builders)
+    if unknown:
+        raise ValueError(f"unknown signal groups in config: {sorted(unknown)}")
+    groups: Dict[str, pd.DataFrame] = {}
+    warm = pd.Series(False, index=close.index)
+    for name, w in weights.items():
+        if w == 0:
+            continue
+        groups[name], gw = builders[name]()
+        warm |= gw
+    active = {g: w for g, w in weights.items() if g in groups}
+    fdm = fdm_series(groups, active, universe_mask, cfg)
+    combined = combine_forecasts(groups, active, fdm, cfg.forecast_cap)
+    return SignalPanels(groups=groups, combined=combined, fdm=fdm, warmup=warm)

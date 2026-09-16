@@ -23,8 +23,8 @@ sys.stderr.reconfigure(line_buffering=True, encoding="utf-8", errors="replace")
 def step1_extract():
     """Step 1: Extract per-source forecasts."""
     import pickle
-    from services.forecast_combiner import DEFAULT_FORECAST_WEIGHTS
-    import services.full_pipeline_backtest as bt_mod
+    from services.signals.forecast_combiner import DEFAULT_FORECAST_WEIGHTS
+    import services.research.full_pipeline_backtest as bt_mod
 
     _CHECKPOINT = os.path.join(_root, "data", "backtest_checkpoint_extract.pkl")
     _OUTPUT = os.path.join(_root, "data", "extracted_forecasts.pkl")
@@ -81,9 +81,9 @@ def step2_optimize():
 def step3_validate():
     """Step 3: Full validation backtest with optimal weights."""
     import pickle
-    from services.forecast_combiner import DEFAULT_FORECAST_WEIGHTS
+    from services.signals.forecast_combiner import DEFAULT_FORECAST_WEIGHTS
     import importlib
-    import services.full_pipeline_backtest as bt_mod
+    import services.research.full_pipeline_backtest as bt_mod
 
     # Force reimport to reset state from step 1
     importlib.reload(bt_mod)
@@ -113,7 +113,7 @@ def step3_validate():
             best_weights[sig] = 0.0
 
     # Reload DEFAULT_FORECAST_WEIGHTS fresh
-    from services.forecast_combiner import DEFAULT_FORECAST_WEIGHTS as DFW
+    from services.signals.forecast_combiner import DEFAULT_FORECAST_WEIGHTS as DFW
     for fw in DFW:
         if fw.name in best_weights:
             fw.weight = best_weights[fw.name]

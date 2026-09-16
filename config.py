@@ -81,16 +81,6 @@ class Config:
     TA_TV_WEIGHT: float = 0.30         # Weight for TradingView consensus
     TA_XVAL_WEIGHT: float = 0.20       # Weight for cross-validation bonus
     TA_SKIP_TRADINGVIEW: bool = False   # Skip TV API calls (offline mode)
-    SUPERTREND_PERIOD: int = 10
-    SUPERTREND_MULTIPLIER: float = 3.0
-    STOCH_RSI_PERIOD: int = 14
-    WILLIAMS_R_PERIOD: int = 14
-    CCI_PERIOD: int = 20
-    MFI_PERIOD: int = 14
-    ATR_PERIOD: int = 14
-    KELTNER_PERIOD: int = 20
-    KELTNER_ATR_MULT: float = 1.5
-    CMF_PERIOD: int = 20
     
     # =================================================================
     # Transaction Costs (round-trip, as fraction)
@@ -145,7 +135,6 @@ class Config:
     # =================================================================
     # R21A Regime-Adaptive Vol Scaling (centralized source of truth)
     # =================================================================
-    R21A_REGIME_VOL: bool = True            # Enable equity-curve regime scaling
     R21A_REGIME_BOOST: float = 1.25         # Uptrend vol multiplier (equity > SMA200×1.02)
     R21A_REGIME_DEFEND: float = 0.55        # Downtrend vol multiplier (equity < SMA200×0.98)
     R21A_SMA_LOOKBACK: int = 200            # SMA lookback for equity-curve regime
@@ -188,7 +177,6 @@ class Config:
 
     # Cost-aware inertia (replaces fixed 20%)
     COST_AWARE_INERTIA: bool = True
-    INERTIA_ALPHA_COST_RATIO: float = 2.0   # Only trade if expected_alpha > N × expected_cost
 
     # Block bootstrap for Sharpe CI
     BOOTSTRAP_BLOCK_LENGTH: int = 40  # L4: ~2× trading month, better autocorrelation
@@ -207,44 +195,36 @@ class Config:
 
     # Multi-asset diversification (NSE-listed ETFs/futures)
     MULTI_ASSET_ENABLED: bool = True
+    # Only genuine diversifiers.  Removed: CPSEETF (an equity basket, not a
+    # diversifier), GOLDIETF (short history, duplicates GOLDBEES) and
+    # LIQUIDBEES (cash — idle-cash yield is modelled separately).
     MULTI_ASSET_TICKERS_IND: List[str] = [
-        "GOLDBEES.NS",       # Gold ETF — uncorrelated with equity
-        "GOLDIETF.NS",       # Gold ETF alternate
-        "CPSEETF.NS",        # CPSE ETF — govt enterprises
-        "LIQUIDBEES.NS",     # Liquid fund — near-cash parking
+        "GOLDBEES.NS",       # Gold ETF — low correlation with equity
+        "SILVERBEES.NS",     # Silver ETF — low correlation with equity
     ]
     MULTI_ASSET_MAX_ALLOCATION: float = 0.15  # Max 15% of portfolio in non-equity
 
     # New Alpha Sources (Phase 4) — C5: non-zero initial weights
-    NEW_ALPHA_SOURCES_ENABLED: bool = True   # Master switch for 6 new sources
     CRYPTO_TICKER: str = "BTC-USD"           # Bitcoin ticker for crypto correlation
-    CALENDAR_EFFECTS_WEIGHT: float = 0.02    # C5: starter weight (was 0.00)
-    FUNDAMENTAL_MOMENTUM_WEIGHT: float = 0.03  # C5: starter weight
-    INSIDER_ACTIVITY_WEIGHT: float = 0.02    # C5: starter weight
-    DISPERSION_WEIGHT: float = 0.02          # C5: starter weight
-    GOLD_EQUITY_ROTATION_WEIGHT: float = 0.02  # C5: starter weight
-    CRYPTO_CORRELATION_WEIGHT: float = 0.01  # C5: smallest — most speculative
+
+    # Regime-Sharpe² weight tilt in forecast_combiner.  OFF: the
+    # REGIME_SHARPE_SCORES table was estimated in-sample on the backtest
+    # period (post R21A backtest), so blending it in inflates backtests.
+    REGIME_SHARPE_BLEND_ENABLED: bool = False
 
     # =================================================================
     # Godmode Gap Fixes (April 2026)
     # =================================================================
     # M1: Minimum forecast strength gate — DISABLED (was filtering valid trades)
-    MIN_FORECAST_GATE_BULL: float = 0.0      # DISABLED: gate killed returns
-    MIN_FORECAST_GATE_NEUTRAL: float = 0.0   # DISABLED
-    MIN_FORECAST_GATE_BEAR: float = 0.0      # DISABLED
 
     # M8: Distribution shift detector integration
     DISTRIBUTION_SHIFT_ENABLED: bool = True   # Wire shift detector into backtest loop
 
     # C1: PBO/CSCV parameters
-    PBO_N_PARTITIONS: int = 10               # CSCV partitions (even number)
-    PBO_OVERFIT_THRESHOLD: float = 0.35      # PBO > 35% = likely overfit
 
     # H1/H2: True peak DD tracking (always on — critical fix)
-    TRUE_PEAK_DD_HALT: float = 0.35          # Hard halt at 35% TRUE DD from absolute peak
 
     # C6: Risk-managed momentum — DISABLED (double-stacks with regime blend)
-    RISK_MANAGED_MOMENTUM_ENABLED: bool = False
 
     # =================================================================
     # Phase 3 — Dynamic Leverage & Risk
@@ -253,7 +233,6 @@ class Config:
     LEVERAGE_BULL_CONFIRMED: float = 2.0    # H4: \u2193 from 2.5 — less aggressive to reduce DD
     LEVERAGE_NEUTRAL: float = 1.5           # H4: \u2193 from 2.0 — more conservative
     LEVERAGE_BEAR: float = 0.5              # H4: \u2193 from 1.0 — half leverage in bear
-    BULL_CONFIRM_DAYS_LEVERAGE: int = 20    # Consecutive days to confirm bull for leverage boost
 
     # Vince Money Management — active/inactive equity insurance
     # Floor = HWM × insurance_pct.  0.15 = protect 15% of HWM as floor.
@@ -283,7 +262,6 @@ class Config:
     #   "NIFTY500" (~500), "BROAD" (~800-1200 all NSE indices)
     NSE_UNIVERSE_TIER: str = "BROAD"
     # Max symbols to process per pipeline run (0 = no limit)
-    NSE_UNIVERSE_MAX_SYMBOLS: int = 0
     # OHLCV download batch size for yfinance (higher = faster but may rate-limit)
     OHLCV_DOWNLOAD_BATCH_SIZE: int = 50
     # Max parallel workers for CPU-bound signal computation
@@ -326,7 +304,6 @@ class Config:
     MAX_HOLD_DAYS_POSITIONAL: int = 60     # Max holding period for positional trades
 
     # A5: Regime-adaptive hold days — faster exits in bear/crisis, longer holds in bull
-    REGIME_HOLD_DAYS_SWING: dict = None  # populated below
 
     @staticmethod
     def get_regime_hold_days(regime: str, horizon: str = "swing") -> int:
@@ -339,6 +316,17 @@ class Config:
         """
         if horizon != "swing":
             return 60
+        # Accept the equity-curve regime labels used by the backtesters too.
+        _ALIASES = {
+            "strong_bull": "trending_bull",
+            "bull":        "trending_bull",
+            "bear":        "trending_bear",
+            "severe_bear": "trending_bear",
+            "neutral":     "range_bound",
+            "sideways":    "range_bound",
+        }
+        _key = (regime or "").lower().strip()
+        _key = _ALIASES.get(_key, _key)
         _HOLD = {
             "trending_bull":    12,   # P5: was 18 → 12 (BULL 10D Sharpe=0.73, lock profits)
             "trending_bear":     5,   # P5: was 7 → 5 (BEAR signals broken, rapid exit)
@@ -346,7 +334,7 @@ class Config:
             "high_volatility":   5,   # P5: was 5, unchanged (chaos = fast exits)
             "crisis":            3,   # Unchanged — emergency exits
         }
-        return _HOLD.get((regime or "").lower().strip(), 15)
+        return _HOLD.get(_key, 15)
 
     # =================================================================
     # HMM Regime Detection (Gap B1)
@@ -364,7 +352,7 @@ class Config:
     # =================================================================
     # Sector Concentration Limit
     # =================================================================
-    MAX_SECTOR_EXPOSURE_PCT: float = 0.30  # G13: Aligned to 30% matching risk_engine
+    MAX_SECTOR_EXPOSURE_PCT: float = 0.30  # G13: 30% cap per sector
     MAX_TRADES_PER_SECTOR: int = 3         # Max 3 open trades per sector
     
     # =================================================================
@@ -401,7 +389,7 @@ class Config:
     # =================================================================
     # NSE Sector Mapping (NIFTY 50 + NIFTY Next 50 constituents)
     # Loaded from data/nse_sector_map.json — editable without code changes.
-    # Shared across risk_engine, portfolio_analyzer, and screener.
+    # Shared across portfolio_analyzer and screener.
     # =================================================================
     NSE_SECTOR_MAP: Dict[str, str] = {}  # populated below class body
 
@@ -441,10 +429,6 @@ class Config:
     DB_ENABLED: bool = os.getenv("CENTURION_DB_ENABLED", "true").lower() == "true"
     
     # TimescaleDB settings
-    TIMESCALEDB_CHUNK_INTERVAL: str = os.getenv(
-        "CENTURION_TIMESCALEDB_CHUNK_INTERVAL", 
-        "7 days"
-    )
     
     # Data retention settings
     DB_RETENTION_DAYS: int = int(os.getenv("CENTURION_DB_RETENTION_DAYS", "365"))
@@ -454,21 +438,12 @@ class Config:
     # =================================================================
     RL_ENABLED: bool = os.getenv("CENTURION_RL_ENABLED", "true").lower() == "true"
     RL_ALGORITHM: str = os.getenv("CENTURION_RL_ALGORITHM", "PPO")  # DQN | PPO | A2C
-    RL_REWARD_TYPE: str = os.getenv("CENTURION_RL_REWARD_TYPE", "hybrid")
-    RL_TOTAL_TIMESTEPS: int = int(os.getenv("CENTURION_RL_TIMESTEPS", "500000"))
     RL_LOOKBACK: int = int(os.getenv("CENTURION_RL_LOOKBACK", "60"))
-    RL_TRAIN_DAYS: int = int(os.getenv("CENTURION_RL_TRAIN_DAYS", "504"))
-    RL_TEST_DAYS: int = int(os.getenv("CENTURION_RL_TEST_DAYS", "63"))
-    RL_WALK_FORWARD_FOLDS: int = int(os.getenv("CENTURION_RL_FOLDS", "6"))
     RL_LAYER_WEIGHT: float = float(os.getenv("CENTURION_RL_LAYER_WEIGHT", "0.15"))
 
     # =================================================================
     # Risk Metrics Configuration (Phase 0)
     # =================================================================
-    COMPUTE_SORTINO: bool = True
-    COMPUTE_CALMAR: bool = True
-    COMPUTE_CVAR: bool = True
-    CVAR_ALPHA: float = 0.05            # 5% tail for CVaR computation
     RISK_FREE_RATE_IND: float = 0.07    # India 10-year G-Sec yield
     RISK_FREE_RATE_US: float = 0.04     # US 10-year Treasury yield
 
@@ -476,14 +451,11 @@ class Config:
     # Forecast Scalar Calibration
     # =================================================================
     AUTO_CALIBRATE_SCALARS: bool = True        # Enable auto-calibration of forecast scalars
-    SCALAR_CALIBRATION_MAX_AGE_DAYS: int = 14  # Recalibrate if older than 14 days
-    SCALAR_CALIBRATION_FILE: str = "data/calibrated_scalars.json"
 
     # =================================================================
     # Walk-Forward Transaction Cost Simulation
     # =================================================================
     WF_ROUND_TRIP_COST_IND: float = 0.004   # 0.40% NSE round-trip (STT + exchange + GST + slippage)
-    WF_ROUND_TRIP_COST_US: float = 0.001    # 0.10% US round-trip
 
     # =================================================================
     # Phase 1 — Options Income

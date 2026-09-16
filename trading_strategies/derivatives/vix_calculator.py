@@ -1,4 +1,4 @@
-﻿# ref: https://github.com/je-suis-tm/quant-trading?tab=readme-ov-file
+# ref: https://github.com/je-suis-tm/quant-trading?tab=readme-ov-file
 """check cboe white paper on the details of computation
 http://www.cboe.com/micro/vix/vixwhite.pdf
 check this awesome article on the connection between vix and variance swap

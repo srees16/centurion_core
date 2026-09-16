@@ -155,7 +155,7 @@ def _render_controls(market: str):
 def _run_batched_analysis(tickers, market, date_range, weights, skip_layers, batch_size):
     """Evaluate tickers in concurrent batches."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    from services.integrated_scorer import IntegratedScorer
+    from services.signals.integrated_scorer import IntegratedScorer
 
     total = len(tickers)
     num_batches = (total + batch_size - 1) // batch_size

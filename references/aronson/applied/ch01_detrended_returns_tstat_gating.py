@@ -29,7 +29,7 @@ _ROOT = str(Path(__file__).resolve().parent.parent.parent)
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from services.aronson_validator import detrend_returns, compute_signal_tstat
+from services.research.aronson_validator import detrend_returns, compute_signal_tstat
 
 
 def _sma_crossover_signal(close: pd.Series, fast: int = 20, slow: int = 50) -> pd.Series:

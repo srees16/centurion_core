@@ -29,6 +29,23 @@ import time
 import numpy as np
 from typing import Dict, List, Tuple, Optional
 from collections import defaultdict
+import logging
+import warnings
+
+logger = logging.getLogger(__name__)
+
+_DEPRECATION_MSG = (
+    "rigorous_live_estimate.py is DEPRECATED: the PBO/DSR/lag-test/walk-forward outputs of its fast "
+    "simulator are NOT valid (PBO fed shares of one P&L, DSR mixed annual Sharpe "
+    "with daily n, lag test read a 5-day refresh grid). Use nse_engine.validation "
+    "and runners/run_nse_engine.py instead."
+)
+
+
+def _warn_deprecated() -> None:
+    """Emit the deprecation warning (entry points only)."""
+    warnings.warn(_DEPRECATION_MSG, DeprecationWarning, stacklevel=3)
+    logger.warning(_DEPRECATION_MSG)
 
 os.environ["PYTHONUNBUFFERED"] = "1"
 try:
@@ -482,7 +499,7 @@ def _compute_true_pbo(signal_daily_returns: Dict[str, np.ndarray], n_partitions:
     Uses the correct CSCV method: each row is one signal's ACTUAL daily
     P&L contribution (not synthetic, not hit-rate-based).
     """
-    from services.aronson_validator import compute_pbo
+    from services.research.aronson_validator import compute_pbo
 
     # Filter to signals with sufficient data
     valid_signals = {s: r for s, r in signal_daily_returns.items()
@@ -522,7 +539,7 @@ def _compute_true_pbo(signal_daily_returns: Dict[str, np.ndarray], n_partitions:
 
 def _deflated_sharpe(observed_sr, n_obs, n_trials, skewness, kurtosis):
     """Deflated Sharpe Ratio (de Prado AFML Ch.14)."""
-    from services.deflated_sharpe import deflated_sharpe_ratio
+    from services.research.deflated_sharpe import deflated_sharpe_ratio
     return deflated_sharpe_ratio(
         observed_sr=observed_sr,
         n_obs=n_obs,
@@ -566,6 +583,7 @@ def _block_bootstrap_sharpe(daily_returns, n_bootstrap=2000, block_length=40, ci
 
 
 def main():
+    _warn_deprecated()
     t0 = time.time()
 
     print("=" * 74)

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Background Scheduler for Centurion Core â€” IND Stocks Pipeline.
 
 Runs screening and scoring pipelines at configurable times during
@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import sqlite3
 import sys
 from datetime import date, datetime, timedelta, timezone
@@ -341,7 +342,7 @@ def run_pipeline(run_type: str = "pre_market"):
     try:
         from kite_connect.nse.nse_universe import get_nse_universe
         from kite_connect.nse.screener import NSEScreener, ScreenerConfig
-        from services.integrated_scorer import IntegratedScorer
+        from services.signals.integrated_scorer import IntegratedScorer
 
         # 1. Universe
         symbols = get_nse_universe()
@@ -405,10 +406,10 @@ def run_pipeline(run_type: str = "pre_market"):
         if buy_verdicts or sell_verdicts:
             _notify_signals(buy_verdicts, sell_verdicts)
 
-        # 5. Auto-authenticate Kite & place orders for STRONG_BUY signals
+        # 5. Auto-authenticate Kite & place orders. Entries need a STRONG_BUY;
+        #    rank/forecast exits for existing holdings are evaluated every run.
         strong_buy = [v for v in buy_verdicts if v.classification == "STRONG_BUY"]
-        if strong_buy:
-            _auto_place_orders(verdicts, screened_df)
+        _auto_place_orders(verdicts, screened_df, entries_allowed=bool(strong_buy))
 
         logger.info(
             "=== Pipeline complete: %d BUY, %d SELL signals ===",
@@ -418,6 +419,36 @@ def run_pipeline(run_type: str = "pre_market"):
     except Exception as exc:
         logger.exception("Pipeline run failed: %s", exc)
         _save_run(run_type, {"status": f"error: {exc}"})
+
+
+
+# ── Paper book ownership ──────────────────────────────────────────
+#
+# While the NSE engine job on GitHub Actions owns the cloud paper book, the
+# legacy paper jobs here must not touch it: this process restores the book
+# into its own SQLite once and then reads that stale copy, so its EOD
+# snapshot would overwrite the engine's equity with a frozen number and its
+# 3-minute poll would close engine positions on legacy stop rules.
+
+_BOOK_OWNER_CACHE = {"value": None, "checked_at": 0.0}
+
+
+def _paper_book_owned_by_engine() -> bool:
+    """True when ``paper_cloud_state.book_owner`` is the NSE engine (cached 10 min)."""
+    if os.environ.get("CENTURION_NSE_ENGINE", "false").lower() in ("true", "1", "yes"):
+        return True
+    now = time.time()
+    if _BOOK_OWNER_CACHE["value"] is not None and now - _BOOK_OWNER_CACHE["checked_at"] < 600:
+        return bool(_BOOK_OWNER_CACHE["value"])
+    owner = ""
+    try:
+        from database.paper_cloud import get_paper_cloud
+        cloud = get_paper_cloud()
+        owner = cloud.book_owner() if cloud else ""
+    except Exception as exc:                              # noqa: BLE001 - never block the scheduler
+        logger.debug("book_owner check failed: %s", exc)
+    _BOOK_OWNER_CACHE.update(value=(owner == "nse_engine"), checked_at=now)
+    return owner == "nse_engine"
 
 
 def _send_daily_email(summary: dict):
@@ -489,13 +520,18 @@ def _notify_signals(buy_verdicts: list, sell_verdicts: list):
         logger.debug("Notification failed (non-fatal): %s", exc)
 
 
-def _paper_trade_orders(verdicts: list, screened_df):
+def _paper_trade_orders(verdicts: list, screened_df, entries_allowed: bool = True):
     """Route orders to PaperTrader for simulated execution.
+
+    With ``entries_allowed=False`` only exits for the restored paper book run.
 
     G1 FIX: Uses CarverPipeline.run() for full signal parity with backtest
     (all 20+ forecast sources), instead of manual EWMAC+screener stitching.
     Falls back to legacy RiskManager path if CarverPipeline fails.
     """
+    if _paper_book_owned_by_engine():
+        logger.debug("%s: paper book is owned by the NSE engine — skipped", "_paper_trade_orders")
+        return
     try:
         from kite_connect.trading.paper_trader import PaperTrader
 
@@ -506,25 +542,29 @@ def _paper_trade_orders(verdicts: list, screened_df):
         buy_symbols = [
             sym for sym, tag in signal_dict.items()
             if tag in ("BUY", "STRONG_BUY")
-        ]
-        if not buy_symbols:
-            logger.info("Paper trade: no BUY symbols")
+        ] if entries_allowed else []
+        # Restored paper book: holdings feed the pipeline (inertia + rank exits)
+        kite = _get_scheduler_kite()
+        pt = PaperTrader(kite=kite, initial_capital=100_000)
+        holdings = {s: h["quantity"] for s, h in pt.holdings().items()}
+        if not buy_symbols and not holdings:
+            logger.info("Paper trade: no BUY symbols and no open positions")
             return
 
         buy_df = screened_df[screened_df["symbol"].isin(buy_symbols)]
-        if buy_df.empty:
-            return
 
         plans = None
+        pipe_result = None
+        fallback_reason = ""
 
         # ── G1 FIX: Full Carver pipeline (all forecast sources) ──
         try:
-            from services.carver_pipeline import CarverPipeline, PipelineConfig
+            from services.execution.carver_pipeline import CarverPipeline, PipelineConfig
             from utils import download_ind_ohlcv
 
-            # Download OHLCV for all buy symbols
+            # Download OHLCV (2y ≥ 300 bars) for buy candidates AND holdings
             ohlcv_cache = {}
-            for sym in buy_symbols:
+            for sym in dict.fromkeys(list(buy_symbols) + list(holdings)):
                 try:
                     df = download_ind_ohlcv(sym, period="2y")
                     if df is not None and len(df) >= 64:
@@ -545,8 +585,13 @@ def _paper_trade_orders(verdicts: list, screened_df):
                 pipe_result = pipeline.run(
                     ohlcv_cache=ohlcv_cache,
                     screener_scores=screener_scores,
+                    current_holdings=holdings or None,
                 )
-                plans = pipe_result.trade_plans
+                plans = [p for p in pipe_result.trade_plans if p.symbol in set(buy_symbols)]
+                _fresh = pipe_result.freshness or {}
+                if _fresh.get("dropped") and pipe_result.symbols_processed == 0:
+                    fallback_reason = (f"freshness gate dropped all {len(_fresh['dropped'])} symbols "
+                                       f"(expected session {_fresh.get('expected_session')})")
                 logger.info(
                     "Paper trade: CarverPipeline generated %d plans "
                     "(processed %d symbols, %d with trades)",
@@ -557,22 +602,33 @@ def _paper_trade_orders(verdicts: list, screened_df):
                 for log_line in pipe_result.pipeline_log:
                     logger.debug("  Pipeline: %s", log_line)
             else:
-                logger.warning("Paper trade: no OHLCV data available for CarverPipeline")
+                fallback_reason = "no OHLCV data available for CarverPipeline"
 
         except Exception as exc:
-            logger.warning("CarverPipeline paper trade failed, falling back to legacy: %s", exc)
+            fallback_reason = f"CarverPipeline error: {exc}"
             plans = None
 
-        # ── Fallback: legacy RiskManager path ──
+        # ── Rank / forecast exits for open paper positions ──
+        exit_count = 0
+        if pipe_result is not None and getattr(pipe_result, "exits", None):
+            for _sym, _why in pipe_result.exits.items():
+                _res = pt.close_position(_sym, reason=f"RANK_EXIT:{_why}"[:30])
+                if _res.get("success"):
+                    exit_count += 1
+                    logger.info("Paper rank exit: %s x %d (%s)", _sym, _res["quantity"], _why)
+
+        # ── Fallback: legacy RiskManager path — LOUD, only when Carver could not run ──
         # M1 FIX: Use VolatilityTarget-based sizing even in fallback path.
         # Ensures R21a vol-targeting is preserved even when OHLCV download fails.
-        if not plans:
+        if fallback_reason and not buy_df.empty:
+            logger.warning("Paper trade: FALLBACK to legacy RiskManager — %s", fallback_reason)
+            _save_run("paper_trade_fallback", {"status": "fallback", "reason": fallback_reason})
             try:
                 from kite_connect.trading.risk_manager import RiskManager, RiskConfig
                 rm_cfg = RiskConfig()
                 vt_fallback = None
                 try:
-                    from services.volatility_target import VolatilityTarget, VolatilityTargetConfig
+                    from services.risk.volatility_target import VolatilityTarget, VolatilityTargetConfig
                     from config import Config
                     vt_fallback = VolatilityTarget(VolatilityTargetConfig(
                         initial_capital=getattr(Config, "CARVER_INITIAL_CAPITAL", 500_000.0),
@@ -587,14 +643,10 @@ def _paper_trade_orders(verdicts: list, screened_df):
                 logger.warning("Legacy plan_trades also failed: %s", exc)
                 return
         if not plans:
-            logger.info("Paper trade: no plans met R:R threshold")
+            logger.info("Paper trade: no new plans (exits=%d)", exit_count)
             return
 
-        # Try to get Kite for LTP (optional; PaperTrader uses yfinance fallback)
-        kite = _get_scheduler_kite()
-
-        pt = PaperTrader(kite=kite, initial_capital=100_000)
-        results = pt.execute_plans(plans)
+        results = pt.execute_plans(plans, skip_held=True)
         filled = sum(1 for r in results if r.get("success"))
 
         # Check SL/TP immediately
@@ -655,10 +707,12 @@ def _paper_trade_orders(verdicts: list, screened_df):
         logger.exception("Paper trade failed: %s", exc)
 
 
-def _auto_place_orders(verdicts: list, screened_df):
+def _auto_place_orders(verdicts: list, screened_df, entries_allowed: bool = True):
     """Auto-authenticate Kite and place orders for BUY/STRONG_BUY verdicts.
 
-    Called by the scheduler when STRONG_BUY signals are detected. Uses
+    Called by the scheduler on every pipeline run; new entries are only
+    allowed when ``entries_allowed`` (a STRONG_BUY was detected), while
+    rank/forecast exits for existing holdings always run. Uses
     the auto-TOTP flow (pyotp) when ``ZERODHA_TOTP_SECRET`` is configured,
     making the entire pipeline zero-touch.
 
@@ -675,7 +729,7 @@ def _auto_place_orders(verdicts: list, screened_df):
             pass
 
     if paper_mode:
-        _paper_trade_orders(verdicts, screened_df)
+        _paper_trade_orders(verdicts, screened_df, entries_allowed=entries_allowed)
         return
 
     try:
@@ -712,9 +766,9 @@ def _auto_place_orders(verdicts: list, screened_df):
             if tag in ("BUY", "STRONG_BUY")
         ]
 
-        if not buy_symbols:
-            logger.info("No BUY symbols to execute")
-            return
+        entries = entries_allowed and bool(buy_symbols)
+        if not entries:
+            logger.info("No new entries this run - evaluating exits for existing holdings only")
 
         executor = AutoExecutor(
             kite=kite,
@@ -725,18 +779,20 @@ def _auto_place_orders(verdicts: list, screened_df):
             symbols=buy_symbols,
             signal_verdicts=signal_dict,
             pre_screened_df=screened_df,
+            entries_allowed=entries,
         )
         logger.info(
-            "Auto-orders: %d placed, %d failed, %d filtered",
+            "Auto-orders: %d placed, %d failed, %d filtered, %d exits",
             report.orders_placed, report.orders_failed,
-            report.signal_filtered_count,
+            report.signal_filtered_count, len(report.exit_signals),
         )
 
-        # G4: Execute options overlay (covered calls + CSPs)
-        _execute_options_overlay(kite)
+        if entries:
+            # G4: Execute options overlay (covered calls + CSPs)
+            _execute_options_overlay(kite)
 
-        # G10: Auto-execute tail hedge if drawdown critical
-        _execute_tail_hedge_if_needed(kite)
+            # G10: Auto-execute tail hedge if drawdown critical
+            _execute_tail_hedge_if_needed(kite)
 
     except Exception as exc:
         logger.exception("Auto-order placement failed: %s", exc)
@@ -847,7 +903,7 @@ def run_walk_forward_audit():
 
     try:
         from strategies import StrategyRegistry, load_all_strategies
-        from services.walk_forward import walk_forward_validate, save_optimal_params
+        from services.research.walk_forward import walk_forward_validate, save_optimal_params
 
         load_all_strategies()
         all_strategies = StrategyRegistry._strategies
@@ -953,7 +1009,7 @@ def run_walk_forward_audit():
 
         # ── Aronson EBTA signal validation (post walk-forward) ──
         try:
-            from services.aronson_validator import AronsonValidator
+            from services.research.aronson_validator import AronsonValidator
             import numpy as np
 
             validator = AronsonValidator()
@@ -1017,6 +1073,9 @@ def _run_paper_live_reconciliation():
     All discrepancies > 1 % (P&L) or > 0.3 (Sharpe drift) are logged
     and trigger desktop notifications.
     """
+    if _paper_book_owned_by_engine():
+        logger.debug("%s: paper book is owned by the NSE engine — skipped", "_run_paper_live_reconciliation")
+        return
     logger.info("=== Unified Reconciliation started ===")
     report: dict = {"status": "success"}
 
@@ -1436,6 +1495,63 @@ def _run_trade_monitor_poll():
         logger.exception("TradeMonitor poll failed: %s", exc)
 
 
+@_tracked_job("gtt_reconcile", "GTT Stop Reconciliation")
+def _run_gtt_reconciliation():
+    """Ensure every live CNC holding has exactly one active GTT stop.
+
+    Live only (skipped in paper mode). Places missing stops, fixes
+    quantities, removes duplicates/orphans and exits breached monitored stops.
+    """
+    paper_mode = os.environ.get("CENTURION_PAPER_TRADE", "true").lower() in ("true", "1", "yes")
+    if paper_mode:
+        return
+    try:
+        kite = _get_scheduler_kite()
+        if kite is None:
+            logger.warning("GTT reconcile skipped - no Kite session")
+            return
+        from kite_connect.trading.trade_monitor import TradeMonitor
+        report = TradeMonitor(kite=kite).reconcile_gtt_stops()
+        _save_run("gtt_reconcile", {"status": "success",
+                                    **{k: len(v) for k, v in report.items() if isinstance(v, list)}})
+    except Exception as exc:
+        logger.exception("GTT reconciliation failed: %s", exc)
+
+
+@_tracked_job("nse_engine_executor", "NSE Engine Executor")
+def _run_nse_engine_executor():
+    """NSE engine targets -> CNC orders + GTT stops (guarded by CENTURION_NSE_ENGINE)."""
+    if os.environ.get("CENTURION_NSE_ENGINE", "false").lower() not in ("true", "1", "yes"):
+        return
+    try:
+        from kite_connect.trading.nse_engine_executor import EngineExecutor, live_orders_allowed
+        allowed, reason = live_orders_allowed()
+        kite = _get_scheduler_kite() if allowed else None
+        executor = EngineExecutor(kite=kite, paper=not allowed)
+        logger.info("NSE engine executor: mode=%s (%s)", "paper" if executor.paper else "LIVE",
+                    executor.mode_reason)
+        if executor.paper:
+            # Paper orders are queued and filled at the next session's open
+            # inside run_paper_session (same fills as the backtest).
+            session = executor.run_paper_session()
+            _save_run("nse_engine_executor", {"status": "success", "mode": "paper",
+                                              **{k: v for k, v in session.items()
+                                                 if isinstance(v, (str, int, float, bool))}})
+            return
+        plan = executor.plan()
+        results = executor.execute(plan)
+        _save_run("nse_engine_executor", {
+            "status": "success",
+            "mode": "live",
+            "as_of": str(plan.as_of),
+            "orders": len(plan.orders),
+            "ok": sum(1 for r in results if r.get("success")),
+            "skipped": len(plan.skipped),
+        })
+    except Exception as exc:
+        logger.exception("NSE engine executor failed: %s", exc)
+
+
 @_tracked_job("paper_trade_poll", "Paper Trade Poll")
 def _run_paper_trade_poll():
     """G3 FIX: Poll PaperTrader for SL/TP/trailing-SL at 3-min intervals.
@@ -1444,6 +1560,9 @@ def _run_paper_trade_poll():
     Ensures paper positions are checked intraday, not just at order-placement time.
     Uses the G5 vol-based trailing stop logic added to PaperTrader.poll().
     """
+    if _paper_book_owned_by_engine():
+        logger.debug("%s: paper book is owned by the NSE engine — skipped", "_run_paper_trade_poll")
+        return
     try:
         from config import Config
         if not getattr(Config, "PAPER_TRADE_MODE", True):
@@ -1491,7 +1610,7 @@ def _run_forecast_calibration():
             logger.info("AUTO_CALIBRATE_SCALARS disabled — skipping")
             return
 
-        from services.forecast_scalar import calibrate_all_scalars
+        from services.signals.forecast_scalar import calibrate_all_scalars
         import yfinance as yf
 
         # Build OHLCV cache for representative NIFTY-50 tickers
@@ -1539,7 +1658,7 @@ def _run_hmm_refit():
             return
 
         import yfinance as yf
-        from services.regime_hmm import MarkovRegimeModel, prepare_hmm_observations
+        from services.regime.regime_hmm import MarkovRegimeModel, prepare_hmm_observations
 
         # Fetch 5 years of NIFTY 50 daily data
         nifty_df = yf.download("^NSEI", period="5y", progress=False, timeout=30)
@@ -1579,7 +1698,7 @@ def _run_hmm_refit():
         logger.info("HMM model persisted to disk")
 
         # Update singleton
-        from services.regime_hmm import get_hmm_model
+        from services.regime.regime_hmm import get_hmm_model
         global_model = get_hmm_model()
         global_model._fitted = model._fitted
         global_model._means = model._means
@@ -1606,7 +1725,7 @@ def _run_strategy_tournament():
     logger.info("=== Monthly Strategy Tournament started ===")
     try:
         import pandas as pd
-        from services.strategy_tournament import StrategyTournament
+        from services.research.strategy_tournament import StrategyTournament
         import json, os
 
         # Load recent per-strategy returns from walk-forward results
@@ -1932,6 +2051,9 @@ def _run_paper_eod_snapshot():
     P&L, open positions, and drawdown for equity curve reconstruction.
     Even if the system crashes mid-week, we have daily granularity.
     """
+    if _paper_book_owned_by_engine():
+        logger.debug("%s: paper book is owned by the NSE engine — skipped", "_run_paper_eod_snapshot")
+        return
     try:
         from config import Config
         if not getattr(Config, "PAPER_TRADE_MODE", True):
@@ -1987,6 +2109,9 @@ def _run_paper_weekly_checkpoint():
     Runs Saturday 7:30 AM IST (after reconciliation). Aggregates the
     week's daily snapshots into a summary with return, Sharpe, DD, win rate.
     """
+    if _paper_book_owned_by_engine():
+        logger.debug("%s: paper book is owned by the NSE engine — skipped", "_run_paper_weekly_checkpoint")
+        return
     try:
         from config import Config
         if not getattr(Config, "PAPER_TRADE_MODE", True):
@@ -2025,8 +2150,8 @@ def _run_pead_earnings_feed():
     """
     logger.info("=== PEAD Earnings Feed started ===")
     try:
-        from services.earnings_momentum import _fetch_recent_results, EarningsSurprise as EMSurprise
-        from services.pead_strategy import PEADStrategy, EarningsSurprise as PEADSurprise
+        from services.signals.earnings_momentum import _fetch_recent_results, EarningsSurprise as EMSurprise
+        from services.execution.pead_strategy import PEADStrategy, EarningsSurprise as PEADSurprise
 
         # Fetch recent earnings from Trendlyne
         raw_results = _fetch_recent_results()
@@ -2077,7 +2202,7 @@ def _run_meta_label_retrain():
     """
     logger.info("=== Meta-Label Retrain started ===")
     try:
-        from services.meta_labeling import train_meta_labeler
+        from services.signals.meta_labeling import train_meta_labeler
         import yfinance as yf
 
         # Gather OHLCV for IND symbols
@@ -2143,7 +2268,7 @@ def _run_us_pre_market():
     """
     logger.info("=== US Pre-Market Pipeline started ===")
     try:
-        from services.us_carver_pipeline import run_us_carver_pipeline, DEFAULT_US_CARVER_TICKERS
+        from services.execution.us_carver_pipeline import run_us_carver_pipeline, DEFAULT_US_CARVER_TICKERS
 
         result = run_us_carver_pipeline(DEFAULT_US_CARVER_TICKERS)
 
@@ -2232,7 +2357,7 @@ def _run_pairs_scanner():
     try:
         import numpy as np
         from utils import download_ind_ohlcv
-        from services.pairs_trading_live import scan_all_pairs, DEFAULT_PAIRS
+        from services.execution.pairs_trading_live import scan_all_pairs, DEFAULT_PAIRS
 
         pairs = getattr(Config, "PAIRS_LIST", DEFAULT_PAIRS)
         symbols = set()
@@ -2304,7 +2429,7 @@ def _run_event_calendar_seed():
 
     logger.info("=== Event Calendar Seed ===")
     try:
-        from services.event_calendar import seed_fixed_events
+        from services.market_data.event_calendar import seed_fixed_events
         seed_fixed_events()
     except Exception as exc:
         logger.exception("Event calendar seed failed: %s", exc)
@@ -2327,7 +2452,7 @@ def _execute_options_overlay(kite):
             return
 
         from kite_connect.options.options_executor import OptionsExecutor
-        from services.options_overlay import scan_covered_call_candidates, scan_csp_candidates
+        from services.execution.options_overlay import scan_covered_call_candidates, scan_csp_candidates
 
         executor = OptionsExecutor(kite)
 
@@ -2360,7 +2485,7 @@ def _execute_tail_hedge_if_needed(kite):
         if not getattr(Config, "OPTIONS_TAIL_HEDGE_ENABLED", False):
             return
 
-        from services.tail_risk_hedge import TailRiskHedge
+        from services.risk.tail_risk_hedge import TailRiskHedge
         from kite_connect.options.options_executor import OptionsExecutor
 
         # Get current portfolio state
@@ -2446,8 +2571,8 @@ def _execute_futures_overlay(kite):
         if not getattr(Config, "LEVERAGE_ENABLED", False):
             return
 
-        from services.futures_overlay import compute_futures_overlay
-        from services.regime_detector import get_current_regime
+        from services.execution.futures_overlay import compute_futures_overlay
+        from services.regime.regime_detector import get_current_regime
         from kite_connect.trading.order_service import place_order
 
         # Get current state
@@ -2825,7 +2950,7 @@ def start_scheduler():
     # ── T3-5: Trade returns collector for Monte Carlo bootstrap ──
     def _collect_trade_returns():
         try:
-            from services.trade_returns_collector import run_collection
+            from services.research.trade_returns_collector import run_collection
             run_collection()
         except Exception as e:
             logger.warning("Trade returns collection failed: %s", e)
@@ -2847,7 +2972,8 @@ def start_scheduler():
         try:
             from kite_connect.trading.daily_rebalancer import DailyRebalancer
             kite = _get_scheduler_kite()
-            paper = os.getenv("CENTURION_PAPER_MODE", "true").lower() == "true"
+            # Same paper switch as the rest of the system (was CENTURION_PAPER_MODE)
+            paper = os.getenv("CENTURION_PAPER_TRADE", "true").lower() in ("true", "1", "yes")
             rebalancer = DailyRebalancer(kite=kite, paper_mode=paper)
             report = rebalancer.run(progress_callback=lambda m: logger.info("[rebalance] %s", m))
             _save_run("daily_rebalance", {
@@ -2872,6 +2998,28 @@ def start_scheduler():
         misfire_grace_time=600,
     )
     logger.info("  Carver rebalance: 09:30 IST, Mon-Fri")
+
+    # ── GTT stop reconciliation (live CNC holdings) — 09:05 and 15:45 IST ──
+    for _job_id, _hour, _minute in (("gtt_reconcile_open", 9, 5), ("gtt_reconcile_close", 15, 45)):
+        scheduler.add_job(
+            _run_gtt_reconciliation,
+            CronTrigger(hour=_hour, minute=_minute, day_of_week="mon-fri", timezone="Asia/Kolkata"),
+            id=_job_id,
+            name="GTT Stop Reconciliation",
+            misfire_grace_time=600,
+        )
+    logger.info("  GTT reconcile   : 09:05 and 15:45 IST, Mon-Fri (live only)")
+
+    # ── NSE engine executor (opt-in: CENTURION_NSE_ENGINE=true) — 09:25 IST ──
+    if os.environ.get("CENTURION_NSE_ENGINE", "false").lower() in ("true", "1", "yes"):
+        scheduler.add_job(
+            _run_nse_engine_executor,
+            CronTrigger(hour=9, minute=25, day_of_week="mon-fri", timezone="Asia/Kolkata"),
+            id="nse_engine_executor",
+            name="NSE Engine Executor",
+            misfire_grace_time=600,
+        )
+        logger.info("  NSE engine exec : 09:25 IST, Mon-Fri")
 
     try:
         scheduler.start()

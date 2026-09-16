@@ -129,7 +129,7 @@ def _render_carver_efficiency_section():
         if st.button("Run Calibration Backtest", key="carver_calibrate"):
             with st.spinner("Running Carver expanding-window backtest …"):
                 try:
-                    from services.carver_calibration import CarverCalibrator, generate_efficiency_report
+                    from services.research.carver_calibration import CarverCalibrator, generate_efficiency_report
                     from utils import download_ind_ohlcv
                     from kite_connect.nse.nse_universe import get_nse_universe
 
@@ -485,7 +485,7 @@ def _run_full_pipeline(screen_cfg, risk_cfg):
     ns_tickers = [f"{s}.NS" for s in report.screened_df["symbol"].tolist()]
     st.session_state["screened_tickers_ns"] = ns_tickers
 
-    from services.integrated_scorer import IntegratedScorer
+    from services.signals.integrated_scorer import IntegratedScorer
     from datetime import date, timedelta
 
     end_dt = date.today()
@@ -697,7 +697,7 @@ def _render_verdict_section(risk_cfg, auto_place: bool):
 def _run_batched_verdict(tickers, weights, skip_layers, batch_size):
     """Evaluate tickers in concurrent batches via IntegratedScorer."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    from services.integrated_scorer import IntegratedScorer
+    from services.signals.integrated_scorer import IntegratedScorer
     from datetime import date, timedelta
 
     end_dt = date.today()
