@@ -1,12 +1,13 @@
 """Run NSE-engine research jobs on Kaggle — fold by fold, several at a time.
 
-Why this exists: the 2013–2025 walk-forward is 775 backtests at roughly 108 s
-each, about 23 hours on one core. A Kaggle CPU session gives 4 cores and 30 GB
-but stops at 12 hours, so this runner
+Why this exists: the 2013–2025 walk-forward is 297 backtests, and it should
+run off the research machine and off the daily Actions job. A Kaggle CPU
+session gives 4 cores and 30 GB but stops at 12 hours, so this runner
 
-  * evaluates each fold's grid across worker processes (4 cores ≈ 6 hours), and
-  * writes one file per finished fold, so the next session resumes where the
-    last one stopped instead of starting again.
+  * evaluates each fold's grid across worker processes (measured: 4–5 minutes
+    per 32-point fold at 4 workers), and
+  * writes one file per finished fold, so a session that dies resumes where it
+    stopped instead of starting again.
 
 Selection is the same as ``nse_engine.validation.walk_forward.run_walk_forward``
 — the whole grid on the train window, best annualised excess Sharpe, that one

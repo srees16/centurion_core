@@ -5,11 +5,14 @@ that do not fit an Actions job: the walk-forward grid and Stage-A sweeps.
 
 ## Why
 
-The 2013–2025 walk-forward is 775 backtests at about 108 s each — roughly
-**23 hours** on one core. An Actions job is capped at 6 hours. A free Kaggle
-CPU session gives **4 cores, 30 GB RAM and 12 hours**, so the grid runs four
-wide (≈ 6 hours) and, because each fold is written as it finishes, a second
-session picks up where the first stopped.
+The 2013–2025 walk-forward is 297 backtests (32 grid points × 9 folds, plus
+each fold's test run). Measured on Kaggle, 16 Sep 2026: **4–5 minutes per fold
+at 4 workers, 19 minutes for folds 0–3** — the whole walk-forward fits in one
+session with room to spare, and it runs off your machine and off the daily
+Actions job. (The 23-hour figure this design started from came from the local
+run registry, where wall-clock spanned overnight gaps; it was wrong.) Each fold
+is still written as it finishes, so a session that dies resumes where it
+stopped.
 
 ## One-time setup
 
@@ -126,8 +129,8 @@ export CENTURION_HEARTBEAT_URL=https://hc-ping.com/<uuid>     # healthchecks.io
 The convention is healthchecks.io's — `/start` when the job begins, the bare
 URL for progress (throttled to one ping per 30 s), `/fail` on an exception —
 and an UptimeRobot heartbeat monitor, Better Stack or a self-hosted endpoint
-sees the same pings. Set the expected period to about 90 minutes: a fold
-pings when it finishes, and folds take 30–60 minutes at four workers.
+sees the same pings. Set the expected period to about 15 minutes: a fold
+pings when it finishes, and folds take 4–5 minutes at four workers.
 
 `cloud.kaggle_local watch` pings the same URL from here while it polls, so a
 missed heartbeat means either the kernel or the watcher stopped.
