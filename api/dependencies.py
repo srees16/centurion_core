@@ -217,3 +217,53 @@ def get_config():
     """Return the global Config singleton."""
     from config import Config
     return Config
+
+
+# ── Kite calls with a retry on dropped connections ───────────────────────
+#
+# Kite's API drops idle keep-alive connections; the first call after a pause
+# then fails with RemoteDisconnected / ConnectionError (Sentry 147502950).
+# One retry on a fresh connection almost always succeeds, and a transient
+# network failure is a 502, not a 500 with a traceback.
+
+_KITE_TRANSIENT_NAMES = ("ConnectionError", "ProtocolError", "RemoteDisconnected",
+                         "ReadTimeout", "ConnectTimeout", "Timeout", "NetworkException")
+
+
+def _is_transient_kite_error(exc: BaseException) -> bool:
+    seen = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if type(cur).__name__ in _KITE_TRANSIENT_NAMES:
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
+
+
+async def kite_call(fn, *args, retries: int = 1, **kwargs):
+    """Run a KiteConnect method in a thread; retry once on a dropped connection.
+
+    Maps Kite failures to HTTP statuses: expired token → 401, transient network
+    → 502 (after the retry), other Kite errors → 502 with Kite's message.
+    """
+    import asyncio
+
+    from fastapi import HTTPException
+
+    for attempt in range(retries + 1):
+        try:
+            return await asyncio.to_thread(fn, *args, **kwargs)
+        except Exception as exc:                          # noqa: BLE001 - classified below
+            name = type(exc).__name__
+            if name == "TokenException":
+                raise HTTPException(status_code=401, detail="Kite session expired — log in again") from exc
+            if _is_transient_kite_error(exc):
+                if attempt < retries:
+                    await asyncio.sleep(0.5 * (attempt + 1))
+                    continue
+                raise HTTPException(status_code=502,
+                                    detail=f"Kite API connection dropped ({name}); retried {retries}x") from exc
+            if name.endswith("Exception") and exc.__class__.__module__.startswith("kiteconnect"):
+                raise HTTPException(status_code=502, detail=f"Kite: {exc}") from exc
+            raise
