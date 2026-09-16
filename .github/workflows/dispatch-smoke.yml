@@ -1,0 +1,14 @@
+name: Dispatch Smoke Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: echo "workflow_dispatch works on $(date -u)"
