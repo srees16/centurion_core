@@ -11,18 +11,40 @@ on:
     - cron: "0 9 * * 1-5"
     # EOD snapshot: 3:35 PM IST = 10:05 AM UTC
     - cron: "5 10 * * 1-5"
+    # NSE engine EOD: 7:30 PM IST = 2:00 PM UTC (after NSE publishes the day's
+    # bhavcopy, ~6-7 PM IST).  Keep this string in sync with the job conditions.
+    - cron: "0 14 * * 1-5"
+    # Saturday weekly checkpoint: 7:30 AM IST = 2:00 AM UTC
+    - cron: "0 2 * * 6"
   workflow_dispatch:
     inputs:
       reason:
         description: "Manual trigger reason"
         required: false
         default: "manual"
+      full_bootstrap:
+        description: "NSE engine: sync the archive from paper_start_date - 3 years and rebuild every store year"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
+# The paper book lives in Neon and is restored every run: never let two runs
+# mutate it concurrently.
+concurrency:
+  group: paper-trade-book
+  cancel-in-progress: false
+
 jobs:
+  # Legacy pipeline when the NSE engine is off (repository variable
+  # CENTURION_NSE_ENGINE != 'true').  With the engine on, this job only runs
+  # the Saturday weekly checkpoint (no market data needed).
   paper-trade:
+    if: >-
+      (vars.CENTURION_NSE_ENGINE != 'true' && github.event.schedule != '0 14 * * 1-5')
+      || (vars.CENTURION_NSE_ENGINE == 'true' && github.event.schedule == '0 2 * * 6')
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -49,5 +71,206 @@ jobs:
           CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
           CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
           CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+          # Starting capital for the very first run only (later runs restore from Neon)
+          CENTURION_PAPER_INITIAL_CAPITAL: ${{ vars.CENTURION_PAPER_INITIAL_CAPITAL || '100000' }}
+          # NSE engine path is opt-in until validated (repository variable)
+          CENTURION_NSE_ENGINE: ${{ vars.CENTURION_NSE_ENGINE || 'false' }}
         run: |
-          python cloud_paper_runner.py
+          if [ "$CENTURION_NSE_ENGINE" = "true" ]; then
+            python cloud_paper_runner.py --engine
+          else
+            python cloud_paper_runner.py
+          fi
+
+  # NSE engine paper trading (CENTURION_NSE_ENGINE == 'true'): once per
+  # trading day after the bhavcopy is published, or on manual dispatch.
+  #
+  # Data: data/nse_engine/{archive,store} are gitignored, so they live in the
+  # Actions cache.  Every run restores the newest cache entry (restore-keys),
+  # syncs recent sessions, rebuilds only the store years that changed and
+  # saves a new entry (also when a later step fails, so a long first
+  # bootstrap keeps its progress).
+  #
+  # First run (empty cache, no bootstrap marker, or full_bootstrap input):
+  # sync from paper_start_date - 3 years.  About 3 years x ~310 candidate
+  # sessions x 4 file kinds at 2 requests/s = ~3,000-4,000 requests, i.e.
+  # 30-45 min of downloading plus ~5 min for the store; budget ~60-75 min
+  # in total.  Later runs: ~12-20 min (mostly pip install, cache transfer,
+  # the shift-reference backtest and the engine run).
+  nse-engine-paper:
+    if: >-
+      vars.CENTURION_NSE_ENGINE == 'true'
+      && (github.event.schedule == '0 14 * * 1-5' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      ARCHIVE_DIR: data/nse_engine/archive
+      CENTURION_PAPER_TRADE: "true"
+      CENTURION_NSE_ENGINE: "true"
+      CENTURION_NSE_DEPLOYMENT: ${{ vars.CENTURION_NSE_DEPLOYMENT || 'config/nse_engine_deployed.json' }}
+      CENTURION_PAPER_INITIAL_CAPITAL: ${{ vars.CENTURION_PAPER_INITIAL_CAPITAL || '100000' }}
+      NSE_SYNC_LOOKBACK_DAYS: ${{ vars.CENTURION_NSE_SYNC_LOOKBACK_DAYS || '14' }}
+      NSE_ARCHIVE_RPS: ${{ vars.CENTURION_NSE_ARCHIVE_RPS || '2' }}
+      FULL_BOOTSTRAP: ${{ github.event.inputs.full_bootstrap || 'false' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h .
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt pyarrow
+
+      - name: Restore NSE archive and store cache
+        id: nse-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            data/nse_engine/archive
+            data/nse_engine/store
+          key: nse-engine-data-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            nse-engine-data-v1-
+
+      - name: Resolve deployment and sync window
+        id: window
+        run: |
+          python -m nse_engine.deployment show
+          PAPER_START=$(python -m nse_engine.deployment get paper_start_date)
+          BOOT_START=$(python -m nse_engine.deployment get bootstrap_start)
+          TODAY=$(python -c "from datetime import datetime, timedelta, timezone; print(datetime.now(timezone(timedelta(hours=5, minutes=30))).date())")
+          MARKER="$ARCHIVE_DIR/manifest/ci_bootstrap.json"
+          MODE=incremental
+          if [ "$FULL_BOOTSTRAP" = "true" ]; then
+            MODE=bootstrap
+          elif [ ! -f "$MARKER" ]; then
+            MODE=bootstrap
+          elif ! python -c "import json, sys; sys.exit(0 if json.load(open('$MARKER'))['start'] <= '$BOOT_START' else 1)"; then
+            MODE=bootstrap   # deployment moved paper_start_date earlier
+          fi
+          if [ "$MODE" = "bootstrap" ]; then
+            SYNC_START="$BOOT_START"
+          else
+            SYNC_START=$(python -c "from datetime import date, timedelta; print(date.fromisoformat('$TODAY') - timedelta(days=int('$NSE_SYNC_LOOKBACK_DAYS')))")
+          fi
+          echo "cache restored from: '${{ steps.nse-cache.outputs.cache-matched-key }}'"
+          echo "mode=$MODE sync $SYNC_START..$TODAY paper_start=$PAPER_START"
+          {
+            echo "mode=$MODE"
+            echo "sync_start=$SYNC_START"
+            echo "boot_start=$BOOT_START"
+            echo "paper_start=$PAPER_START"
+            echo "today=$TODAY"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Sync NSE archive
+        timeout-minutes: 150
+        env:
+          SYNC_START: ${{ steps.window.outputs.sync_start }}
+          TODAY: ${{ steps.window.outputs.today }}
+        run: |
+          python -m nse_engine.data.archive --start "$SYNC_START" --end "$TODAY" \
+            --root "$ARCHIVE_DIR" --rps "$NSE_ARCHIVE_RPS"
+          du -sh "$ARCHIVE_DIR"
+
+      - name: Mark bootstrap complete
+        if: steps.window.outputs.mode == 'bootstrap'
+        env:
+          BOOT_START: ${{ steps.window.outputs.boot_start }}
+          TODAY: ${{ steps.window.outputs.today }}
+        run: |
+          python - <<'EOF'
+          import json, os
+          from datetime import date, datetime, timedelta, timezone
+          from pathlib import Path
+          from nse_engine.data.archive import BhavcopyArchive, candidate_files, session_dates
+
+          root = Path(os.environ["ARCHIVE_DIR"])
+          start, today = date.fromisoformat(os.environ["BOOT_START"]), date.fromisoformat(os.environ["TODAY"])
+          archive = BhavcopyArchive(root)
+          # Every candidate equity session older than the publication grace must be a file or a known holiday
+          gaps = [d for d in session_dates(start, today - timedelta(days=4))
+                  if BhavcopyArchive.existing(candidate_files(root, "equity", d)) is None
+                  and not archive.is_missing("equity", d)]
+          if gaps:
+              print(f"bootstrap incomplete: {len(gaps)} equity sessions missing, e.g. {gaps[:5]} - next run bootstraps again")
+          else:
+              marker = root / "manifest" / "ci_bootstrap.json"
+              marker.parent.mkdir(parents=True, exist_ok=True)
+              marker.write_text(json.dumps({"start": start.isoformat(), "end": today.isoformat(),
+                                            "completed_at": datetime.now(timezone.utc).isoformat()}))
+              print(f"bootstrap complete: {marker}")
+          EOF
+
+      - name: Build NSE store (changed years only)
+        env:
+          MODE: ${{ steps.window.outputs.mode }}
+          SYNC_START: ${{ steps.window.outputs.sync_start }}
+        run: |
+          python - <<'EOF'
+          import json, logging, os
+          from datetime import date
+          from pathlib import Path
+          from nse_engine.data.store import archive_years, build_store
+          from nse_engine.deployment import load_deployment
+
+          logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+          archive = os.environ["ARCHIVE_DIR"]
+          store = Path(load_deployment(os.environ["CENTURION_NSE_DEPLOYMENT"]).engine.data.store_dir)
+          first = date.fromisoformat(os.environ["SYNC_START"]).year
+          if os.environ["MODE"] == "bootstrap":
+              years = None  # every archive year (unchanged years are skipped by fingerprint)
+          else:
+              # recently synced years, plus any year whose parquet is missing
+              years = [y for y in archive_years(archive)
+                       if y >= first or not (store / "equity" / f"{y}.parquet").exists()]
+          print(json.dumps(build_store(archive, store, years=years), indent=2))
+          EOF
+          du -sh data/nse_engine/store
+
+      - name: Regenerate same-period shift reference
+        continue-on-error: true
+        env:
+          PAPER_START: ${{ steps.window.outputs.paper_start }}
+          TODAY: ${{ steps.window.outputs.today }}
+        run: |
+          if [[ ! "$TODAY" > "$PAPER_START" ]]; then
+            echo "paper trading starts $PAPER_START: no live window yet"
+            exit 0
+          fi
+          python -m nse_engine.deployment write-engine-config --out "$RUNNER_TEMP/engine_config.json"
+          python -m runners.run_nse_engine shift-reference --config "$RUNNER_TEMP/engine_config.json" \
+            --start "$PAPER_START" --data-start "$(python -m nse_engine.deployment get data_start)" \
+            --set initial_capital="$CENTURION_PAPER_INITIAL_CAPITAL"
+
+      - name: Run NSE engine paper session
+        env:
+          CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
+          CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
+          CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
+          CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
+          CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+          CENTURION_SHIFT_MAX_TRACKING_ERROR: ${{ vars.CENTURION_SHIFT_MAX_TRACKING_ERROR || '0.08' }}
+          CENTURION_SHIFT_MAX_DAILY_GAP_BPS: ${{ vars.CENTURION_SHIFT_MAX_DAILY_GAP_BPS || '3' }}
+        run: python cloud_paper_runner.py --engine
+
+      - name: Save NSE archive and store cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            data/nse_engine/archive
+            data/nse_engine/store
+          key: nse-engine-data-v1-${{ github.run_id }}-${{ github.run_attempt }}

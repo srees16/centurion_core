@@ -369,7 +369,8 @@ def generate_signals_from_backtest(
                 fast_ewma = close.ewm(span=fast, adjust=False).mean()
                 slow_ewma = close.ewm(span=slow, adjust=False).mean()
                 raw = float(fast_ewma.iloc[-1] - slow_ewma.iloc[-1])
-                fc = ewmac_to_forecast(raw, dpv, fast, slow)
+                # dpv is a decimal percentage; convert to price units
+                fc = ewmac_to_forecast(raw, float(close.iloc[-1]) * dpv, fast, slow)
                 all_forecasts[sym][f"ewmac_{fast}_{slow}"] = fc
 
         # Momentum
@@ -1505,7 +1506,7 @@ def _download_ohlcv(
     ohlcv = {}
     for sym in tickers:
         try:
-            suffix = ".NS" if market == "IND" and "." not in sym else ""
+            suffix = ".NS" if market == "IND" and not any(c in sym for c in '.-=^') else ""
             ticker = f"{sym}{suffix}"
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")

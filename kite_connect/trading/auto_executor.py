@@ -1,4 +1,4 @@
-﻿"""
+"""
 Auto-Order Execution Engine for Zerodha Kite Connect.
 
 Orchestrates the full pipeline:
@@ -41,6 +41,10 @@ _CARVER_ALLOWED_TAGS = {"BUY", "STRONG_BUY", "HOLD"}  # P1 fix: Carver pipeline 
 # Rate-limiting: pause between Kite API calls (seconds)
 _ORDER_DELAY_S = 0.15
 _ORDER_TIMEOUT_S = 30  # Max seconds to wait for a single order placement
+
+# Carver signals need ~300 daily bars (EWMAC 64/256, 12-1 momentum)
+_OHLCV_PERIOD = "2y"
+_MIN_SIGNAL_BARS = 300
 
 
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -101,6 +105,10 @@ class ExecutionReport:
     options_failed: int = 0
     aronson_validated_signals: int = 0   # Aronson EBTA: count of statistically validated signals
     aronson_confidence_skipped: int = 0  # Aronson EBTA: trades skipped by confidence gate
+    planner: str = ""                    # "carver" | "legacy_risk_manager"
+    fallback_reason: str = ""            # why the legacy RiskManager was used (never silent)
+    exit_signals: Dict[str, str] = field(default_factory=dict)   # {symbol: reason} rank/forecast exits
+    exit_results: List[dict] = field(default_factory=list)
 
 
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -190,6 +198,7 @@ class AutoExecutor:
         progress_callback=None,
         signal_verdicts: Optional[Dict[str, str]] = None,
         pre_screened_df: Optional[pd.DataFrame] = None,
+        entries_allowed: bool = True,
     ) -> ExecutionReport:
         """
         Execute the full pipeline.
@@ -209,6 +218,10 @@ class AutoExecutor:
         pre_screened_df : pd.DataFrame | None
             Already-screened DataFrame from a prior pipeline run.
             When provided, the screening step is skipped entirely.
+        entries_allowed : bool
+            When False no new positions are opened, but rank/forecast
+            exits for existing CNC holdings are still evaluated and sent.
+            Exits also run when the signal filter leaves no candidates.
 
         Returns
         -------
@@ -216,6 +229,7 @@ class AutoExecutor:
         """
         _cb = progress_callback or (lambda m: None)
         report = ExecutionReport(timestamp=datetime.now().isoformat())
+        entries_blocked = not entries_allowed
 
         # â”€â”€ Fast-path: use pre-screened data (skip re-download) â”€
         if pre_screened_df is not None and not pre_screened_df.empty:
@@ -267,7 +281,13 @@ class AutoExecutor:
                 f"{report.signal_filtered_count} rejected"
             )
             if screened_df.empty:
-                _cb(f"No stocks passed signal filter -- skipping execution")
+                _cb("No stocks passed signal filter -- no entries, checking exits for holdings")
+                entries_blocked = True
+
+        if entries_blocked:
+            screened_df = screened_df.iloc[0:0]
+            report.screened_df = screened_df
+            if not self._carver_enabled or not self._current_cnc_holdings():
                 return report
 
         _pre_ltp_closes = {}
@@ -334,8 +354,17 @@ class AutoExecutor:
                         for h in held if h.get("last_price")
                     }
                     inst_vols = {s: 0.02 for s in pos_values}  # conservative 2% default
-                    total_cap = getattr(Config, "CARVER_INITIAL_CAPITAL", 500_000)
-                    peak_eq = getattr(Config, "_PEAK_EQUITY", None)
+                    # Drawdown vs ACTUAL account equity (configured capital only as fallback)
+                    from kite_connect.trading.order_service import get_account_equity
+                    from services.portfolio_vol_monitor import update_live_peak_equity
+                    total_cap, _eq_src = get_account_equity(
+                        self.kite, fallback=getattr(Config, "CARVER_INITIAL_CAPITAL", 500_000),
+                    )
+                    if _eq_src == "kite":
+                        peak_eq = update_live_peak_equity(total_cap)
+                    else:
+                        logger.warning("Portfolio DD check using configured capital fallback ₹%.0f", total_cap)
+                        peak_eq = None
                     snap = assess_portfolio_risk(
                         pos_values, inst_vols,
                         target_annual_vol_pct=getattr(Config, "CARVER_ANNUAL_VOL_TARGET", 0.20),
@@ -355,7 +384,7 @@ class AutoExecutor:
                                     place_order(self.kite, symbol=sym, exchange='NSE',
                                                 transaction_type='SELL', quantity=qty,
                                                 order_type='MARKET', product='CNC',
-                                                tag='EMERGENCY_LIQUIDATE')
+                                                tag='EMERGENCY_LIQUIDATE', is_exit=True)
                                     logger.warning('Emergency SELL placed: %s x %d', sym, qty)
                                 except Exception as liq_exc:
                                     logger.error('Emergency SELL failed for %s: %s', sym, liq_exc)
@@ -373,6 +402,18 @@ class AutoExecutor:
         # â”€â”€ 4.  Risk management / trade plans â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         _cb("Generating trade plans with risk management â€¦")
         plans = self._generate_trade_plans(screened_df, _cb)
+        report.planner = getattr(self, "_last_planner", "")
+        report.fallback_reason = getattr(self, "_last_fallback_reason", "")
+        report.exit_signals = dict(getattr(self, "_pending_exits", {}) or {})
+
+        # -- 4a. Rank/forecast exits for existing CNC holdings (before entries) --
+        if report.exit_signals:
+            report.exit_results = self._execute_rank_exits(report.exit_signals, _cb)
+
+        if entries_blocked:
+            report.trade_plans = []
+            report.plans_count = 0
+            return report
 
         # P1 fix: Apply portfolio DD scale_factor to position quantities
         dd_scale = getattr(report, '_dd_scale', 1.0)
@@ -465,9 +506,15 @@ class AutoExecutor:
           forecast sources, HMM regime blending, strategy decay, Markov
           signal filter, forecast capacity checks, and options overlay.
 
-        Falls back to legacy plan_trades() if anything fails.
+        Falls back to legacy plan_trades() if anything fails — LOUDLY: the
+        reason is logged as a warning, sent to the progress callback and
+        recorded in ``self._last_fallback_reason`` / ExecutionReport.
         """
+        self._last_planner = "carver"
+        self._last_fallback_reason = ""
+        self._pending_exits = {}
         if not self._carver_enabled or self._vol_target is None:
+            self._last_planner = "legacy_risk_manager"
             return self.risk_mgr.plan_trades(screened_df)
 
         try:
@@ -476,15 +523,19 @@ class AutoExecutor:
             from config import Config
             from utils import download_ind_ohlcv
 
-            symbols = screened_df["symbol"].tolist()
+            # Current CNC holdings: passed to the pipeline (inertia, correlation,
+            # rank exits) and included in the OHLCV fetch so they get forecasts.
+            current_holdings = self._current_cnc_holdings()
+            symbols = list(dict.fromkeys(screened_df["symbol"].tolist() + list(current_holdings)))
 
-            # Step 1: Fetch OHLCV for pipeline (batch mode for large universes)
+            # Step 1: Fetch OHLCV for pipeline (batch mode for large universes).
+            # Signals need ~300 daily bars (slow EWMAC / momentum) → 2 years.
             ohlcv_cache = {}
             if len(symbols) > 30:
                 try:
                     from utils import download_ohlcv_batch_parallel
                     ohlcv_cache = download_ohlcv_batch_parallel(
-                        symbols, market="IND", period="6mo",
+                        symbols, market="IND", period=_OHLCV_PERIOD,
                     )
                     ohlcv_cache = {s: d for s, d in ohlcv_cache.items() if len(d) >= 64}
                     _cb(f"Batch OHLCV: {len(ohlcv_cache)}/{len(symbols)} tickers")
@@ -495,15 +546,19 @@ class AutoExecutor:
             if not ohlcv_cache:
                 for sym in symbols:
                     try:
-                        df = download_ind_ohlcv(sym, period="6mo")
+                        df = download_ind_ohlcv(sym, period=_OHLCV_PERIOD)
                         if df is not None and len(df) >= 64:
                             ohlcv_cache[sym] = df
                     except Exception:
                         pass
 
+            short_hist = [s for s, d in ohlcv_cache.items() if len(d) < _MIN_SIGNAL_BARS]
+            if short_hist:
+                logger.warning("Carver: %d symbols have < %d bars (slow signals degraded): %s",
+                               len(short_hist), _MIN_SIGNAL_BARS, short_hist[:10])
+
             if not ohlcv_cache:
-                logger.warning("Carver: no OHLCV data — falling back to legacy")
-                return self.risk_mgr.plan_trades(screened_df)
+                return self._legacy_fallback(screened_df, _cb, "no OHLCV data for any symbol")
 
             # Build screener scores for screener_to_forecast
             score_col = "score"
@@ -534,11 +589,24 @@ class AutoExecutor:
                 ohlcv_cache=ohlcv_cache,
                 screener_scores=screener_scores,
                 decision_engine_scores=decision_scores if decision_scores else None,
+                current_holdings=current_holdings or None,
             )
+            self._pending_exits = dict(getattr(pipe_result, "exits", {}) or {})
+            self._last_pipe_result = pipe_result
 
             if not pipe_result.trade_plans:
-                logger.info("Carver full pipeline: 0 trade plans — falling back to legacy")
-                return self.risk_mgr.plan_trades(screened_df)
+                _fresh = getattr(pipe_result, "freshness", {}) or {}
+                if _fresh.get("dropped") and pipe_result.symbols_processed == 0:
+                    return self._legacy_fallback(
+                        screened_df, _cb,
+                        f"freshness gate dropped all {len(_fresh['dropped'])} symbols "
+                        f"(expected session {_fresh.get('expected_session')})",
+                    )
+                # Zero plans is a legitimate Carver decision — do not override it.
+                _cb("Carver pipeline: 0 trade plans (no legacy fallback — Carver decided no trades)")
+                logger.info("Carver full pipeline: 0 trade plans from %d symbols",
+                            pipe_result.symbols_processed)
+                return []
 
             # Convert PipelineResult.trade_plans to TradePlan objects
             plans = []
@@ -574,9 +642,75 @@ class AutoExecutor:
             return plans
 
         except Exception as exc:
-            logger.warning("Carver pipeline failed — falling back to legacy: %s", exc)
-            _cb("Carver pipeline error — using legacy risk management")
-            return self.risk_mgr.plan_trades(screened_df)
+            return self._legacy_fallback(screened_df, _cb, f"Carver pipeline error: {exc}")
+
+    def _legacy_fallback(self, screened_df: pd.DataFrame, _cb, reason: str) -> List[TradePlan]:
+        """Use the legacy RiskManager — loudly, with the reason recorded."""
+        self._last_planner = "legacy_risk_manager"
+        self._last_fallback_reason = reason
+        logger.warning("FALLBACK to legacy RiskManager: %s", reason)
+        _cb(f"⚠ FALLBACK to legacy RiskManager — {reason}")
+        return self.risk_mgr.plan_trades(screened_df)
+
+    def _current_cnc_holdings(self) -> Dict[str, int]:
+        """{symbol: sellable CNC quantity} from Kite (empty without a session)."""
+        if self.kite is None:
+            return {}
+        try:
+            from kite_connect.trading.gtt_stops import get_held_quantities
+            return get_held_quantities(self.kite)
+        except Exception as exc:
+            logger.warning("Could not fetch CNC holdings for pipeline: %s", exc)
+            return {}
+
+    @staticmethod
+    def _paper_mode_active() -> bool:
+        import os as _os
+        if _os.environ.get('CENTURION_PAPER_TRADE', '').lower() in ('true', '1', 'yes'):
+            return True
+        try:
+            from config import Config
+            return bool(getattr(Config, 'PAPER_TRADE_MODE', False))
+        except Exception:
+            return False
+
+    def _execute_rank_exits(self, exits: Dict[str, str], _cb) -> List[dict]:
+        """Sell CNC holdings flagged by the rank/forecast exit step.
+
+        Routed through order_service (market hours, kill-switch reduce-only
+        policy, idempotency).  Paper mode / dry run only reports them.
+        """
+        results: List[dict] = []
+        if not exits:
+            return results
+        if self._paper_mode_active() or not self.auto_place or self.kite is None:
+            _cb(f"Rank exits (not placed — paper/dry run): {exits}")
+            logger.info("Rank exits not placed (paper/dry run): %s", exits)
+            return [{"symbol": s, "reason": r, "success": False, "error": "paper/dry run"}
+                    for s, r in exits.items()]
+        from kite_connect.trading.order_service import place_order
+        held = self._current_cnc_holdings()
+        for sym, reason in exits.items():
+            qty = int(held.get(sym, 0))
+            if qty <= 0:
+                results.append({"symbol": sym, "reason": reason, "success": False,
+                                "error": "no sellable quantity"})
+                continue
+            res = place_order(self.kite, symbol=sym, exchange="NSE", transaction_type="SELL",
+                              quantity=qty, order_type="MARKET", product="CNC",
+                              tag=f"RX{sym[:18]}", is_exit=True)
+            results.append({"symbol": sym, "reason": reason, "quantity": qty, **res})
+            if res.get("success"):
+                _cb(f"Rank exit SELL {sym} x {qty} ({reason})")
+                try:
+                    from kite_connect.trading.gtt_stops import delete_stop_gtts_for_symbol
+                    delete_stop_gtts_for_symbol(self.kite, sym, reason="rank_exit")
+                except Exception:
+                    pass
+            else:
+                logger.error("Rank exit SELL failed for %s: %s", sym, res.get("error"))
+            time.sleep(_ORDER_DELAY_S)
+        return results
 
     # -- Gap 6: Multi-timeframe entry confirmation -----------------------
 
@@ -1027,6 +1161,26 @@ class AutoExecutor:
         except Exception as exc:
             logger.warning("Correlation filter failed (non-fatal): %s", exc)
             return plans
+
+    # -- Daily Carver Rebalance mode --
+
+    def run_rebalance(self, progress_callback=None):
+        """Run a daily Carver portfolio rebalance instead of the screener pipeline.
+
+        This uses the DailyRebalancer which generates the same 10-source
+        forecasts as the backtest, computes target vs current position
+        deltas, and places orders.
+
+        Returns a RebalanceReport (not an ExecutionReport).
+        """
+        from kite_connect.trading.daily_rebalancer import DailyRebalancer
+
+        paper = self.kite is None or not self.auto_place
+        rebalancer = DailyRebalancer(
+            kite=self.kite,
+            paper_mode=paper,
+        )
+        return rebalancer.run(progress_callback=progress_callback)
     # â”€â”€ Live price enrichment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _enrich_with_ltp(

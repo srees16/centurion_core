@@ -320,7 +320,8 @@ class CarverCalibrator:
                     slow_ewma = close.ewm(span=slow, adjust=False).mean()
                     raw = float(fast_ewma.iloc[-1] - slow_ewma.iloc[-1])
                     key = f"ewmac_{fast}_{slow}"
-                    scaled = ewmac_to_forecast(raw, dpv if dpv > 0 else price * 0.02, fast, slow)
+                    # dpv is a decimal percentage; convert to price units
+                    scaled = ewmac_to_forecast(raw, price * (dpv if dpv > 0 else 0.02), fast, slow)
                     forecasts[key] = scaled
 
                 # Combine forecasts (EWMAC only for backtest simplicity)

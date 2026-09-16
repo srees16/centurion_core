@@ -68,6 +68,40 @@ class PortfolioRiskSnapshot:
 
 ANNUALISATION_FACTOR = 16.0  # sqrt(252) ≈ 16
 
+# Live peak equity (actual account equity, not configured capital)
+import os as _os
+_LIVE_PEAK_PATH = _os.path.join(
+    _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "data", "live_equity_peak.json",
+)
+
+
+def update_live_peak_equity(current_equity: float, path: Optional[str] = None) -> float:
+    """Persist and return the running peak of ACTUAL account equity.
+
+    Drawdown must be measured against what the account really held, not a
+    fixed configured capital (which fakes huge drawdowns when the account is
+    smaller, or hides them when it is larger).
+    """
+    import json
+    from datetime import datetime, timezone
+    path = path or _LIVE_PEAK_PATH
+    peak = 0.0
+    try:
+        with open(path) as f:
+            peak = float(json.load(f).get("peak_equity", 0.0))
+    except Exception:
+        pass
+    if current_equity and current_equity > peak:
+        peak = float(current_equity)
+        try:
+            _os.makedirs(_os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as f:
+                json.dump({"peak_equity": peak,
+                           "updated_at": datetime.now(timezone.utc).isoformat()}, f)
+        except Exception as exc:
+            logger.debug("Live peak equity persist failed: %s", exc)
+    return peak
+
 # Module-level EWMA correlation cache for decay smoothing
 _prev_corr_matrix: Optional[np.ndarray] = None
 _prev_corr_symbols: Optional[list] = None
@@ -306,8 +340,10 @@ def assess_portfolio_risk(
                 with _kill_switch_lock:
                     if not getattr(_KSCfg, 'KILL_SWITCH', False):
                         _KSCfg.KILL_SWITCH = True
-                        logger.critical("KILL SWITCH ACTIVATED — all order placement blocked. Manual reset required.")
-                        snap.alerts.append("KILL SWITCH ACTIVATED — manual reset required via Config.KILL_SWITCH = False")
+                        logger.critical("KILL SWITCH ACTIVATED — new entries blocked; reduce-only exits "
+                                        "(SELL, is_exit=True) and GTT stops remain allowed. Manual reset required.")
+                        snap.alerts.append("KILL SWITCH ACTIVATED — entries blocked, exits allowed; "
+                                           "manual reset required via Config.KILL_SWITCH = False")
     except Exception as e:
         logger.warning("Auto kill switch check failed: %s", e)
 

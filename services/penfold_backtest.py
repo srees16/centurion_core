@@ -353,7 +353,8 @@ def run_penfold_enhanced_backtest(
                     fast_ewma = pd.Series(close).ewm(span=fast, adjust=False).mean()
                     slow_ewma = pd.Series(close).ewm(span=slow, adjust=False).mean()
                     raw = float(fast_ewma.iloc[-1] - slow_ewma.iloc[-1])
-                    fc = ewmac_to_forecast(raw, dpv if dpv > 0 else price * 0.02, fast, slow)
+                    # dpv is a decimal percentage; convert to price units
+                    fc = ewmac_to_forecast(raw, price * dpv, fast, slow)
                     fc = cap_forecast(fc)
                     ewmac_forecasts.append(fc)
 

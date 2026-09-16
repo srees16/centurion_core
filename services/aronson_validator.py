@@ -2,7 +2,8 @@
 Aronson Evidence-Based Technical Analysis — Statistical Validation Module.
 
 Implements the core statistical tests from David Aronson's EBTA framework:
-  1. Detrended (zero-centred) returns for unbiased signal evaluation
+  1. Aronson benchmark detrending (drift x exposure removed); demean_returns
+     for plain centring
   2. Per-signal t-statistic gating (t >= 2.0 ↔ p < 0.05)
   3. Benjamini-Hochberg FDR control across multiple signals
   4. White's Reality Check (bootstrap null for best-of-N)
@@ -25,6 +26,7 @@ Usage:
 import logging
 import json
 import math
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -110,18 +112,97 @@ class ValidationSummary:
 #  Core Statistical Functions
 # ══════════════════════════════════════════════════════════════
 
-def detrend_returns(returns: pd.Series, window: int = 252) -> pd.Series:
-    """Zero-centre returns by subtracting the expanding (or rolling) mean.
+def demean_returns(returns: pd.Series, window: int = 252) -> pd.Series:
+    """Centre a return series on its OWN rolling mean (not Aronson detrending).
 
-    Aronson Ch 1: Detrending eliminates the confounding of signal timing
-    skill with the market's secular trend.  Uses expanding mean for short
-    histories, rolling 252-day mean once enough data is available.
+    Subtracts the rolling ``window``-day mean (min 30 obs, back/forward
+    filled); series shorter than 30 observations have their global mean
+    removed.  The result has mean ~0 by construction, so a Sharpe ratio of the
+    output says nothing about skill -- use :func:`detrend_returns` with a
+    benchmark for Aronson-style detrending.
     """
     if len(returns) < 30:
         return returns - returns.mean()
     rolling_mean = returns.rolling(window=min(window, len(returns)), min_periods=30).mean()
     rolling_mean = rolling_mean.ffill().bfill()
     return returns - rolling_mean
+
+
+def _has_datetime_index(x: Any) -> bool:
+    return isinstance(x, pd.Series) and isinstance(x.index, pd.DatetimeIndex)
+
+
+def detrend_returns(
+    returns: pd.Series,
+    window: int = 252,
+    benchmark_returns: Optional[Any] = None,
+    exposure: Optional[Any] = None,
+) -> pd.Series:
+    """Aronson benchmark detrending of a rule's returns.
+
+    Aronson (EBTA, ch. 1): a long-biased rule profits from the market's
+    average drift merely by being exposed.  The detrended return is
+
+        r_detrended[t] = r[t] - mean(benchmark_returns) * exposure[t]
+
+    where ``exposure[t]`` is the rule's net exposure on day ``t`` (1.0 for
+    always long, 0 flat; defaults to 1.0).  The benchmark mean is taken over
+    the dates common to ``returns`` and ``benchmark_returns``.
+
+    Alignment: pandas Series with a DatetimeIndex are aligned by date;
+    otherwise inputs must have equal length (a ``ValueError`` is raised
+    instead of silently truncating).
+
+    Backward compatibility: called WITHOUT ``benchmark_returns`` this only
+    centres the series on its own rolling mean (:func:`demean_returns`) and
+    emits a ``DeprecationWarning`` -- that form removes all mean return by
+    construction and must not be used to measure skill.
+    """
+    if benchmark_returns is None:
+        warnings.warn(
+            "detrend_returns(returns) without benchmark_returns only demeans the series "
+            "(Sharpe ~0 by construction); use demean_returns() for that, or pass "
+            "benchmark_returns (and exposure) for Aronson detrending",
+            DeprecationWarning, stacklevel=2,
+        )
+        return demean_returns(returns, window)
+
+    ret = returns if isinstance(returns, pd.Series) else pd.Series(np.asarray(returns, dtype=float))
+    ret = ret.astype(float)
+    if exposure is None:
+        exp = pd.Series(1.0, index=ret.index)
+    elif np.isscalar(exposure):
+        exp = pd.Series(float(exposure), index=ret.index)
+    else:
+        exp = exposure
+
+    if _has_datetime_index(ret) and _has_datetime_index(benchmark_returns):
+        bench = benchmark_returns.astype(float)
+        common = ret.index.intersection(bench.index)
+        if len(common) == 0:
+            raise ValueError("returns and benchmark_returns share no dates")
+        drift = float(bench.loc[common].mean())
+        if _has_datetime_index(exp):
+            exp_aligned = exp.astype(float).reindex(ret.index)
+        elif isinstance(exp, pd.Series) and exp.index.equals(ret.index):
+            exp_aligned = exp.astype(float)
+        else:
+            arr = np.asarray(exp, dtype=float)
+            if arr.shape[0] != len(ret):
+                raise ValueError(f"exposure length {arr.shape[0]} != returns length {len(ret)}")
+            exp_aligned = pd.Series(arr, index=ret.index)
+        return ret - drift * exp_aligned
+
+    bench_arr = np.asarray(benchmark_returns, dtype=float)
+    exp_arr = np.asarray(exp, dtype=float)
+    if bench_arr.shape[0] != len(ret):
+        raise ValueError(
+            f"benchmark_returns length {bench_arr.shape[0]} != returns length {len(ret)}; "
+            "pass date-indexed pandas Series to align by date")
+    if exp_arr.shape[0] != len(ret):
+        raise ValueError(f"exposure length {exp_arr.shape[0]} != returns length {len(ret)}")
+    drift = float(np.nanmean(bench_arr))
+    return ret - drift * pd.Series(exp_arr, index=ret.index)
 
 
 def compute_signal_tstat(
@@ -393,11 +474,25 @@ class AronsonValidator:
 
             # Detrend if benchmark provided
             if benchmark_returns is not None:
-                bm = np.asarray(benchmark_returns, dtype=float)
-                bm = bm[np.isfinite(bm)]
-                min_len = min(len(rets), len(bm))
-                if min_len > 10:
-                    rets_dt = rets[:min_len] - bm[:min_len]
+                raw = signal_returns[name]
+                if _has_datetime_index(raw) and _has_datetime_index(benchmark_returns):
+                    pair = pd.concat([raw.astype(float), benchmark_returns.astype(float)],
+                                     axis=1, join="inner").dropna()
+                    r_al, bm_al = pair.iloc[:, 0].to_numpy(), pair.iloc[:, 1].to_numpy()
+                else:
+                    r_al = np.asarray(raw, dtype=float)
+                    bm_al = np.asarray(benchmark_returns, dtype=float)
+                    if r_al.shape[0] != bm_al.shape[0]:
+                        logger.warning(
+                            "Signal %s: %d returns vs %d benchmark returns cannot be aligned "
+                            "without dates; benchmark-relative stats skipped",
+                            name, r_al.shape[0], bm_al.shape[0])
+                        r_al = bm_al = np.array([])
+                    else:
+                        ok = np.isfinite(r_al) & np.isfinite(bm_al)
+                        r_al, bm_al = r_al[ok], bm_al[ok]
+                if len(r_al) > 10:
+                    rets_dt = r_al - bm_al  # benchmark-relative (excess over benchmark)
                     sv.detrended_sharpe = trimmed_sharpe(rets_dt, self.trim_pct)
                 else:
                     rets_dt = rets
@@ -557,3 +652,269 @@ class AronsonValidator:
         if summary is None:
             return {}
         return summary.get_weight_multipliers()
+
+
+# ══════════════════════════════════════════════════════════════
+#  C1 FIX: Probability of Backtest Overfitting (PBO) via CSCV
+#  Bailey, Borwein, López de Prado & Zhu (2015)
+# ══════════════════════════════════════════════════════════════
+
+def compute_pbo(
+    daily_returns_matrix: np.ndarray,
+    n_partitions: int = 16,
+    seed: int = 42,
+) -> Dict[str, Any]:
+    """Combinatorially Symmetric Cross-Validation (CSCV) for PBO.
+
+    Partitions T daily returns into S equal-sized sub-matrices,
+    then evaluates all C(S, S/2) train/test splits.  For each split:
+      1. Rank strategies by IS (train) performance.
+      2. Measure the OOS (test) rank of the IS-best strategy.
+      3. PBO = fraction of splits where IS-best underperforms OOS median.
+
+    Parameters
+    ----------
+    daily_returns_matrix : np.ndarray, shape (N_strategies, T_days)
+        Each row is one strategy variation's daily returns.
+    n_partitions : int
+        Number of equal sub-partitions (S).  Must be even.
+        Default 16 gives C(16,8)=12,870 combinations.
+    seed : int
+        Random seed for reproducibility.
+
+    Returns
+    -------
+    dict with keys:
+        pbo : float (0-1) — probability of backtest overfitting
+        pbo_pct : float — pbo × 100
+        n_combinations : int — total CSCV combinations evaluated
+        logit_distribution : list[float] — logit(OOS_rank/N) values
+        median_logit : float — median of logit distribution
+        interpretation : str — "likely_real" / "caution" / "likely_overfit"
+    """
+    from itertools import combinations
+
+    n_strats, T = daily_returns_matrix.shape
+    if n_strats < 2 or T < 60:
+        return {
+            "pbo": 0.5, "pbo_pct": 50.0, "n_combinations": 0,
+            "logit_distribution": [], "median_logit": 0.0,
+            "interpretation": "insufficient_data",
+        }
+
+    # Ensure even number of partitions
+    if n_partitions % 2 != 0:
+        n_partitions += 1
+    half = n_partitions // 2
+
+    # Partition time axis into S sub-matrices
+    partition_size = T // n_partitions
+    if partition_size < 5:
+        # Not enough data for this many partitions — reduce
+        n_partitions = max(4, T // 10)
+        if n_partitions % 2 != 0:
+            n_partitions -= 1
+        half = n_partitions // 2
+        partition_size = T // n_partitions
+
+    # Build partition indices
+    partitions = []
+    for i in range(n_partitions):
+        start = i * partition_size
+        end = start + partition_size if i < n_partitions - 1 else T
+        partitions.append((start, end))
+
+    # Generate all C(S, S/2) combinations — cap at 10000 for speed
+    all_combos = list(combinations(range(n_partitions), half))
+    rng = np.random.RandomState(seed)
+    if len(all_combos) > 10000:
+        indices = rng.choice(len(all_combos), size=10000, replace=False)
+        all_combos = [all_combos[i] for i in sorted(indices)]
+
+    n_combos = len(all_combos)
+    overfit_count = 0
+    logit_values = []
+
+    for combo in all_combos:
+        test_set = set(combo)
+        train_set = set(range(n_partitions)) - test_set
+
+        # Build IS and OOS return matrices
+        train_idx = []
+        for p in train_set:
+            s, e = partitions[p]
+            train_idx.extend(range(s, e))
+        test_idx = []
+        for p in test_set:
+            s, e = partitions[p]
+            test_idx.extend(range(s, e))
+
+        if not train_idx or not test_idx:
+            continue
+
+        # IS performance: mean daily return per strategy
+        is_means = daily_returns_matrix[:, train_idx].mean(axis=1)
+        # OOS performance
+        oos_means = daily_returns_matrix[:, test_idx].mean(axis=1)
+
+        # IS-best strategy index
+        is_best_idx = int(np.argmax(is_means))
+
+        # OOS rank of IS-best (0=worst, N-1=best)
+        oos_sorted_idx = np.argsort(oos_means)
+        oos_rank = int(np.where(oos_sorted_idx == is_best_idx)[0][0])
+
+        # Relative rank: 0 to 1 (1 = best OOS too)
+        rel_rank = oos_rank / max(n_strats - 1, 1)
+
+        # Logit of relative rank
+        # Clamp to avoid log(0)
+        rel_rank_clamped = max(0.01, min(0.99, rel_rank))
+        logit = math.log(rel_rank_clamped / (1 - rel_rank_clamped))
+        logit_values.append(logit)
+
+        # Overfit if IS-best is below OOS median
+        oos_median = float(np.median(oos_means))
+        if oos_means[is_best_idx] <= oos_median:
+            overfit_count += 1
+
+    pbo = overfit_count / max(n_combos, 1)
+    median_logit = float(np.median(logit_values)) if logit_values else 0.0
+
+    # Interpretation
+    if pbo < 0.30:
+        interp = "likely_real"
+    elif pbo < 0.50:
+        interp = "caution"
+    else:
+        interp = "likely_overfit"
+
+    return {
+        "pbo": round(pbo, 4),
+        "pbo_pct": round(pbo * 100, 2),
+        "n_combinations": n_combos,
+        "logit_distribution": [round(v, 4) for v in logit_values[:100]],  # cap for serialization
+        "median_logit": round(median_logit, 4),
+        "interpretation": interp,
+    }
+
+
+# ══════════════════════════════════════════════════════════════
+#  C2 FIX: Alpha-Beta Separation
+# ══════════════════════════════════════════════════════════════
+
+def compute_alpha_beta(
+    portfolio_returns: Any,
+    benchmark_returns: Any,
+    annualization: float = 252.0,
+) -> Dict[str, float]:
+    """Decompose portfolio returns into alpha (skill) and beta (market exposure).
+
+    Uses OLS regression: R_p = alpha + beta × R_b + epsilon
+
+    Pandas Series with a DatetimeIndex are aligned by date (inner join).
+    Plain arrays must have equal length -- a ``ValueError`` is raised on a
+    mismatch (the legacy behaviour truncated from the start, misaligning
+    dates).  For HAC t-stats on excess returns use
+    ``nse_engine.validation.diagnostics.alpha_beta``.
+
+    Parameters
+    ----------
+    portfolio_returns : daily portfolio returns (Series with DatetimeIndex or array)
+    benchmark_returns : daily benchmark returns (e.g. NIFTY50), same type
+    annualization : float, trading days per year
+
+    Returns
+    -------
+    dict with keys:
+        alpha_daily : float — daily alpha (intercept)
+        alpha_annual_pct : float — annualized alpha in %
+        beta : float — market beta coefficient
+        alpha_sharpe : float — Sharpe ratio of alpha (residual) returns
+        r_squared : float — fraction of variance explained by benchmark
+        tracking_error : float — annualized std of residual returns
+        information_ratio : float — alpha / tracking_error
+        beta_contribution_pct : float — % of total return from beta
+    """
+    if _has_datetime_index(portfolio_returns) and _has_datetime_index(benchmark_returns):
+        # Align BY DATE (inner join) -- never by position.
+        pair = pd.concat([portfolio_returns.astype(float).rename("p"),
+                          benchmark_returns.astype(float).rename("b")],
+                         axis=1, join="inner")
+        port = pair["p"].to_numpy()
+        bench = pair["b"].to_numpy()
+    else:
+        port = np.asarray(portfolio_returns, dtype=float)
+        bench = np.asarray(benchmark_returns, dtype=float)
+        if port.shape[0] != bench.shape[0]:
+            raise ValueError(
+                f"compute_alpha_beta: portfolio_returns ({port.shape[0]}) and "
+                f"benchmark_returns ({bench.shape[0]}) differ in length. Plain arrays are "
+                "not truncated (that misaligns dates); pass pandas Series with a "
+                "DatetimeIndex to align by date.")
+
+    if len(port) < 30:
+        return {
+            "alpha_daily": 0.0, "alpha_annual_pct": 0.0, "beta": 1.0,
+            "alpha_sharpe": 0.0, "r_squared": 0.0, "tracking_error": 0.0,
+            "information_ratio": 0.0, "beta_contribution_pct": 100.0,
+        }
+
+    # Filter NaN/inf
+    mask = np.isfinite(port) & np.isfinite(bench)
+    port = port[mask]
+    bench = bench[mask]
+    if len(port) < 30:
+        return {
+            "alpha_daily": 0.0, "alpha_annual_pct": 0.0, "beta": 1.0,
+            "alpha_sharpe": 0.0, "r_squared": 0.0, "tracking_error": 0.0,
+            "information_ratio": 0.0, "beta_contribution_pct": 100.0,
+        }
+
+    # OLS: R_p = alpha + beta * R_b
+    bench_mean = np.mean(bench)
+    port_mean = np.mean(port)
+    cov = np.mean((port - port_mean) * (bench - bench_mean))
+    var_bench = np.mean((bench - bench_mean) ** 2)
+
+    if var_bench < 1e-15:
+        beta = 0.0
+    else:
+        beta = cov / var_bench
+    alpha_daily = port_mean - beta * bench_mean
+
+    # Residual returns (alpha stream)
+    residuals = port - (alpha_daily + beta * bench)
+    residual_std = float(np.std(residuals, ddof=1))
+
+    # R-squared
+    ss_res = float(np.sum(residuals ** 2))
+    ss_tot = float(np.sum((port - port_mean) ** 2))
+    r_squared = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
+
+    # Alpha Sharpe (Sharpe of residual returns)
+    alpha_returns = port - beta * bench  # pure alpha stream
+    alpha_mean = float(np.mean(alpha_returns))
+    alpha_std = float(np.std(alpha_returns, ddof=1))
+    alpha_sharpe = (alpha_mean / alpha_std * math.sqrt(annualization)) if alpha_std > 1e-12 else 0.0
+
+    # Tracking error & information ratio
+    tracking_error = residual_std * math.sqrt(annualization)
+    alpha_annual = alpha_daily * annualization
+    information_ratio = (alpha_annual / tracking_error) if tracking_error > 1e-12 else 0.0
+
+    # Beta contribution
+    total_return = float(np.sum(port))
+    beta_return = float(beta * np.sum(bench))
+    beta_pct = (beta_return / total_return * 100) if abs(total_return) > 1e-12 else 100.0
+
+    return {
+        "alpha_daily": round(alpha_daily, 8),
+        "alpha_annual_pct": round(alpha_annual * 100, 4),
+        "beta": round(beta, 4),
+        "alpha_sharpe": round(alpha_sharpe, 4),
+        "r_squared": round(max(0.0, min(1.0, r_squared)), 4),
+        "tracking_error": round(tracking_error * 100, 4),
+        "information_ratio": round(information_ratio, 4),
+        "beta_contribution_pct": round(min(200.0, max(-100.0, beta_pct)), 2),
+    }

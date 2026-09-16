@@ -42,6 +42,167 @@ def _cfg_val(attr: str, default):
 
 
 # ═══════════════════════════════════════════════════════════════
+# Session-based data freshness (daily bars)
+# ═══════════════════════════════════════════════════════════════
+# Daily bars are stamped at midnight, so an hour-based staleness check drops
+# every symbol.  A daily bar is fresh when its date is >= the last COMPLETED
+# NSE session (IST).  Before 15:30 IST that is the previous trading day.
+
+NSE_CLOSE_HOUR, NSE_CLOSE_MINUTE = 15, 30
+
+# NSE equity trading holidays (weekday closures).  Best-effort list — extend
+# with env CENTURION_NSE_HOLIDAYS="YYYY-MM-DD,YYYY-MM-DD".  A missing holiday
+# is handled by the consensus fallback in ``apply_session_freshness_gate``.
+NSE_HOLIDAYS = frozenset({
+    # 2025
+    "2025-02-26", "2025-03-14", "2025-03-31", "2025-04-10", "2025-04-14",
+    "2025-04-18", "2025-05-01", "2025-08-15", "2025-08-27", "2025-10-02",
+    "2025-10-21", "2025-10-22", "2025-11-05", "2025-12-25",
+    # 2026
+    "2026-01-26", "2026-03-03", "2026-03-26", "2026-03-31", "2026-04-03",
+    "2026-04-14", "2026-05-01", "2026-05-28", "2026-06-26", "2026-09-14",
+    "2026-10-02", "2026-10-20", "2026-11-10", "2026-11-24", "2026-12-25",
+})
+
+
+def _nse_holidays():
+    import os
+    extra = os.environ.get("CENTURION_NSE_HOLIDAYS", "")
+    return NSE_HOLIDAYS | {d.strip() for d in extra.split(",") if d.strip()}
+
+
+def is_nse_trading_day(d) -> bool:
+    """Weekday that is not a listed NSE holiday."""
+    return d.weekday() < 5 and d.isoformat() not in _nse_holidays()
+
+
+def previous_nse_session(d):
+    """Latest trading day strictly before date ``d``."""
+    from datetime import timedelta
+    d = d - timedelta(days=1)
+    while not is_nse_trading_day(d):
+        d -= timedelta(days=1)
+    return d
+
+
+def last_completed_nse_session(now=None):
+    """Date of the last COMPLETED NSE cash session in IST.
+
+    ``now`` may be naive (treated as IST) or tz-aware.  After 15:30 IST on a
+    trading day that is today; otherwise the previous trading day.
+    """
+    from datetime import datetime, timedelta, timezone
+    ist = timezone(timedelta(hours=5, minutes=30))
+    if now is None:
+        now = datetime.now(ist)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=ist)
+    else:
+        now = now.astimezone(ist)
+    today = now.date()
+    closed = (now.hour, now.minute) >= (NSE_CLOSE_HOUR, NSE_CLOSE_MINUTE)
+    if is_nse_trading_day(today) and closed:
+        return today
+    return previous_nse_session(today)
+
+
+def _bar_date_ist(ts):
+    """Calendar date of a bar timestamp (tz-aware converted to IST)."""
+    ts = pd.Timestamp(ts)
+    if ts.tz is not None:
+        ts = ts.tz_convert("Asia/Kolkata")
+    return ts.date()
+
+
+def apply_session_freshness_gate(ohlcv_cache: Dict[str, pd.DataFrame], now=None):
+    """Drop symbols whose last daily bar predates the last completed session.
+
+    Returns ``(fresh_cache, info)`` where ``info`` has ``expected_session``,
+    ``effective_session``, ``dropped`` and ``consensus_fallback``.
+
+    Consensus fallback: if NO symbol has a bar for the expected session but
+    at least half have one for the previous session, the expected date is
+    assumed to be an unlisted holiday (or the vendor has not published yet)
+    and the gate rolls back one session with a warning.
+    """
+    expected = last_completed_nse_session(now)
+    last_dates = {}
+    for sym, df in ohlcv_cache.items():
+        if df is not None and not df.empty and df.index.dtype.kind == "M":
+            last_dates[sym] = _bar_date_ist(df.index[-1])
+    effective = expected
+    consensus = False
+    if last_dates and not any(d >= expected for d in last_dates.values()):
+        prev = previous_nse_session(expected)
+        share_prev = sum(1 for d in last_dates.values() if d >= prev) / len(last_dates)
+        if share_prev >= 0.5:
+            effective = prev
+            consensus = True
+            logger.warning(
+                "Freshness gate: no symbol has a bar for %s; %.0f%% have %s — "
+                "assuming unlisted holiday / unpublished bar, gating at %s",
+                expected, share_prev * 100, prev, prev,
+            )
+    fresh: Dict[str, pd.DataFrame] = {}
+    dropped = []
+    for sym, df in ohlcv_cache.items():
+        d = last_dates.get(sym)
+        if d is not None and d < effective:
+            dropped.append((sym, d.isoformat()))
+            continue
+        fresh[sym] = df
+    if dropped:
+        logger.warning(
+            "Freshness gate dropped %d/%d symbols with last bar before %s: %s",
+            len(dropped), len(ohlcv_cache), effective,
+            ", ".join(f"{s}@{d}" for s, d in dropped[:10]),
+        )
+    return fresh, {
+        "expected_session": expected.isoformat(),
+        "effective_session": effective.isoformat(),
+        "consensus_fallback": consensus,
+        "dropped": dropped,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════
+# Rank / forecast exits for existing CNC holdings
+# ═══════════════════════════════════════════════════════════════
+
+EXIT_RANK = 40  # sell a holding whose forecast rank falls below this
+
+
+def compute_rank_exits(
+    combined_forecasts: Dict[str, float],
+    holdings: Dict[str, int],
+    exit_rank: int = EXIT_RANK,
+) -> Dict[str, str]:
+    """Return ``{symbol: reason}`` for holdings to exit.
+
+    Exit when the combined forecast is <= 0 or the symbol's rank (1 = best,
+    by descending forecast across every evaluated symbol) is worse than
+    ``exit_rank``.  Holdings without a forecast are NOT exited (unknown is
+    not a signal) but are logged.
+    """
+    ranked = sorted(combined_forecasts.items(), key=lambda kv: kv[1], reverse=True)
+    rank_of = {sym: i + 1 for i, (sym, _) in enumerate(ranked)}
+    exits: Dict[str, str] = {}
+    for sym, qty in (holdings or {}).items():
+        if int(qty or 0) <= 0:
+            continue
+        if sym not in combined_forecasts:
+            logger.warning("Rank exit: no forecast for held %s — keeping (no data)", sym)
+            continue
+        fc = float(combined_forecasts[sym])
+        rank = rank_of[sym]
+        if fc <= 0:
+            exits[sym] = f"forecast_nonpositive({fc:.2f})"
+        elif rank > exit_rank:
+            exits[sym] = f"rank_{rank}>{exit_rank}"
+    return exits
+
+
+# ═══════════════════════════════════════════════════════════════
 # Gap D2: OHLC Validation — ensure data integrity before signals
 # ═══════════════════════════════════════════════════════════════
 
@@ -120,6 +281,8 @@ class PipelineResult:
     pipeline_log: List[str] = field(default_factory=list)
     validation_stats: Dict = field(default_factory=dict)  # Aronson EBTA per-symbol confidence scores
     individual_forecasts: Dict[str, Dict[str, float]] = field(default_factory=dict)  # {sym: {source: value}}
+    freshness: Dict = field(default_factory=dict)  # session freshness gate info (expected/effective session, dropped)
+    exits: Dict[str, str] = field(default_factory=dict)  # {held_symbol: reason} rank/forecast exits
 
 
 # T1-2: Module-level accessor for the current pipeline's vol target instance
@@ -235,26 +398,24 @@ class CarverPipeline:
         if validated_dropped:
             log.append(f"  ⚠ OHLC validation dropped {validated_dropped} symbols")
 
-        # Tier 1 Gap 5: Data freshness gate — skip symbols with stale OHLCV
-        # Gap A5 FIX: Use UTC throughout, convert only for display
-        from datetime import datetime, timedelta, timezone
-        from config import Config
-        freshness_hours = getattr(Config, "SIGNAL_FRESHNESS_MAX_HOURS", 4)
-        stale_cutoff = datetime.now(timezone.utc) - timedelta(hours=freshness_hours)
-        stale_cutoff_naive = stale_cutoff.replace(tzinfo=None)
-        stale_symbols = []
-        for sym, df in list(ohlcv_cache.items()):
-            if df is not None and not df.empty and df.index.dtype.kind == "M":
-                last_bar = df.index[-1]
-                # Normalize to UTC-naive for consistent comparison
-                if hasattr(last_bar, "tz") and last_bar.tz is not None:
-                    last_bar = last_bar.tz_convert("UTC").tz_localize(None)
-                if last_bar < stale_cutoff_naive:
-                    stale_symbols.append(sym)
-                    del ohlcv_cache[sym]
-        if stale_symbols:
-            log.append(f"  ⚠ Freshness gate: dropped {len(stale_symbols)} stale symbols: {stale_symbols[:5]}...")
-            logger.warning("Freshness gate dropped %d stale symbols (cutoff=%s)", len(stale_symbols), stale_cutoff)
+        # Tier 1 Gap 5: Data freshness gate — session-based for DAILY bars.
+        # (The old hour-based cutoff dropped every midnight-stamped daily bar.)
+        from config import Config  # noqa: F401 — used later in run() (RL gate)
+        ohlcv_cache, _fresh_info = apply_session_freshness_gate(ohlcv_cache)
+        result.freshness = _fresh_info
+        if _fresh_info["dropped"]:
+            _stale = [s for s, _ in _fresh_info["dropped"]]
+            log.append(
+                f"  ⚠ Freshness gate: dropped {len(_stale)} symbols with last bar before "
+                f"{_fresh_info['effective_session']}: {_stale[:5]}..."
+            )
+        if _fresh_info["consensus_fallback"]:
+            log.append(
+                f"  ⚠ Freshness gate: no bars for {_fresh_info['expected_session']} — "
+                f"gated at {_fresh_info['effective_session']} (consensus fallback)"
+            )
+        if not ohlcv_cache:
+            log.append("  ⚠ Freshness gate: ALL symbols stale — no plans possible")
 
         # Gap D1: Apply corporate action adjustments to OHLCV before signals
         try:
@@ -1771,6 +1932,17 @@ class CarverPipeline:
 
         except Exception as exc:
             log.append(f"  → Options overlay skipped: {exc}")
+
+        # ── Rank / forecast exits for current CNC holdings ────────
+        if current_holdings:
+            try:
+                result.exits = compute_rank_exits(result.combined_forecasts or combined_values,
+                                                  current_holdings)
+                if result.exits:
+                    log.append(f"  → Rank/forecast exits: {result.exits}")
+            except Exception as exit_exc:
+                log.append(f"  → Rank exit step failed: {exit_exc}")
+                logger.warning("Rank exit step failed: %s", exit_exc)
 
         log.append("Pipeline complete.")
         logger.info("Carver pipeline: %d symbols → %d forecasts → %d trades",

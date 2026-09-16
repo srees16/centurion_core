@@ -51,10 +51,16 @@ class MonitoredTrade:
     opened_at: datetime = field(default_factory=datetime.now)
     direction: str = "LONG"    # "LONG" or "SHORT" (Phase 2)
     product: str = "CNC"       # "CNC", "NRML", or "MIS"
+    sl_gtt_id: Optional[str] = None  # GTT stop id (CNC longs) — survives overnight
 
     @property
     def is_active(self) -> bool:
         return self.entry_filled and not self.closed
+
+    @property
+    def uses_gtt_stop(self) -> bool:
+        """CNC long positions are protected by a GTT, not a DAY SL order."""
+        return self.product == "CNC" and self.side == "BUY" and self.direction != "SHORT"
 
 
 class TradeMonitor:
@@ -122,10 +128,11 @@ class TradeMonitor:
             with sqlite3.connect(_MONITOR_DB) as conn:
                 rows = conn.execute("SELECT entry_order_id, state_json FROM monitored_trades").fetchall()
             restored = 0
+            _known = set(MonitoredTrade.__dataclass_fields__)
             for oid, state_json in rows:
                 d = json.loads(state_json)
                 d["opened_at"] = datetime.fromisoformat(d["opened_at"])
-                trade = MonitoredTrade(**d)
+                trade = MonitoredTrade(**{k: v for k, v in d.items() if k in _known})
                 if not trade.closed:
                     self._trades[oid] = trade
                     restored += 1
@@ -217,6 +224,9 @@ class TradeMonitor:
             if oid:
                 order_map[oid] = order
 
+        # GTT stops (CNC longs) — fetched once per poll
+        gtt_map = self._fetch_gtt_map()
+
         for trade in self._trades.values():
             if trade.closed:
                 continue
@@ -288,6 +298,12 @@ class TradeMonitor:
                             )
                 continue  # Wait for entry to fill before checking SL/TP
 
+            # Check GTT stop (CNC longs)
+            if trade.sl_gtt_id and not trade.sl_triggered:
+                events.extend(self._check_gtt_stop(trade, gtt_map, order_map))
+                if trade.closed:
+                    continue
+
             # Check SL
             if trade.sl_order_id and not trade.sl_triggered:
                 sl_order = order_map.get(trade.sl_order_id, {})
@@ -333,8 +349,9 @@ class TradeMonitor:
                     logger.info("TP filled: %s @ %.2f (P&L: %.2f)", trade.symbol, exit_price, realized_pnl)
                     self._roll_capital(realized_pnl)
                     self._record_vince_trade(trade.symbol, trade.entry_price, exit_price, trade.quantity)
-                    # Cancel the orphaned SL order
+                    # Cancel the orphaned SL order / GTT stop
                     self._cancel_order(trade.sl_order_id, trade.symbol, "SL")
+                    self._delete_gtt_stop(trade, "tp_filled")
 
                 elif tp_order.get("status") in ("CANCELLED", "REJECTED"):
                     # TP expired (DAY validity) — re-place it
@@ -421,6 +438,29 @@ class TradeMonitor:
         _MAX_SL_RETRIES = 3
         for attempt in range(_MAX_SL_RETRIES):
             try:
+                if trade.uses_gtt_stop:
+                    # CNC long: a GTT persists across sessions (DAY SL orders expire at close)
+                    from kite_connect.trading.gtt_stops import place_or_update_stop_gtt
+                    gres = place_or_update_stop_gtt(
+                        self.kite, trade.symbol, trade.quantity, trade.stop_loss, exchange="NSE",
+                    )
+                    if gres.get("success"):
+                        trade.sl_gtt_id = str(gres["trigger_id"])
+                        trade.stop_loss = gres["trigger"]
+                        trade.sl_failed = False
+                        logger.info("GTT stop %s for %s: trigger=%.2f, id=%s",
+                                    gres["action"], trade.symbol, gres["trigger"], gres["trigger_id"])
+                        return
+                    if gres.get("error") == "stop_breached":
+                        logger.error("Stop for %s already breached (%s) — exiting at market",
+                                     trade.symbol, gres.get("detail"))
+                        self._exit_at_market(trade, "stop_breached")
+                        return
+                    logger.warning("GTT stop attempt %d/%d failed for %s: %s",
+                                   attempt + 1, _MAX_SL_RETRIES, trade.symbol, gres.get("error"))
+                    if attempt < _MAX_SL_RETRIES - 1:
+                        _time.sleep(1)
+                    continue
                 resp = place_order(
                     kite=self.kite,
                     symbol=trade.symbol,
@@ -431,6 +471,7 @@ class TradeMonitor:
                     product=trade.product,
                     trigger_price=trade.stop_loss,
                     price=round(trade.stop_loss * 0.99, 2),
+                    is_exit=True,
                 )
                 _time.sleep(0.15)
                 if resp.get("success"):
@@ -512,7 +553,7 @@ class TradeMonitor:
 
         Falls back to simple percentage trail if vol computation unavailable.
         """
-        if not self.kite or not trade.sl_order_id:
+        if not self.kite or not (trade.sl_order_id or trade.sl_gtt_id):
             return None
 
         is_short = getattr(trade, "direction", "LONG") == "SHORT"
@@ -609,13 +650,24 @@ class TradeMonitor:
 
             new_sl = round(new_sl, 2)
 
-            # Modify existing SL order on exchange
-            from kite_connect.trading.order_service import modify_order
-            resp = modify_order(
-                self.kite, trade.sl_order_id,
-                trigger_price=new_sl,
-                price=round(new_sl * (1.01 if is_short else 0.99), 2),
-            )
+            if trade.sl_gtt_id:
+                # Trailing update of the persistent GTT stop (modify, never duplicate)
+                from kite_connect.trading.gtt_stops import place_or_update_stop_gtt
+                gres = place_or_update_stop_gtt(
+                    self.kite, trade.symbol, trade.quantity, new_sl, last_price=ltp, exchange="NSE",
+                )
+                resp = {"success": bool(gres.get("success")), "error": gres.get("error")}
+                if gres.get("success"):
+                    trade.sl_gtt_id = str(gres["trigger_id"])
+                    new_sl = gres["trigger"]
+            else:
+                # Modify existing SL order on exchange
+                from kite_connect.trading.order_service import modify_order
+                resp = modify_order(
+                    self.kite, trade.sl_order_id,
+                    trigger_price=new_sl,
+                    price=round(new_sl * (1.01 if is_short else 0.99), 2),
+                )
             if resp.get("success"):
                 old_sl = trade.stop_loss
                 trade.stop_loss = new_sl
@@ -678,11 +730,13 @@ class TradeMonitor:
                 quantity=trade.quantity,
                 order_type="MARKET",
                 product=trade.product,
+                is_exit=True,
             )
 
-            # Cancel existing SL and TP
+            # Cancel existing SL and TP (and the GTT stop)
             self._cancel_order(trade.sl_order_id, trade.symbol, "SL")
             self._cancel_order(trade.tp_order_id, trade.symbol, "TP")
+            self._delete_gtt_stop(trade, "time_exit")
             trade.closed = True
 
             logger.info(
@@ -755,10 +809,21 @@ class TradeMonitor:
                 quantity=sell_qty,
                 order_type="MARKET",
                 product=trade.product,
+                is_exit=True,
             )
 
             # Reduce monitored quantity
             trade.quantity -= sell_qty
+            if trade.sl_gtt_id and trade.quantity > 0:
+                # Keep the GTT stop quantity in line with the remaining holding
+                try:
+                    from kite_connect.trading.gtt_stops import place_or_update_stop_gtt
+                    gres = place_or_update_stop_gtt(self.kite, trade.symbol, trade.quantity,
+                                                    trade.stop_loss, last_price=current_price)
+                    if gres.get("success"):
+                        trade.sl_gtt_id = str(gres["trigger_id"])
+                except Exception as gexc:
+                    logger.warning("GTT qty update after scale-out failed for %s: %s", trade.symbol, gexc)
             realized_pnl = (current_price - trade.entry_price) * sell_qty
             self._roll_capital(realized_pnl)
             self._record_vince_trade(trade.symbol, trade.entry_price, current_price, sell_qty)
@@ -862,6 +927,162 @@ class TradeMonitor:
         except Exception as exc:
             logger.debug("Vol-target unrealized sync failed (non-fatal): %s", exc)
 
+    # ------------------------------------------------------------------
+    # GTT stops (CNC longs)
+    # ------------------------------------------------------------------
+
+    def _fetch_gtt_map(self) -> Dict[str, dict]:
+        """{gtt_id: normalised GTT} for trades that carry a GTT stop."""
+        if not self.kite or not any(t.sl_gtt_id and not t.closed for t in self._trades.values()):
+            return {}
+        try:
+            from kite_connect.trading.gtt_stops import list_stop_gtts
+            return {str(g["id"]): g for g in list_stop_gtts(self.kite, active_only=False)}
+        except Exception as exc:
+            logger.warning("TradeMonitor: failed to fetch GTTs — %s", exc)
+            return {}
+
+    def _check_gtt_stop(self, trade: MonitoredTrade, gtt_map: Dict[str, dict],
+                        order_map: Dict[str, dict]) -> List[Dict]:
+        """Detect a triggered GTT stop, book the exit, and handle failures."""
+        events: List[Dict] = []
+        if not gtt_map:
+            return events
+        g = gtt_map.get(str(trade.sl_gtt_id))
+        if g is None:
+            # Not in the list any more (deleted / expired) — re-arm the stop
+            logger.warning("GTT stop %s for %s missing — re-placing", trade.sl_gtt_id, trade.symbol)
+            trade.sl_gtt_id = None
+            self._place_sl_for_trade(trade)
+            events.append({"type": "GTT_STOP_REARMED", "symbol": trade.symbol,
+                           "new_gtt_id": trade.sl_gtt_id})
+            return events
+        status = g.get("status")
+        if status == "active":
+            return events
+        if status != "triggered":
+            logger.warning("GTT stop for %s is %s — re-placing", trade.symbol, status)
+            trade.sl_gtt_id = None
+            self._place_sl_for_trade(trade)
+            events.append({"type": "GTT_STOP_REARMED", "symbol": trade.symbol,
+                           "previous_status": status, "new_gtt_id": trade.sl_gtt_id})
+            return events
+
+        result = g.get("order_result") or {}
+        oid = str(result.get("order_id") or "")
+        order = order_map.get(oid, {}) if oid else {}
+        ostatus = order.get("status")
+        if ostatus == "COMPLETE":
+            trade.sl_triggered = True
+            trade.closed = True
+            exit_price = order.get("average_price") or g.get("limit") or trade.stop_loss
+            realized_pnl = (exit_price - trade.entry_price) * trade.quantity
+            events.append({"type": "SL_TRIGGERED", "symbol": trade.symbol, "exit_price": exit_price,
+                           "order_id": oid, "gtt_id": trade.sl_gtt_id,
+                           "realized_pnl": round(realized_pnl, 2)})
+            logger.info("GTT stop filled: %s @ %.2f (P&L: %.2f)", trade.symbol, exit_price, realized_pnl)
+            self._roll_capital(realized_pnl)
+            self._record_vince_trade(trade.symbol, trade.entry_price, exit_price, trade.quantity)
+            self._daily_sl_count += 1
+            if self._daily_sl_count >= 3:
+                self._halted = True
+                events.append({"type": "DAILY_HALT", "sl_count": self._daily_sl_count})
+            self._cancel_order(trade.tp_order_id, trade.symbol, "TP")
+        elif ostatus in ("REJECTED", "CANCELLED") or (result and result.get("status") == "failed"):
+            # e.g. an open TP LIMIT SELL blocked the holding quantity
+            logger.error("GTT stop order for %s %s — cancelling TP and exiting at market",
+                         trade.symbol, ostatus or "failed")
+            self._cancel_order(trade.tp_order_id, trade.symbol, "TP")
+            self._exit_at_market(trade, "gtt_order_failed")
+            events.append({"type": "GTT_STOP_ORDER_FAILED", "symbol": trade.symbol,
+                           "order_id": oid, "status": ostatus or "failed"})
+        elif ostatus in ("OPEN", "TRIGGER PENDING") or not ostatus:
+            # Limit below trigger not filled yet (gap / fast market) — alert, keep watching
+            events.append({"type": "GTT_STOP_PENDING_FILL", "symbol": trade.symbol, "order_id": oid})
+            logger.warning("GTT stop for %s triggered but order %s not filled (%s)",
+                           trade.symbol, oid or "?", ostatus or "unknown")
+        return events
+
+    def _exit_at_market(self, trade: MonitoredTrade, reason: str) -> Optional[str]:
+        """Reduce-only MARKET SELL of the whole position (kill-switch safe)."""
+        if not self.kite:
+            return None
+        from kite_connect.trading.order_service import place_order
+        resp = place_order(
+            kite=self.kite, symbol=trade.symbol, exchange="NSE", transaction_type="SELL",
+            quantity=trade.quantity, order_type="MARKET", product=trade.product, is_exit=True,
+        )
+        if resp.get("success"):
+            trade.closed = True
+            self._delete_gtt_stop(trade, reason)
+            logger.warning("Market exit %s x %d (%s) id=%s", trade.symbol, trade.quantity,
+                           reason, resp.get("order_id"))
+            return resp.get("order_id")
+        logger.error("Market exit FAILED for %s (%s): %s", trade.symbol, reason, resp.get("error"))
+        try:
+            from services.notifications.manager import NotificationManager
+            NotificationManager().notify_critical(
+                f"EXIT FAILED for {trade.symbol} ({reason}): {resp.get('error')} — manual action required"
+            )
+        except Exception:
+            pass
+        return None
+
+    def _delete_gtt_stop(self, trade: MonitoredTrade, reason: str) -> None:
+        if not trade.sl_gtt_id or not self.kite:
+            return
+        try:
+            from kite_connect.trading.gtt_stops import delete_stop_gtt
+            delete_stop_gtt(self.kite, trade.sl_gtt_id, trade.symbol, "NSE", trade.quantity, reason)
+        except Exception as exc:
+            logger.warning("GTT delete failed for %s: %s", trade.symbol, exc)
+        trade.sl_gtt_id = None
+
+    def reconcile_gtt_stops(self, exit_breached: bool = True) -> Dict:
+        """Daily reconciliation: every CNC holding has exactly one active stop GTT.
+
+        * Triggers come from monitored trades (``stop_loss``); holdings not
+          monitored keep their existing GTT trigger (or are reported as
+          ``missing_stop``).
+        * Quantity follows the actual held quantity (holdings + T1 + today's
+          CNC net), orphan stop GTTs are deleted, duplicates removed.
+        * Breached stops (trigger >= LTP) are exited at market when
+          ``exit_breached`` (order_service still enforces market hours).
+        """
+        if not self.kite:
+            return {}
+        from kite_connect.trading.gtt_stops import reconcile_stop_gtts, list_stop_gtts
+        stops = {t.symbol: t.stop_loss for t in self.active_trades
+                 if t.uses_gtt_stop and t.stop_loss and t.stop_loss > 0}
+        report = reconcile_stop_gtts(self.kite, stops=stops)
+        try:
+            ids = {g["symbol"]: str(g["id"]) for g in list_stop_gtts(self.kite)}
+            for t in self.active_trades:
+                if t.uses_gtt_stop:
+                    t.sl_gtt_id = ids.get(t.symbol, t.sl_gtt_id)
+        except Exception:
+            pass
+        if exit_breached:
+            by_sym = {t.symbol: t for t in self.active_trades if t.uses_gtt_stop}
+            for b in report.get("breached", []):
+                trade = by_sym.get(b["symbol"])
+                if trade is not None:
+                    self._exit_at_market(trade, "stop_breached")
+                else:
+                    # Not a monitored trade (e.g. manual holding) — alert only
+                    logger.error("GTT reconcile: unmonitored %s is below its stop %.2f — manual review",
+                                 b["symbol"], b["trigger"])
+        if report.get("missing_stop") or report.get("errors"):
+            try:
+                from services.notifications.manager import NotificationManager
+                NotificationManager().notify_critical(
+                    f"GTT reconcile: unprotected {report.get('missing_stop')} errors={report.get('errors')}"
+                )
+            except Exception:
+                pass
+        self._persist_state()
+        return report
+
     def _cancel_order(self, order_id: Optional[str], symbol: str, label: str):
         """Cancel an orphaned order (SL when TP fills, or vice versa)."""
         if not order_id or not self.kite:
@@ -949,6 +1170,7 @@ class TradeMonitor:
                 )
 
                 # Cancel and re-place SL/TP at adjusted prices
+                # (a GTT stop is modified in place by _place_sl_for_trade)
                 self._cancel_order(trade.sl_order_id, trade.symbol, "SL")
                 self._cancel_order(trade.tp_order_id, trade.symbol, "TP")
                 trade.sl_order_id = None

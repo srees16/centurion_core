@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 _DB_PATH = Path(__file__).parent / "data" / "paper_trades.sqlite3"
 
@@ -210,9 +211,52 @@ def analyze():
 
     # ── Verdict ────────────────────────────────────────────────
     print(f"\n  {'=' * 60}")
+
+    # ── Distribution shift analysis ────────────────────────────
+    shift_result = None
+    if snapshots and len(snapshots) >= 31:
+        try:
+            from services.distribution_shift import compare_live_to_backtest
+
+            equity = pd.Series(
+                [float(s["equity"]) for s in snapshots],
+                index=pd.to_datetime([s["date"] for s in snapshots]),
+            )
+            live_rets = equity[~equity.index.duplicated(keep="last")].pct_change().dropna()
+            shift_result = compare_live_to_backtest(live_rets, rolling_step=5)
+            print(f"\n  ── Distribution Shift (Backtest vs Live) ──")
+            if shift_result.get("reference_mode") == "unavailable":
+                print("  No backtest reference returns (data/shift_reference_returns.csv or "
+                      "CENTURION_SHIFT_REFERENCE_RUN)")
+            else:
+                print(f"  Reference     : {shift_result['reference_mode']} ({shift_result['reference_source']})")
+                print(f"  Wasserstein   : {shift_result['wasserstein']:.6f}  (p={shift_result.get('p_value_wasserstein')})")
+                print(f"  KL divergence : {shift_result['kl_divergence']:.6f}  (p={shift_result.get('p_value_kl')})")
+                if shift_result.get("sinkhorn") is not None:
+                    print(f"  Sinkhorn      : {shift_result['sinkhorn']:.6f}")
+                else:
+                    print(f"  Sinkhorn      : {shift_result.get('sinkhorn_status')}")
+                if shift_result.get("tracking_error_annual") is not None:
+                    print(f"  Tracking error: {shift_result['tracking_error_annual']:.2%} a year vs same-period backtest")
+                print(f"  Verdict       : {shift_result['verdict'].upper()} (thresholds), "
+                      f"{str(shift_result.get('calibrated_verdict')).upper()} (calibrated)")
+                rolling = shift_result.get("rolling") or []
+                onset = shift_result.get("drift_onset")
+                if onset:
+                    print(f"  Drift onset   : {onset['start_date']} ({onset['verdict']})")
+                breaks = [r for r in rolling if r["verdict"] == "regime_break"
+                          or r.get("calibrated_verdict") == "regime_break"]
+                if rolling:
+                    print(f"  Regime breaks : {len(breaks)}/{len(rolling)} 60-day windows")
+        except Exception as e:
+            print(f"  Distribution shift analysis failed: {e}")
+
     if snapshots and len(snapshots) >= 15:
         if sharpe >= 0.5 and max_dd < 0.30:
-            print("  VERDICT: PASS — Ready for live trading")
+            if shift_result and shift_result.get("effective_verdict") == "regime_break":
+                print("  VERDICT: HOLD — Metrics pass but REGIME BREAK detected. Investigate.")
+            else:
+                print("  VERDICT: PASS — Ready for live trading")
         elif sharpe >= 0.2:
             print("  VERDICT: MARGINAL — Consider extending paper period")
         else:

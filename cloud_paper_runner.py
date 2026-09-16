@@ -123,17 +123,113 @@ def _update_run_status(status: str, message: str):
         logger.warning("Failed to update run status in Neon: %s", exc)
 
 
+# ── Paper book (persistent across GitHub Actions runs) ────────────────────
+
+# Initial capital is used ONLY on the very first run; later runs restore the
+# book (cash, positions, stops, snapshots) from Neon.
+_INITIAL_CAPITAL = float(os.environ.get("CENTURION_PAPER_INITIAL_CAPITAL", "100000"))
+
+
+def _open_paper_trader():
+    """PaperTrader restored from local SQLite or Neon. Raises if the cloud
+    book exists but cannot be read (never start over an unreadable book)."""
+    from kite_connect.trading.paper_trader import PaperTrader
+
+    pt = PaperTrader(kite=None, initial_capital=_INITIAL_CAPITAL)
+    if pt.restored_from == "cloud_restore_failed":
+        raise RuntimeError("Paper book restore from Neon failed — aborting run to protect the track record")
+    logger.info("Paper book: source=%s cash=%.0f open=%d initial=%.0f",
+                pt.restored_from, pt.cash, sum(1 for p in pt._positions if p.is_open),
+                pt.initial_capital)
+    return pt
+
+
+def _latest_daily_bars(symbols):
+    """{symbol: {date, open, low, close}} from the latest daily bar."""
+    from utils import download_ind_ohlcv
+
+    bars = {}
+    for sym in symbols:
+        try:
+            df = download_ind_ohlcv(sym, period="5d")
+            if df is None or df.empty:
+                continue
+            row = df.iloc[-1]
+            val = lambda c: float(row[c].item() if hasattr(row[c], "item") else row[c])  # noqa: E731
+            bars[sym] = {"date": df.index[-1], "open": val("Open"), "low": val("Low"),
+                         "close": val("Close")}
+        except Exception as exc:
+            logger.debug("Daily bar fetch failed for %s: %s", sym, exc)
+    return bars
+
+
+def _mark_and_simulate_stops(pt):
+    """Mark open positions to the latest close and simulate GTT stop fills."""
+    held = sorted({p.symbol for p in pt._positions if p.is_open})
+    if not held:
+        return []
+    bars = _latest_daily_bars(held)
+    events = pt.simulate_gtt_stops(bars)
+    for ev in events:
+        logger.info("Paper GTT stop: %s %s exit=%.2f pnl=%.2f",
+                    ev["symbol"], ev["type"], ev["exit"], ev["pnl"])
+    return events
+
+
 # ── Pipeline execution ────────────────────────────────────────────────────
 
 def _run_paper_pipeline():
     """Run the full screening + CarverPipeline + PaperTrader flow."""
+    # 0. Restore the paper book, mark to market, simulate GTT stops
+    pt = _open_paper_trader()
+    stop_events = _mark_and_simulate_stops(pt)
+    ctx = {"universe_size": 0, "screened_count": 0, "buy_signals": 0}
+    try:
+        status, msg = _signals_and_trades(pt, ctx)
+    finally:
+        # EOD snapshot is recorded on every run (upsert per date), even when
+        # no new trades were generated, so the equity curve has no gaps.
+        try:
+            pt.snapshot_daily()
+        except Exception as exc:
+            logger.warning("Snapshot failed: %s", exc)
+
+    dashboard = pt.dashboard()
+    msg = (
+        f"{msg} | stops={len(stop_events)} | "
+        f"capital={dashboard.current_capital:.0f} | "
+        f"P&L={dashboard.total_pnl:.0f} ({dashboard.total_pnl_pct:.1f}%)"
+    )
+    logger.info("Paper trade: %s", msg)
+
+    # Daily email (best-effort)
+    try:
+        from services.notifications.manager import NotificationManager
+        nm = NotificationManager()
+        sent = nm.email_daily_pipeline_report({
+            **ctx,
+            "sell_signals": len(stop_events) + ctx.get("exits", 0),
+            "status": status,
+        })
+        if not sent:
+            logger.warning("Daily email returned False — check CENTURION_EMAIL_USER / CENTURION_EMAIL_PASS env vars")
+    except Exception as exc:
+        logger.warning("Daily email failed: %s", exc)
+
+    return status, msg
+
+
+def _signals_and_trades(pt, ctx):
+    """Screen → verdicts → CarverPipeline (with holdings) → exits → paper buys."""
     from kite_connect.nse.nse_universe import get_nse_universe
     from kite_connect.nse.screener import NSEScreener, ScreenerConfig
     from services.integrated_scorer import IntegratedScorer
-    from kite_connect.trading.paper_trader import PaperTrader
+
+    holdings = {s: h["quantity"] for s, h in pt.holdings().items()}
 
     # 1. Universe
     symbols = get_nse_universe()
+    ctx["universe_size"] = len(symbols)
     logger.info("Universe: %d symbols", len(symbols))
 
     # 2. Screen
@@ -142,45 +238,46 @@ def _run_paper_pipeline():
     screened_df = screener.screen(symbols)
     logger.info("Screened: %d passed", len(screened_df))
 
-    if screened_df.empty:
-        return "no_stocks_passed", "Screener returned 0 candidates"
+    ctx["screened_count"] = len(screened_df)
+    signal_dict = {}
+    buy_symbols = []
+    if not screened_df.empty:
+        # 3. IntegratedScorer verdicts
+        ns_tickers = [f"{s}.NS" for s in screened_df["symbol"].tolist()]
+        end_dt = date.today()
+        start_dt = end_dt - timedelta(days=365)
 
-    # 3. IntegratedScorer verdicts
-    ns_tickers = [f"{s}.NS" for s in screened_df["symbol"].tolist()]
-    end_dt = date.today()
-    start_dt = end_dt - timedelta(days=365)
+        scorer = IntegratedScorer()
+        verdicts = scorer.evaluate(
+            tickers=ns_tickers,
+            market="IND",
+            date_range=(str(start_dt), str(end_dt)),
+        )
 
-    scorer = IntegratedScorer()
-    verdicts = scorer.evaluate(
-        tickers=ns_tickers,
-        market="IND",
-        date_range=(str(start_dt), str(end_dt)),
-    )
+        signal_dict = {
+            v.ticker.replace(".NS", "").replace(".BO", ""): v.classification
+            for v in verdicts
+        }
+        buy_symbols = [
+            sym for sym, tag in signal_dict.items()
+            if tag in ("BUY", "STRONG_BUY")
+        ]
+    ctx["buy_signals"] = len(buy_symbols)
+    buy_df = screened_df[screened_df["symbol"].isin(buy_symbols)] if buy_symbols else screened_df.iloc[0:0]
 
-    signal_dict = {
-        v.ticker.replace(".NS", "").replace(".BO", ""): v.classification
-        for v in verdicts
-    }
-    buy_symbols = [
-        sym for sym, tag in signal_dict.items()
-        if tag in ("BUY", "STRONG_BUY")
-    ]
-    if not buy_symbols:
-        return "success", f"No BUY signals from {len(verdicts)} verdicts"
+    if not buy_symbols and not holdings:
+        return "success", "No BUY signals and no open positions"
 
-    buy_df = screened_df[screened_df["symbol"].isin(buy_symbols)]
-    if buy_df.empty:
-        return "success", "Buy symbols not in screened set"
-
-    # 4. CarverPipeline
+    # 4. CarverPipeline — buy candidates AND current holdings (for exits)
     plans = None
     pipe_result = None
+    fallback_reason = ""
     try:
         from services.carver_pipeline import CarverPipeline, PipelineConfig
         from utils import download_ind_ohlcv
 
         ohlcv_cache = {}
-        for sym in buy_symbols:
+        for sym in dict.fromkeys(list(buy_symbols) + list(holdings)):
             try:
                 df = download_ind_ohlcv(sym, period="2y")
                 if df is not None and len(df) >= 64:
@@ -200,32 +297,51 @@ def _run_paper_pipeline():
             pipe_result = pipeline.run(
                 ohlcv_cache=ohlcv_cache,
                 screener_scores=screener_scores,
+                current_holdings=holdings or None,
             )
-            plans = pipe_result.trade_plans
-            logger.info("CarverPipeline: %d plans", len(plans))
+            # Only BUY candidates open positions (holdings were included for exits)
+            plans = [p for p in pipe_result.trade_plans if p.symbol in set(buy_symbols)]
+            logger.info("CarverPipeline: %d plans, %d exits", len(plans), len(pipe_result.exits))
+            _fresh = pipe_result.freshness or {}
+            if _fresh.get("dropped") and pipe_result.symbols_processed == 0:
+                fallback_reason = (f"freshness gate dropped all {len(_fresh['dropped'])} symbols "
+                                   f"(expected session {_fresh.get('expected_session')})")
+        else:
+            fallback_reason = "no OHLCV data"
     except Exception as exc:
-        logger.warning("CarverPipeline failed, trying fallback: %s", exc)
+        fallback_reason = f"CarverPipeline error: {exc}"
 
-    # 4b. Fallback: RiskManager
-    if not plans:
+    # 4a. Rank / forecast exits for open paper positions
+    exit_events = []
+    if pipe_result is not None and pipe_result.exits:
+        for sym, reason in pipe_result.exits.items():
+            res = pt.close_position(sym, reason=f"RANK_EXIT:{reason}"[:30])
+            if res.get("success"):
+                exit_events.append(res)
+                logger.info("Paper rank exit: %s x %d (%s)", sym, res["quantity"], reason)
+    ctx["exits"] = len(exit_events)
+
+    # 4b. Fallback: RiskManager — LOUD, with the reason recorded
+    if fallback_reason and buy_symbols:
+        logger.warning("FALLBACK to legacy RiskManager: %s", fallback_reason)
+        ctx["fallback_reason"] = fallback_reason
         try:
             from kite_connect.trading.risk_manager import RiskManager, RiskConfig
             rm = RiskManager(RiskConfig())
             plans = rm.plan_trades(buy_df)
-            logger.info("Fallback RiskManager: %d plans", len(plans))
+            logger.warning("Fallback RiskManager: %d plans (reason: %s)", len(plans), fallback_reason)
         except Exception as exc:
-            return "error", f"Both pipelines failed: {exc}"
+            return "error", f"Both pipelines failed: {fallback_reason}; {exc}"
 
     if not plans:
-        return "success", "No plans met R:R threshold"
+        return "success", f"No new plans | exits={len(exit_events)}"
 
-    # 5. Execute via PaperTrader
-    pt = PaperTrader(kite=None, initial_capital=100_000)
-    results = pt.execute_plans(plans)
+    # 5. Execute via PaperTrader (restored book; skip symbols already held)
+    results = pt.execute_plans(plans, skip_held=True)
     filled = sum(1 for r in results if r.get("success"))
 
     # 6. SL/TP poll
-    close_events = pt.poll()
+    pt.poll()
 
     # 7. Signal audit log
     try:
@@ -245,62 +361,263 @@ def _run_paper_pipeline():
                 "stop_loss": plan.stop_loss,
                 "target_price": plan.target_price,
                 "quantity": plan.quantity,
-                "pipeline_sources": ",".join(_active) if _active else "CarverPipeline",
+                "pipeline_sources": (",".join(_active) if _active else
+                                     ("RiskManager-fallback" if fallback_reason else "CarverPipeline")),
                 "was_traded": plan.symbol in traded_symbols,
             })
         pt.log_signals(today_str, signal_entries)
     except Exception as exc:
         logger.debug("Signal logging failed (non-fatal): %s", exc)
 
-    # 8. EOD snapshot
+    planner = "legacy_risk_manager" if fallback_reason else "carver"
+    return "success", f"{filled}/{len(plans)} filled ({planner}) | exits={len(exit_events)}"
+
+
+def _load_engine_deployment():
+    """Deployed engine config (config/nse_engine_deployed.json or $CENTURION_NSE_DEPLOYMENT).
+
+    A placeholder deployment is paper traded with a warning; live trading is
+    refused by the executor.
+    """
+    from nse_engine.deployment import load_deployment
+
+    dep = load_deployment(os.environ.get("CENTURION_NSE_DEPLOYMENT") or None)
+    if dep.is_placeholder:
+        logger.warning("NSE engine deployment %s is a PLACEHOLDER (status='placeholder'): "
+                       "paper trading the default EngineConfig; live trading is refused until the "
+                       "file is replaced with an approved configuration", dep.path)
+    logger.info("NSE engine deployment: %s", dep.summary())
+    return dep
+
+
+def _run_engine_paper():
+    """NSE engine path (EOD, after the bhavcopy is in the store).
+
+    Processes the latest store session — gap stops, pending orders filled at
+    that session's open, intraday stops — marks to the close, plans from the
+    close (distribution-shift multiplier applied) and queues the new orders
+    as PENDING for the next open.  Stops and prices come from the NSE store,
+    not yfinance, so paper and backtest see the same bars.
+    """
+    from kite_connect.trading.nse_engine_executor import EngineExecutor
+
+    dep = _load_engine_deployment()
+    pt = _open_paper_trader()
+    executor = EngineExecutor(kite=None, paper=True, paper_trader=pt, deployment=dep)
+    session = executor.run_paper_session()
+    snapshot = {}
     try:
-        pt.snapshot_daily()
+        snapshot = pt.snapshot_daily() or {}
     except Exception as exc:
-        logger.debug("Snapshot failed (non-fatal): %s", exc)
+        logger.warning("Snapshot failed: %s", exc)
+    plan = session.get("plan")
+    fills = session.get("fills") or {}
+    queued = sum(1 for r in session.get("results", []) if r.get("status") == "PENDING")
+    shift = snapshot.get("distribution_shift") or {}
+    msg = (f"engine session={session['session']} deployment={dep.status} "
+           f"filled={len(fills.get('filled', []))} cancelled={len(fills.get('cancelled', []))} "
+           f"stops={len(session.get('stops', []))} queued={queued} "
+           f"skipped={len(plan.skipped) if plan else 0} "
+           f"shift_mult={plan.shift_multiplier if plan else 1.0:.2f} cash={pt.cash:.0f}")
+    if shift.get("reality_gap_alerts"):
+        msg += f" | REALITY GAP: {'; '.join(shift['reality_gap_alerts'])}"
+    for note in session.get("notes", []):
+        msg += f" | {note}"
+    logger.info("NSE engine paper run: %s", msg)
+    return "success", msg
 
-    dashboard = pt.dashboard()
-    msg = (
-        f"{filled}/{len(plans)} filled | "
-        f"capital={dashboard.current_capital:.0f} | "
-        f"P&L={dashboard.total_pnl:.0f} ({dashboard.total_pnl_pct:.1f}%)"
+
+# ── Weekly checkpoint (Saturday) ──────────────────────────────────────
+
+def _run_weekly_checkpoint():
+    """Run weekly checkpoint + send weekly performance email.
+
+    Mirrors scheduler.py _run_paper_weekly_checkpoint + _send_paper_weekly_email.
+    Called only on Saturdays via the Saturday GitHub Actions cron.
+    """
+    import sqlite3 as _sq3
+    from services.notifications.manager import NotificationManager
+
+    pt = _open_paper_trader()
+    checkpoint = pt.checkpoint_weekly()
+
+    if not checkpoint:
+        logger.info("Weekly checkpoint: no new data this week — skipping email")
+        return "success", "No weekly data"
+
+    wk = checkpoint["week_number"]
+    logger.info(
+        "Weekly checkpoint W%d: return=%.1f%% sharpe=%.2f dd=%.1f%%",
+        wk, checkpoint["week_return_pct"],
+        checkpoint["sharpe_ratio"], checkpoint["max_dd_pct"],
     )
-    logger.info("Paper trade: %s", msg)
 
-    # 9. Daily email (best-effort)
+    # ── Build weekly email HTML ───────────────────────────────────
+    dash = pt.dashboard()
+    pnl_color = "#15803d" if dash.total_pnl >= 0 else "#dc2626"
+    wk_color = "#15803d" if checkpoint["week_return_pct"] >= 0 else "#dc2626"
+
+    # Historical weeks table
+    weeks_rows = ""
     try:
-        from services.notifications.manager import NotificationManager
-        nm = NotificationManager()
-        nm.email_daily_pipeline_report({
-            "universe_size": len(symbols),
-            "screened_count": len(screened_df),
-            "buy_signals": len(buy_symbols),
-            "sell_signals": len(close_events),
-            "status": "success",
-        })
+        _db = _sq3.connect(str(_ROOT / "data" / "paper_trades.sqlite3"))
+        _db.row_factory = _sq3.Row
+        all_weeks = _db.execute(
+            "SELECT * FROM weekly_checkpoints ORDER BY week_number"
+        ).fetchall()
+        _db.close()
+        for w in all_weeks:
+            w_color = "#15803d" if w["week_return_pct"] >= 0 else "#dc2626"
+            weeks_rows += (
+                f"<tr><td style='padding:4px 10px;border:1px solid #e5e7eb;font-weight:bold;'>W{w['week_number']}</td>"
+                f"<td style='padding:4px 10px;border:1px solid #e5e7eb;'>{w['week_start']} → {w['week_end']}</td>"
+                f"<td style='padding:4px 10px;border:1px solid #e5e7eb;text-align:right;font-weight:bold;color:{w_color};'>"
+                f"{w['week_return_pct']:+.1f}%</td>"
+                f"<td style='padding:4px 10px;border:1px solid #e5e7eb;text-align:right;'>{w['sharpe_ratio']:.2f}</td>"
+                f"<td style='padding:4px 10px;border:1px solid #e5e7eb;text-align:right;color:#dc2626;'>{w['max_dd_pct']:.1f}%</td>"
+                f"<td style='padding:4px 10px;border:1px solid #e5e7eb;text-align:right;'>"
+                f"{w['trades_closed']}/{w['trades_opened']}</td>"
+                f"<td style='padding:4px 10px;border:1px solid #e5e7eb;text-align:right;'>{w['win_rate'] * 100:.0f}%</td></tr>"
+            )
     except Exception:
         pass
 
+    # Verdict logic
+    if dash.sharpe_ratio >= 0.5 and dash.max_drawdown_pct < 30:
+        verdict = "PASS — Ready for live trading"
+        verdict_color = "#15803d"
+    elif dash.sharpe_ratio >= 0.2:
+        verdict = "MARGINAL — Consider extending paper period"
+        verdict_color = "#d97706"
+    else:
+        verdict = "FAIL — Do not go live, needs investigation"
+        verdict_color = "#dc2626"
+
+    html = f"""\
+<html><body style="font-family:Segoe UI,Arial,sans-serif;background:#f9fafb;padding:20px;">
+<div style="max-width:700px;margin:0 auto;background:#fff;border-radius:10px;
+            box-shadow:0 2px 8px rgba(0,0,0,0.08);overflow:hidden;">
+  <div style="background:#1a1a2e;padding:16px 24px;">
+    <h2 style="margin:0;color:#fff;font-size:18px;">
+      Centurion &mdash; Weekly Paper Trade Report (Week {wk})
+    </h2>
+    <p style="margin:4px 0 0;color:#9ca3af;font-size:13px;">{checkpoint['week_start']} → {checkpoint['week_end']}</p>
+  </div>
+  <div style="padding:20px 24px;">
+
+    <div style="background:#f0fdf4;border-left:4px solid {verdict_color};padding:12px 16px;margin-bottom:20px;border-radius:4px;">
+      <strong style="color:{verdict_color};font-size:14px;">VERDICT: {verdict}</strong>
+      <p style="margin:4px 0 0;color:#666;font-size:12px;">
+        Sharpe {dash.sharpe_ratio:.3f} | Max DD {dash.max_drawdown_pct:.1f}% | Win Rate {dash.win_rate:.0%}
+      </p>
+    </div>
+
+    <h3 style="color:#1a1a2e;margin-top:0;">This Week</h3>
+    <table style="border-collapse:collapse;width:100%;font-size:14px;">
+      <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">Week Return</td>
+          <td style="padding:6px 12px;border:1px solid #e5e7eb;font-weight:bold;color:{wk_color};">{checkpoint['week_return_pct']:+.1f}%</td></tr>
+      <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">Equity</td>
+          <td style="padding:6px 12px;border:1px solid #e5e7eb;">₹{checkpoint['start_equity']:,.0f} → ₹{checkpoint['end_equity']:,.0f}</td></tr>
+      <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">Trades</td>
+          <td style="padding:6px 12px;border:1px solid #e5e7eb;">{checkpoint['trades_opened']} opened, {checkpoint['trades_closed']} closed</td></tr>
+      <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">Sharpe (weekly)</td>
+          <td style="padding:6px 12px;border:1px solid #e5e7eb;">{checkpoint['sharpe_ratio']:.2f}</td></tr>
+      <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">Max Drawdown</td>
+          <td style="padding:6px 12px;border:1px solid #e5e7eb;">{checkpoint['max_dd_pct']:.1f}%</td></tr>
+      <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">Win Rate</td>
+          <td style="padding:6px 12px;border:1px solid #e5e7eb;">{checkpoint['win_rate']:.0%}</td></tr>
+      <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">Avg Holding Days</td>
+          <td style="padding:6px 12px;border:1px solid #e5e7eb;">{checkpoint['avg_holding_days']:.1f}</td></tr>
+    </table>
+
+    <h3 style="color:#1a1a2e;margin-top:24px;">Cumulative Performance</h3>
+    <table style="border-collapse:collapse;width:100%;font-size:14px;">
+      <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">Capital</td>
+          <td style="padding:6px 12px;border:1px solid #e5e7eb;">₹{dash.initial_capital:,.0f} → ₹{dash.current_capital:,.0f}</td></tr>
+      <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">Total P&amp;L</td>
+          <td style="padding:6px 12px;border:1px solid #e5e7eb;font-weight:bold;color:{pnl_color};">
+            ₹{dash.total_pnl:,.0f} ({dash.total_pnl_pct:+.1f}%)</td></tr>
+      <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">Sharpe / Sortino</td>
+          <td style="padding:6px 12px;border:1px solid #e5e7eb;">{dash.sharpe_ratio:.3f} / {dash.sortino_ratio:.3f}</td></tr>
+      <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">Profit Factor</td>
+          <td style="padding:6px 12px;border:1px solid #e5e7eb;">{dash.profit_factor:.2f}</td></tr>
+      <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">Max Drawdown</td>
+          <td style="padding:6px 12px;border:1px solid #e5e7eb;">{dash.max_drawdown_pct:.1f}%</td></tr>
+    </table>
+
+    {"<h3 style='color:#1a1a2e;margin-top:24px;'>All Weeks</h3>" + chr(10) + "    <table style='border-collapse:collapse;width:100%;font-size:13px;'>" + chr(10) + "      <thead><tr style='background:#f3f4f6;'>" + chr(10) + "        <th style='padding:4px 10px;border:1px solid #e5e7eb;'>Wk</th>" + chr(10) + "        <th style='padding:4px 10px;border:1px solid #e5e7eb;'>Period</th>" + chr(10) + "        <th style='padding:4px 10px;border:1px solid #e5e7eb;text-align:right;'>Return</th>" + chr(10) + "        <th style='padding:4px 10px;border:1px solid #e5e7eb;text-align:right;'>Sharpe</th>" + chr(10) + "        <th style='padding:4px 10px;border:1px solid #e5e7eb;text-align:right;'>Max DD</th>" + chr(10) + "        <th style='padding:4px 10px;border:1px solid #e5e7eb;text-align:right;'>Trades</th>" + chr(10) + "        <th style='padding:4px 10px;border:1px solid #e5e7eb;text-align:right;'>Win Rate</th>" + chr(10) + "      </tr></thead><tbody>" + weeks_rows + "</tbody></table>" if weeks_rows else ""}
+
+  </div>
+  <div style="padding:12px 24px;background:#f3f4f6;font-size:11px;color:#999;text-align:center;">
+    Centurion Paper Trading &bull; Week {wk} of 4 &bull; Auto-generated
+  </div>
+</div></body></html>"""
+
+    subject = f"[Centurion Paper] Week {wk} Report | {checkpoint['week_return_pct']:+.1f}% | Sharpe {checkpoint['sharpe_ratio']:.2f}"
+    sent = NotificationManager._send_html_email(
+        subject=subject,
+        html_body=html,
+        recipients=["s.srees@live.com"],
+    )
+    if not sent:
+        logger.warning("Weekly email returned False — check CENTURION_EMAIL_USER / CENTURION_EMAIL_PASS env vars")
+
+    msg = f"W{wk}: return={checkpoint['week_return_pct']:+.1f}% sharpe={checkpoint['sharpe_ratio']:.2f}"
     return "success", msg
 
 
 # ── Entrypoint ─────────────────────────────────────────────────────────
 
-def main():
+def _engine_enabled(argv=None) -> bool:
+    """``--engine`` runs the NSE engine only when CENTURION_NSE_ENGINE=true."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Cloud paper trading runner")
+    parser.add_argument("--engine", action="store_true",
+                        help="Use the NSE engine executor (requires CENTURION_NSE_ENGINE=true)")
+    args, _ = parser.parse_known_args(argv)
+    env_on = os.environ.get("CENTURION_NSE_ENGINE", "false").lower() in ("true", "1", "yes")
+    if args.engine and not env_on:
+        logger.warning("--engine ignored: CENTURION_NSE_ENGINE is not 'true' — running legacy pipeline")
+    return bool(args.engine and env_on)
+
+
+def main(argv=None):
     logger.info("=== Cloud Paper Trading Runner ===")
+    use_engine = _engine_enabled(argv)
 
     if not _check_active():
         logger.info("Paper trading is NOT active in Neon — skipping.")
         return
 
     logger.info("Paper trading is ACTIVE — running pipeline...")
-    try:
-        status, message = _run_paper_pipeline()
-        _update_run_status(status, message[:500])
-        logger.info("Run complete: [%s] %s", status, message)
-    except Exception as exc:
-        _update_run_status("error", str(exc)[:500])
-        logger.exception("Pipeline failed: %s", exc)
-        sys.exit(1)
+
+    is_saturday = datetime.now().weekday() == 5  # 5 = Saturday
+
+    if is_saturday:
+        # Saturday: run weekly checkpoint + email only (no daily pipeline)
+        logger.info("Saturday detected — running weekly checkpoint...")
+        try:
+            status, message = _run_weekly_checkpoint()
+            _update_run_status(status, message[:500])
+            logger.info("Weekly checkpoint complete: [%s] %s", status, message)
+        except Exception as exc:
+            _update_run_status("error", f"weekly: {str(exc)[:480]}")
+            logger.exception("Weekly checkpoint failed: %s", exc)
+            sys.exit(1)
+    else:
+        # Weekday: run full daily pipeline (or the NSE engine when enabled)
+        try:
+            if use_engine:
+                status, message = _run_engine_paper()
+            else:
+                status, message = _run_paper_pipeline()
+            _update_run_status(status, message[:500])
+            logger.info("Run complete: [%s] %s", status, message)
+        except Exception as exc:
+            _update_run_status("error", str(exc)[:500])
+            logger.exception("Pipeline failed: %s", exc)
+            sys.exit(1)
 
 
 if __name__ == "__main__":
