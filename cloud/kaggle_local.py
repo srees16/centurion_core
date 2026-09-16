@@ -41,7 +41,7 @@ logger = logging.getLogger("kaggle_local")
 
 CODE_SLUG = "centurion-nse-code"
 STORE_SLUG = "centurion-nse-store"
-KERNEL_SLUG = "centurion-nse-research"
+KERNEL_SLUG = "centurion-nse-research"   # default; --kernel-suffix runs a second one alongside
 STAGE_DIR = _ROOT / "data" / "kaggle" / "stage"
 OUT_DIR = _ROOT / "data" / "nse_engine" / "kaggle_out"
 
@@ -221,9 +221,12 @@ def stage_code(task: str, args: List[str], heartbeat_url: Optional[str] = None,
 
 
 def push_code(task: str, args: List[str], heartbeat_url: Optional[str] = None,
-              pins: Optional[List[str]] = None) -> None:
+              pins: Optional[List[str]] = None, suffix: str = "") -> str:
+    """Upload code + job spec; returns the dataset slug (per suffix, so jobs don't collide)."""
     stage = stage_code(task, args, heartbeat_url, pins)
-    _push_dataset(stage, CODE_SLUG, "Centurion NSE engine (research code)", f"job: {task}")
+    slug = f"{CODE_SLUG}-{suffix}" if suffix else CODE_SLUG
+    _push_dataset(stage, slug, f"Centurion NSE engine (research code{' ' + suffix if suffix else ''})", f"job: {task}")
+    return slug
 
 
 def push_store() -> None:
@@ -244,27 +247,37 @@ def push_store() -> None:
 
 # ── kernel ───────────────────────────────────────────────────────
 
-def push_kernel(enable_internet: bool = False) -> str:
-    """Push the kernel that runs cloud/kaggle_entry.py against both datasets."""
+def kernel_ref(suffix: str = "") -> str:
+    slug = f"{KERNEL_SLUG}-{suffix}" if suffix else KERNEL_SLUG
+    return f"{kaggle_username()}/{slug}"
+
+
+def push_kernel(enable_internet: bool = False, suffix: str = "", code_slug: str = CODE_SLUG) -> str:
+    """Push the kernel that runs cloud/kaggle_entry.py against both datasets.
+
+    ``suffix`` names a separate kernel (its own queue and output), so a second
+    job can run while the first is still going.
+    """
     user = kaggle_username()
-    stage = STAGE_DIR / "kernel"
+    slug = f"{KERNEL_SLUG}-{suffix}" if suffix else KERNEL_SLUG
+    stage = STAGE_DIR / f"kernel{'-' + suffix if suffix else ''}"
     stage.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(_ROOT / "cloud" / "kaggle_entry.py", stage / "centurion-nse-research.py")
+    shutil.copy2(_ROOT / "cloud" / "kaggle_entry.py", stage / f"{slug}.py")
     (stage / "kernel-metadata.json").write_text(json.dumps({
-        "id": f"{user}/{KERNEL_SLUG}",
-        "title": "Centurion NSE research",
-        "code_file": "centurion-nse-research.py",
+        "id": f"{user}/{slug}",
+        "title": f"Centurion NSE research{' ' + suffix if suffix else ''}",
+        "code_file": f"{slug}.py",
         "language": "python",
         "kernel_type": "script",
         "is_private": True,
         "enable_gpu": False,
         "enable_internet": enable_internet,
-        "dataset_sources": [f"{user}/{CODE_SLUG}", f"{user}/{STORE_SLUG}"],
+        "dataset_sources": [f"{user}/{code_slug}", f"{user}/{STORE_SLUG}"],
         "competition_sources": [],
         "kernel_sources": [],
     }, indent=2))
     _kaggle("kernels", "push", "-p", str(stage))
-    return f"{user}/{KERNEL_SLUG}"
+    return f"{user}/{slug}"
 
 
 def status(kernel: Optional[str] = None) -> str:
@@ -297,7 +310,11 @@ def pull(kernel: Optional[str] = None, dest: Optional[str] = None) -> Path:
     kernel = kernel or f"{kaggle_username()}/{KERNEL_SLUG}"
     target = Path(dest) if dest else OUT_DIR / time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     target.mkdir(parents=True, exist_ok=True)
-    _kaggle("kernels", "output", kernel, "-p", str(target))
+    _kaggle("kernels", "output", kernel, "-p", str(target), "--page-size", "200")
+    packed = target / "runs.tar.gz"
+    if packed.exists() and not (target / "runs").is_dir():
+        shutil.unpack_archive(str(packed), str(target))
+        logger.info("unpacked %s", packed.name)
     latest = OUT_DIR / "latest"
     if latest.is_symlink() or latest.exists():
         latest.unlink()
@@ -329,6 +346,8 @@ def main(argv: Optional[List[str]] = None) -> None:
         if name == "run":
             p.add_argument("--internet", action="store_true",
                            help="kernel may reach the network (not needed with a store dataset)")
+            p.add_argument("--kernel-suffix", default="",
+                           help="run as a separate kernel (e.g. 'b') so it can run alongside the default one")
 
     p = sub.add_parser("watch", help="poll kernel status until it stops")
     p.add_argument("--kernel")
@@ -358,8 +377,8 @@ def main(argv: Optional[List[str]] = None) -> None:
     elif args.command == "push-code":
         push_code(args.task, job_args, args.heartbeat_url, pins)
     elif args.command == "run":
-        push_code(args.task, job_args, args.heartbeat_url, pins)
-        print(f"kernel pushed: {push_kernel(args.internet or bool(pins))}")
+        code_slug = push_code(args.task, job_args, args.heartbeat_url, pins, args.kernel_suffix)
+        print(f"kernel pushed: {push_kernel(args.internet or bool(pins), args.kernel_suffix, code_slug)}")
     elif args.command == "watch":
         print(watch(args.kernel, args.interval, args.max_hours))
     elif args.command == "status":

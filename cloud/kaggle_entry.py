@@ -104,6 +104,15 @@ def main() -> None:
         if produced.exists() and not (WORKING / name).exists():
             shutil.move(str(produced), str(WORKING / name))
 
+    # One archive instead of ~2,000 small files: the Kaggle CLI's paginated
+    # output download stalled twice on a 441-run registry. The fold files stay
+    # loose so they can be fetched alone with --file-pattern '^wf/'.
+    runs = WORKING / "runs"
+    if runs.is_dir():
+        shutil.make_archive(str(WORKING / "runs"), "gztar", root_dir=WORKING, base_dir="runs")
+        shutil.rmtree(runs)
+        print(f"packed run registry into {WORKING / 'runs.tar.gz'}", flush=True)
+
 
 if __name__ == "__main__":
     main()

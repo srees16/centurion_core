@@ -100,25 +100,50 @@ def _last_valid_row(arr: np.ndarray) -> np.ndarray:
     return out
 
 
+def history_counts(close: np.ndarray, window: int) -> np.ndarray:
+    """Finite closes per symbol up to each row: since row 0 (``window`` 0) or within the trailing window.
+
+    Counting since row 0 makes a name's eligibility depend on where the data
+    was loaded from; the trailing window does not. Integer cumulative sums are
+    exact, so both are the same numbers for any load start once ``window``
+    rows precede the date.
+    """
+    cum = np.cumsum(np.isfinite(close), axis=0)
+    if window <= 0:
+        return cum
+    out = cum.copy()
+    out[window:] = cum[window:] - cum[:-window]
+    return out
+
+
+def refresh_positions(dates: pd.DatetimeIndex, cfg: UniverseConfig) -> np.ndarray:
+    """Rows on which the universe is re-selected."""
+    every = max(int(cfg.refresh_every_n_days), 1)
+    if cfg.calendar_schedule:
+        from nse_engine.calendar import period_start_mask
+        return np.flatnonzero(period_start_mask(dates, every))
+    return np.arange(0, len(dates), every)
+
+
 def compute_universe_panel(data: MarketData, cfg: UniverseConfig, exclude: Iterable[str] = ()) -> UniversePanel:
     """Universe membership for every date (vectorised over refresh dates)."""
     close = data.close.to_numpy(dtype="float64")
     value0 = np.nan_to_num(data.value.to_numpy(dtype="float64"), nan=0.0)
     n, m = close.shape
-    hist = np.cumsum(np.isfinite(close), axis=0)
+    hist = history_counts(close, cfg.history_window_days)
     close_ff = data.close.astype("float64").ffill().to_numpy()
     eligible = _eligible_mask(data, cfg, exclude)
-    every = max(int(cfg.refresh_every_n_days), 1)
     mask = np.zeros((n, m), dtype=bool)
     refresh: Dict[pd.Timestamp, List[str]] = {}
     cols = data.close.columns
     trading = np.isfinite(close)
-    for pos in range(0, n, every):
+    starts = refresh_positions(data.dates, cfg)
+    for i, pos in enumerate(starts):
         idx = _select_at(close_ff[pos], value0, hist[pos], pos, eligible, cfg)
-        refresh[data.dates[pos]] = [cols[i] for i in idx]
+        refresh[data.dates[pos]] = [cols[i2] for i2 in idx]
         base = np.zeros(m, dtype=bool)
         base[idx] = True
-        end = min(pos + every, n)
+        end = int(starts[i + 1]) if i + 1 < len(starts) else n
         mask[pos:end] = base[None, :] & trading[pos:end]
     return UniversePanel(mask=pd.DataFrame(mask, index=data.dates, columns=cols), refresh=refresh)
 
@@ -131,10 +156,16 @@ def select_universe(
     pos = int(data.dates.searchsorted(as_of, side="right")) - 1
     if pos < 0:
         return []
-    rpos = last_refresh_position(pos, cfg.refresh_every_n_days)
+    if cfg.calendar_schedule:
+        starts = refresh_positions(data.dates[: pos + 1], cfg)
+        if starts.size == 0:
+            return []
+        rpos = int(starts[-1])
+    else:
+        rpos = last_refresh_position(pos, cfg.refresh_every_n_days)
     close = data.close.iloc[: pos + 1].to_numpy(dtype="float64")
     value0 = np.nan_to_num(data.value.iloc[: rpos + 1].to_numpy(dtype="float64"), nan=0.0)
-    hist = np.isfinite(close[: rpos + 1]).sum(axis=0)
+    hist = history_counts(close[: rpos + 1], cfg.history_window_days)[rpos]
     idx = _select_at(_last_valid_row(close[: rpos + 1]), value0, hist, rpos, _eligible_mask(data, cfg, exclude), cfg)
     cols = data.close.columns
     return [cols[i] for i in idx if np.isfinite(close[pos, i])]

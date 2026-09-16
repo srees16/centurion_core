@@ -14,6 +14,20 @@ import json
 from dataclasses import MISSING, asdict, dataclass, field, fields, is_dataclass
 from typing import Any, Dict, Tuple
 
+#: (group, field) -> value that reproduces the behaviour from before the field
+#: existed. Left out of ``config_hash`` at that value; see ``EngineConfig.config_hash``.
+HASH_NEUTRAL_DEFAULTS: Dict[Tuple[str, str], Any] = {
+    ("signals", "normalizer_window_days"): 0,
+    ("signals", "ewm_memory_spans"): 0,
+    ("signals", "calendar_schedule"): False,
+    ("signals", "delivery_lookback"): 63,
+    ("portfolio", "calendar_schedule"): False,
+    ("universe", "calendar_schedule"): False,
+    ("universe", "history_window_days"): 0,
+    ("allocator", "target_vol_annual"): 0.0,
+    ("allocator", "vol_target_min_scale"): 0.3,
+}
+
 
 @dataclass(frozen=True)
 class DataConfig:
@@ -42,6 +56,9 @@ class UniverseConfig:
     liquidity_lookback_days: int = 126
     refresh_every_n_days: int = 21
     exclude_etfs: bool = True
+    # Anchor independence (legacy values keep the legacy behaviour and hash):
+    calendar_schedule: bool = False   # refresh on calendar period starts, not row counts
+    history_window_days: int = 0      # 0: count history since the first loaded row; >0: within this trailing window
 
 
 @dataclass(frozen=True)
@@ -65,9 +82,19 @@ class SignalConfig:
     fdm_cap: float = 2.0
     fdm_lookback_days: int = 504
     fdm_refresh_every_n_days: int = 21
+    # Anchor independence (legacy values keep the legacy behaviour and hash):
+    normalizer_window_days: int = 0   # 0: expanding since the first loaded row; >0: rolling window of dates
+    ewm_memory_spans: int = 0         # 0: pandas EWM (infinite memory); k: kernel truncated at k x span rows
+    calendar_schedule: bool = False   # FDM refresh on calendar period starts, not row counts
+    # "delivery" group: cross-sectional rank of trailing mean delivery % (share of traded
+    # quantity taken to demat, from NSE's MTO files). Only used when group_weights names it.
+    delivery_lookback: int = 63
 
     def weights(self) -> Dict[str, float]:
         return dict(self.group_weights)
+
+    def max_span(self) -> int:
+        return max([s for _, s in self.fast_ewmac] + [s for _, s in self.slow_ewmac] + [self.vol_span])
 
 
 @dataclass(frozen=True)
@@ -86,6 +113,8 @@ class PortfolioConfig:
     atr_lookback: int = 20
     stop_cooldown_days: int = 5
     vol_lookback_days: int = 60
+    # Anchor independence (legacy value keeps the legacy behaviour and hash):
+    calendar_schedule: bool = False   # rebalance on calendar period starts, not row counts
 
 
 @dataclass(frozen=True)
@@ -128,6 +157,11 @@ class AllocatorConfig:
     max_gross: float = 1.0
     vol_lookback_days: int = 60
     risk_off_to_metals: bool = True
+    # Portfolio volatility target (Harvey et al. 2018; Moreira & Muir 2017): scale the
+    # whole book DOWN when its estimated vol exceeds the target. Never up — a CNC
+    # book cannot exceed max_gross. 0 = off (legacy behaviour and hash).
+    target_vol_annual: float = 0.0
+    vol_target_min_scale: float = 0.3   # floor on the scale-down, so a vol spike never empties the book
 
 
 @dataclass(frozen=True)
@@ -165,13 +199,60 @@ class EngineConfig:
         return json.dumps(self.to_dict(), sort_keys=True, indent=2)
 
     def config_hash(self) -> str:
-        """Hash of everything that affects results (dates and paths excluded)."""
+        """Hash of everything that affects results (dates and paths excluded).
+
+        Fields added after the registry existed are left out of the hash while
+        they hold their legacy value (``HASH_NEUTRAL_DEFAULTS``), so a
+        configuration evaluated before the field existed keeps its hash: the
+        deployed ``679cbd0c`` stays ``679cbd0c`` and PBO/DSR keep counting it as
+        one configuration. A non-legacy value changes results and the hash.
+        """
         d = self.to_dict()
         for k in ("start", "end", "runs_dir"):
             d.pop(k, None)
         d.get("data", {}).pop("store_dir", None)
+        for (group, key), legacy in HASH_NEUTRAL_DEFAULTS.items():
+            if d.get(group, {}).get(key, legacy) == legacy:
+                d[group].pop(key, None)
         blob = json.dumps(d, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(blob.encode()).hexdigest()[:16]
+
+    def anchor_independent(self) -> bool:
+        """True when every schedule and filter is calendar-anchored / finite-memory."""
+        return bool(
+            self.signals.normalizer_window_days > 0
+            and self.signals.ewm_memory_spans > 0
+            and self.signals.calendar_schedule
+            and self.portfolio.calendar_schedule
+            and self.universe.calendar_schedule
+            and self.universe.history_window_days > 0
+        )
+
+    def required_warmup_days(self) -> int:
+        """Rows of data needed before ``start`` for results not to depend on the load start.
+
+        Only meaningful for an anchor-independent configuration; with legacy
+        expanding normalisers no warm-up length is enough.
+        """
+        sig = self.signals
+        # The chain behind one combined forecast: the raw rule needs its EWM
+        # memory (or the momentum lookback); the rule normaliser pools raw values
+        # over the previous window, each needing that memory; the group-level
+        # normaliser pools again; the FDM pools normalised group forecasts over
+        # its lookback. Stages add, they do not overlap.
+        rule_memory = max(sig.ewm_memory_spans * sig.max_span(),
+                          sig.momentum_lookback + sig.momentum_skip, sig.low_vol_lookback,
+                          sig.delivery_lookback)
+        forecast_chain = (rule_memory + 2 * sig.normalizer_window_days + sig.fdm_lookback_days
+                          + sig.normalizer_min_obs)
+        return max(
+            forecast_chain,
+            self.universe.history_window_days or self.universe.min_history_days,
+            self.universe.liquidity_lookback_days,
+            self.regime.trend_ma_days, self.regime.breadth_ma_days,
+            self.sleeves.trend_ma_days, self.sleeves.min_history_days,
+            self.costs.adv_lookback_days, self.portfolio.vol_lookback_days,
+        )
 
     def replace(self, **changes: Any) -> "EngineConfig":
         """Return a copy with top-level or dotted-path overrides.

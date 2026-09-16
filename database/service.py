@@ -703,6 +703,68 @@ class DatabaseService:
             logger.error("Failed to fetch backtest history: %s", e)
             return []
 
+    def get_signal_history(self, market: str = "US", page: int = 1, limit: int = 50) -> List[Dict[str, Any]]:
+        """Paginated stock signals for a market, newest first, with their news item.
+
+        Serves ``GET /api/v1/history/signals``; the row shape is the frontend's
+        ``SignalHistoryRow`` (sentiment, title and source come from the linked
+        news item when there is one).
+        """
+        if not self.is_available:
+            return []
+        try:
+            from sqlalchemy import desc
+            offset = (max(1, page) - 1) * max(1, limit)
+            with self.session_scope() as session:
+                rows = (
+                    session.query(StockSignal, NewsItem)
+                    .outerjoin(NewsItem, StockSignal.news_item_id == NewsItem.id)
+                    .filter(StockSignal.market == market.upper())
+                    .order_by(desc(StockSignal.created_at))
+                    .offset(offset)
+                    .limit(limit)
+                    .all()
+                )
+                return [self._signal_row_to_dict(sig, news) for sig, news in rows]
+        except Exception as e:
+            logger.error("Failed to fetch signal history: %s", e)
+            return []
+
+    def count_signals(self, market: str = "US") -> int:
+        """Count stock signals for a market."""
+        if not self.is_available:
+            return 0
+        try:
+            from sqlalchemy import func as sqla_func
+            with self.session_scope() as session:
+                return session.query(sqla_func.count(StockSignal.id)).filter(
+                    StockSignal.market == market.upper()
+                ).scalar() or 0
+        except Exception as e:
+            logger.error("Failed to count signals: %s", e)
+            return 0
+
+    @staticmethod
+    def _signal_row_to_dict(sig: "StockSignal", news: "Optional[NewsItem]") -> Dict[str, Any]:
+        def enum_value(v):
+            return getattr(v, "value", v)
+
+        return {
+            "id": str(sig.id),
+            "ticker": sig.ticker,
+            "market": sig.market,
+            "decision": enum_value(sig.decision),
+            "decision_score": float(sig.decision_score) if sig.decision_score is not None else 0.0,
+            "sentiment_label": enum_value(news.sentiment_label) if news is not None else None,
+            "sentiment_confidence": float(news.sentiment_confidence) if news is not None and news.sentiment_confidence is not None else None,
+            "current_price": float(sig.current_price) if sig.current_price is not None else None,
+            "rsi": float(sig.rsi) if sig.rsi is not None else None,
+            "created_at": sig.created_at.isoformat() if sig.created_at else None,
+            "source": news.source if news is not None else "",
+            "title": news.title if news is not None else "",
+            "reasoning": sig.reasoning,
+        }
+
     def count_backtests(self, market: str = "US") -> int:
         """Count total backtests for a market."""
         if not self.is_available:

@@ -130,22 +130,49 @@ class DataService:
                 logger.debug(f"Cache hit for {ticker}")
                 return self._cache[cache_key].copy()
         
-        # Fetch data
-        df = self._fetch_from_yfinance(ticker, start_date, end_date, interval)
+        # Fetch data. Indian tickers: NSE bhavcopy first (Yahoo blocks or
+        # rate-limits cloud hosts, which surfaced as "No valid data for any
+        # ticker" on every backtest — Sentry 147505613), Yahoo as the fallback.
+        df = None
+        if interval == "1d":
+            try:
+                from utils import _is_indian_ticker, download_ind_ohlcv
+                if _is_indian_ticker(ticker):
+                    df = download_ind_ohlcv(ticker, start=start_date, end=end_date)
+                    if df is not None and df.empty:
+                        df = None
+            except Exception as exc:                      # noqa: BLE001 - fall back to Yahoo
+                logger.debug("bhavcopy path failed for %s: %s", ticker, exc)
+                df = None
+        if df is None:
+            df = self._fetch_from_yfinance(ticker, start_date, end_date, interval)
 
         # ── Survivorship bias check ────────────────────────────
         # Reject delisted / suspended tickers early so strategies
-        # don't backtest on dead stocks.
+        # don't backtest on dead stocks — but only for windows that reach
+        # the present. The check compares the last bar with *today*, so a
+        # historical window (end 2025-03-31, say) always looked "stale":
+        # every ticker was rejected, the rejection was cached, and every
+        # backtest ended in "No valid data for any ticker" (Sentry 147505613).
+        # Historical bars come from NSE bhavcopy, which includes delisted
+        # names, so the data itself is survivorship-free there.
         try:
-            from services.market_data.survivorship_filter import check_ticker
-            result = check_ticker(ticker, ohlcv=df)
-            if not result.is_valid:
-                logger.warning(
-                    "DataService: rejected %s — %s", ticker, result.reason,
-                )
-                return pd.DataFrame()  # return empty → strategy sees no data
+            from datetime import date as _date, timedelta as _td
+            reaches_present = _date.fromisoformat(str(end_date)[:10]) >= _date.today() - _td(days=10)
         except Exception:
-            pass  # degrade gracefully
+            reaches_present = True
+        if reaches_present:
+            try:
+                from services.market_data.survivorship_filter import check_ticker
+                from utils import _is_indian_ticker
+                result = check_ticker(ticker, market="IND" if _is_indian_ticker(ticker) else "US", ohlcv=df)
+                if not result.is_valid:
+                    logger.warning(
+                        "DataService: rejected %s — %s", ticker, result.reason,
+                    )
+                    return pd.DataFrame()  # return empty → strategy sees no data
+            except Exception:
+                pass  # degrade gracefully
 
         # Cache result
         if use_cache and df is not None and not df.empty:

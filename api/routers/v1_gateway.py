@@ -16,7 +16,7 @@ from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from api.dependencies import get_db_service, get_kite_session, get_rag_engine
+from api.dependencies import kite_call, get_db_service, get_kite_session, get_rag_engine
 
 logger = logging.getLogger(__name__)
 
@@ -506,7 +506,15 @@ async def backtest_run(req: BacktestRunRequest):
         result = await asyncio.to_thread(strategy.run, **run_kwargs)
 
         if not result.success:
-            raise HTTPException(status_code=500, detail=result.error_message or "Strategy execution failed")
+            msg = result.error_message or "Strategy execution failed"
+            if "No valid data" in msg:
+                # not a server fault: the symbols/dates yielded no bars from NSE bhavcopy or Yahoo
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"{msg} — tickers={req.tickers} window={req.start_date}..{req.end_date}. "
+                           "Indian symbols are read from NSE bhavcopy first, then Yahoo; check the symbols "
+                           "(NSE trading symbol, e.g. RELIANCE) and that the window covers trading days.")
+            raise HTTPException(status_code=500, detail=msg)
 
         # Extract flat metrics (result.metrics may be nested by ticker)
         metrics = result.metrics or {}
@@ -637,8 +645,6 @@ async def backtest_run(req: BacktestRunRequest):
                 logger.warning("R2 chart upload failed (non-fatal): %s", e)
 
         return response
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error("Backtest error: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -730,8 +736,6 @@ async def verdict_run(req: VerdictRunRequest):
                 })
 
         return cached_results + live_results
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error("Verdict error: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -1234,7 +1238,7 @@ async def kite_session_status():
     if not kite:
         return {"active": False, "profile": None}
     try:
-        profile = await asyncio.to_thread(kite.profile)
+        profile = await kite_call(kite.profile)
         return {"active": True, "profile": profile}
     except Exception:
         return {"active": False, "profile": None}
@@ -1267,7 +1271,7 @@ async def kite_session_start():
         kite = await asyncio.to_thread(try_stored_token)
         if kite:
             set_kite_session(kite)
-            profile = await asyncio.to_thread(kite.profile)
+            profile = await kite_call(kite.profile)
             return {"success": True, "profile": profile}
     except Exception:
         pass  # token invalid/expired, continue
@@ -1284,9 +1288,11 @@ async def kite_session_start():
             kite = await asyncio.to_thread(http_login_kite)
             if kite:
                 set_kite_session(kite)
-                profile = await asyncio.to_thread(kite.profile)
+                profile = await kite_call(kite.profile)
                 return {"success": True, "profile": profile}
             logger.warning("HTTP-based Kite login returned None")
+        except HTTPException:
+            raise
         except Exception as e:
             logger.warning("HTTP-based Kite login failed: %s", e)
     else:
@@ -1300,7 +1306,7 @@ async def kite_session_start():
                     timeout=90,
                 )
             set_kite_session(kite)
-            profile = await asyncio.to_thread(kite.profile)
+            profile = await kite_call(kite.profile)
             return {"success": True, "profile": profile}
         except asyncio.TimeoutError:
             logger.warning("Kite auto-login timed out after 90s")
@@ -1349,8 +1355,10 @@ async def kite_session_complete(body: KiteTokenRequest):
         except Exception:
             pass
 
-        profile = await asyncio.to_thread(kite.profile)
+        profile = await kite_call(kite.profile)
         return {"success": True, "profile": profile}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Kite session complete failed: %s", e, exc_info=True)
         raise HTTPException(status_code=400, detail=str(e))
@@ -1364,7 +1372,7 @@ async def kite_session_stop():
     kite = get_kite_session()
     if kite:
         try:
-            await asyncio.to_thread(kite.invalidate_access_token)
+            await kite_call(kite.invalidate_access_token)
         except Exception:
             pass
     set_kite_session(None)
@@ -1412,8 +1420,10 @@ async def kite_holdings():
     if not kite:
         raise HTTPException(status_code=503, detail="Kite session not active")
     try:
-        holdings = await asyncio.to_thread(kite.holdings)
+        holdings = await kite_call(kite.holdings)
         return holdings
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1425,8 +1435,10 @@ async def kite_positions():
     if not kite:
         raise HTTPException(status_code=503, detail="Kite session not active")
     try:
-        positions = await asyncio.to_thread(kite.positions)
+        positions = await kite_call(kite.positions)
         return positions.get("net", [])
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1443,8 +1455,8 @@ async def kite_portfolio_pnl():
     if not kite:
         raise HTTPException(status_code=503, detail="Kite session not active")
     try:
-        positions_data = await asyncio.to_thread(kite.positions)
-        holdings_data = await asyncio.to_thread(kite.holdings)
+        positions_data = await kite_call(kite.positions)
+        holdings_data = await kite_call(kite.holdings)
 
         net_positions = positions_data.get("net", [])
         total_pnl = 0.0
@@ -1517,6 +1529,8 @@ async def kite_portfolio_pnl():
             "day_pnl": round(day_pnl, 2),
             "positions": position_details,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1528,8 +1542,10 @@ async def kite_orders():
     if not kite:
         raise HTTPException(status_code=503, detail="Kite session not active")
     try:
-        orders = await asyncio.to_thread(kite.orders)
+        orders = await kite_call(kite.orders)
         return orders
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1846,8 +1862,6 @@ async def dw_carver_orders(tickers: Optional[list] = None):
             "dry_run": not bool(client and account_id),
             "pipeline_log": result.pipeline_log,
         }
-    except HTTPException:
-        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -2679,8 +2693,6 @@ async def rl_bot_evaluate(req: RLEvalRequest):
             ],
             "trades": trades[-50:],
         })
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error("RL evaluate error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
@@ -2811,8 +2823,6 @@ async def rl_bot_upload_data(file: UploadFile = File(...)):
                 "end": str(df["Date"].iloc[-1]) if "Date" in df.columns else None,
             },
         }
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error("RL upload error: %s", e)
         raise HTTPException(status_code=400, detail=f"Failed to parse CSV: {e}")
