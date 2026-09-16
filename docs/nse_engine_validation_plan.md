@@ -76,10 +76,24 @@ excess Sharpe 1.27, MaxDD 23.6%, Calmar ≈ 1.0; OOS/IS Sharpe 1.17.
 OOS Sharpe by year: 2017 +2.73, 2018 −1.92, 2019 −0.01, 2020 +1.41,
 2021 +3.18, 2022 −0.78, 2023 +1.96, 2024 +1.09, 2025 +2.16 (3 of 9 ≤ 0).
 
+**Re-run on Kaggle (16 Sep 2026, Linux/x86_64, same grid, same window,
+anchor 2011):** all 9 folds again chose `679cbd0c`. Stitched OOS 2017–2025:
+CAGR 23.7%, vol 12.6%, excess Sharpe 1.24, MaxDD 22.3%, OOS/IS 1.18; OOS
+Sharpe by year 2017 +2.80, 2018 −2.16, 2019 +0.01, 2020 +1.45, 2021 +3.15,
+2022 −0.92, 2023 +2.00, 2024 +1.08, 2025 +2.04 (2 of 9 ≤ 0). 297 backtests in
+two sessions of 19 and 28 minutes. The two platforms differ fold by fold at
+the second decimal (results do not reproduce across machines — see
+`docs/kaggle_research.md`) and agree on every choice and every gate. Files:
+`data/nse_engine/wf_stitched_kaggle.json`, `data/nse_engine/wf_oos_returns_kaggle.csv`.
+
 Validation of its full-period run (`20260914T183003557572Z_679cbd0c`,
 CAGR 24.1%, excess Sharpe 1.22, MaxDD 25.1%): PBO 23.9% over 36
 configurations (likely real), deflated Sharpe 0.994 (N = 36), benchmark gate
 passed — beats naive momentum by 0.53, EW hold by 0.96, NIFTY 50 TRI by 0.71.
+Re-validated after importing the 297 Kaggle runs (registry 1,150 runs): the
+same 23.9% / 0.994 / pass, because PBO and DSR are computed over the 36
+configurations that share the full 2013–2025 window; train- and test-window
+runs are counted as trials but cannot enter a same-window returns matrix.
 
 ```
 python -m runners.run_nse_engine walk-forward --start 2013-01-01 --end 2025-12-31 \
