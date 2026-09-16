@@ -18,10 +18,20 @@ those numbers could not be reproduced or trusted:
 | 1-day lag costs 0.127 Sharpe | Lag test read a 5-day refresh grid |
 | Leverage 2×, fills at the close | Cash (CNC) account cannot hold > 1×; same-close fills |
 
+How much the survivor universe alone was worth (measured 16 Sep 2026 on the
+engine's own adjusted prices, 2013–2025): equal-weight buy-and-hold of
+*today's* NIFTY 50 + Next 50 names returns 23.1% CAGR at excess Sharpe 0.92,
+against 14.4% and 0.52 for the NIFTY 50 TRI that was actually investable.
+That 9 points a year is passive and unrepeatable, and R21A base (30.4% CAGR at
+up to 2× leverage, Sharpe 1.127 with rf = 0 ≈ 0.6 excess) sits barely above
+it. On a like-for-like basis the engine below already scores higher (full
+period excess Sharpe 1.22 ≈ 1.7 at rf = 0) — with lower CAGR only because it
+carries no leverage.
+
 The engine now used for every number below is survivorship-free (NSE bhavcopy
-archives, delisted names included), dividend- and split-adjusted, fills at
-the next open with impact and statutory costs, holds gross ≤ 1, and records
-every run for PBO and DSR.
+archives: 4,232 symbols with history, 1,855 of them no longer trading),
+dividend- and split-adjusted, fills at the next open with impact and statutory
+costs, holds gross ≤ 1, and records every run for PBO and DSR.
 
 ## 2. Target metrics
 
@@ -170,6 +180,20 @@ every configuration recorded (so PBO/DSR count them):
 2. NSE data signals: delivery % confirmation; earnings dates from NSE board
    meeting records (if obtainable); FII/DII flows (data availability first).
 3. Turnover reduction beyond monthly rebalancing.
+4. R21A's independently viable rules as new signal groups — breakout,
+   acceleration, Ehlers DSP, Carver value — one group per trial with fixed
+   hand-set weights, so FDM does the combining and the registry counts every
+   attempt. R21A's own incremental tests found each hurt v27, but that was on
+   the survivor universe with optimised weights; the question is open here.
+   Expectation: a Sharpe change of ±0.1, not a new regime of returns.
+
+Not on the list, on purpose: re-optimising signal weights (R21A's 247% data-
+mining bias estimate came from exactly that), leverage (MTF at ≈ 14.6%/yr
+roughly doubles drawdown for the CAGR it adds), and anything tuned on 2026.
+
+All research folds run on Kaggle (`docs/kaggle_research.md`): results do not
+reproduce across platforms, so a walk-forward is compared only with
+walk-forwards from the same place.
 
 A research winner is never deployed on its walk-forward alone: it paper
 trades beside the deployed configuration for at least 60 sessions first,
