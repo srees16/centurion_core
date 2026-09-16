@@ -101,7 +101,7 @@ async def infra_health():
         }
 
     try:
-        from services.layers.monitoring import monitoring_service
+        from infrastructure.monitoring import monitoring_service
         monitoring_data = monitoring_service.get_health()
     except Exception:
         monitoring_data = {}

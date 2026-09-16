@@ -56,7 +56,7 @@ def _clear_creds():
 
 @st.cache_resource(show_spinner=False)
 def _get_dw_client(client_id: str, client_secret: str, app_key: str):
-    from services.drivewealth import DriveWealthClient
+    from services.execution.drivewealth import DriveWealthClient
     return DriveWealthClient(client_id, client_secret, app_key)
 
 

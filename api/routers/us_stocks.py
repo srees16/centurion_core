@@ -114,7 +114,7 @@ async def run_analysis(request: AnalysisRequest):
         try:
             from config import Config
             if getattr(Config, "CARVER_US_ENABLED", False):
-                from services.us_carver_pipeline import run_us_carver_pipeline
+                from services.execution.us_carver_pipeline import run_us_carver_pipeline
                 carver_result = run_us_carver_pipeline(request.tickers)
                 carver_plans = carver_result.trade_plans
                 logger.info("Carver US enrichment: %d trade plans for %d tickers",
@@ -508,7 +508,7 @@ async def us_carver_pipeline(tickers: Optional[List[str]] = None):
         if not getattr(Config, "CARVER_US_ENABLED", False):
             raise HTTPException(status_code=400, detail="Carver US is not enabled in config")
 
-        from services.us_carver_pipeline import run_us_carver_pipeline, DEFAULT_US_CARVER_TICKERS
+        from services.execution.us_carver_pipeline import run_us_carver_pipeline, DEFAULT_US_CARVER_TICKERS
 
         syms = tickers or DEFAULT_US_CARVER_TICKERS
         result = await asyncio.to_thread(run_us_carver_pipeline, syms)
@@ -540,7 +540,7 @@ async def us_carver_efficiency(tickers: Optional[List[str]] = None):
     vol-targeted framework on US historical data.
     """
     try:
-        from services.us_carver_pipeline import run_us_carver_backtest
+        from services.execution.us_carver_pipeline import run_us_carver_backtest
 
         report = await asyncio.to_thread(run_us_carver_backtest, tickers)
         if "error" in report:
@@ -556,16 +556,16 @@ async def us_carver_efficiency(tickers: Optional[List[str]] = None):
 def _check_us_carver_modules() -> Dict[str, bool]:
     """Check which Carver modules are importable for US stocks."""
     modules = {
-        "us_carver_pipeline": "services.us_carver_pipeline",
-        "instrument_volatility": "services.instrument_volatility",
-        "volatility_target": "services.volatility_target",
-        "forecast_scalar": "services.forecast_scalar",
-        "forecast_combiner": "services.forecast_combiner",
-        "position_sizer": "services.position_sizer",
-        "instrument_weights": "services.instrument_weights",
+        "us_carver_pipeline": "services.execution.us_carver_pipeline",
+        "instrument_volatility": "services.risk.instrument_volatility",
+        "volatility_target": "services.risk.volatility_target",
+        "forecast_scalar": "services.signals.forecast_scalar",
+        "forecast_combiner": "services.signals.forecast_combiner",
+        "position_sizer": "services.risk.position_sizer",
+        "instrument_weights": "services.portfolio.instrument_weights",
         "ewmac": "strategies.ewmac",
-        "cost_speed_limit": "services.cost_speed_limit",
-        "carver_calibration": "services.carver_calibration",
+        "cost_speed_limit": "services.risk.cost_speed_limit",
+        "carver_calibration": "services.research.carver_calibration",
     }
     status = {}
     for name, mod_path in modules.items():
@@ -585,7 +585,7 @@ def _check_us_carver_modules() -> Dict[str, bool]:
 async def us_vince_metrics():
     """Return Ralph Vince risk metrics for US stocks portfolio."""
     try:
-        from services.vince_metrics import get_vince_tracker
+        from services.risk.vince_metrics import get_vince_tracker
         tracker = get_vince_tracker()
         data = tracker.to_dict()
         return SuccessResponse(success=True, data=data)
@@ -620,7 +620,7 @@ async def us_penfold_analysis(tickers: Optional[List[str]] = None):
     """
     try:
         from utils import download_us_ohlcv
-        from services.us_carver_pipeline import DEFAULT_US_CARVER_TICKERS
+        from services.execution.us_carver_pipeline import DEFAULT_US_CARVER_TICKERS
         from strategies.penfold_trend import (
             compute_penfold_trend_analysis,
             compute_weekly_dow_filter,

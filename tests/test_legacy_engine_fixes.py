@@ -9,7 +9,7 @@ from unittest import mock
 import numpy as np
 import pandas as pd
 
-from services import full_pipeline_backtest as fpb
+from services.research import full_pipeline_backtest as fpb
 
 
 def _ohlcv(index, start_price=100.0, seed=0):
@@ -76,8 +76,8 @@ class EwmacUnitsTests(unittest.TestCase):
             self.assertGreater(abs(result["LOW"][key]), 0.0)
 
     def test_fpb_formula_matches_strategy_module(self):
-        from services.forecast_scalar import ewmac_to_forecast
-        from services.instrument_volatility import daily_price_volatility
+        from services.signals.forecast_scalar import ewmac_to_forecast
+        from services.risk.instrument_volatility import daily_price_volatility
 
         out = []
         for base in (100.0, 10_000.0):
@@ -91,7 +91,7 @@ class EwmacUnitsTests(unittest.TestCase):
 
 class RegimeLabelTests(unittest.TestCase):
     def test_normalize_regime(self):
-        from services.forecast_combiner import normalize_regime
+        from services.signals.forecast_combiner import normalize_regime
 
         for label in ("strong_bull", "bull", "trending_bull", "BULL "):
             self.assertEqual(normalize_regime(label), "bull")
@@ -112,7 +112,7 @@ class RegimeLabelTests(unittest.TestCase):
 
     def test_regime_blend_gated_off(self):
         from config import Config
-        from services import forecast_combiner as fc
+        from services.signals import forecast_combiner as fc
 
         self.assertFalse(Config.REGIME_SHARPE_BLEND_ENABLED)
         with mock.patch.object(fc, "apply_regime_sharpe_weights", side_effect=AssertionError("called")):

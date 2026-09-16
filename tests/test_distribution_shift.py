@@ -1,4 +1,4 @@
-"""Tests for services.distribution_shift and its paper-trading wiring (stdlib unittest)."""
+"""Tests for services.research.distribution_shift and its paper-trading wiring (stdlib unittest)."""
 
 import json
 import os
@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import wasserstein_distance
 
-from services.distribution_shift import (
+from services.research.distribution_shift import (
     classify,
     compare_live_to_backtest,
     detect_distribution_shift,

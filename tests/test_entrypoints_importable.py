@@ -44,8 +44,8 @@ ENTRY_POINTS = (
     # orchestration / analysis / legacy still wired to the scheduler
     "scheduler",
     "analyze_paper_results",
-    "services.carver_pipeline",
-    "services.distribution_shift",
+    "services.execution.carver_pipeline",
+    "services.research.distribution_shift",
     "database.paper_cloud",
     # interfaces
     "api.main",

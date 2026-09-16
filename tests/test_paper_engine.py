@@ -454,7 +454,7 @@ class TestRealityGap(unittest.TestCase):
         trader = pt_mod.PaperTrader.__new__(pt_mod.PaperTrader)
         alert = mock.MagicMock()
         with mock.patch.object(pt_mod, "_DB_PATH", db), \
-                mock.patch("services.distribution_shift.compare_live_to_backtest", return_value=dict(report)), \
+                mock.patch("services.research.distribution_shift.compare_live_to_backtest", return_value=dict(report)), \
                 mock.patch("services.notifications.manager.NotificationManager", return_value=alert):
             result = trader._run_distribution_shift()
         self.assertEqual(result["position_verdict"], "drifting")

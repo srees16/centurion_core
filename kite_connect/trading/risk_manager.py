@@ -198,7 +198,7 @@ class RiskManager:
         # Portfolio-aware allocation: check existing sector weights
         portfolio_snap = None
         try:
-            from services.portfolio_analyzer import PortfolioAnalyzer
+            from services.portfolio.portfolio_analyzer import PortfolioAnalyzer
             analyzer = PortfolioAnalyzer(self.kite)
             portfolio_snap = analyzer.snapshot()
             # Pre-load sector capital from existing holdings
@@ -480,7 +480,7 @@ class RiskManager:
             and instrument_value_vol > 0
             and self._vol_target is not None
         ):
-            from services.position_sizer import compute_position_size
+            from services.risk.position_sizer import compute_position_size
             daily_cash_vol = self._vol_target.daily_cash_vol_target
             capital = self._vol_target.current_capital
             ps = compute_position_size(
@@ -716,7 +716,7 @@ class RiskManager:
             try:
                 from config import Config as _HoldCfg
                 if hasattr(_HoldCfg, 'get_regime_hold_days'):
-                    from services.regime_detector import get_current_regime
+                    from services.regime.regime_detector import get_current_regime
                     _regime = get_current_regime()
                     _regime_str = getattr(_regime, 'regime', '') if _regime else ''
                     max_days = _HoldCfg.get_regime_hold_days(str(_regime_str), "swing")

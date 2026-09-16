@@ -24,7 +24,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from services.aronson_validator import (
+from services.research.aronson_validator import (
     AronsonValidator,
     SignalValidation,
     ValidationSummary,
@@ -441,7 +441,7 @@ class TestAronsonPersistence:
 
         # Write to temp path
         state_path = tmp_path / "state.json"
-        with patch("services.aronson_validator._VALIDATION_STATE_PATH", state_path):
+        with patch("services.research.aronson_validator._VALIDATION_STATE_PATH", state_path):
             validator.save_state(summary)
             assert state_path.exists()
 
@@ -460,7 +460,7 @@ class TestAronsonPersistence:
         summary = validator.validate_signals(signal_returns)
 
         state_path = tmp_path / "state.json"
-        with patch("services.aronson_validator._VALIDATION_STATE_PATH", state_path):
+        with patch("services.research.aronson_validator._VALIDATION_STATE_PATH", state_path):
             validator.save_state(summary)
             mults = AronsonValidator.load_weight_multipliers()
             assert "sig1" in mults
@@ -468,7 +468,7 @@ class TestAronsonPersistence:
 
     def test_load_missing_file(self, tmp_path):
         state_path = tmp_path / "nonexistent.json"
-        with patch("services.aronson_validator._VALIDATION_STATE_PATH", state_path):
+        with patch("services.research.aronson_validator._VALIDATION_STATE_PATH", state_path):
             assert AronsonValidator.load_state() is None
             assert AronsonValidator.load_weight_multipliers() == {}
 

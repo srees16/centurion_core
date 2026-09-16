@@ -129,7 +129,7 @@ class TestDeflatedSharpe(unittest.TestCase):
         self.assertFalse(deflated_sharpe_from_stats(0.071, 3189, 1550, -1.19, 14.3)["passed"])
 
     def test_legacy_function_converts_annual_sharpe(self):
-        from services.deflated_sharpe import deflated_sharpe_ratio, min_backtest_length
+        from services.research.deflated_sharpe import deflated_sharpe_ratio, min_backtest_length
 
         annual = deflated_sharpe_ratio(observed_sr=0.071 * math.sqrt(252), n_obs=3189, n_trials=24,
                                        skewness=-1.19, kurtosis=14.3)
@@ -141,13 +141,13 @@ class TestDeflatedSharpe(unittest.TestCase):
         self.assertGreater(min_backtest_length(1.0), 500)
 
     def test_legacy_warns_on_annual_sr_passed_as_daily(self):
-        from services.deflated_sharpe import deflated_sharpe_ratio
+        from services.research.deflated_sharpe import deflated_sharpe_ratio
 
-        with self.assertLogs("services.deflated_sharpe", level="WARNING"):
+        with self.assertLogs("services.research.deflated_sharpe", level="WARNING"):
             deflated_sharpe_ratio(observed_sr=1.127, n_obs=3189, n_trials=24, annualized=False)
 
     def test_legacy_expected_max_requires_std(self):
-        from services.deflated_sharpe import expected_max_sr
+        from services.research.deflated_sharpe import expected_max_sr
 
         with self.assertRaises(ValueError):
             expected_max_sr(10)
@@ -550,7 +550,7 @@ class TestDiagnostics(unittest.TestCase):
 class TestLegacyAronsonFixes(unittest.TestCase):
 
     def test_detrend_without_benchmark_warns(self):
-        from services.aronson_validator import demean_returns, detrend_returns
+        from services.research.aronson_validator import demean_returns, detrend_returns
 
         r = pd.Series(np.random.default_rng(0).normal(0.001, 0.01, 300))
         with self.assertWarns(DeprecationWarning):
@@ -558,7 +558,7 @@ class TestLegacyAronsonFixes(unittest.TestCase):
         pd.testing.assert_series_equal(out, demean_returns(r))
 
     def test_detrend_with_benchmark_and_alpha_beta_alignment(self):
-        from services.aronson_validator import compute_alpha_beta, detrend_returns
+        from services.research.aronson_validator import compute_alpha_beta, detrend_returns
 
         d = bdays(500)
         rng = np.random.default_rng(1)

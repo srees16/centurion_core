@@ -675,7 +675,7 @@ class PaperTrader:
     def _trail_stop(self, pos: PaperPosition, ltp: float) -> None:
         """G5: Ratchet stop-loss using vol-based trailing stop.
 
-        Uses services.vol_trailing_stop.compute_trailing_stop() which:
+        Uses services.risk.vol_trailing_stop.compute_trailing_stop() which:
           - Scales stop distance by daily volatility (2.5σ swing, 3.5σ positional)
           - Activates profit-lock after 4σ gain (tightens to 1.5σ)
           - Guarantees break-even once profit-lock activates
@@ -689,8 +689,8 @@ class PaperTrader:
         pos.peak_price = max(pos.peak_price, ltp)
 
         try:
-            from services.vol_trailing_stop import compute_trailing_stop
-            from services.instrument_volatility import daily_price_volatility
+            from services.risk.vol_trailing_stop import compute_trailing_stop
+            from services.risk.instrument_volatility import daily_price_volatility
             from utils import download_ind_ohlcv
 
             df = download_ind_ohlcv(pos.symbol, period="3mo")
@@ -709,7 +709,7 @@ class PaperTrader:
             # Fetch current regime for contra-regime trailing stop
             _paper_regime = ""
             try:
-                from services.regime_detector import detect_regime
+                from services.regime.regime_detector import detect_regime
                 _snap = detect_regime()
                 if _snap and hasattr(_snap, 'regime'):
                     _paper_regime = str(_snap.regime).lower()
@@ -1422,7 +1422,7 @@ class PaperTrader:
                 max_dd = abs(float(daily["max_drawdown"]))  # daily curve beats the trade-sequence estimate
         if len(trade_returns) >= 5:
             try:
-                from services.risk_metrics import RiskMetrics
+                from services.risk.risk_metrics import RiskMetrics
                 returns_series = pd.Series(trade_returns)
                 # Distribution shape of round trips (no annualisation involved).
                 omega = RiskMetrics.omega_ratio(returns_series)
@@ -1614,7 +1614,7 @@ class PaperTrader:
         """Compare live daily returns with the backtest once ``min_live_days`` exist.
 
         The backtest reference is chosen by
-        ``services.distribution_shift.load_backtest_reference``: backtest returns
+        ``services.research.distribution_shift.load_backtest_reference``: backtest returns
         for the same dates as the live record when available (e.g.
         data/shift_reference_returns.csv from ``run_nse_engine shift-reference``
         or ``CENTURION_SHIFT_REFERENCE_RUN``), otherwise recent backtest history.
@@ -1630,7 +1630,7 @@ class PaperTrader:
         (:func:`reality_gap_alerts`); a breach alerts and counts as
         "drifting" for the multiplier (``position_verdict``).
         """
-        from services.distribution_shift import compare_live_to_backtest, more_severe
+        from services.research.distribution_shift import compare_live_to_backtest, more_severe
 
         _close_conn = False
         if conn is None:

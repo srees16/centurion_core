@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from services.signal_quality_evaluator import (
+from services.signals.signal_quality_evaluator import (
     # Regime segmentation
     classify_regimes,
     classify_regimes_ohlcv,

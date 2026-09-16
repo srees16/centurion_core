@@ -2,7 +2,7 @@
 
 One engine for research, validation, paper and live trading of NSE cash
 equities (CNC). It replaces the fast optimizer simulators for validation and
-supersedes `services/full_pipeline_backtest.py` (kept, fixed, but no longer
+supersedes `services/research/full_pipeline_backtest.py` (kept, fixed, but no longer
 the source of truth).
 
 Scope: NSE equities and NSE-listed metal ETFs only. No BTC, US stocks or options.

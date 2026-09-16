@@ -96,7 +96,7 @@ def run_futures_monitor(kite, regime: str = "unknown") -> FuturesMonitorResult:
 
         # Estimate DTE from instrument lookup
         try:
-            from services.futures_overlay import check_rollover_needed
+            from services.execution.futures_overlay import check_rollover_needed
             next_sym = check_rollover_needed(kite, tsym, days_before=3)
             if next_sym:
                 result.needs_rollover.append(tsym)

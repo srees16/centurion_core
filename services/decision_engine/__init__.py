@@ -1,4 +1,4 @@
-﻿"""
+"""
 Decision engine module.
 """
 

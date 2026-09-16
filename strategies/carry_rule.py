@@ -28,8 +28,8 @@ from typing import Dict, Optional
 
 import pandas as pd
 
-from services.forecast_scalar import carry_to_forecast
-from services.instrument_volatility import annual_price_volatility
+from services.signals.forecast_scalar import carry_to_forecast
+from services.risk.instrument_volatility import annual_price_volatility
 
 logger = logging.getLogger(__name__)
 

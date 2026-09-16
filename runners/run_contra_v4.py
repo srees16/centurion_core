@@ -5,9 +5,9 @@ _CORE_DIR = os.path.dirname(_SCRIPT_DIR)  # centurion_core/
 if _CORE_DIR not in sys.path:
     sys.path.insert(0, _CORE_DIR)
 
-import services.full_pipeline_backtest as bt
+import services.research.full_pipeline_backtest as bt
 import pickle, time
-from services.forecast_combiner import DEFAULT_FORECAST_WEIGHTS
+from services.signals.forecast_combiner import DEFAULT_FORECAST_WEIGHTS
 
 # Enable R21A base
 bt._R21A_REGIME_VOL = True

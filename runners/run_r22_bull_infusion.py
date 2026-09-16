@@ -33,8 +33,8 @@ sys.stderr.reconfigure(line_buffering=True, encoding="utf-8", errors="replace")
 
 
 def main(infusion_amount: float = 50_000.0, infuse: bool = True):
-    from services.forecast_combiner import DEFAULT_FORECAST_WEIGHTS
-    import services.full_pipeline_backtest as bt_mod
+    from services.signals.forecast_combiner import DEFAULT_FORECAST_WEIGHTS
+    import services.research.full_pipeline_backtest as bt_mod
 
     # ── Load optimized weights ────
     if os.path.exists(_OPT_RESULTS):

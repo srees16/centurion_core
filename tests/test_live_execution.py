@@ -278,7 +278,7 @@ class TestKillSwitch(unittest.TestCase):
 
 class TestSessionFreshness(unittest.TestCase):
     def setUp(self):
-        from services import carver_pipeline as cp
+        from services.execution import carver_pipeline as cp
         self.cp = cp
         p = mock.patch.dict(os.environ, {"CENTURION_NSE_HOLIDAYS": ""})
         p.start(); self.addCleanup(p.stop)

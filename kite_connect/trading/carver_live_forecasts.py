@@ -119,8 +119,8 @@ def _compute_ewmac(
 ):
     """EWMA crossover forecasts (Carver Ch. 7)."""
     try:
-        from services.forecast_scalar import ewmac_to_forecast
-        from services.instrument_volatility import daily_price_volatility
+        from services.signals.forecast_scalar import ewmac_to_forecast
+        from services.risk.instrument_volatility import daily_price_volatility
     except ImportError:
         logger.warning("EWMAC: missing forecast_scalar or instrument_volatility")
         return
@@ -164,7 +164,7 @@ def _compute_momentum(
 ):
     """12-minus-1 month cross-sectional momentum."""
     try:
-        from services.momentum_factor import compute_momentum_forecasts
+        from services.signals.momentum_factor import compute_momentum_forecasts
         fc_map = compute_momentum_forecasts(ohlcv)
         for sym, fc in fc_map.items():
             if sym in result and np.isfinite(fc):
@@ -311,7 +311,7 @@ def _compute_screener(
 def _get_v27_weights() -> Dict[str, float]:
     """Load v27 champion weights from forecast_combiner."""
     try:
-        from services.forecast_combiner import DEFAULT_FORECAST_WEIGHTS
+        from services.signals.forecast_combiner import DEFAULT_FORECAST_WEIGHTS
         return {fw.name: fw.weight for fw in DEFAULT_FORECAST_WEIGHTS}
     except ImportError:
         # Fallback: hardcoded v27 champion

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Mean Reversion Trading Strategy (Crypto, Binance API)
 by Chee-Foong on 15 Apr 2021 -- integrated as BaseStrategy adapter.
 

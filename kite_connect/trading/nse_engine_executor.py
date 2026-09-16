@@ -428,7 +428,7 @@ class EngineExecutor:
 
         # Session freshness: never trade on stale data
         try:
-            from services.carver_pipeline import last_completed_nse_session
+            from services.execution.carver_pipeline import last_completed_nse_session
             expected = last_completed_nse_session()
             if as_of is not None and pd.Timestamp(data.dates[-1]).date() < expected and self._as_of_is_live(as_of):
                 plan.notes.append(f"stale data: last bar {data.dates[-1].date()} < session {expected}")

@@ -567,15 +567,15 @@ class TradeMonitor:
 
             # Attempt Carver vol-based trailing stop
             try:
-                from services.vol_trailing_stop import compute_trailing_stop
-                from services.instrument_volatility import daily_price_volatility
+                from services.risk.vol_trailing_stop import compute_trailing_stop
+                from services.risk.instrument_volatility import daily_price_volatility
                 from utils import download_ind_ohlcv
                 from config import Config
 
                 # Fetch current regime for contra-regime trailing stop
                 _tm_regime = ""
                 try:
-                    from services.regime_detector import detect_regime
+                    from services.regime.regime_detector import detect_regime
                     _snap = detect_regime()
                     if _snap and hasattr(_snap, 'regime'):
                         _tm_regime = str(_snap.regime).lower()
@@ -707,7 +707,7 @@ class TradeMonitor:
             # A5: Use regime-adaptive hold days if available
             if horizon == "swing" and hasattr(Config, 'get_regime_hold_days'):
                 try:
-                    from services.regime_detector import get_current_regime
+                    from services.regime.regime_detector import get_current_regime
                     _regime = get_current_regime()
                     _regime_str = getattr(_regime, 'regime', '') if _regime else ''
                     max_days = Config.get_regime_hold_days(str(_regime_str), horizon)
@@ -851,7 +851,7 @@ class TradeMonitor:
     def _record_vince_trade(symbol: str, entry_price: float, exit_price: float, quantity: int) -> None:
         """Record trade return to VinceTracker for geometric mean tracking."""
         try:
-            from services.vince_metrics import get_vince_tracker
+            from services.risk.vince_metrics import get_vince_tracker
             if entry_price > 0:
                 pnl_pct = (exit_price - entry_price) / entry_price
                 get_vince_tracker().record_trade(symbol, pnl_pct)
@@ -1137,7 +1137,7 @@ class TradeMonitor:
             return events
 
         try:
-            from services.corporate_actions import get_actions_for_symbols, adjust_position
+            from services.market_data.corporate_actions import get_actions_for_symbols, adjust_position
             symbols = [t.symbol for t in active]
             pending = get_actions_for_symbols(symbols)
             if not pending:

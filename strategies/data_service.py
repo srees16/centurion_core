@@ -137,7 +137,7 @@ class DataService:
         # Reject delisted / suspended tickers early so strategies
         # don't backtest on dead stocks.
         try:
-            from services.survivorship_filter import check_ticker
+            from services.market_data.survivorship_filter import check_ticker
             result = check_ticker(ticker, ohlcv=df)
             if not result.is_valid:
                 logger.warning(

@@ -30,7 +30,7 @@ _ROOT = str(Path(__file__).resolve().parent.parent.parent)
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from services.vince_leverage_space import (
+from services.risk.vince_leverage_space import (
     compute_optimal_f,
     compute_leverage_space_portfolio,
 )

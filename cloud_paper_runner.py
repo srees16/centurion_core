@@ -223,7 +223,7 @@ def _signals_and_trades(pt, ctx):
     """Screen → verdicts → CarverPipeline (with holdings) → exits → paper buys."""
     from kite_connect.nse.nse_universe import get_nse_universe
     from kite_connect.nse.screener import NSEScreener, ScreenerConfig
-    from services.integrated_scorer import IntegratedScorer
+    from services.signals.integrated_scorer import IntegratedScorer
 
     holdings = {s: h["quantity"] for s, h in pt.holdings().items()}
 
@@ -273,7 +273,7 @@ def _signals_and_trades(pt, ctx):
     pipe_result = None
     fallback_reason = ""
     try:
-        from services.carver_pipeline import CarverPipeline, PipelineConfig
+        from services.execution.carver_pipeline import CarverPipeline, PipelineConfig
         from utils import download_ind_ohlcv
 
         ohlcv_cache = {}

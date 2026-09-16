@@ -377,7 +377,7 @@ async def macro_fear_greed():
 async def macro_portfolio_risk(market: str = "IND"):
     """Get portfolio risk snapshot (drawdown, vol, concentration)."""
     try:
-        from services.portfolio_vol_monitor import assess_portfolio_risk
+        from services.risk.portfolio_vol_monitor import assess_portfolio_risk
 
         # Attempt to gather live position data from Kite (IND) or DriveWealth (US)
         position_values: dict = {}
@@ -667,7 +667,7 @@ async def verdict_run(req: VerdictRunRequest):
     """
     try:
         from scheduler import get_cached_verdict
-        from services.integrated_scorer import IntegratedScorer
+        from services.signals.integrated_scorer import IntegratedScorer
 
         # --- Serve cached verdicts where available ---
         # Gap C fix: validate cache age — reject entries older than 30 min
@@ -806,7 +806,7 @@ async def screener_run(req: ScreenerRunRequest):
         try:
             from config import Config as _Cfg
             if getattr(_Cfg, "CARVER_ENABLED", False):
-                from services.volatility_target import VolatilityTarget, VolatilityTargetConfig
+                from services.risk.volatility_target import VolatilityTarget, VolatilityTargetConfig
                 vt = VolatilityTarget(VolatilityTargetConfig(
                     initial_capital=risk_cfg.total_capital,
                     annual_vol_target_pct=getattr(_Cfg, "CARVER_ANNUAL_VOL_TARGET", 0.20),
@@ -864,7 +864,7 @@ async def screener_execute(req: Dict[str, Any]):
             return {"orders": [], "message": "No plans provided"}
 
         # ── Verdict enforcement: score all symbols first ──
-        from services.integrated_scorer import IntegratedScorer
+        from services.signals.integrated_scorer import IntegratedScorer
         from datetime import date, timedelta
 
         symbols = list({p.get("symbol", "") for p in plans if p.get("symbol")})
@@ -1583,15 +1583,15 @@ async def options_overlay_scan(req: OverlayScanRequest = OverlayScanRequest()):
     capital = req.capital
     regime = req.regime
     try:
-        from services.options_overlay import OptionsOverlay
-        from services.iron_condor_strangle import IronCondorStrangleOverlay
-        from services.oi_signal import FNO_LOT_SIZES
+        from services.execution.options_overlay import OptionsOverlay
+        from services.execution.iron_condor_strangle import IronCondorStrangleOverlay
+        from services.signals.oi_signal import FNO_LOT_SIZES
 
         # ── Gather IV data ──────────────────────────
         iv_data: Dict[str, Dict] = {}
         spot_prices: Dict[str, float] = {}
         try:
-            from services.iv_rank import compute_iv_ranks_batch
+            from services.signals.iv_rank import compute_iv_ranks_batch
             from infrastructure.cache import ohlcv_cache_store
             ohlcv_cache = ohlcv_cache_store.get_all() if hasattr(ohlcv_cache_store, "get_all") else {}
             iv_ranks = await asyncio.to_thread(compute_iv_ranks_batch, ohlcv_cache)
@@ -1709,7 +1709,7 @@ _dw_session: Dict[str, Any] = {}
 async def dw_login(req: DWLoginRequest):
     """Login to DriveWealth API."""
     try:
-        from services.drivewealth import DriveWealthClient
+        from services.execution.drivewealth import DriveWealthClient
         client = DriveWealthClient(
             client_id=req.client_id,
             client_secret=req.client_secret,
@@ -1787,7 +1787,7 @@ async def dw_carver_orders(tickers: Optional[list] = None):
         if not getattr(Config, "CARVER_US_ENABLED", False):
             raise HTTPException(status_code=400, detail="Carver US is not enabled")
 
-        from services.us_carver_pipeline import run_us_carver_pipeline, DEFAULT_US_CARVER_TICKERS
+        from services.execution.us_carver_pipeline import run_us_carver_pipeline, DEFAULT_US_CARVER_TICKERS
 
         syms = tickers or DEFAULT_US_CARVER_TICKERS
         result = await asyncio.to_thread(run_us_carver_pipeline, syms)
