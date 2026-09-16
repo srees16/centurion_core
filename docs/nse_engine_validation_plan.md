@@ -147,6 +147,24 @@ Setup:
 3. Daily job (19:30 IST): sync NSE archives → rebuild current-year store →
    same-period shift reference → decide after close → fill pending orders at
    the next session's open → GTT-style stops at min(open, stop) → snapshot.
+4. The job runs only while the paper switch in Neon (`paper_trading_state`,
+   toggled from the trade-monitor page or `POST /api/paper-trading
+   {"action":"start","weeks":20}`) is active and unexpired — the page's
+   default is 4 weeks, which is why the first engine runs on 16 Sep 2026
+   skipped with "Paper trading is NOT active". 90 sessions need ~20 weeks.
+5. The book is scoped by an `epoch` in `paper_cloud_state`; dispatch the
+   workflow with `new_book=true` to start a fresh book at
+   `CENTURION_PAPER_INITIAL_CAPITAL` (older rows stay, filtered out). The
+   engine marks `book_owner=nse_engine`, which switches off the legacy paper
+   jobs in the Hugging Face scheduler that would otherwise overwrite the
+   day's snapshot with a stale copy.
+
+Where to watch: https://centurion-core-fe.vercel.app/ind-stocks/trade-monitor —
+active positions and orders pending for the next open, closed trades with
+exit reason, the metrics grid (Sharpe/Sortino/Calmar/MaxDD from the daily
+equity curve), daily P&L bars, the equity curve, weekly checkpoints, and a
+per-day drill-down with that session's signals and fills. All of it reads the
+Neon book directly, so it updates as soon as the day's job finishes.
 
 Daily monitoring (automatic):
 

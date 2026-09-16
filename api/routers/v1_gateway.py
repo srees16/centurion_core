@@ -936,8 +936,17 @@ async def screener_monitor():
 
 @router.get("/screener/monitor/trades")
 async def screener_monitor_trades():
-    """Get active and closed trade details (live + paper)."""
+    """Active and closed paper trades — from the cloud book the Actions job writes.
+
+    Orders decided at the close and filling at the next open appear as Pending.
+    Local SQLite is only a fallback for a machine without a Neon connection.
+    """
     try:
+        cloud = _cloud_or_none()
+        if cloud:
+            from kite_connect.trading.paper_book_view import trades_view
+            return trades_view(cloud)
+
         import sqlite3 as _sql
         from pathlib import Path as _Path
 
@@ -1001,8 +1010,17 @@ async def screener_monitor_trades():
 
 @router.get("/screener/monitor/paper-dashboard")
 async def screener_paper_dashboard():
-    """Get full paper trading dashboard with performance metrics."""
+    """Paper dashboard from the cloud book: equity from the latest daily snapshot.
+
+    Not built through ``PaperTrader`` here on purpose: its local SQLite copy is
+    filled once from Neon and then read in preference to it, so the page would
+    stop updating after the first day.
+    """
     try:
+        cloud = _cloud_or_none()
+        if cloud:
+            from kite_connect.trading.paper_book_view import dashboard_view
+            return dashboard_view(cloud)
         from kite_connect.trading.paper_trader import PaperTrader
         pt = PaperTrader()
         dash = pt.dashboard()

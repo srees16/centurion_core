@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import sqlite3
 import sys
 from datetime import date, datetime, timedelta, timezone
@@ -420,6 +421,36 @@ def run_pipeline(run_type: str = "pre_market"):
         _save_run(run_type, {"status": f"error: {exc}"})
 
 
+
+# ── Paper book ownership ──────────────────────────────────────────
+#
+# While the NSE engine job on GitHub Actions owns the cloud paper book, the
+# legacy paper jobs here must not touch it: this process restores the book
+# into its own SQLite once and then reads that stale copy, so its EOD
+# snapshot would overwrite the engine's equity with a frozen number and its
+# 3-minute poll would close engine positions on legacy stop rules.
+
+_BOOK_OWNER_CACHE = {"value": None, "checked_at": 0.0}
+
+
+def _paper_book_owned_by_engine() -> bool:
+    """True when ``paper_cloud_state.book_owner`` is the NSE engine (cached 10 min)."""
+    if os.environ.get("CENTURION_NSE_ENGINE", "false").lower() in ("true", "1", "yes"):
+        return True
+    now = time.time()
+    if _BOOK_OWNER_CACHE["value"] is not None and now - _BOOK_OWNER_CACHE["checked_at"] < 600:
+        return bool(_BOOK_OWNER_CACHE["value"])
+    owner = ""
+    try:
+        from database.paper_cloud import get_paper_cloud
+        cloud = get_paper_cloud()
+        owner = cloud.book_owner() if cloud else ""
+    except Exception as exc:                              # noqa: BLE001 - never block the scheduler
+        logger.debug("book_owner check failed: %s", exc)
+    _BOOK_OWNER_CACHE.update(value=(owner == "nse_engine"), checked_at=now)
+    return owner == "nse_engine"
+
+
 def _send_daily_email(summary: dict):
     """Send daily pipeline email report."""
     try:
@@ -498,6 +529,9 @@ def _paper_trade_orders(verdicts: list, screened_df, entries_allowed: bool = Tru
     (all 20+ forecast sources), instead of manual EWMAC+screener stitching.
     Falls back to legacy RiskManager path if CarverPipeline fails.
     """
+    if _paper_book_owned_by_engine():
+        logger.debug("%s: paper book is owned by the NSE engine — skipped", "_paper_trade_orders")
+        return
     try:
         from kite_connect.trading.paper_trader import PaperTrader
 
@@ -1039,6 +1073,9 @@ def _run_paper_live_reconciliation():
     All discrepancies > 1 % (P&L) or > 0.3 (Sharpe drift) are logged
     and trigger desktop notifications.
     """
+    if _paper_book_owned_by_engine():
+        logger.debug("%s: paper book is owned by the NSE engine — skipped", "_run_paper_live_reconciliation")
+        return
     logger.info("=== Unified Reconciliation started ===")
     report: dict = {"status": "success"}
 
@@ -1523,6 +1560,9 @@ def _run_paper_trade_poll():
     Ensures paper positions are checked intraday, not just at order-placement time.
     Uses the G5 vol-based trailing stop logic added to PaperTrader.poll().
     """
+    if _paper_book_owned_by_engine():
+        logger.debug("%s: paper book is owned by the NSE engine — skipped", "_run_paper_trade_poll")
+        return
     try:
         from config import Config
         if not getattr(Config, "PAPER_TRADE_MODE", True):
@@ -2011,6 +2051,9 @@ def _run_paper_eod_snapshot():
     P&L, open positions, and drawdown for equity curve reconstruction.
     Even if the system crashes mid-week, we have daily granularity.
     """
+    if _paper_book_owned_by_engine():
+        logger.debug("%s: paper book is owned by the NSE engine — skipped", "_run_paper_eod_snapshot")
+        return
     try:
         from config import Config
         if not getattr(Config, "PAPER_TRADE_MODE", True):
@@ -2066,6 +2109,9 @@ def _run_paper_weekly_checkpoint():
     Runs Saturday 7:30 AM IST (after reconciliation). Aggregates the
     week's daily snapshots into a summary with return, Sharpe, DD, win rate.
     """
+    if _paper_book_owned_by_engine():
+        logger.debug("%s: paper book is owned by the NSE engine — skipped", "_run_paper_weekly_checkpoint")
+        return
     try:
         from config import Config
         if not getattr(Config, "PAPER_TRADE_MODE", True):
