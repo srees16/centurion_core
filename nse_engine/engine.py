@@ -114,7 +114,8 @@ class EngineCache:
         self.universe = compute_universe_panel(data, config.universe, exclude=self.sleeve_syms)
         self.universe_mask = self.universe.mask.to_numpy()
 
-        self.signals = compute_signal_panels(close_df, self.universe.mask, config.signals, returns_df)
+        self.signals = compute_signal_panels(close_df, self.universe.mask, config.signals, returns_df,
+                                             delivery_pct=data.delivery_pct)
         self.combined = self.signals.combined.to_numpy()
         self.warmup = self.signals.warmup.to_numpy()
 
@@ -122,6 +123,13 @@ class EngineCache:
         self.regime_state = self.regime.state.to_numpy()
         self.regime_scale = self.regime.scale.to_numpy()
         self.regime_switched = self.regime.switched().to_numpy()
+        # Rebalance days: calendar period starts (anchor-independent) or every n rows from row 0 (legacy)
+        every = max(int(config.portfolio.rebalance_every_n_days), 1)
+        if config.portfolio.calendar_schedule:
+            from nse_engine.calendar import period_start_mask
+            self.rebalance_day = period_start_mask(data.dates, every)
+        else:
+            self.rebalance_day = (np.arange(n) % every) == 0
         self.build_seconds = time.perf_counter() - t0
         logger.info("EngineCache built in %.1fs (%d dates x %d symbols)", self.build_seconds, n, len(self.symbols))
 
@@ -260,7 +268,7 @@ def generate_targets(
             exits[s] = EXIT_SLEEVE_TREND
 
     core_holdings = [s for s in holdings if s not in sleeve_set]
-    rebalance = (pos % max(pcfg.rebalance_every_n_days, 1) == 0) or not core_holdings or bool(cache.regime_switched[pos])
+    rebalance = bool(cache.rebalance_day[pos]) or not core_holdings or bool(cache.regime_switched[pos])
     scale = float(cache.regime_scale[pos])
     state = str(cache.regime_state[pos])
     if cache.regime_switched[pos]:

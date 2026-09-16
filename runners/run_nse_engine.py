@@ -28,6 +28,8 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 os.chdir(_ROOT)
 
+import pandas as pd  # noqa: E402
+
 from nse_engine.config import EngineConfig  # noqa: E402
 
 logger = logging.getLogger("run_nse_engine")
@@ -280,6 +282,51 @@ def cmd_shift_reference(args) -> None:
     print(f"wrote {len(result.returns)} daily returns {cfg.start}..{cfg.end} -> {out}")
 
 
+def cmd_anchor_check(args) -> None:
+    """Run the same window from two load starts and report whether the results agree.
+
+    An anchor-independent configuration must give identical daily returns
+    once both loads contain ``required_warmup_days`` rows before ``start``.
+    """
+    from nse_engine.engine import run_backtest
+
+    cfg = _build_config(args)
+    need = cfg.required_warmup_days()
+    results = {}
+    for label, ds in (("a", args.data_start_a), ("b", args.data_start_b)):
+        rows_before = None
+        data = _load_data(cfg, data_start=ds)
+        rows_before = int((data.dates < pd.Timestamp(cfg.start)).sum())
+        res = run_backtest(data, cfg, record=False, tag="anchor-check")
+        r = pd.Series(res.returns, dtype="float64")
+        r.index = pd.DatetimeIndex(r.index)
+        results[label] = {"returns": r, "rows_before_start": rows_before, "n_trades": int(res.metrics.get("n_trades", 0)),
+                          "sharpe": res.metrics.get("sharpe"), "total_return": res.metrics.get("total_return")}
+        logger.info("load %s from %s: %d rows before start (need %d), sharpe=%.3f total=%.4f, %d trades",
+                    label, ds, rows_before, need, results[label]["sharpe"], results[label]["total_return"],
+                    results[label]["n_trades"])
+    ra, rb = results["a"]["returns"].align(results["b"]["returns"], join="inner")
+    diff = (ra - rb).abs()
+    first = diff[diff > args.tolerance]
+    report = {
+        "config_hash": cfg.config_hash(),
+        "anchor_independent_config": cfg.anchor_independent(),
+        "required_warmup_days": need,
+        "rows_before_start": {k: v["rows_before_start"] for k, v in results.items()},
+        "n_days_compared": int(len(diff)),
+        "max_abs_return_diff": float(diff.max()) if len(diff) else 0.0,
+        "n_days_differing": int((diff > args.tolerance).sum()),
+        "first_differing_date": str(first.index[0].date()) if len(first) else None,
+        "sharpe": {k: v["sharpe"] for k, v in results.items()},
+        "total_return": {k: v["total_return"] for k, v in results.items()},
+        "n_trades": {k: v["n_trades"] for k, v in results.items()},
+        "identical": bool(len(diff) and (diff <= args.tolerance).all()),
+    }
+    _print_json(report)
+    if not report["identical"]:
+        sys.exit(1)
+
+
 def cmd_lag(args) -> None:
     from nse_engine.validation.diagnostics import lag_sensitivity
 
@@ -351,6 +398,13 @@ def main(argv=None) -> None:
     p.add_argument("--run-id", help="take the EngineConfig from this recorded run")
     p.add_argument("--out", default="data/shift_reference_returns.csv")
     p.set_defaults(func=cmd_shift_reference)
+
+    p = sub.add_parser("anchor-check", help="same window from two load starts: identical results?")
+    add_config_args(p)
+    p.add_argument("--data-start-a", required=True, help="first load start, e.g. 2011-01-01")
+    p.add_argument("--data-start-b", required=True, help="second load start, e.g. 2021-01-01")
+    p.add_argument("--tolerance", type=float, default=1e-12)
+    p.set_defaults(func=cmd_anchor_check)
 
     p = sub.add_parser("lag", help="execution lag sensitivity")
     add_config_args(p)

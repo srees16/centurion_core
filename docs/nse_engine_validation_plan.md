@@ -204,11 +204,32 @@ regime_break verdicts, or realised costs > 2× model for a month.
 
 Hypotheses, each tested only through Stage B on data up to 2025-12-31, with
 every configuration recorded (so PBO/DSR count them):
-0. Anchor independence (highest priority): calendar-based rebalance days and
-   rolling (not expanding) normalisers, so results do not depend on the first
-   loaded row. Changes engine behaviour, so it re-enters Stage B.
+0. Anchor independence — **built 17 Sep 2026** (`docs/nse_engine.md`, design
+   rules): calendar-anchored rebalance / universe / FDM schedules, rolling
+   normalisers, finite-memory EWMs, trailing history counts, load filter off.
+   Verified bit-identical across a 2011 and a 2014-07 load of the same 2026
+   window (329 trades both). Opt-in fields; the deployed configuration is
+   untouched and keeps its hash. On the spent 2026 holdout the anchor-
+   independent variant of the deployed settings shows excess Sharpe 0.55 /
+   +11.3% against 1.04 / +18.0% — one 8-month window, not a verdict; its
+   Stage-B walk-forward (same 32-point grid, Kaggle) decides. Early folds
+   cannot be fully warmed (the store starts in 2012), which anchors them at
+   the store's first row exactly as the legacy runs are; it is the paper /
+   live path, loading from any date, that this makes reproducible.
 1. Downtrend defence for the negative OOS years (2018, 2019, 2022): core
    volatility targeting, stronger breadth/trend risk-off, absolute-momentum filter.
+   **Tested 16–17 Sep 2026 (Kaggle, 48-point grid over the existing regime
+   gates: NIFTY MA 100/150/200, confirm 3/10 days, breadth risk-off 0.35/0.45,
+   neutral scale 0.6/1.0, VIX elevated 20/25; base = deployed `679cbd0c`).**
+   Stitched OOS 2017–2025: excess Sharpe 1.25, CAGR 23.5%, MaxDD 21.8%,
+   OOS/IS 1.09 — against 1.24 / 23.7% / 22.3% / 1.18 for the deployed
+   configuration on the same platform. 2018 unchanged (−2.16), 2022 slightly
+   worse (−1.06 vs −0.92), and the folds did not agree on a setting (MA 200
+   then 100, breadth 0.35↔0.45, neutral 1.0 then 0.6, VIX 20↔25). Tuning
+   these gates is closed: the negative years are not a regime-parameter
+   problem in this family. 441 backtests recorded. What remains under this
+   item is a *different* mechanism — portfolio vol targeting or an
+   absolute-momentum filter — not more grid over the same gates.
 2. NSE data signals: delivery % confirmation; earnings dates from NSE board
    meeting records (if obtainable); FII/DII flows (data availability first).
 3. Turnover reduction beyond monthly rebalancing.

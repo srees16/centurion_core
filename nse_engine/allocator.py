@@ -77,6 +77,7 @@ def allocate(
     notes: List[str] = []
     if not has_sleeves:
         core = G * scale if has_core else 0.0
+        core, _ = _apply_vol_target(core, 0.0, core_vol, sleeve_vol, cfg, notes)
         return Allocation(core, 0.0, scale, core_vol, sleeve_vol, 1.0, notes)
 
     s = float(np.clip(cfg.core_risk_share, cfg.core_risk_share_min, cfg.core_risk_share_max))
@@ -112,4 +113,32 @@ def allocate(
     if total > G:
         k = G / total
         core, sleeve = core * k, sleeve * k
+    core, sleeve = _apply_vol_target(core, sleeve, sc_eff, sm, cfg, notes)
     return Allocation(core, sleeve, scale, core_vol, sleeve_vol, s, notes)
+
+
+def _apply_vol_target(core: float, sleeve: float, core_vol: float, sleeve_vol: float,
+                      cfg: AllocatorConfig, notes: List[str]):
+    """Scale the whole book down to ``target_vol_annual`` when it runs hotter.
+
+    Portfolio vol is estimated as sqrt((core x sigma_c)^2 + (sleeve x sigma_m)^2)
+    — zero correlation between the stock book and the metals, consistent with
+    the risk-share split above. The scale is clipped to [vol_target_min_scale, 1]:
+    down only (no leverage in a CNC account), and never to an empty book.
+    """
+    target = float(cfg.target_vol_annual)
+    if target <= 0:
+        return core, sleeve
+    parts = []
+    if core > 0 and np.isfinite(core_vol) and core_vol > 0:
+        parts.append(core * core_vol)
+    if sleeve > 0 and np.isfinite(sleeve_vol) and sleeve_vol > 0:
+        parts.append(sleeve * sleeve_vol)
+    if not parts:
+        return core, sleeve
+    port_vol = float(np.sqrt(sum(p * p for p in parts)))
+    if port_vol <= target:
+        return core, sleeve
+    k = float(np.clip(target / port_vol, cfg.vol_target_min_scale, 1.0))
+    notes.append(f"vol_target: est {port_vol:.3f} > {target:.3f}, book scaled x{k:.2f}")
+    return core * k, sleeve * k
