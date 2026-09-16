@@ -59,14 +59,50 @@ def on_kaggle() -> bool:
 
 
 def find_store_dir(explicit: Optional[str] = None) -> str:
-    """Locate the parquet store: an explicit path, an attached dataset, or the repo."""
+    """Locate the parquet store: an explicit path, an attached dataset, or the repo.
+
+    A dataset may hold the store as a directory or as the ``store.tar.gz`` that
+    ``cloud.kaggle_local push-store`` uploads; the archive is unpacked once into
+    /kaggle/working, since datasets themselves are read-only.
+    """
     if explicit:
         return explicit
-    for base in sorted(KAGGLE_INPUT.glob("*")) if KAGGLE_INPUT.is_dir() else []:
-        for candidate in (base / "store", base / "data" / "nse_engine" / "store"):
-            if candidate.is_dir():
-                return str(candidate)
+    if not KAGGLE_INPUT.is_dir():
+        return "data/nse_engine/store"
+
+    # Kaggle unpacks an uploaded archive into a folder named after it, so the
+    # store can sit one or two levels deeper than the dataset root. Look for the
+    # file every store has rather than assuming a layout.
+    found = _find_marker(KAGGLE_WORKING, "calendar.parquet") or _find_marker(KAGGLE_INPUT, "calendar.parquet")
+    if found:
+        return str(found)
+    for archive in sorted(KAGGLE_INPUT.rglob("store.tar.gz")):
+        logger.info("unpacking %s", archive)
+        KAGGLE_WORKING.mkdir(parents=True, exist_ok=True)
+        import shutil
+
+        shutil.unpack_archive(str(archive), str(KAGGLE_WORKING))
+        found = _find_marker(KAGGLE_WORKING, "calendar.parquet")
+        if found:
+            return str(found)
     return "data/nse_engine/store"
+
+
+def _find_marker(root: Path, marker: str, max_depth: int = 8) -> Optional[Path]:
+    """Directory holding ``marker`` somewhere under ``root``.
+
+    Kaggle images differ on where datasets mount (``/kaggle/input/<slug>`` on
+    some, ``/kaggle/input/datasets/<owner>/<slug>`` on others) and unpack an
+    archive into a folder named after it, so the marker is searched for rather
+    than assumed.
+    """
+    if not root.is_dir():
+        return None
+    base_depth = len(root.parts)
+    for hit in sorted(root.rglob(marker)):
+        if len(hit.parts) - base_depth <= max_depth:
+            return hit.parent
+    return None
 
 
 def default_out_dir() -> Path:
@@ -172,6 +208,24 @@ def _run_jobs(jobs: List[Dict[str, Any]], workers: int) -> List[Dict[str, Any]]:
 
 
 # ── walk-forward ─────────────────────────────────────────────────
+
+def provenance() -> Dict[str, str]:
+    """Which interpreter and libraries produced a fold.
+
+    Recorded because results are not identical across environments: the same
+    toy fold scored 1.176 under Python 3.13 / pandas 3.0.2 and 1.116 on a
+    Kaggle image running Python 3.12 with pandas 2.x.
+    """
+    import platform
+
+    out = {"python": platform.python_version(), "platform": platform.platform()}
+    for name in ("numpy", "pandas", "pyarrow"):
+        try:
+            out[name] = __import__(name).__version__
+        except Exception:                             # noqa: BLE001 - reporting only
+            out[name] = "missing"
+    return out
+
 
 def job_signature(args, grid: List[Dict[str, Any]]) -> Dict[str, Any]:
     """What every session of one walk-forward must agree on.
@@ -291,6 +345,7 @@ def run_walk_forward_folds(args) -> Dict[str, Any]:
             "seconds": round(time.time() - t0, 1),
             "config_hash": cfg.config_hash(),
             "job": signature,
+            "provenance": provenance(),
         }
         fold_path.write_text(json.dumps(row, indent=2, default=str))
         done.append(k)
@@ -310,6 +365,7 @@ def run_walk_forward_folds(args) -> Dict[str, Any]:
         "remaining": [k for k in wanted if k not in done and k not in skipped],
         "elapsed_h": round((time.time() - started) / 3600, 2),
         "out_dir": str(out_dir),
+        "provenance": provenance(),
     }
     (out_dir / "state.json").write_text(json.dumps(state, indent=2))
     if state["remaining"]:
@@ -368,7 +424,8 @@ def run_grid(args) -> Dict[str, Any]:
     results.sort(key=lambda r: r["is_metric"], reverse=True)
 
     state = {"task": "grid", "n_points": len(grid), "n_run": len(jobs),
-             "n_skipped": skipped, "results": results, "out_dir": str(out_dir)}
+             "n_skipped": skipped, "results": results, "out_dir": str(out_dir),
+             "provenance": provenance()}
     (out_dir / "grid_results.json").write_text(json.dumps(state, indent=2, default=str))
     hb.done(f"{len(results)} backtests, best excess Sharpe "
             f"{results[0]['is_metric']:.3f}" if results else "nothing to run")

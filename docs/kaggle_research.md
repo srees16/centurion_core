@@ -59,6 +59,35 @@ python -m runners.run_nse_engine validate --run-id <full-period run of the last 
 `import-runs` matters: PBO and the deflated Sharpe are only honest if every
 configuration ever evaluated is in the registry, including the ones Kaggle ran.
 
+### Results do not cross platforms — run a walk-forward in one place
+
+Measured, not assumed. One fold, identical `config_hash` and identical
+`data_hash`, with numpy, pandas and pyarrow pinned to the same versions on
+both sides:
+
+| | macOS / arm64, Python 3.13 | Kaggle Linux / x86_64, Python 3.12 |
+|---|---|---|
+| train excess Sharpe | 1.176384843883 | 1.115750553407 |
+| OOS excess Sharpe | −2.643994712125 | −2.733836385812 |
+| trades | 850 | 831 |
+
+The two runs agree for the first 84 sessions, then a marginal selection on
+2016-05-09 goes different ways and the paths compound apart. Each platform is
+internally deterministic — worker count 1, 2 and 4 give bit-identical results,
+and float32 versus float64 moves the local number by 3e-7 — so a walk-forward
+is sound as long as every fold runs in the same place. Stitched across two it
+is not one experiment, so `wf_stitch` refuses unless you pass
+`--allow-mixed-env`, and the summary then records both environments.
+
+Practically: **run every fold of a walk-forward on Kaggle**, and compare its
+result against other Kaggle results. Runs imported into the registry carry
+their provenance; a PBO or DSR computed over a mixture of platforms is
+comparing configurations that were not measured the same way.
+
+`--pin` installs this machine's numpy, pandas and pyarrow in the kernel
+(turning on the internet switch). Worth doing for provenance, but it does not
+make the platforms agree — that was tested.
+
 ### Every session of one walk-forward must use the same window
 
 `load_market_data` applies its liquidity filter over the window it is asked

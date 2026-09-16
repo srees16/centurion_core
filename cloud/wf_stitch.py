@@ -28,31 +28,45 @@ logger = logging.getLogger("wf_stitch")
 
 
 def collect_folds(dirs: List[str]) -> List[Dict[str, Any]]:
-    """Read every fold file under the given directories, newest wins per fold."""
-    rows: Dict[int, Dict[str, Any]] = {}
+    """Every fold file under the given directories, in fold order."""
+    rows: List[Dict[str, Any]] = []
     for d in dirs:
         base = Path(d)
         for path in sorted(base.glob("fold_*.json")):
             row = json.loads(path.read_text())
             row["_dir"] = str(base)
-            k = int(row["fold"])
-            if k not in rows or path.stat().st_mtime > rows[k]["_mtime"]:
-                row["_mtime"] = path.stat().st_mtime
-                rows[k] = row
-    return [rows[k] for k in sorted(rows)]
+            row["_mtime"] = path.stat().st_mtime
+            rows.append(row)
+    return sorted(rows, key=lambda r: (int(r["fold"]), r["_mtime"]))
 
 
-def stitch(dirs: List[str], rf_annual: Optional[float] = None) -> Dict[str, Any]:
+def latest_per_fold(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """One row per fold index — the most recently written wins."""
+    best: Dict[int, Dict[str, Any]] = {}
+    for row in rows:
+        k = int(row["fold"])
+        if k not in best or row["_mtime"] > best[k]["_mtime"]:
+            best[k] = row
+    return [best[k] for k in sorted(best)]
+
+
+def stitch(dirs: List[str], rf_annual: Optional[float] = None,
+           allow_mixed_env: bool = False) -> Dict[str, Any]:
     import numpy as np
     import pandas as pd
 
     from nse_engine.config import EngineConfig
     from nse_engine.validation.dsr import excess_sharpe, performance_summary
 
-    folds = collect_folds(dirs)
-    if not folds:
+    every = collect_folds(dirs)
+    if not every:
         raise SystemExit(f"no fold_*.json found under {dirs}")
-    _require_one_job(folds)
+    # Checked over every file, not just the ones that survive de-duplication:
+    # two directories holding the same fold from different platforms must be
+    # caught, not silently resolved by whichever was written last.
+    _require_one_job(every)
+    environments = _check_provenance(every, allow_mixed_env)
+    folds = latest_per_fold(every)
     rf = rf_annual if rf_annual is not None else float(getattr(EngineConfig(), "risk_free_annual", 0.0))
 
     parts = []
@@ -84,6 +98,7 @@ def stitch(dirs: List[str], rf_annual: Optional[float] = None) -> Dict[str, Any]
         "n_backtests": sum(len(r.get("grid_scores", [])) + 1 for r in folds),
         "negative_oos_years": int((oos_vals <= 0).sum()),
         "missing_folds": gaps,
+        "environments": environments,
         "oos_performance": performance_summary(stitched, rf),
     }
     rows = [{k: v for k, v in r.items() if not k.startswith("_")} for r in folds]
@@ -104,6 +119,32 @@ def _require_one_job(folds: List[Dict[str, Any]]) -> None:
             which = [r["fold"] for r in folds if json.dumps(r.get("job", {}), sort_keys=True) == spec]
             lines.append(f"  folds {which}: {spec}")
         raise SystemExit("fold files come from different jobs:\n" + "\n".join(lines))
+
+
+def _check_provenance(folds: List[Dict[str, Any]], allow_mixed: bool) -> List[str]:
+    """Refuse to stitch folds produced on different platforms.
+
+    Measured: one fold, identical config hash and identical data hash, run on
+    macOS/arm64 and on Kaggle's Linux/x86_64 with the same numpy, pandas and
+    pyarrow versions. The two agreed for 84 sessions, then a marginal selection
+    on 2016-05-09 went different ways and the paths compounded apart — 831
+    trades against 850, train Sharpe 1.176 against 1.116. Each platform is
+    internally deterministic, so a walk-forward is sound as long as it runs in
+    one place; stitched across two it is not one experiment.
+    """
+    # A fold file without provenance counts as its own environment rather than
+    # being skipped: "unknown" is exactly the case that must not pass silently.
+    seen = sorted({json.dumps(r.get("provenance") or {"provenance": "not recorded"},
+                              sort_keys=True) for r in folds})
+    if len(seen) <= 1:
+        return seen
+    detail = "\n".join(f"  {spec}" for spec in seen)
+    if not allow_mixed:
+        raise SystemExit(f"folds come from {len(seen)} different environments:\n{detail}\n"
+                         "Re-run the whole walk-forward in one place, or pass --allow-mixed-env "
+                         "to stitch anyway (the summary records both).")
+    logger.warning("stitching across %d environments:\n%s", len(seen), detail)
+    return seen
 
 
 def _fold_gaps(folds: List[Dict[str, Any]]) -> List[int]:
@@ -137,6 +178,9 @@ def main(argv: Optional[List[str]] = None) -> None:
     p.add_argument("--rf", type=float, default=None, help="risk-free rate (default: EngineConfig)")
     p.add_argument("--out", default="data/nse_engine/wf_stitched.json")
     p.add_argument("--returns-out", default="data/nse_engine/wf_oos_returns.csv")
+    p.add_argument("--allow-mixed-env", action="store_true",
+                   help="stitch folds produced on different platforms (they do not "
+                        "reproduce each other; see the module docstring)")
 
     p = sub.add_parser("import-runs", help="copy Kaggle run directories into the registry")
     p.add_argument("--src", required=True)
@@ -146,7 +190,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
     if args.command == "stitch":
-        result = stitch(args.dirs, args.rf)
+        result = stitch(args.dirs, args.rf, args.allow_mixed_env)
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(json.dumps(
             {"folds": result["folds"], "summary": result["summary"]}, indent=2, default=str))

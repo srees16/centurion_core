@@ -52,6 +52,13 @@ CODE_PATHS = ["nse_engine", "runners", "cloud", "config", "requirements.txt"]
 # ── kaggle CLI ───────────────────────────────────────────────────
 
 def kaggle_username() -> str:
+    """Resolve the account name, whichever way the CLI is authenticated.
+
+    Three ways exist: ``KAGGLE_USERNAME``/``KAGGLE_KEY`` in the environment, the
+    older ``~/.kaggle/kaggle.json``, and an access token in
+    ``~/.kaggle/access_token`` (CLI 2.x), which carries the name itself — so it
+    is asked for rather than read out of a file.
+    """
     user = os.getenv("KAGGLE_USERNAME")
     if user:
         return user
@@ -61,20 +68,42 @@ def kaggle_username() -> str:
             return json.loads(token.read_text())["username"]
         except (ValueError, KeyError):
             pass
-    raise SystemExit("no Kaggle username: set KAGGLE_USERNAME or install ~/.kaggle/kaggle.json")
+    try:
+        from kaggle.api.kaggle_api_extended import KaggleApi
+
+        api = KaggleApi()
+        api.authenticate()
+        name = api.get_config_value("username")
+        if name:
+            return name
+    except Exception as exc:                          # noqa: BLE001 - fall through to advice
+        logger.debug("username lookup via the Kaggle API failed: %s", exc)
+    raise SystemExit("no Kaggle username: set KAGGLE_USERNAME, or authenticate the CLI "
+                     "(~/.kaggle/kaggle.json or ~/.kaggle/access_token)")
 
 
 def check() -> Dict[str, object]:
     """Report whether the CLI and credentials are usable, without failing."""
     cli = shutil.which("kaggle")
-    token = (Path.home() / ".kaggle" / "kaggle.json").exists()
+    json_token = (Path.home() / ".kaggle" / "kaggle.json").exists()
+    access_token = (Path.home() / ".kaggle" / "access_token").exists()
     env = bool(os.getenv("KAGGLE_USERNAME") and os.getenv("KAGGLE_KEY"))
-    state = {"kaggle_cli": cli or "missing", "token_file": token, "env_credentials": env,
-             "store_present": (_ROOT / "data/nse_engine/store").is_dir()}
+    state: Dict[str, object] = {
+        "kaggle_cli": cli or "missing",
+        "kaggle_json": json_token,
+        "access_token": access_token,
+        "env_credentials": env,
+        "store_present": (_ROOT / "data/nse_engine/store").is_dir(),
+    }
     if not cli:
         state["install"] = "pip install kaggle"
-    if not (token or env):
-        state["credentials"] = "Kaggle → Account → Create New API Token → ~/.kaggle/kaggle.json"
+    if not (json_token or access_token or env):
+        state["credentials"] = "Kaggle → Settings → API → Create New Token"
+        return state
+    try:
+        state["authenticated_as"] = kaggle_username()
+    except SystemExit as exc:
+        state["credentials"] = str(exc)
     return state
 
 
@@ -104,41 +133,101 @@ def _dataset_metadata(path: Path, slug: str, title: str) -> None:
 def _push_dataset(path: Path, slug: str, title: str, message: str) -> None:
     _dataset_metadata(path, slug, title)
     existing = _kaggle("datasets", "list", "-m", "-s", slug, capture=True)
+    # -t keeps files as they are (Kaggle converts tabular files to CSV otherwise);
+    # -r tar uploads directories whole, so the store arrives as directories, not
+    # one file per parquet part. -d is only valid on `version`.
     if f"{kaggle_username()}/{slug}" in existing:
-        _kaggle("datasets", "version", "-p", str(path), "-m", message, "-d", "-r", "zip")
+        _kaggle("datasets", "version", "-p", str(path), "-m", message, "-d", "-t", "-r", "tar")
     else:
-        _kaggle("datasets", "create", "-p", str(path), "-d", "-r", "zip")
+        _kaggle("datasets", "create", "-p", str(path), "-t", "-r", "tar")
+    wait_dataset_ready(slug)
 
 
-def stage_code(task: str, args: List[str], heartbeat_url: Optional[str] = None) -> Path:
-    """Copy the code a research run needs, plus its job spec, into a staging dir."""
+def wait_dataset_ready(slug: str, timeout: int = 900, interval: int = 20) -> bool:
+    """Block until Kaggle finishes ingesting the upload.
+
+    A kernel started while its dataset is still processing mounts nothing, which
+    is a confusing way to fail. ``datasets status`` is not readable with an
+    access-token login, so readiness is judged by the file listing appearing.
+    """
+    ref = f"{kaggle_username()}/{slug}"
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            listing = _kaggle("datasets", "files", ref, capture=True)
+        except SystemExit:
+            listing = ""
+        if listing and "name" in listing and len(listing.strip().splitlines()) > 2:
+            logger.info("%s ready", ref)
+            return True
+        logger.info("waiting for %s to finish processing", ref)
+        time.sleep(interval)
+    logger.warning("%s still not listing files after %ds — pushing on anyway", ref, timeout)
+    return False
+
+
+def local_pins() -> List[str]:
+    """Pin the libraries that decide backtest results to this machine's versions.
+
+    The same fold scored 1.176 here (Python 3.13, pandas 3.0.2) and 1.116 on the
+    stock Kaggle image (Python 3.12, pandas 2.x), so a walk-forward split across
+    the two would stitch together numbers that do not reproduce each other.
+    """
+    pins = []
+    for name in ("numpy", "pandas", "pyarrow"):
+        try:
+            pins.append(f"{name}=={__import__(name).__version__}")
+        except Exception:                             # noqa: BLE001 - reporting only
+            logger.warning("%s not importable here; not pinning it", name)
+    return pins
+
+
+def stage_code(task: str, args: List[str], heartbeat_url: Optional[str] = None,
+               pins: Optional[List[str]] = None) -> Path:
+    """Stage the code a research run needs, as one archive plus its job spec.
+
+    Datasets travel as a single ``.tar.gz`` rather than a directory tree:
+    Kaggle's own directory handling differs between upload modes, and one
+    archive the Kaggle side unpacks itself is predictable either way.
+    """
     stage = STAGE_DIR / "code"
-    if stage.exists():
-        shutil.rmtree(stage)
+    tree = STAGE_DIR / "_code_tree"
+    for path in (stage, tree):
+        if path.exists():
+            shutil.rmtree(path)
     stage.mkdir(parents=True)
+    tree.mkdir(parents=True)
+
     for rel in CODE_PATHS:
         src = _ROOT / rel
         if not src.exists():
             logger.warning("skipping missing %s", rel)
             continue
         if src.is_dir():
-            shutil.copytree(src, stage / rel,
+            shutil.copytree(src, tree / rel,
                             ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "runs", "store"))
         else:
-            shutil.copy2(src, stage / rel)
-    job = {"task": task, "args": args, "heartbeat_url": heartbeat_url or os.getenv("CENTURION_HEARTBEAT_URL", "")}
-    (stage / "job.json").write_text(json.dumps(job, indent=2))
-    logger.info("staged %s (%s)", stage, task)
+            shutil.copy2(src, tree / rel)
+    job = {"task": task, "args": args,
+           "heartbeat_url": heartbeat_url or os.getenv("CENTURION_HEARTBEAT_URL", ""),
+           "pip": pins or []}
+    (tree / "job.json").write_text(json.dumps(job, indent=2))
+
+    archive = shutil.make_archive(str(stage / "code"), "gztar", root_dir=tree)
+    shutil.rmtree(tree)
+    (stage / "job.json").write_text(json.dumps(job, indent=2))   # readable without unpacking
+    logger.info("staged %s (%.1f MB, task %s)", archive, Path(archive).stat().st_size / 1e6, task)
     return stage
 
 
-def push_code(task: str, args: List[str], heartbeat_url: Optional[str] = None) -> None:
-    stage = stage_code(task, args, heartbeat_url)
+def push_code(task: str, args: List[str], heartbeat_url: Optional[str] = None,
+              pins: Optional[List[str]] = None) -> None:
+    stage = stage_code(task, args, heartbeat_url, pins)
     _push_dataset(stage, CODE_SLUG, "Centurion NSE engine (research code)", f"job: {task}")
 
 
 def push_store() -> None:
-    """Upload the parquet store; run again whenever the store is rebuilt."""
+    """Upload the parquet store as one archive; run again when it is rebuilt."""
     store = _ROOT / "data" / "nse_engine" / "store"
     if not store.is_dir():
         raise SystemExit("data/nse_engine/store not found — run build-store first")
@@ -146,9 +235,9 @@ def push_store() -> None:
     if stage.exists():
         shutil.rmtree(stage)
     stage.mkdir(parents=True)
-    shutil.copytree(store, stage / "store")
-    size_mb = sum(f.stat().st_size for f in stage.rglob("*") if f.is_file()) / 1e6
-    logger.info("uploading %.0f MB of parquet", size_mb)
+    archive = shutil.make_archive(str(stage / "store"), "gztar",
+                                  root_dir=store.parent, base_dir=store.name)
+    logger.info("uploading %.0f MB (%s)", Path(archive).stat().st_size / 1e6, Path(archive).name)
     _push_dataset(stage, STORE_SLUG, "Centurion NSE parquet store",
                   time.strftime("store %Y-%m-%d"))
 
@@ -234,6 +323,9 @@ def main(argv: Optional[List[str]] = None) -> None:
         p.add_argument("--task", default="walk-forward", choices=["walk-forward", "grid"])
         p.add_argument("--args", default="", help="arguments for cloud.kaggle_runner, one string")
         p.add_argument("--heartbeat-url", default=None)
+        p.add_argument("--pin", action="store_true",
+                       help="install this machine's numpy/pandas/pyarrow in the kernel "
+                            "(implies --internet on `run`)")
         if name == "run":
             p.add_argument("--internet", action="store_true",
                            help="kernel may reach the network (not needed with a store dataset)")
@@ -255,17 +347,19 @@ def main(argv: Optional[List[str]] = None) -> None:
                         format="%(levelname)s %(message)s")
     job_args = args.args.split() if getattr(args, "args", "") else []
 
+    pins = local_pins() if getattr(args, "pin", False) else None
+
     if args.command == "check":
         print(json.dumps(check(), indent=2))
     elif args.command == "push-store":
         push_store()
     elif args.command == "stage":
-        print(stage_code(args.task, job_args, args.heartbeat_url))
+        print(stage_code(args.task, job_args, args.heartbeat_url, pins))
     elif args.command == "push-code":
-        push_code(args.task, job_args, args.heartbeat_url)
+        push_code(args.task, job_args, args.heartbeat_url, pins)
     elif args.command == "run":
-        push_code(args.task, job_args, args.heartbeat_url)
-        print(f"kernel pushed: {push_kernel(args.internet)}")
+        push_code(args.task, job_args, args.heartbeat_url, pins)
+        print(f"kernel pushed: {push_kernel(args.internet or bool(pins))}")
     elif args.command == "watch":
         print(watch(args.kernel, args.interval, args.max_hours))
     elif args.command == "status":
