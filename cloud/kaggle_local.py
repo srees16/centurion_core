@@ -297,7 +297,11 @@ def pull(kernel: Optional[str] = None, dest: Optional[str] = None) -> Path:
     kernel = kernel or f"{kaggle_username()}/{KERNEL_SLUG}"
     target = Path(dest) if dest else OUT_DIR / time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     target.mkdir(parents=True, exist_ok=True)
-    _kaggle("kernels", "output", kernel, "-p", str(target))
+    _kaggle("kernels", "output", kernel, "-p", str(target), "--page-size", "200")
+    packed = target / "runs.tar.gz"
+    if packed.exists() and not (target / "runs").is_dir():
+        shutil.unpack_archive(str(packed), str(target))
+        logger.info("unpacked %s", packed.name)
     latest = OUT_DIR / "latest"
     if latest.is_symlink() or latest.exists():
         latest.unlink()

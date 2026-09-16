@@ -24,6 +24,29 @@ Scope: NSE equities and NSE-listed metal ETFs only. No BTC, US stocks or options
   daily returns), so PBO and DSR cover every configuration ever evaluated.
 - **No in-sample tuning tables.** Signal-group weights are fixed and
   hand-set. Parameter choice happens only inside walk-forward folds.
+- **Anchor independence (opt-in).** With the legacy settings a decision
+  depends on where the data was loaded from: rebalance, universe-refresh and
+  FDM-refresh days were counted from the first loaded row, forecast
+  normalisers pooled every loaded date, and pandas EWMs remember every row.
+  Measured on the deployed configuration over 2026: loaded from 2011,
+  Sharpe 1.04 / +18.0% / 328 trades; loaded from 2021, 0.80 / +15.0% / 312.
+  Six fields remove this — `signals.normalizer_window_days` (rolling pooled
+  window), `signals.ewm_memory_spans` (EWM kernel truncated at k × span,
+  summed lag by lag in a fixed order), `signals.calendar_schedule`,
+  `portfolio.calendar_schedule`, `universe.calendar_schedule` (period starts
+  by date: 2–5 days → ISO week, 6–21 → month, 22–63 → quarter) and
+  `universe.history_window_days` (trailing count instead of count since row
+  0). Set them all and `data.load_min_median_value_inr = 0` (the load-time
+  liquidity filter is window-dependent; the engine's own universe already
+  filters point-in-time), and `EngineConfig.required_warmup_days()` gives the
+  rows needed before `start` for the load start not to matter — 2,596 with
+  4 × 256 EWM memory, 504-day normalisers and the 504-day FDM, because the
+  stages chain. Verified: the same 2026 window loaded from 2011 and from
+  2014-07 gives identical daily returns (max |diff| 0.0) and the same 329
+  trades; `python -m runners.run_nse_engine anchor-check` runs the test.
+  Their legacy values (0 / False) are left out of `config_hash`, so the
+  deployed `679cbd0c` keeps its hash and its results (re-verified against the
+  recorded holdout to 3e-16).
 
 ## Package layout
 

@@ -204,9 +204,18 @@ regime_break verdicts, or realised costs > 2× model for a month.
 
 Hypotheses, each tested only through Stage B on data up to 2025-12-31, with
 every configuration recorded (so PBO/DSR count them):
-0. Anchor independence (highest priority): calendar-based rebalance days and
-   rolling (not expanding) normalisers, so results do not depend on the first
-   loaded row. Changes engine behaviour, so it re-enters Stage B.
+0. Anchor independence — **built 17 Sep 2026** (`docs/nse_engine.md`, design
+   rules): calendar-anchored rebalance / universe / FDM schedules, rolling
+   normalisers, finite-memory EWMs, trailing history counts, load filter off.
+   Verified bit-identical across a 2011 and a 2014-07 load of the same 2026
+   window (329 trades both). Opt-in fields; the deployed configuration is
+   untouched and keeps its hash. On the spent 2026 holdout the anchor-
+   independent variant of the deployed settings shows excess Sharpe 0.55 /
+   +11.3% against 1.04 / +18.0% — one 8-month window, not a verdict; its
+   Stage-B walk-forward (same 32-point grid, Kaggle) decides. Early folds
+   cannot be fully warmed (the store starts in 2012), which anchors them at
+   the store's first row exactly as the legacy runs are; it is the paper /
+   live path, loading from any date, that this makes reproducible.
 1. Downtrend defence for the negative OOS years (2018, 2019, 2022): core
    volatility targeting, stronger breadth/trend risk-off, absolute-momentum filter.
    **Tested 16–17 Sep 2026 (Kaggle, 48-point grid over the existing regime
