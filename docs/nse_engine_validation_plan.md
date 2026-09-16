@@ -183,6 +183,7 @@ because the 2026 holdout will already have been used.
 | Build store | `python -m runners.run_nse_engine build-store` |
 | Backtest | `python -m runners.run_nse_engine backtest --set key=value --tag <tag>` |
 | Walk-forward | `python -m runners.run_nse_engine walk-forward --grid '<json>'` |
+| Walk-forward on Kaggle (4 cores, resumable) | `python -m cloud.kaggle_local run --task walk-forward --args "..."` — see `docs/kaggle_research.md` |
 | Validate | `python -m runners.run_nse_engine validate --run-id <id>` |
 | Holdout | `python -m runners.run_nse_engine holdout --config <json> --data-start 2011-01-01 --start <date> --end <date>` |
 | Promote | `python -m runners.run_nse_engine promote --run-id <id> --paper-start <date> --data-anchor 2011-01-01` |
