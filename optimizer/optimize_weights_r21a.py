@@ -163,7 +163,7 @@ def _load_data() -> dict:
     print(f"ERROR: extracted_forecasts.pkl not found in any of:")
     for p in search_paths:
         print(f"  - {p}")
-    print("Run extract step first: !python centurion_core/cloud/run_kaggle.py --task extract")
+    print("Run extract step first: python -m runners.run_extract_forecasts")
     sys.exit(1)
 
 

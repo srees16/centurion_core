@@ -955,10 +955,13 @@ class CarverPipeline:
                 from services.regime_strategy_mix import get_regime_aware_forecast_weights
                 regime_weights = get_regime_aware_forecast_weights()
                 if regime_weights:
-                    dynamic_weights = {w.source: w.weight for w in regime_weights}
+                    # ForecastWeight exposes .name (not .source): the old attribute
+                    # raised AttributeError into a bare except, so this path never ran.
+                    dynamic_weights = {w.name: w.weight for w in regime_weights}
                     log.append("  → Using rule-based regime-aware forecast weights")
-            except Exception:
-                pass
+            except Exception as exc:
+                log.append(f"  → Rule-based regime weights skipped: {exc}")
+                logger.warning("Rule-based regime weights unavailable: %s", exc)
 
         if dynamic_weights is None:
             try:

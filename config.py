@@ -381,7 +381,7 @@ class Config:
     # =================================================================
     # Sector Concentration Limit
     # =================================================================
-    MAX_SECTOR_EXPOSURE_PCT: float = 0.30  # G13: Aligned to 30% matching risk_engine
+    MAX_SECTOR_EXPOSURE_PCT: float = 0.30  # G13: 30% cap per sector
     MAX_TRADES_PER_SECTOR: int = 3         # Max 3 open trades per sector
     
     # =================================================================
@@ -418,7 +418,7 @@ class Config:
     # =================================================================
     # NSE Sector Mapping (NIFTY 50 + NIFTY Next 50 constituents)
     # Loaded from data/nse_sector_map.json — editable without code changes.
-    # Shared across risk_engine, portfolio_analyzer, and screener.
+    # Shared across portfolio_analyzer and screener.
     # =================================================================
     NSE_SECTOR_MAP: Dict[str, str] = {}  # populated below class body
 

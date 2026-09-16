@@ -473,7 +473,7 @@ class TestRealityGap(unittest.TestCase):
 class TestWorkflow(unittest.TestCase):
     def setUp(self):
         import yaml
-        self.text = (ROOT / ".github" / "workflows" / "paper-trade-cron.yml").read_text()
+        self.text = (ROOT / ".github" / "workflows" / "nse-paper-trading.yml").read_text()
         self.doc = yaml.safe_load(self.text)
 
     def test_structure(self):
@@ -483,7 +483,10 @@ class TestWorkflow(unittest.TestCase):
         self.assertIn("0 14 * * 1-5", crons)
         self.assertIn("0 2 * * 6", crons)
         self.assertIn("full_bootstrap", on["workflow_dispatch"]["inputs"])
-        self.assertEqual(doc["concurrency"]["group"], "paper-trade-book")
+        # One run at a time over the Neon paper book; the group may be renamed
+        # (e.g. -v2) to clear a stuck Actions queue, so only the prefix is pinned.
+        self.assertTrue(doc["concurrency"]["group"].startswith("paper-trade-book"))
+        self.assertFalse(doc["concurrency"].get("cancel-in-progress", False))
 
         legacy, engine = doc["jobs"]["paper-trade"], doc["jobs"]["nse-engine-paper"]
         self.assertIn("vars.CENTURION_NSE_ENGINE != 'true'", legacy["if"])

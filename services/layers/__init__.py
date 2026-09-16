@@ -1,15 +1,8 @@
 """
-Market Layers — Trading terminal system design.
+Monitoring layer — latency, health, alerts and audit trail.
 
-Organises centurion_core into the 6 institutional-grade layers:
-
-1. market_data     — Real-time + historical data feeds
-2. alpha_research  — Signal generation (strategies, ML, sentiment)
-3. risk_engine     — Position limits, drawdown, circuit breakers
-4. execution       — Order routing, fill management
-5. portfolio       — Allocation, rebalancing, P&L tracking
-6. monitoring      — Latency, health, alerts, audit trail
-
-Each layer is a self-contained package with a well-defined interface
-and communicates via the EventBus.
+The other five "institutional layer" facades (market_data, alpha_research,
+risk_engine, execution_engine, portfolio) were never wired to anything and
+were removed; the live implementations live in nse_engine/, services/ and
+kite_connect/.  Only ``monitoring`` has a consumer (api/routers/health.py).
 """

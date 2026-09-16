@@ -23,7 +23,6 @@ Module map
 **Regime & risk**
   regime_detector          – Online 5-state regime detection
   regime_hmm              – Hamilton HMM 3-state probabilistic regime
-  regime_performance       – Per-regime strategy attribution
   regime_strategy_mix      – Regime-conditional forecast weights
   risk_metrics             – Sortino, Calmar, Omega, CVaR, GEFR
   monte_carlo_risk         – Trade-level bootstrap for ruin probability
@@ -42,7 +41,6 @@ Module map
   aronson_validator        – EBTA statistical validation
   deflated_sharpe          – De Prado deflated Sharpe ratio
   mc_permutation_test      – Timothy Masters permutation test
-  prediction_quality       – ROC, confusion matrices, bootstrap CIs
   signal_quality_evaluator – Regime-conditioned signal quality & CAGR
   walk_forward             – Rolling OOS walk-forward validation
 
