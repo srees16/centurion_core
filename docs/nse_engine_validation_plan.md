@@ -243,6 +243,11 @@ every configuration recorded (so PBO/DSR count them):
    problem in this family. 441 backtests recorded. What remains under this
    item is a *different* mechanism — portfolio vol targeting or an
    absolute-momentum filter — not more grid over the same gates.
+   **Portfolio vol targeting tested 17 Sep 2026 (Kaggle d, anchor-independent
+   base, target off / 12% / 15%): closed.** All 9 folds chose it off, and it
+   lowered the train-window Sharpe in every fold, by 0.02–0.11. The book
+   already runs at ~13% vol, so the target binds mainly in the high-vol
+   stretches that precede recoveries, cutting exposure at the wrong time.
 2. NSE data signals: delivery % confirmation; earnings dates from NSE board
    meeting records (if obtainable); FII/DII flows (data availability first).
 3. Turnover reduction beyond monthly rebalancing.
