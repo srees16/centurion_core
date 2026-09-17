@@ -1,5 +1,5 @@
 ================================================================================
-  ACTION TRACKER — updated 17 Sep 2026, 12:40 IST
+  ACTION TRACKER — updated 17 Sep 2026, 17:00 IST
   Target: CAGR > 35% at capital > Rs 30L | Sharpe >= 1.5 | MaxDD <= 30%
           Calmar >= 1 | PBO <= 30%
   Quote an ID (e.g. "do L2", "start R4") to steer what gets worked on next.
@@ -18,7 +18,10 @@
 [ ] U6  Confirm live capital will really be >= Rs 30L (see L4).
 [ ] U7  Push? Local commits are not on origin (tracker docs, the net-zero
         Streamlit delete/revert pair, a Kaggle stitch fix).
-[!] U8  DECIDE: align the paper book's data anchor with what was validated.
+[~] U8  Anchor aligned in the working tree (data_anchor_date 2012-01-02,
+        promote default too) - REVIEW, commit, push, merge to main. Rebalance
+        day moves Tue -> Wed (next: 23 Sep, not 22 Sep); no book reset.
+        Background: align the paper book's data anchor with what was validated.
         Every validation run started 2012-01-02 (the local store's first
         session); the paper book on GitHub loads from 2011-01-01. Same config,
         2026 YTD: validated anchor +15.7% / Sharpe 0.88 / MaxDD 13.0%, paper
@@ -28,8 +31,7 @@
         reset needed). Recommended. Say "do U8".
 
 --- RUNNING / QUEUED -----------------------------------------------------------
-[~] K1  Kaggle b - delivery tilt: capped at 7 of 9 folds; folds 7-8
-        (2024-25) resumed as kernel b v2, ~2h.
+[x] K1  Kaggle b - delivery tilt: all 9 folds in (see R2).
 [x] K3  History 2006-2011: downloaded and built into a SEPARATE store
         (data/nse_engine/store_ext2006, 252 MB, 2006-2026). Proven safe: loaded
         from the old store's first session its windows hash identically.
@@ -47,15 +49,20 @@
         MaxDD 21.1% (deployed: 1.24 | 23.7% | 22.3%). Within noise.
 [x] R3  Portfolio vol targeting - CLOSED. All 9 folds chose OFF; it lowered
         train Sharpe in every fold (by 0.02-0.11).
-[~] R2  Delivery-% tilt - 7 of 9 folds in (2017-23), same years vs base:
-        Sharpe 1.14 vs 1.11 | CAGR 20.5% vs 22.1% | MaxDD 19.1% vs 21.1%.
-        Every fold chose it, but IS Sharpe jumped (1.21 vs 0.97) while OOS
-        barely moved (OOS/IS 0.95 vs 1.13): lower risk AND lower return, not
-        more Sharpe. Final call after folds 7-8.
+[x] R2  Delivery-% tilt - CLOSED, not adopted. 9 folds 2017-25 vs base:
+        Sharpe 1.21 vs 1.15 (diff +0.06, 90% CI -0.16..+0.26) | CAGR 21.4%
+        vs 22.8% | MaxDD 19.1% vs 21.1%. Lower risk and lower return; the
+        Sharpe gain is inside noise and adds 64 trials to PBO.
 [ ] R4  Walk-forward 2007-2025 after K3 + K4 - the 2008 crash test: how much
         of a 60% fall the regime gates dodge, 2009-10 whipsaw, gapped stops.
 [ ] R5  NIFTY time-series-momentum sleeve (low - overlaps the regime gate).
 [ ] R6  R21A rules as signal groups (expect +/-0.1 Sharpe).
+[ ] R7  Turnover reduction (no-trade band / hold buffer). Cost drag is
+        3.15%/yr at 7x turnover - the most direct CAGR lever. Recommended.
+[ ] R8  Stress the deployed config: impact x1.5/x2 and 1-day fill lag
+        (lag code exists, never run). Sets the honest live CAGR.
+[ ] R9  Universe size 150/300/500 - never varied (all 1,466 runs use 300).
+[ ] R10 52-week-high proximity group (from OHLC already in the store).
 
 --- PHASE 2: LEVERAGE (the only route to CAGR > 35%) ---------------------------
 [x] L0  Paper capital Rs 35L; new book live with 21 queued orders.
@@ -67,6 +74,23 @@
 [ ] L3  Your call: MaxDD <= 30% caps levered CAGR near 30%.
 [ ] L4  Paper at Rs 35L only measures the right costs if live trades that size.
 
+--- PAPER PIPELINE GAPS (audit 17 Sep) - block a trustworthy paper verdict ---
+[!] G1  Paper switch expires: frontend starts it for 4 weeks by default
+        (route.ts weeks=4); validation needs 60-90 sessions. Check expires_at.
+[ ] G2  Shift/reality-gap alerts never send (send_alert does not exist);
+        size multiplier resets to 1.0 every Actions run (file not persisted).
+[ ] G3  No automatic halt: plan promises "DD > 1.5x backtest MaxDD -> halt
+        new entries"; engine path has no DD/VIX kill (only regime scaling).
+[ ] G4  No paper pass/fail gate script (TE <= 8%, gap >= -3bp, costs <= 1.5x).
+[ ] G5  Filled-order costs/impact are not synced to Neon - lost after each
+        run, so "costs vs model" cannot be measured.
+[ ] G6  Weekly email broken: every Saturday is "Week 1", same row overwritten.
+        No daily email on the engine path.
+[!] G7  HF Space: if CENTURION_NSE_ENGINE=true there, a 09:25 IST scheduler
+        job can write the same Neon book (no book_owner guard). Check the env.
+[ ] G8  Snapshot dated by today's IST date, not the store session date.
+[ ] G9  5 legacy weekday crons (09:20-15:35 IST) start empty runs; remove.
+
 --- DEPLOYMENT PLUMBING --------------------------------------------------------
 [ ] D1  Second deployment slot: paper-trade a candidate beside the live book.
 [ ] D2  Show the 26% out-of-sample haircut beside every validate result.
@@ -76,6 +100,9 @@
 [x] C2  Five Sentry issues fixed and live.
 [x] C3  Trade-monitor page shows the engine's paper book daily.
 [x] C4  IND audit: dead code, duplication, folder structure.
+[x] C6  April R21A checklist audited: v43 PBO never produced, R22 never run,
+        NIFTY500 extraction deleted, mean_reversion zeroed (stale fallback
+        weights remain) - all superseded by nse_engine; no action.
 [ ] C5  Streamlit removal - REVERTED (files still needed). Tell me which parts
         are unused before retrying. README line 160 wrongly says it's done.
 

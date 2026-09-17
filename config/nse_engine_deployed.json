@@ -4,7 +4,7 @@
   "source_run_id": "20260914T183003557572Z_679cbd0c",
   "approved_at": "2026-09-15T21:48:04+05:30",
   "notes": "PBO=0.239005439005439 (< 0.3, n=36); DSR=0.9940024118301147 (>= 0.95); passed=True; holdout excess Sharpe=1.042594879974518 (2026-01-01..2026-09-11); holdout MaxDD=0.130 vs backtest 0.251 (<= 1.5x)",
-  "data_anchor_date": "2011-01-01",
+  "data_anchor_date": "2012-01-02",
   "engine": {
     "start": "2013-01-01",
     "end": "2025-12-31",

@@ -119,7 +119,8 @@ python -m runners.run_nse_engine promote --run-id <candidate run> --paper-start 
 (27.4% annualised), excess Sharpe 1.04, vol 18.7%, MaxDD 13.0%, turnover
 8.8×/yr. Same window: NIFTY 50 TRI −9.6%, EW universe hold +2.5%, naive
 momentum +46.5% (excess Sharpe 2.01). Passed both holdout gates; promoted to
-`config/nse_engine_deployed.json` (paper start 2026-09-16, data anchor 2011-01-01).
+`config/nse_engine_deployed.json` (paper start 2026-09-16, data anchor 2012-01-02 —
+see the correction below).
 Note that naive momentum beat the strategy in 2026.
 
 `promote` refuses unless PBO < 30%, DSR ≥ 0.95, the benchmark gate passed,
@@ -134,7 +135,7 @@ paper trading as the next clean test.
 **Data anchor rule.** Rebalance-day counting and the expanding forecast
 normalisers start at the first loaded row. The same config over 2026 returned
 +18.0% loaded from 2011 but +12.8% loaded from 2024 (5.9%/yr tracking error),
-so the deployment pins `data_anchor_date` (2011-01-01) and the executor, the
+so the deployment pins `data_anchor_date` (2012-01-02) and the executor, the
 shift reference and the Actions bootstrap all load from it.
 
 **Correction (17 Sep 2026).** The local store used for every validation run
@@ -145,8 +146,13 @@ does hold 2011, so the paper book is anchored a year earlier than what was
 validated. Measured with the 2006-2026 store on the same machine, 2026 YTD:
 validated anchor +15.7% / excess Sharpe 0.88 / MaxDD 13.0% / 329 trades;
 paper anchor +15.5% / 0.84 / 16.3% / 339. The target portfolio on 16 Sep is
-99.9% identical, but the paths drift. Aligning `data_anchor_date` to
-2012-01-02 restores the validated path (tracker U8). Making the engine
+99.9% identical, but the paths drift. `data_anchor_date` is now 2012-01-02,
+which restores the validated path (tracker U8). 2011 had 247 sessions, so the
+switch moves the 5-day rebalance by 2 sessions (Tuesday -> Wednesday; first
+affected rebalance 23 Sep 2026 instead of 22 Sep) and the 21-day universe
+refresh by 16. No book reset: the next rebalance trades toward the validated
+target. Record the anchor as the first session actually loaded, not the
+requested load start. Making the engine
 anchor-independent is the first research item (Section 8).
 
 Setup:
@@ -291,7 +297,7 @@ because the 2026 holdout will already have been used.
 | Walk-forward | `python -m runners.run_nse_engine walk-forward --grid '<json>'` |
 | Walk-forward on Kaggle (4 cores, resumable) | `python -m cloud.kaggle_local run --task walk-forward --args "..."` — see `docs/kaggle_research.md` |
 | Validate | `python -m runners.run_nse_engine validate --run-id <id>` |
-| Holdout | `python -m runners.run_nse_engine holdout --config <json> --data-start 2011-01-01 --start <date> --end <date>` |
-| Promote | `python -m runners.run_nse_engine promote --run-id <id> --paper-start <date> --data-anchor 2011-01-01` |
-| Shift reference | `python -m runners.run_nse_engine shift-reference --run-id <id> --start <paper start> --data-start 2011-01-01` |
+| Holdout | `python -m runners.run_nse_engine holdout --config <json> --data-start 2012-01-02 --start <date> --end <date>` |
+| Promote | `python -m runners.run_nse_engine promote --run-id <id> --paper-start <date> --data-anchor 2012-01-02` |
+| Shift reference | `python -m runners.run_nse_engine shift-reference --run-id <id> --start <paper start> --data-start 2012-01-02` |
 | Inspect deployment | `python -m nse_engine.deployment show` |
