@@ -243,13 +243,30 @@ def job_signature(args, grid: List[Dict[str, Any]]) -> Dict[str, Any]:
             "grid": json.dumps(grid, sort_keys=True, default=str)}
 
 
+def canonical_job(job: Dict[str, Any]) -> str:
+    """A job signature that ignores the order grid points were expanded in.
+
+    ``expand_grid`` walks keys in the order the grid JSON lists them, so the
+    same set of points serialises differently if the keys are reordered (as a
+    resume rebuilt from a fold file's signature does). Points are sorted
+    here, so equal experiments compare equal.
+    """
+    j = dict(job or {})
+    try:
+        points = json.loads(j.get("grid") or "[]")
+        j["grid"] = sorted(json.dumps(pt, sort_keys=True, default=str) for pt in points)
+    except (TypeError, ValueError):
+        pass
+    return json.dumps(j, sort_keys=True, default=str)
+
+
 def _check_signature(out_dir: Path, signature: Dict[str, Any], force: bool) -> None:
     for path in sorted(out_dir.glob("fold_*.json")):
         try:
             previous = json.loads(path.read_text()).get("job", {})
         except (OSError, ValueError):
             continue
-        if not previous or previous == signature:
+        if not previous or canonical_job(previous) == canonical_job(signature):
             continue
         differing = {k: (previous.get(k), signature.get(k))
                      for k in set(previous) | set(signature) if previous.get(k) != signature.get(k)}

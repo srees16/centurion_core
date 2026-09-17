@@ -135,7 +135,18 @@ paper trading as the next clean test.
 normalisers start at the first loaded row. The same config over 2026 returned
 +18.0% loaded from 2011 but +12.8% loaded from 2024 (5.9%/yr tracking error),
 so the deployment pins `data_anchor_date` (2011-01-01) and the executor, the
-shift reference and the Actions bootstrap all load from it. Making the engine
+shift reference and the Actions bootstrap all load from it.
+
+**Correction (17 Sep 2026).** The local store used for every validation run
+starts at 2012-01-02, so "loaded from 2011" there actually meant 2012-01-02:
+the walk-forwards, the promoted full-period run and the holdout were all
+anchored at 2012-01-02. The Actions store was bootstrapped from 2011-01-01 and
+does hold 2011, so the paper book is anchored a year earlier than what was
+validated. Measured with the 2006-2026 store on the same machine, 2026 YTD:
+validated anchor +15.7% / excess Sharpe 0.88 / MaxDD 13.0% / 329 trades;
+paper anchor +15.5% / 0.84 / 16.3% / 339. The target portfolio on 16 Sep is
+99.9% identical, but the paths drift. Aligning `data_anchor_date` to
+2012-01-02 restores the validated path (tracker U8). Making the engine
 anchor-independent is the first research item (Section 8).
 
 Setup:
@@ -243,6 +254,11 @@ every configuration recorded (so PBO/DSR count them):
    problem in this family. 441 backtests recorded. What remains under this
    item is a *different* mechanism — portfolio vol targeting or an
    absolute-momentum filter — not more grid over the same gates.
+   **Portfolio vol targeting tested 17 Sep 2026 (Kaggle d, anchor-independent
+   base, target off / 12% / 15%): closed.** All 9 folds chose it off, and it
+   lowered the train-window Sharpe in every fold, by 0.02–0.11. The book
+   already runs at ~13% vol, so the target binds mainly in the high-vol
+   stretches that precede recoveries, cutting exposure at the wrong time.
 2. NSE data signals: delivery % confirmation; earnings dates from NSE board
    meeting records (if obtainable); FII/DII flows (data availability first).
 3. Turnover reduction beyond monthly rebalancing.

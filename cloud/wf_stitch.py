@@ -112,11 +112,13 @@ def _require_one_job(folds: List[Dict[str, Any]]) -> None:
     run with a different ``end`` or anchor describe a different universe and
     their OOS series do not belong in one series.
     """
-    jobs = {json.dumps(r.get("job", {}), sort_keys=True) for r in folds}
+    from cloud.kaggle_runner import canonical_job
+
+    jobs = {canonical_job(r.get("job", {})) for r in folds}
     if len(jobs) > 1:
         lines = []
         for spec in sorted(jobs):
-            which = [r["fold"] for r in folds if json.dumps(r.get("job", {}), sort_keys=True) == spec]
+            which = [r["fold"] for r in folds if canonical_job(r.get("job", {})) == spec]
             lines.append(f"  folds {which}: {spec}")
         raise SystemExit("fold files come from different jobs:\n" + "\n".join(lines))
 

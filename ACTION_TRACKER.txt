@@ -1,0 +1,87 @@
+================================================================================
+  ACTION TRACKER — updated 17 Sep 2026, 12:40 IST
+  Target: CAGR > 35% at capital > Rs 30L | Sharpe >= 1.5 | MaxDD <= 30%
+          Calmar >= 1 | PBO <= 30%
+  Quote an ID (e.g. "do L2", "start R4") to steer what gets worked on next.
+================================================================================
+  [x] done   [~] running/queued   [ ] not started   [!] needs you
+
+--- YOU ------------------------------------------------------------------------
+[x] U1  Merge feature/restarted -> main. Sentry fixes live and verified.
+[!] U2  Rotate the Kaggle API token (pasted in chat) and the account password.
+[!] U3  Reload my_todos.txt in VS Code (discard the editor's copy). A stale tab
+        saved over it twice (10:39, 10:53), wiping this tracker - which is why
+        it now lives here. Say "move tracker back" once reloaded.
+[ ] U4  Tonight after 19:30 IST: trade-monitor page should show the Rs 35L
+        book's 21 pending orders as open positions.
+[ ] U5  Decide the MaxDD you accept with leverage (see L3).
+[ ] U6  Confirm live capital will really be >= Rs 30L (see L4).
+[ ] U7  Push? Local commits are not on origin (tracker docs, the net-zero
+        Streamlit delete/revert pair, a Kaggle stitch fix).
+[!] U8  DECIDE: align the paper book's data anchor with what was validated.
+        Every validation run started 2012-01-02 (the local store's first
+        session); the paper book on GitHub loads from 2011-01-01. Same config,
+        2026 YTD: validated anchor +15.7% / Sharpe 0.88 / MaxDD 13.0%, paper
+        anchor +15.5% / 0.84 / 16.3%. Today's portfolio is 99.9% identical,
+        but the paths drift. Fix = data_anchor_date 2012-01-02 in
+        config/nse_engine_deployed.json (takes effect after merge; no book
+        reset needed). Recommended. Say "do U8".
+
+--- RUNNING / QUEUED -----------------------------------------------------------
+[~] K1  Kaggle b - delivery tilt: capped at 7 of 9 folds; folds 7-8
+        (2024-25) resumed as kernel b v2, ~2h.
+[x] K3  History 2006-2011: downloaded and built into a SEPARATE store
+        (data/nse_engine/store_ext2006, 252 MB, 2006-2026). Proven safe: loaded
+        from the old store's first session its windows hash identically.
+        This check is what exposed U8.
+[!] K4  GAP: NSE has no index-close files before 2012 - no NIFTY 50 for
+        2006-11, so the regime gate cannot run on 2008. Needs a source:
+        yfinance ^NSEI starts Sep 2007 (200-DMA only valid mid-2008, misses
+        the start of the crash) vs niftyindices.com history (to 1995,
+        unofficial API). Blocks R4.
+[~] P1  Paper session tonight 19:30 IST - first fills of the Rs 35L book.
+
+--- PHASE 1: RAISE SHARPE (unlevered) ------------------------------------------
+[x] R0  Regime-gate tuning - CLOSED. No gain; folds disagreed on every setting.
+[x] R1  Anchor independence - DONE. OOS 2017-25: Sharpe 1.15 | CAGR 22.8% |
+        MaxDD 21.1% (deployed: 1.24 | 23.7% | 22.3%). Within noise.
+[x] R3  Portfolio vol targeting - CLOSED. All 9 folds chose OFF; it lowered
+        train Sharpe in every fold (by 0.02-0.11).
+[~] R2  Delivery-% tilt - 7 of 9 folds in (2017-23), same years vs base:
+        Sharpe 1.14 vs 1.11 | CAGR 20.5% vs 22.1% | MaxDD 19.1% vs 21.1%.
+        Every fold chose it, but IS Sharpe jumped (1.21 vs 0.97) while OOS
+        barely moved (OOS/IS 0.95 vs 1.13): lower risk AND lower return, not
+        more Sharpe. Final call after folds 7-8.
+[ ] R4  Walk-forward 2007-2025 after K3 + K4 - the 2008 crash test: how much
+        of a 60% fall the regime gates dodge, 2009-10 whipsaw, gapped stops.
+[ ] R5  NIFTY time-series-momentum sleeve (low - overlaps the regime gate).
+[ ] R6  R21A rules as signal groups (expect +/-0.1 Sharpe).
+
+--- PHASE 2: LEVERAGE (the only route to CAGR > 35%) ---------------------------
+[x] L0  Paper capital Rs 35L; new book live with 21 queued orders.
+[!] L1  Capital alone LOWERS CAGR (impact costs), same config 2013-2025:
+        Rs 5L 24.1% | Rs 10L 23.5% | Rs 35L 22.8% | Rs 1Cr 22.4%
+[ ] L2  NIFTY futures overlay - NOT BUILT. 1 lot ~ Rs 15L = 0.43x of Rs 35L.
+        CAGR 35% needs ~1.5x gross => MaxDD ~35-40%. Build: allocator sizing,
+        roll, margin cash (SEBI 50% cash rule), carry cost, Kaggle walk-forward.
+[ ] L3  Your call: MaxDD <= 30% caps levered CAGR near 30%.
+[ ] L4  Paper at Rs 35L only measures the right costs if live trades that size.
+
+--- DEPLOYMENT PLUMBING --------------------------------------------------------
+[ ] D1  Second deployment slot: paper-trade a candidate beside the live book.
+[ ] D2  Show the 26% out-of-sample haircut beside every validate result.
+[ ] D3  Script the Stage-E capital ladder (20/40/70/100%) as gate checks.
+
+--- CLOSED / PARKED ------------------------------------------------------------
+[x] C2  Five Sentry issues fixed and live.
+[x] C3  Trade-monitor page shows the engine's paper book daily.
+[x] C4  IND audit: dead code, duplication, folder structure.
+[ ] C5  Streamlit removal - REVERTED (files still needed). Tell me which parts
+        are unused before retrying. README line 160 wrongly says it's done.
+
+--- EXPECTATIONS ---------------------------------------------------------------
+  Backtest OOS, unlevered:  Sharpe 1.15-1.27 | CAGR 23-24% | MaxDD 21-24%
+  Plan for live, unlevered: Sharpe 0.8-1.1   | CAGR 15-20% | MaxDD 25-35%
+  Years of live record to CONFIRM a Sharpe (95%, measured fat tails):
+    live 0.9 > 0 ............. 3.5 yrs    |  1.22 > deflated 0.49 .... 5.5 yrs
+  => go live on behaviour gates, size up in stages, stop on drawdown/tracking.
