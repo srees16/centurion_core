@@ -1,5 +1,5 @@
 ================================================================================
-  ACTION TRACKER — updated 17 Sep 2026, 12:05 IST
+  ACTION TRACKER — updated 17 Sep 2026, 12:40 IST
   Target: CAGR > 35% at capital > Rs 30L | Sharpe >= 1.5 | MaxDD <= 30%
           Calmar >= 1 | PBO <= 30%
   Quote an ID (e.g. "do L2", "start R4") to steer what gets worked on next.
@@ -16,14 +16,24 @@
         book's 21 pending orders as open positions.
 [ ] U5  Decide the MaxDD you accept with leverage (see L3).
 [ ] U6  Confirm live capital will really be >= Rs 30L (see L4).
-[ ] U7  Push? 6 local commits are not on origin (tracker docs + the
-        net-zero Streamlit delete/revert pair); main is functionally complete.
+[ ] U7  Push? Local commits are not on origin (tracker docs, the net-zero
+        Streamlit delete/revert pair, a Kaggle stitch fix).
+[!] U8  DECIDE: align the paper book's data anchor with what was validated.
+        Every validation run started 2012-01-02 (the local store's first
+        session); the paper book on GitHub loads from 2011-01-01. Same config,
+        2026 YTD: validated anchor +15.7% / Sharpe 0.88 / MaxDD 13.0%, paper
+        anchor +15.5% / 0.84 / 16.3%. Today's portfolio is 99.9% identical,
+        but the paths drift. Fix = data_anchor_date 2012-01-02 in
+        config/nse_engine_deployed.json (takes effect after merge; no book
+        reset needed). Recommended. Say "do U8".
 
 --- RUNNING / QUEUED -----------------------------------------------------------
 [~] K1  Kaggle b - delivery tilt: capped at 7 of 9 folds; folds 7-8
         (2024-25) resumed as kernel b v2, ~2h.
-[~] K3  History 2006-2011: DOWNLOADED (1,486 sessions, prices + delivery;
-        corporate actions from 2010). Store build + hash check running.
+[x] K3  History 2006-2011: downloaded and built into a SEPARATE store
+        (data/nse_engine/store_ext2006, 252 MB, 2006-2026). Proven safe: loaded
+        from the old store's first session its windows hash identically.
+        This check is what exposed U8.
 [!] K4  GAP: NSE has no index-close files before 2012 - no NIFTY 50 for
         2006-11, so the regime gate cannot run on 2008. Needs a source:
         yfinance ^NSEI starts Sep 2007 (200-DMA only valid mid-2008, misses
