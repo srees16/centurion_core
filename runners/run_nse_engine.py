@@ -387,8 +387,9 @@ def main(argv=None) -> None:
     p.add_argument("--paper-start", help="first paper decision date (default today)")
     p.add_argument("--holdout-lock", default="data/nse_engine/holdout.lock")
     p.add_argument("--out", default=None, help="deployment file (default config/nse_engine_deployed.json)")
-    p.add_argument("--data-anchor", default="2011-01-01",
-                   help="data anchor the validation runs used (pinned for paper/live)")
+    p.add_argument("--data-anchor", default="2012-01-02",
+                   help="data anchor the validation runs used (pinned for paper/live); "
+                        "the first session actually loaded, not the requested load start")
     p.add_argument("--force", action="store_true", help="promote despite failed gates (recorded in notes)")
     p.set_defaults(func=cmd_promote)
 
