@@ -18,17 +18,12 @@
 [ ] U6  Confirm live capital will really be >= Rs 30L (see L4).
 [ ] U7  Push? Local commits are not on origin (tracker docs, the net-zero
         Streamlit delete/revert pair, a Kaggle stitch fix).
-[~] U8  Anchor aligned in the working tree (data_anchor_date 2012-01-02,
-        promote default too) - REVIEW, commit, push, merge to main. Rebalance
-        day moves Tue -> Wed (next: 23 Sep, not 22 Sep); no book reset.
-        Background: align the paper book's data anchor with what was validated.
-        Every validation run started 2012-01-02 (the local store's first
-        session); the paper book on GitHub loads from 2011-01-01. Same config,
-        2026 YTD: validated anchor +15.7% / Sharpe 0.88 / MaxDD 13.0%, paper
-        anchor +15.5% / 0.84 / 16.3%. Today's portfolio is 99.9% identical,
-        but the paths drift. Fix = data_anchor_date 2012-01-02 in
-        config/nse_engine_deployed.json (takes effect after merge; no book
-        reset needed). Recommended. Say "do U8".
+[x] U8  Anchor aligned to 2012-01-02 - merged to main 17 Sep 19:48 IST.
+        Weekly rebalance moves Tue -> Wed (next: 23 Sep); no book reset.
+        First run on it: tonight's delayed 19:30 IST session (being watched).
+[!] U9  Fixed 19:30 IST start: create the cron-job.org job (settings in
+        chat, 17 Sep) BEFORE merging the workflow change - the change drops
+        the old 19:30 cron and keeps backups at 20:07 and 22:07 IST only.
 
 --- RUNNING / QUEUED -----------------------------------------------------------
 [x] K1  Kaggle b - delivery tilt: all 9 folds in (see R2).
@@ -41,7 +36,9 @@
         yfinance ^NSEI starts Sep 2007 (200-DMA only valid mid-2008, misses
         the start of the crash) vs niftyindices.com history (to 1995,
         unofficial API). Blocks R4.
-[~] P1  Paper session tonight 19:30 IST - first fills of the Rs 35L book.
+[x] P1  First session (17 Sep, dispatched 20:41 IST, anchor 2012-01-02): all
+        21 orders filled at the open, equity Rs 35,23,526 (+0.7%), 20 stops
+        set, no rebalance (next: Wed 23 Sep).
 
 --- PHASE 1: RAISE SHARPE (unlevered) ------------------------------------------
 [x] R0  Regime-gate tuning - CLOSED. No gain; folds disagreed on every setting.
@@ -75,8 +72,7 @@
 [ ] L4  Paper at Rs 35L only measures the right costs if live trades that size.
 
 --- PAPER PIPELINE GAPS (audit 17 Sep) - block a trustworthy paper verdict ---
-[!] G1  Paper switch expires: frontend starts it for 4 weeks by default
-        (route.ts weeks=4); validation needs 60-90 sessions. Check expires_at.
+[x] G1  Paper switch active until 3 Feb 2027 (20 weeks) - checked 17 Sep.
 [ ] G2  Shift/reality-gap alerts never send (send_alert does not exist);
         size multiplier resets to 1.0 every Actions run (file not persisted).
 [ ] G3  No automatic halt: plan promises "DD > 1.5x backtest MaxDD -> halt
@@ -84,12 +80,14 @@
 [ ] G4  No paper pass/fail gate script (TE <= 8%, gap >= -3bp, costs <= 1.5x).
 [ ] G5  Filled-order costs/impact are not synced to Neon - lost after each
         run, so "costs vs model" cannot be measured.
-[ ] G6  Weekly email broken: every Saturday is "Week 1", same row overwritten.
-        No daily email on the engine path.
+[~] G6  Daily email added for the engine path (one per new session: book,
+        fills, stops, queued, alerts) - uncommitted. First real send = the
+        first session after merge; SMTP secrets are from Apr, unverified.
+        Still broken: weekly Saturday email (every week is "Week 1").
 [!] G7  HF Space: if CENTURION_NSE_ENGINE=true there, a 09:25 IST scheduler
         job can write the same Neon book (no book_owner guard). Check the env.
 [ ] G8  Snapshot dated by today's IST date, not the store session date.
-[ ] G9  5 legacy weekday crons (09:20-15:35 IST) start empty runs; remove.
+[~] G9  5 legacy weekday crons removed in the working tree (with U9).
 
 --- DEPLOYMENT PLUMBING --------------------------------------------------------
 [ ] D1  Second deployment slot: paper-trade a candidate beside the live book.
@@ -98,6 +96,10 @@
 
 --- CLOSED / PARKED ------------------------------------------------------------
 [x] C2  Five Sentry issues fixed and live.
+[~] C7  Sentry "Kite session not active" (kite_quotes): 7 Kite endpoints now
+        return 409, not 503 (no Sentry event, no client retries); Fly Kite
+        page re-checks the session instead of retrying. Uncommitted in both
+        repos - review, merge; then resolve the issue in Sentry.
 [x] C3  Trade-monitor page shows the engine's paper book daily.
 [x] C4  IND audit: dead code, duplication, folder structure.
 [x] C6  April R21A checklist audited: v43 PBO never produced, R22 never run,
@@ -105,6 +107,14 @@
         weights remain) - all superseded by nse_engine; no action.
 [ ] C5  Streamlit removal - REVERTED (files still needed). Tell me which parts
         are unused before retrying. README line 160 wrongly says it's done.
+
+--- VALIDATION RE-CHECK (17 Sep) ---------------------------------------------
+[x] V1  Deployed config PBO depends on the block count: 23.9% at 16 blocks
+        (the promotion gate), 28.2% at 10, 34.3% at 8, 35.7% at 12 -> "caution"
+        band, not a clear pass. Walk-forward (re-selected yearly) holds: OOS
+        Sharpe 1.24 vs IS 1.06. DSR passes up to ~300 trials (0.973), fails at
+        1,000+ (0.940 at 1,465 - every run recorded so far). No new configs
+        should be promoted on this history without counting those trials.
 
 --- EXPECTATIONS ---------------------------------------------------------------
   Backtest OOS, unlevered:  Sharpe 1.15-1.27 | CAGR 23-24% | MaxDD 21-24%

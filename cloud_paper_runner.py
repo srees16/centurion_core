@@ -437,7 +437,51 @@ def _run_engine_paper():
     for note in session.get("notes", []):
         msg += f" | {note}"
     logger.info("NSE engine paper run: %s", msg)
+    _email_engine_session(pt, dep, session, snapshot, shift)
     return "success", msg
+
+
+def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict) -> None:
+    """Daily email for a newly processed session (best-effort).
+
+    A re-run of a session already processed (a backup cron or a manual
+    re-dispatch) only re-plans, so it sends nothing: one email per session.
+    """
+    if session.get("fills") is None:
+        logger.info("Daily email skipped: session %s was already processed", session.get("session"))
+        return
+    try:
+        from services.notifications.manager import NotificationManager
+        dash = pt.dashboard()
+        fills = session.get("fills") or {}
+        plan = session.get("plan")
+        alerts = list(shift.get("reality_gap_alerts") or [])
+        verdict = shift.get("position_verdict") or shift.get("effective_verdict") or shift.get("verdict")
+        if verdict in ("drifting", "regime_break"):
+            alerts.append(f"Distribution shift: {verdict} (size multiplier {shift.get('position_size_multiplier', shift.get('multiplier', '—'))})")
+        sent = NotificationManager().email_engine_daily_report({
+            "session": session.get("session"),
+            "deployment": f"{dep.status} · paper since {dep.paper_start_date}",
+            "equity": dash.current_capital,
+            "initial_capital": dash.initial_capital,
+            "cash": pt.cash,
+            "pnl": dash.total_pnl,
+            "pnl_pct": dash.total_pnl_pct,
+            "max_drawdown_pct": snapshot.get("max_drawdown_pct", dash.max_drawdown_pct),
+            "open_positions": dash.open_positions,
+            "filled": fills.get("filled", []),
+            "cancelled": fills.get("cancelled", []),
+            "stops": session.get("stops", []),
+            "queued": [r for r in session.get("results", []) if r.get("status") == "PENDING"],
+            "notes": list(session.get("notes", [])) + (
+                [f"shift multiplier {plan.shift_multiplier:.2f}"] if plan and plan.shift_multiplier != 1.0 else []),
+            "alerts": alerts,
+        })
+        if not sent:
+            logger.warning("Daily email returned False — check CENTURION_EMAIL_USER / CENTURION_EMAIL_PASS / "
+                           "CENTURION_EMAIL_HOST / CENTURION_EMAIL_PORT secrets")
+    except Exception as exc:
+        logger.warning("Daily email failed: %s", exc)
 
 
 # ── Weekly checkpoint (Saturday) ──────────────────────────────────────
