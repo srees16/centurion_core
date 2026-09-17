@@ -60,6 +60,12 @@ LEGEND  [x] done   [~] running/queued   [ ] not started   [!] needs you
         history, index quotes, Kite retry, tradingview syntax).
 [x] C3  Trade-monitor page shows the engine's paper book daily.
 [x] C4  IND audit: dead code, duplication, folder structure.
+[ ] C5  Streamlit removal - ATTEMPTED AND REVERTED (17 Sep). The deletion
+        (c2f2069) removed files still in use; reverted in 9fd5899, all 33
+        files restored and all 23 entry points import. Before retrying, say
+        which parts are still needed (app.py? zerodha_live dashboard? RAG
+        page? auth login?). Note: README line 160 has claimed since April
+        that this removal was already done.
 
 --- HONEST EXPECTATIONS --------------------------------------------------------
   Backtest OOS (measured):  Sharpe 1.15-1.27 | CAGR 23-24% | MaxDD 21-24%
