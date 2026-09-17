@@ -1,5 +1,6 @@
 """
-Causal forecast panels: fast_trend, slow_trend and low_vol.
+Causal forecast panels: fast_trend, slow_trend, low_vol, delivery,
+residual_momentum, near_high and low_beta.
 
 Every function returns date x symbol DataFrames whose row ``t`` depends only
 on rows ``<= t`` of the inputs.
@@ -41,7 +42,8 @@ from nse_engine.config import SignalConfig
 
 logger = logging.getLogger(__name__)
 
-GROUPS: Tuple[str, ...] = ("fast_trend", "slow_trend", "low_vol", "delivery")
+GROUPS: Tuple[str, ...] = ("fast_trend", "slow_trend", "low_vol", "delivery",
+                           "residual_momentum", "near_high", "low_beta")
 _EWM_CHUNK = 64   # columns per pass of the finite-memory EWM (see _truncated_ewm)
 FDM_MIN_POOLED_OBS = 100  # pooled (date, symbol) observations needed before FDM != 1
 
@@ -372,6 +374,93 @@ def delivery_forecast(
     return normalise_forecast(raw, mask, cfg)
 
 
+def _universe_market_return(returns: pd.DataFrame, mask: pd.DataFrame) -> pd.Series:
+    """Equal-weight return of the names that were universe members at the previous row."""
+    members = mask.shift(1, fill_value=False).to_numpy(dtype=bool)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        mkt = np.nanmean(np.where(members, returns.to_numpy(dtype="float64"), np.nan), axis=1)
+    return pd.Series(mkt, index=returns.index)
+
+
+def residual_momentum_raw(close: pd.DataFrame, mask: pd.DataFrame, months: int = 36,
+                          window: int = 11) -> pd.DataFrame:
+    """Residual momentum (Blitz, Huij & Martens 2011), on month-end closes.
+
+    At each month-end ``t`` every name's last ``months`` monthly returns are
+    regressed on the equal-weight universe return; the score is the sum of the
+    residuals over months ``t-window .. t-1`` (the latest month is skipped)
+    divided by their standard deviation. A name needs 2/3 of the regression
+    months and 80% of the window. A month is known to have ended only at the
+    first session of the next one, so each score takes effect there (the same
+    day in a backtest and in live trading) and holds for the month.
+    """
+    close = close.astype("float64")
+    dates = close.index
+    periods = dates.to_period("M")
+    is_month_end = np.r_[periods[1:] != periods[:-1], False]
+    ends = dates[is_month_end]
+    mclose = close.loc[ends].to_numpy()
+    with np.errstate(divide="ignore", invalid="ignore"):
+        mret = mclose[1:] / mclose[:-1] - 1.0
+    members = mask.loc[ends].to_numpy(dtype=bool)[:-1]          # membership at the month's start
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        mkt = np.nanmean(np.where(members, mret, np.nan), axis=1)
+    scores = np.full((len(ends), close.shape[1]), np.nan)
+    need_fit, need_window = int(np.ceil(months * 2 / 3)), int(np.ceil(window * 0.8))
+    for k in range(months, len(ends)):               # mret[k-1] is the month ending at ends[k]
+        y = mret[k - months:k]
+        x = mkt[k - months:k]
+        ok = np.isfinite(y) & np.isfinite(x)[:, None]
+        n_ok = ok.sum(axis=0)
+        if not (n_ok >= need_fit).any():
+            continue
+        xm = np.where(ok, x[:, None], np.nan)
+        ym = np.where(ok, y, np.nan)
+        with warnings.catch_warnings(), np.errstate(divide="ignore", invalid="ignore"):
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            xbar, ybar = np.nanmean(xm, axis=0), np.nanmean(ym, axis=0)
+            beta = np.nansum((xm - xbar) * (ym - ybar), axis=0) / np.nansum((xm - xbar) ** 2, axis=0)
+            resid = ym - (ybar - beta * xbar + beta * xm)
+            recent = resid[-(window + 1):-1]
+            score = np.nansum(recent, axis=0) / np.nanstd(recent, axis=0, ddof=1)
+        score[(n_ok < need_fit) | (np.isfinite(recent).sum(axis=0) < need_window)] = np.nan
+        scores[k] = score
+    effective = dates[np.flatnonzero(is_month_end) + 1]          # first session of the next month
+    return pd.DataFrame(scores, index=effective, columns=close.columns).reindex(dates).ffill()
+
+
+def residual_momentum_forecast(
+    close: pd.DataFrame, mask: pd.DataFrame, cfg: SignalConfig
+) -> Tuple[pd.DataFrame, pd.Series]:
+    raw = residual_momentum_raw(close, mask, cfg.residual_momentum_months, cfg.residual_momentum_window)
+    return normalise_forecast(centred_rank(raw, mask), mask, cfg)
+
+
+def near_high_forecast(
+    close: pd.DataFrame, mask: pd.DataFrame, cfg: SignalConfig
+) -> Tuple[pd.DataFrame, pd.Series]:
+    """Rank of close / highest close over ``high_lookback`` sessions (George & Hwang 2004)."""
+    close = close.astype("float64")
+    high = close.rolling(cfg.high_lookback, min_periods=int(cfg.high_lookback * 0.8)).max()
+    return normalise_forecast(centred_rank(close / high, mask), mask, cfg)
+
+
+def low_beta_forecast(
+    close: pd.DataFrame, mask: pd.DataFrame, cfg: SignalConfig, returns: Optional[pd.DataFrame] = None
+) -> Tuple[pd.DataFrame, pd.Series]:
+    """Rank of minus the rolling beta to the equal-weight universe (long leg of betting-against-beta)."""
+    if returns is None:
+        returns = daily_returns(close)
+    mkt = _universe_market_return(returns, mask)
+    min_periods = int(cfg.beta_lookback * 0.8)
+    cov = returns.rolling(cfg.beta_lookback, min_periods=min_periods).cov(mkt)
+    var = mkt.rolling(cfg.beta_lookback, min_periods=min_periods).var()
+    beta = cov.div(var.where(var > 0), axis=0)
+    return normalise_forecast(centred_rank(-beta, mask), mask, cfg)
+
+
 def compute_signal_panels(
     close: pd.DataFrame, universe_mask: pd.DataFrame, cfg: SignalConfig, returns: Optional[pd.DataFrame] = None,
     delivery_pct: Optional[pd.DataFrame] = None,
@@ -393,6 +482,9 @@ def compute_signal_panels(
         "slow_trend": lambda: slow_trend_forecast(close, universe_mask, cfg, daily_vol),
         "low_vol": lambda: low_vol_forecast(close, universe_mask, cfg, returns),
         "delivery": _delivery,
+        "residual_momentum": lambda: residual_momentum_forecast(close, universe_mask, cfg),
+        "near_high": lambda: near_high_forecast(close, universe_mask, cfg),
+        "low_beta": lambda: low_beta_forecast(close, universe_mask, cfg, returns),
     }
     unknown = set(weights) - set(builders)
     if unknown:

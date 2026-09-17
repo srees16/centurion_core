@@ -274,6 +274,25 @@ every configuration recorded (so PBO/DSR count them):
    attempt. R21A's own incremental tests found each hurt v27, but that was on
    the survivor universe with optimised weights; the question is open here.
    Expectation: a Sharpe change of ±0.1, not a new regime of returns.
+5. **Price-based strategies from awesome-systematic-trading — tested 17 Sep
+   2026, all rejected.** Of the repository's 61 strategy files, 49 need data
+   the store does not have (fundamentals, earnings dates, futures, options,
+   FX, crypto, short interest) or short selling; the rest were screened on
+   the deployed universe, 2013–2025, with pass rules fixed before running
+   (incremental rank IC over the deployed forecast, t ≥ 2.5, positive in
+   2013–19 and 2020–25, positive among the names the book buys; t ≥ 3.0 for
+   the survivor-biased sector-map rules). Residual momentum, 52-week-high
+   proximity and low beta passed; consistent momentum, momentum × volatility,
+   12-month seasonality (lag 12 and 1–5-year average), short-term reversal,
+   industry momentum and industry 52-week high did not. Turn-of-the-month and
+   payday effects on NIFTY 50 were not significant (t = 1.20, 0.42).
+   The three survivors became signal groups (`residual_momentum`,
+   `near_high`, `low_beta`; hash-neutral) and were backtested at fixed weights
+   (0.2 and 1/3 beside fast/slow trend), six recorded runs. None beat the
+   deployed config: Sharpe change −0.04/−0.09, −0.00/−0.12 and −0.11/−0.25,
+   CAGR lower in all six. The rule required +0.10, so none went to
+   walk-forward. The information is real (it predicts next-month returns) but
+   it overlaps the trend forecast and dilutes it in a 20-name book.
 
 Not on the list, on purpose: re-optimising signal weights (R21A's 247% data-
 mining bias estimate came from exactly that), leverage (MTF at ≈ 14.6%/yr
