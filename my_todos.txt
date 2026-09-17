@@ -1,3 +1,73 @@
+================================================================================
+  ACTION TRACKER — updated 17 Sep 2026, 09:40 IST
+  Target: Sharpe >= 1.5, CAGR >= 25%, MaxDD <= 30%, Calmar >= 1, PBO <= 30%
+  Quote an ID (e.g. "do R3") to steer what I work on next.
+================================================================================
+
+LEGEND  [x] done   [~] running/queued   [ ] not started   [!] needs you
+
+--- YOU -----------------------------------------------------------------------
+[x] U1  Merge feature/restarted -> main (5 Sentry fixes + engine work)
+        Deployed 03:58 UTC; all four broken endpoints verified live.
+[!] U2  Rotate the Kaggle API token (KGAT_... was pasted into chat) and the
+        account password. Nothing breaks until you do; the token still works.
+[ ] U3  Check the trade-monitor page after tonight's 19:30 IST session:
+        20 pending orders should become open positions.
+        https://centurion-core-fe.vercel.app/ind-stocks/trade-monitor
+[ ] U4  Decide (later, after P1 completes): paper-trade an anchor-independent
+        candidate beside the deployed book. Needs D1 first.
+
+--- RUNNING / QUEUED ----------------------------------------------------------
+[~] K1  Kaggle b - delivery-% tilt walk-forward (64 grid points). Running ~9h.
+        May hit the 11h cap; if so it resumes with a narrower grid (see R2).
+[x] K2  Kaggle c - vol-target walk-forward. CAPPED after 3 of 9 folds (8.5h).
+        Folds 2017-2019 all chose target_vol = OFF. Re-queued as R3.
+[~] K3  History extension 2006-2011: sync -> separate store -> hash check ->
+        2008 crash sanity. Queued behind K1. ~1h of downloading.
+[~] P1  Paper session 2 - tonight 19:30 IST, fills the 20 queued orders.
+
+--- PHASE 1 RESEARCH (raise pre-leverage Sharpe 1.25 -> 1.5) --------------------
+[x] R0  Regime-gate tuning - CLOSED. 48 settings, no gain (1.25 vs 1.24),
+        folds disagreed on every parameter. Not a regime-parameter problem.
+[x] R1  Anchor independence - BUILT + WALK-FORWARD DONE.
+        OOS 2017-2025: Sharpe 1.15, CAGR 22.8%, MaxDD 21.1% vs deployed
+        1.24 / 23.7% / 22.3%. Costs ~0.09 Sharpe (within noise), buys a live
+        path whose results do not depend on when the data starts.
+[~] R2  Delivery-% tilt - built and smoke-tested; awaiting K1.
+[~] R3  Portfolio vol targeting - built; walk-forward re-queued with a narrow
+        grid (target_vol only, other parameters fixed at the settings every
+        fold has chosen in three independent walk-forwards). ~30 min.
+[ ] R4  Re-run the walk-forward over 2007-2025 once K3 lands. This is the
+        2008 test: how much of a 60% fall the regime gates avoid after the
+        3-day confirm lag, whipsaw through the 2009-10 recovery, and whether
+        stops survive a market that gaps through them.
+[ ] R5  NIFTY time-series-momentum sleeve (low priority - overlaps R0's gate).
+[ ] R6  R21A rules as new signal groups (breakout, acceleration, Ehlers DSP,
+        Carver value). Expect +/-0.1 Sharpe.
+
+--- DEPLOYMENT PLUMBING --------------------------------------------------------
+[ ] D1  Second deployment slot, so a candidate can paper-trade beside the live
+        book (the 2026 holdout is spent). ~1 day. Blocks U4.
+[ ] D2  Print the 26% out-of-sample haircut next to every validate result, so
+        decisions use the haircut number. ~1 hour.
+[ ] D3  Script the Stage-E capital ladder (20/40/70/100%) as gate checks.
+
+--- CLOSED ---------------------------------------------------------------------
+[x] C1  Phase 2 leverage/futures - CLOSED at Rs 10L capital. One NIFTY lot is
+        1.6x your capital and cannot be sized down; MTF at 14.6%/yr nets ~1-2%
+        for ~13 points of extra drawdown. Revisit above Rs 30L.
+[x] C2  Five Sentry issues - fixed and live (backtest data path, signal
+        history, index quotes, Kite retry, tradingview syntax).
+[x] C3  Trade-monitor page shows the engine's paper book daily.
+[x] C4  IND audit: dead code, duplication, folder structure.
+
+--- HONEST EXPECTATIONS --------------------------------------------------------
+  Backtest OOS (measured):  Sharpe 1.15-1.27 | CAGR 23-24% | MaxDD 21-24%
+  Plan for live:            Sharpe 0.8-1.1   | CAGR 15-20% | MaxDD 25-35%
+  CAGR 40%+ needs ~2x leverage, i.e. capital above Rs 30L. Not a code problem.
+  A paper Sharpe cannot be measured in 90 days (standard error ~2); the paper
+  gates test whether live BEHAVES like the backtest, not what the Sharpe is.
+
 Realistically achievable target: Sharpe >= 1.5, CAGR >=25%, MaxDD<=30%, Calmar >= 1%, PBO <= 30%
 Goal is to have the best possible Sharpe and CAGR, lowest possible maxDD
 
