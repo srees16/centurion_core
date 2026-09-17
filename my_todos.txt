@@ -60,9 +60,6 @@ LEGEND  [x] done   [~] running/queued   [ ] not started   [!] needs you
         history, index quotes, Kite retry, tradingview syntax).
 [x] C3  Trade-monitor page shows the engine's paper book daily.
 [x] C4  IND audit: dead code, duplication, folder structure.
-[x] C5  Streamlit UI removed (17 Sep). app.py, ui/, auth/authenticator.py,
-        rag_pipeline/rag_page.py + ui/, kite_connect/zerodha_live.py,
-        services/app/ - 33 files, ~15,900 lines. Next.js is the only frontend.
 
 --- HONEST EXPECTATIONS --------------------------------------------------------
   Backtest OOS (measured):  Sharpe 1.15-1.27 | CAGR 23-24% | MaxDD 21-24%

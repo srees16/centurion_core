@@ -35,8 +35,8 @@ pip install -r requirements.txt
 ollama pull mistral
 
 # 3. Run (pick one)
-python run_api.py                         # the RAG endpoints live under /api/v1/rag
-# UI: https://centurion-core-fe.vercel.app/ (the Streamlit RAG page was removed)
+streamlit run app.py                      # as part of main app (navigate to RAG page)
+streamlit run rag_pipeline/rag_page.py    # standalone mode
 ```
 
 **Programmatic usage:**
@@ -158,5 +158,5 @@ For new file types (DOCX, CSV, etc.), create an ingestion class that extracts te
 | **LLM timeout** | First query after restart loads model into memory (can take minutes). Increase: `CENTURION_RAG_LLM_TIMEOUT=900` |
 | **Model not found** | Pull it: `ollama pull mistral`. List available: `ollama list` |
 | **No results** | Ensure PDFs are uploaded & ingested. Check KB stats in the UI. |
-| **Import errors** | Run from project root: `cd centurion_core && python run_api.py` |
+| **Import errors** | Run from project root: `cd centurion_core && streamlit run rag_pipeline/rag_page.py` |
 | **Slow first run** | Embedding (~90 MB) and re-ranker (~80 MB) models download on first use. Cached after that. |

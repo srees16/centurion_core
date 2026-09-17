@@ -34,7 +34,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 from models import NewsItem
 from config import Config
-from infrastructure.session_cache import get_session_cache, SessionCache
+from services.app.cache import get_session_cache, SessionCache
 
 logger = logging.getLogger(__name__)
 
