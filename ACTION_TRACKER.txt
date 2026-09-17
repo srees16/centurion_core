@@ -1,5 +1,5 @@
 ================================================================================
-  ACTION TRACKER — updated 17 Sep 2026, 11:05 IST
+  ACTION TRACKER — updated 17 Sep 2026, 12:05 IST
   Target: CAGR > 35% at capital > Rs 30L | Sharpe >= 1.5 | MaxDD <= 30%
           Calmar >= 1 | PBO <= 30%
   Quote an ID (e.g. "do L2", "start R4") to steer what gets worked on next.
@@ -20,11 +20,15 @@
         net-zero Streamlit delete/revert pair); main is functionally complete.
 
 --- RUNNING / QUEUED -----------------------------------------------------------
-[~] K1  Kaggle b - delivery-% tilt walk-forward. ~10h in; likely stops at its
-        11h cap (~12:00 IST) with some folds done; the rest resume after.
-[~] K3  History 2006-2011: sync -> separate store -> hash check -> 2008 check.
-        Re-armed 10:58 IST (the earlier queue died with the session).
-        Starts when K1 ends; ~1h of downloading.
+[~] K1  Kaggle b - delivery tilt: capped at 7 of 9 folds; folds 7-8
+        (2024-25) resumed as kernel b v2, ~2h.
+[~] K3  History 2006-2011: DOWNLOADED (1,486 sessions, prices + delivery;
+        corporate actions from 2010). Store build + hash check running.
+[!] K4  GAP: NSE has no index-close files before 2012 - no NIFTY 50 for
+        2006-11, so the regime gate cannot run on 2008. Needs a source:
+        yfinance ^NSEI starts Sep 2007 (200-DMA only valid mid-2008, misses
+        the start of the crash) vs niftyindices.com history (to 1995,
+        unofficial API). Blocks R4.
 [~] P1  Paper session tonight 19:30 IST - first fills of the Rs 35L book.
 
 --- PHASE 1: RAISE SHARPE (unlevered) ------------------------------------------
@@ -33,9 +37,13 @@
         MaxDD 21.1% (deployed: 1.24 | 23.7% | 22.3%). Within noise.
 [x] R3  Portfolio vol targeting - CLOSED. All 9 folds chose OFF; it lowered
         train Sharpe in every fold (by 0.02-0.11).
-[~] R2  Delivery-% tilt - awaiting K1. The last credible Sharpe lever in P1.
-[ ] R4  Walk-forward 2007-2025 after K3 - the 2008 crash test: how much of a
-        60% fall the regime gates dodge, 2009-10 whipsaw, stops that gap.
+[~] R2  Delivery-% tilt - 7 of 9 folds in (2017-23), same years vs base:
+        Sharpe 1.14 vs 1.11 | CAGR 20.5% vs 22.1% | MaxDD 19.1% vs 21.1%.
+        Every fold chose it, but IS Sharpe jumped (1.21 vs 0.97) while OOS
+        barely moved (OOS/IS 0.95 vs 1.13): lower risk AND lower return, not
+        more Sharpe. Final call after folds 7-8.
+[ ] R4  Walk-forward 2007-2025 after K3 + K4 - the 2008 crash test: how much
+        of a 60% fall the regime gates dodge, 2009-10 whipsaw, gapped stops.
 [ ] R5  NIFTY time-series-momentum sleeve (low - overlaps the regime gate).
 [ ] R6  R21A rules as signal groups (expect +/-0.1 Sharpe).
 
