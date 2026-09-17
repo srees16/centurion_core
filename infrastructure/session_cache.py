@@ -1,9 +1,9 @@
 """
-Session Cache Service for Centurion Capital LLC.
+In-process TTL cache for scraped and derived per-ticker data.
 
-Provides a centralized, TTL-aware, in-process cache that spans a single
-Streamlit session.  All expensive data — scraped news, sentiment results,
-stock metrics — is cached per ticker so that:
+Used by the scrapers (``scrapers/cache.py``) to avoid refetching news,
+sentiment and metrics for a ticker that another request already covered.
+Expensive data is cached per ticker so that:
 
 * Re-running analysis with overlapping tickers reuses prior results.
 * Adding a new ticker only fetches data for that ticker.
@@ -12,9 +12,9 @@ stock metrics — is cached per ticker so that:
 
 Design decisions
 ────────────────
-* **No Redis required.**  The app runs as a single Streamlit process per
-  user.  An in-process singleton (with optional ``st.session_state``
-  persistence) gives sub-millisecond lookups without infrastructure cost.
+* **No Redis required.**  An in-process singleton gives sub-millisecond
+  lookups without infrastructure cost. ``infrastructure/cache.py`` is the
+  Redis-backed cache for data that must outlive one process.
 * **TTL per entry.**  Stale data is automatically evicted; callers can
   also force a refresh.
 * **Thread-safe.**  Uses a ``threading.Lock`` for the rare case where

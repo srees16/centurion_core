@@ -13,7 +13,6 @@ transformers
 torch
 plyer
 python-dateutil
-streamlit
 plotly
 scikit-learn
 matplotlib
