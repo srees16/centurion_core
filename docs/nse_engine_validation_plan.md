@@ -216,6 +216,19 @@ every configuration recorded (so PBO/DSR count them):
    cannot be fully warmed (the store starts in 2012), which anchors them at
    the store's first row exactly as the legacy runs are; it is the paper /
    live path, loading from any date, that this makes reproducible.
+   **Walk-forward result (Kaggle v8, 17 Sep 2026, 297 backtests):** every
+   fold chose the deployed settings again (no low-vol, 6×ATR, rebalance 5,
+   neutral 1.0, 20 positions). Stitched OOS 2017–2025: excess Sharpe 1.15,
+   CAGR 22.8%, MaxDD 21.1%, OOS/IS 1.15, 2 of 9 years ≤ 0 (2018 −1.87,
+   2022 −0.81) — against 1.24 / 23.7% / 22.3% / 1.18 for the legacy
+   behaviour on the same platform. So load-independence costs about 0.09
+   Sharpe and 1 point of CAGR and returns 1 point of drawdown: within the
+   walk-forward's own noise (standard error ≈ 0.35 on nine years), and the
+   price of a live path whose behaviour does not depend on when its data
+   starts. It is the base for the delivery and vol-target tests below; it
+   does not replace the deployed configuration until Phase 1 is complete and
+   a candidate has paper-traded beside it. Cost: 25 min per fold on Kaggle
+   against 5 for the legacy path (the finite-memory EWMs).
 1. Downtrend defence for the negative OOS years (2018, 2019, 2022): core
    volatility targeting, stronger breadth/trend risk-off, absolute-momentum filter.
    **Tested 16–17 Sep 2026 (Kaggle, 48-point grid over the existing regime
