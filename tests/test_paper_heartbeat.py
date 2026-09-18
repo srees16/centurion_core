@@ -76,3 +76,25 @@ def test_a_database_error_is_reported_not_raised(monkeypatch):
     result = check()
     assert result["stale"] is True
     assert "database unreachable" in result["reason"]
+
+
+class TestSmtpCredentials:
+    """Gmail App Passwords are shown in groups of four; copying brings spaces."""
+
+    @pytest.mark.parametrize("raw,why", [
+        ("abcd efgh ijkl mnop", "as Google displays it"),
+        ("abcd efgh ijkl mnop", "copied with non-breaking spaces"),
+        ("abcdefghijklmnop\n", "trailing newline from a paste"),
+        ("  abcdefghijklmnop  ", "padded"),
+        ("abcdefghijklmnop", "already clean"),
+    ])
+    def test_credentials_are_stripped_to_something_smtplib_can_send(self, raw, why, monkeypatch):
+        from services.notifications.manager import _smtp_settings
+
+        monkeypatch.setenv("CENTURION_EMAIL_USER", " bot@example.com ")
+        monkeypatch.setenv("CENTURION_EMAIL_PASS", raw)
+        host, port, user, password = _smtp_settings()
+        assert password == "abcdefghijklmnop", why
+        assert user == "bot@example.com"
+        password.encode("ascii")        # smtplib does this; a stray NBSP used to raise here
+        assert port == 587 and host == "smtp.gmail.com"

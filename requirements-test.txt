@@ -1,0 +1,10 @@
+# Exactly what `pytest tests -m "not slow"` needs, so CI and a local run agree.
+# Keep in step with the imports the suite reaches: the engine (numpy/pandas/
+# pyarrow/scipy), the cloud book (sqlalchemy), config.py (python-dotenv).
+numpy
+pandas
+pyarrow
+scipy
+sqlalchemy
+python-dotenv
+pytest>=8.0
