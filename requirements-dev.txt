@@ -1,2 +1,0 @@
-# Development and CI only (the runtime list is requirements.txt).
-pytest>=8.0
