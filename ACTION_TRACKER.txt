@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 18 Sep 2026, 16:25 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 18 Sep 2026, 21:25 IST
 ================================================================================
 
 HOW TO USE
@@ -31,25 +31,23 @@ OWNER     YOU = your action or decision    CLAUDE = code/research via prompt
   Behaviour: vol 13.4% | turnover 7.0x | cost drag 3.15%/yr | 44% of trades win
     | avg 17.9 positions at 0.88 gross | 86% of days in drawdown
     | worst years 2018 -11.4%, 2022 -3.8%
-  Paper book: Rs 35L since 17 Sep, 21 positions, equity Rs 35,23,526.
+  Paper book: Rs 35L since 17 Sep, 21 positions, equity Rs 35,77,634 (+2.2%);
+    sessions traded 17 and 18 Sep, both needing a manual dispatch.
   Reality check: Sharpe 1.5 and CAGR 30%+ are not reachable unlevered on this
     evidence. CAGR 35% needs leverage (L2), which breaks MaxDD 30% (U5).
 
 --------------------------------------------------------------------------------
  2. IN PROGRESS [~]
 --------------------------------------------------------------------------------
-[~] P0  P2   First scheduled paper session, Fri 18 Sep                 CLAUDE
-             Watcher checks for an 18 Sep snapshot until 23:00 IST.
-             Done when: snapshot 2026-09-18 exists and a scheduled or
-             cron-job.org run succeeded. If none by 20:30 IST: dispatch
-             manually and check U9.
-[~] P0  U9   cron-job.org 19:30 IST trigger                             YOU
-             The POST works (204 with the CLI token); your job/token untested.
-             Done when: cron-job.org history shows 204 on Fri 18 Sep.
-[~] P1  G6   Daily engine email                                          CLAUDE
-             Live on main; first real send = the 18 Sep session.
-             Done when: email received (check spam). If the log says
-             "Authentication": replace CENTURION_EMAIL_PASS (YOU).
+[!] P0  U15  ONE SECRET makes the 19:00 IST start work: put a GitHub
+             fine-grained token (Actions: read and write on centurion_core)
+             into the HF Space as CENTURION_GH_DISPATCH_TOKEN. The Space then
+             dispatches the session at 19:00 IST to the minute (code added and
+             tested 18 Sep). Without it the only triggers are GitHub's own
+             crons, which ran 1-4 h late or not at all.
+[ ] P2  U9   cron-job.org is optional once U15 is in place. If you keep it:
+             no dispatch appeared on 18 Sep, so check its history (404 = GET
+             not POST, 401 = token, 403 = permissions, 422 = body).
 [~] P1  P3   60-90 paper sessions (to ~Jan 2027)                         —
              Judged on behaviour, not Sharpe: tracking error <= 8%/yr,
              costs <= 1.5x model, MaxDD <= 1.5x backtest. Needs G4 + G5.
@@ -57,14 +55,17 @@ OWNER     YOU = your action or decision    CLAUDE = code/research via prompt
 --------------------------------------------------------------------------------
  3. NEEDS YOU [!]
 --------------------------------------------------------------------------------
-[!] P0  U13  MERGE TODAY'S WORK BEFORE 19:30 IST. Uncommitted on
-             feature/restarted: B1 look-ahead fix (nse_engine/{config,types,
-             universe,data/panel}.py), G7 writer guard (scheduler.py,
-             cloud_paper_runner.py, database/paper_cloud.py), G5 fill records
-             (database/models.py, paper_trader.py), B3 tests (tests/,
-             pytest.ini, .github/workflows/tests.yml), plus docs and this file.
-             G5 is the deadline: every session that runs without it loses that
-             day's fill costs permanently.
+[!] P0  U13  MERGE feature/restarted INTO main (pushed at 17:43 IST, not
+             merged). main still runs without: B1 look-ahead fix, G7 writer
+             guard, G5 fill records, G8 session-dated snapshots, the extra
+             backup crons and the test suite. Monday's session runs on
+             whatever is on main.
+[!] P0  U14  Daily email REJECTED by Gmail. The 18 Sep session tried to send and
+             got "534 5.7.9 Application-specific password required":
+             CENTURION_EMAIL_PASS holds a normal account password. Generate an
+             App Password (Google account > Security > 2-Step Verification >
+             App passwords) and update the secret. The email itself builds and
+             sends correctly, so this is the only thing between you and it.
 [!] P0  U2   Rotate the Kaggle API token (pasted in chat) and the account password.
 [!] P1  U11  Stop deleting Actions runs: the 17 Sep 20:41 IST session run (21
              fills) and a 20:16 run were deleted. Logs = the paper audit trail.
@@ -118,26 +119,23 @@ OWNER     YOU = your action or decision    CLAUDE = code/research via prompt
 #6  [ ] P2  G11  Fix the weekly Saturday email ("Week 1" every week)         CLAUDE
              Prompt:    do G11
 
-#7  [ ] P2  G8   Date snapshots by the market session, not the clock         CLAUDE
-             Prompt:    do G8
-
-#8  [ ] P2  G10  Per-position P&L on the trade monitor (shows 0.0%)          CLAUDE
+#7  [ ] P2  G10  Per-position P&L on the trade monitor (shows 0.0%)          CLAUDE
              Prompt:    do G10
 
-#9  [ ] P2  K4   NIFTY 50 index history 2007-2011                            CLAUDE
+#8  [ ] P2  K4   NIFTY 50 index history 2007-2011                            CLAUDE
              Prompt:    do K4
              Why:       NSE index files start 2012; the regime gate cannot run
                         on 2008. yfinance ^NSEI (from Sep 2007) vs
                         niftyindices.com (to 1995, unofficial API).
 
-#10 [ ] P2  R4   Walk-forward 2007-2025 (2008 crash test)                    CLAUDE
+#9  [ ] P2  R4   Walk-forward 2007-2025 (2008 crash test)                    CLAUDE
              Prompt:    start R4
              Depends:   K4, B1
 
-#11 [ ] P2  D1   Second paper slot (candidate beside the deployed book)      CLAUDE
+#10 [ ] P2  D1   Second paper slot (candidate beside the deployed book)      CLAUDE
              Prompt:    do D1
 
-#12 [ ] P2  L2   NIFTY futures overlay (leverage)                            CLAUDE
+#11 [ ] P2  L2   NIFTY futures overlay (leverage)                            CLAUDE
              Prompt:    do L2
              Depends:   U5
              Why:       the only route to CAGR > 35%; needs ~1.5x gross.
@@ -159,6 +157,26 @@ OWNER     YOU = your action or decision    CLAUDE = code/research via prompt
 --------------------------------------------------------------------------------
  6. DONE [x] — most recent first
 --------------------------------------------------------------------------------
+[x] 18 Sep  SCHED Daily trigger rebuilt after the missed day. Primary: HF
+                 scheduler dispatches Actions at 19:00 IST exactly (needs
+                 U15's secret; tested against a stubbed API for 204/401/403/
+                 404/network). Backups: GitHub crons 19:00, 20:05, 21:05,
+                 22:05 IST inside an 18:30-05:59 IST window. Alarm: new
+                 Paper Heartbeat workflow at 00:15 IST fails (and emails) when
+                 the book is more than one weekday behind - a single NSE
+                 holiday is tolerated, two missed weekdays are not. 11 new
+                 tests; suite now 69.
+[x] 18 Sep  P2   18 Sep session traded (dispatched by hand at 20:43 IST after both
+                 triggers failed): equity Rs 35,77,634 (+2.2%), 21 positions,
+                 no fills or stops (next rebalance Wed 23 Sep). Snapshots now
+                 list 17 and 18 Sep.
+[x] 18 Sep  G8   Snapshots dated by the trading session, not the IST clock, so a
+                 late run records the right day. Window widened to 18:30-05:59
+                 IST, backups raised from 2 to 4 (19:05, 20:05, 21:05, 22:05
+                 IST), and a missed session is now logged and emailed
+                 ("MISSED n session(s)"), tested on 6 gap patterns. ROOT CAUSE
+                 of the missed day: cron-job.org never fired and GitHub
+                 delivered its backup 1-4 h late, outside the old window.
 [x] 18 Sep  B3   Test suite added (tests/, pytest.ini, CI workflow): 58 fast
                  tests on synthetic data + 2 store-backed ones marked slow.
                  Covers signal causality for all 7 groups, the B1 universe

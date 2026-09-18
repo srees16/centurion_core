@@ -1542,6 +1542,51 @@ def _hf_paper_session_allowed() -> Tuple[bool, str]:
     return False, f"book_writer={writer or 'unset'}"
 
 
+@_tracked_job("nse_engine_dispatch", "NSE Engine Dispatch")
+def _dispatch_nse_paper_workflow():
+    """Start the GitHub Actions paper session at 19:00 IST, on time.
+
+    GitHub's own cron delivers 1-4 hours late and sometimes not at all (18 Sep
+    2026: no scheduled run arrived, and the session had to be started by hand),
+    so the punctual trigger lives here, where APScheduler fires to the minute.
+    The Actions crons stay as backups.
+
+    Needs ``CENTURION_GH_DISPATCH_TOKEN`` (a fine-grained token with Actions:
+    read and write on the repository). Without it the job does nothing, so a
+    Space without the secret is simply quiet.
+    """
+    import urllib.error
+    import urllib.request
+
+    token = os.environ.get("CENTURION_GH_DISPATCH_TOKEN", "")
+    if not token:
+        logger.debug("NSE paper dispatch: no CENTURION_GH_DISPATCH_TOKEN, skipping")
+        return
+    repo = os.environ.get("CENTURION_GH_REPO", "srees16/centurion_core")
+    workflow = os.environ.get("CENTURION_GH_WORKFLOW", "nse-paper-trading.yml")
+    url = f"https://api.github.com/repos/{repo}/actions/workflows/{workflow}/dispatches"
+    body = json.dumps({"ref": os.environ.get("CENTURION_GH_REF", "main"),
+                       "inputs": {"reason": "hf scheduler 19:00 IST"}}).encode()
+    req = urllib.request.Request(url, data=body, method="POST", headers={
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "Content-Type": "application/json",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            ok = resp.status == 204
+        logger.info("NSE paper dispatch: %s (HTTP %s)", "started" if ok else "unexpected status", resp.status)
+        _save_run("nse_engine_dispatch", {"status": "success" if ok else "error", "http": resp.status})
+    except urllib.error.HTTPError as exc:                 # 401 token, 403 scope, 404 path, 422 body
+        detail = exc.read()[:200].decode("utf-8", "replace")
+        logger.error("NSE paper dispatch failed: HTTP %s %s", exc.code, detail)
+        _save_run("nse_engine_dispatch", {"status": "error", "http": exc.code, "detail": detail})
+    except Exception as exc:                              # noqa: BLE001 - never kill the scheduler
+        logger.error("NSE paper dispatch failed: %s", exc)
+        _save_run("nse_engine_dispatch", {"status": "error", "detail": str(exc)})
+
+
 @_tracked_job("nse_engine_executor", "NSE Engine Executor")
 def _run_nse_engine_executor():
     """NSE engine targets -> CNC orders + GTT stops (guarded by CENTURION_NSE_ENGINE)."""
@@ -3038,6 +3083,17 @@ def start_scheduler():
             misfire_grace_time=600,
         )
     logger.info("  GTT reconcile   : 09:05 and 15:45 IST, Mon-Fri (live only)")
+
+    # ── NSE paper session: dispatch GitHub Actions at 19:00 IST, on time ──
+    if os.environ.get("CENTURION_GH_DISPATCH_TOKEN"):
+        scheduler.add_job(
+            _dispatch_nse_paper_workflow,
+            CronTrigger(hour=19, minute=0, day_of_week="mon-fri", timezone="Asia/Kolkata"),
+            id="nse_engine_dispatch",
+            name="NSE Engine Dispatch",
+            misfire_grace_time=3600,          # a Space restart near 19:00 still fires
+        )
+        logger.info("  NSE paper start : 19:00 IST, Mon-Fri (GitHub Actions dispatch)")
 
     # ── NSE engine executor (opt-in: CENTURION_NSE_ENGINE=true) — 09:25 IST ──
     if os.environ.get("CENTURION_NSE_ENGINE", "false").lower() in ("true", "1", "yes"):

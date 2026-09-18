@@ -12,8 +12,8 @@ on:
     # 22:07 run also picks up a bhavcopy that was published after 19:30.
     # Minutes avoid the congested top of the hour. Keep these strings in sync
     # with the job conditions.
-    - cron: "35 13 * * 1-5"   # 19:05 IST
-    - cron: "35 14 * * 1-5"   # 20:05 IST
+    - cron: "30 13 * * 1-5"   # 19:00 IST - the intended daily start
+    - cron: "35 14 * * 1-5"   # 20:05 IST - backups, because GitHub runs late
     - cron: "35 15 * * 1-5"   # 21:05 IST
     - cron: "35 16 * * 1-5"   # 22:05 IST
     # Saturday weekly checkpoint: 7:30 AM IST = 2:00 AM UTC
@@ -50,7 +50,7 @@ jobs:
   # the Saturday weekly checkpoint (no market data needed).
   paper-trade:
     if: >-
-      (vars.CENTURION_NSE_ENGINE != 'true' && !startsWith(github.event.schedule, '35 1'))
+      (vars.CENTURION_NSE_ENGINE != 'true' && github.event.schedule != '0 2 * * 6')
       || (vars.CENTURION_NSE_ENGINE == 'true' && github.event.schedule == '0 2 * * 6')
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -96,7 +96,7 @@ jobs:
   # evening make a missed session unlikely; re-runs of a processed session only
   # re-plan. Manual dispatches always run.
   engine-window:
-    if: vars.CENTURION_NSE_ENGINE == 'true' && startsWith(github.event.schedule, '35 1')
+    if: vars.CENTURION_NSE_ENGINE == 'true' && github.event.schedule != '' && github.event.schedule != '0 2 * * 6' 
     runs-on: ubuntu-latest
     timeout-minutes: 2
     outputs:
@@ -113,9 +113,11 @@ jobs:
           fi
 
   # NSE engine paper trading (CENTURION_NSE_ENGINE == 'true'): once per
-  # trading day after the bhavcopy is published - dispatched at 19:30 IST by
-  # cron-job.org, with the schedule crons above as backups - or on manual
-  # dispatch.
+  # trading day after the bhavcopy is published.  Triggered, in order of
+  # punctuality: the Hugging Face scheduler's 19:00 IST dispatch (exact), an
+  # external cron-job.org POST if one is configured, then GitHub's own crons
+  # above, which arrive 1-4 hours late.  Whichever lands first does the work;
+  # the rest only re-plan.
   #
   # Data: data/nse_engine/{archive,store} are gitignored, so they live in the
   # Actions cache.  Every run restores the newest cache entry (restore-keys),
@@ -135,7 +137,7 @@ jobs:
     if: >-
       !cancelled() && vars.CENTURION_NSE_ENGINE == 'true'
       && (github.event_name == 'workflow_dispatch'
-          || (startsWith(github.event.schedule, '35 1')
+          || (github.event.schedule != '' && github.event.schedule != '0 2 * * 6'
               && needs.engine-window.outputs.in_window == 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 180
