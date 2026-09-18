@@ -29,13 +29,13 @@ jobs:
       CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
       CENTURION_HEARTBEAT_TEST_EMAIL: ${{ inputs.send_test_email }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
       # Minimal set for tools.paper_heartbeat and the notification manager;
       # verified by importing both in a clean environment.
-      - run: pip install --quiet pandas sqlalchemy psycopg2-binary python-dotenv
+      - run: pip install --quiet -r requirements-test.txt psycopg2-binary
       - name: Check when the book last traded
         run: python -m tools.paper_heartbeat
