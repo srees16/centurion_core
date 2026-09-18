@@ -60,6 +60,13 @@ def _eligible_mask(data: MarketData, cfg: UniverseConfig, exclude: Iterable[str]
     return ~np.asarray(symbols.isin(list(excluded)))
 
 
+def _price_reference(data: MarketData, cfg: UniverseConfig) -> pd.DataFrame:
+    """Frame the ``min_price_inr`` test reads: as printed, or back-adjusted (legacy)."""
+    if cfg.price_filter_unadjusted and data.close_unadj is not None:
+        return data.close_unadj
+    return data.close
+
+
 def _select_at(
     last_close: np.ndarray,
     value0: np.ndarray,
@@ -131,7 +138,7 @@ def compute_universe_panel(data: MarketData, cfg: UniverseConfig, exclude: Itera
     value0 = np.nan_to_num(data.value.to_numpy(dtype="float64"), nan=0.0)
     n, m = close.shape
     hist = history_counts(close, cfg.history_window_days)
-    close_ff = data.close.astype("float64").ffill().to_numpy()
+    close_ff = _price_reference(data, cfg).astype("float64").ffill().to_numpy()
     eligible = _eligible_mask(data, cfg, exclude)
     mask = np.zeros((n, m), dtype=bool)
     refresh: Dict[pd.Timestamp, List[str]] = {}
@@ -164,8 +171,10 @@ def select_universe(
     else:
         rpos = last_refresh_position(pos, cfg.refresh_every_n_days)
     close = data.close.iloc[: pos + 1].to_numpy(dtype="float64")
+    price_ref = _price_reference(data, cfg).iloc[: pos + 1].to_numpy(dtype="float64")
     value0 = np.nan_to_num(data.value.iloc[: rpos + 1].to_numpy(dtype="float64"), nan=0.0)
     hist = history_counts(close[: rpos + 1], cfg.history_window_days)[rpos]
-    idx = _select_at(_last_valid_row(close[: rpos + 1]), value0, hist, rpos, _eligible_mask(data, cfg, exclude), cfg)
+    idx = _select_at(_last_valid_row(price_ref[: rpos + 1]), value0, hist, rpos,
+                     _eligible_mask(data, cfg, exclude), cfg)
     cols = data.close.columns
     return [cols[i] for i in idx if np.isfinite(close[pos, i])]

@@ -28,7 +28,7 @@ import sqlite3
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1518,6 +1518,30 @@ def _run_gtt_reconciliation():
         logger.exception("GTT reconciliation failed: %s", exc)
 
 
+def _hf_paper_session_allowed() -> Tuple[bool, str]:
+    """May this Space run an engine PAPER session against the shared Neon book?
+
+    The book is written by the GitHub Actions job (``book_writer``), which owns
+    the epoch, the pending orders and the session marker.  A second writer would
+    fill the same session twice and rewrite the snapshot, so a Space only runs
+    paper sessions when it is the writer, or when someone opts in explicitly.
+    """
+    if os.environ.get("CENTURION_NSE_ENGINE_HF_PAPER", "false").lower() in ("true", "1", "yes"):
+        return True, "CENTURION_NSE_ENGINE_HF_PAPER=true"
+    try:
+        from database.paper_cloud import get_paper_cloud
+        cloud = get_paper_cloud()
+        writer = cloud.book_writer() if cloud else ""
+    except Exception as exc:                              # noqa: BLE001 - never block the scheduler
+        return False, f"book_writer unreadable ({exc})"
+    if writer == "hf_scheduler":
+        return True, "book_writer=hf_scheduler"
+    # Unset counts as "not ours": the GitHub Actions job owns the engine book in
+    # this deployment, and it stamps itself on its next run. Set
+    # CENTURION_NSE_ENGINE_HF_PAPER=true on a Space that really should write.
+    return False, f"book_writer={writer or 'unset'}"
+
+
 @_tracked_job("nse_engine_executor", "NSE Engine Executor")
 def _run_nse_engine_executor():
     """NSE engine targets -> CNC orders + GTT stops (guarded by CENTURION_NSE_ENGINE)."""
@@ -1531,6 +1555,11 @@ def _run_nse_engine_executor():
         logger.info("NSE engine executor: mode=%s (%s)", "paper" if executor.paper else "LIVE",
                     executor.mode_reason)
         if executor.paper:
+            ok, why = _hf_paper_session_allowed()
+            if not ok:
+                logger.info("NSE engine executor: paper session skipped, another runner owns the book (%s)", why)
+                _save_run("nse_engine_executor", {"status": "skipped", "mode": "paper", "reason": why})
+                return
             # Paper orders are queued and filled at the next session's open
             # inside run_paper_session (same fills as the backtest).
             session = executor.run_paper_session()

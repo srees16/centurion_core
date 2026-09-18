@@ -18,7 +18,7 @@ Optional:
 import os
 import sys
 import logging
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 
 # Ensure centurion_core is on the path
@@ -421,7 +421,11 @@ def _run_engine_paper():
     try:
         cloud = pt._get_cloud()
         if cloud and hasattr(cloud, "sync_state"):
-            cloud.sync_state({"book_owner": "nse_engine"})   # tells the HF scheduler to leave this book alone
+            cloud.sync_state({                               # tells other runners to leave this book alone
+                "book_owner": "nse_engine",
+                "book_writer": "github_actions",
+                "book_writer_seen_at": datetime.now(timezone.utc).isoformat(),
+            })
     except Exception as exc:
         logger.debug("book_owner sync skipped: %s", exc)
     fills = session.get("fills") or {}

@@ -28,6 +28,7 @@ HASH_NEUTRAL_DEFAULTS: Dict[Tuple[str, str], Any] = {
     ("portfolio", "calendar_schedule"): False,
     ("universe", "calendar_schedule"): False,
     ("universe", "history_window_days"): 0,
+    ("universe", "price_filter_unadjusted"): False,
     ("allocator", "target_vol_annual"): 0.0,
     ("allocator", "vol_target_min_scale"): 0.3,
 }
@@ -63,6 +64,10 @@ class UniverseConfig:
     # Anchor independence (legacy values keep the legacy behaviour and hash):
     calendar_schedule: bool = False   # refresh on calendar period starts, not row counts
     history_window_days: int = 0      # 0: count history since the first loaded row; >0: within this trailing window
+    # False (legacy): the min_price test uses back-adjusted closes, so which names are
+    # eligible in 2013 depends on splits and dividends that came later - a look-ahead
+    # worth ~0.14 Sharpe over 2013-19. True: test the price actually printed that day.
+    price_filter_unadjusted: bool = False
 
 
 @dataclass(frozen=True)

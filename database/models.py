@@ -836,6 +836,39 @@ class PaperSignalLogRecord(Base):
     )
 
 
+class PaperFillRecord(Base):
+    """One execution event of the paper book: an order filled or cancelled at a
+    session open, or a stop exit.
+
+    Local SQLite is thrown away with each Actions runner, so without this the
+    realised price, market impact and costs of every fill were lost and
+    "paper costs vs the model" could never be measured (tracker G5).
+    """
+    __tablename__ = 'paper_fills'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    order_id = Column(String(64), default='', index=True)   # pending-order id, '' for stops
+    session_date = Column(String(10), nullable=False, index=True)   # trading session of the fill
+    decision_date = Column(String(10), default='')                  # session the order was decided on
+    source = Column(String(20), default='')                # pending_open | stop | cancel
+    symbol = Column(String(30), nullable=False, index=True)
+    side = Column(String(10), default='')
+    status = Column(String(16), default='')                # FILLED | CANCELLED
+    requested_qty = Column(Integer, default=0)
+    quantity = Column(Integer, default=0)
+    ref_price = Column(Float, default=0)                   # price the decision used
+    fill_price = Column(Float, default=0)                  # realised, impact included
+    impact_bps = Column(Float, default=0)
+    costs_inr = Column(Float, default=0)                   # statutory + fees on this order
+    pnl = Column(Float, default=0)                         # stops only
+    note = Column(String(200), default='')
+    occurred_at = Column(String(40), default='', index=True)   # book membership uses this
+
+    __table_args__ = (
+        Index('idx_pf_session_symbol', 'session_date', 'symbol'),
+    )
+
+
 class PaperWeeklyCheckpointRecord(Base):
     """Cloud-synced copy of local weekly_checkpoints (SQLite)."""
     __tablename__ = 'paper_weekly_checkpoints'
