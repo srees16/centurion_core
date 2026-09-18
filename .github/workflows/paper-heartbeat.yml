@@ -34,6 +34,8 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - run: pip install --quiet pandas sqlalchemy psycopg2-binary
+      # Minimal set for tools.paper_heartbeat and the notification manager;
+      # verified by importing both in a clean environment.
+      - run: pip install --quiet pandas sqlalchemy psycopg2-binary python-dotenv
       - name: Check when the book last traded
         run: python -m tools.paper_heartbeat
