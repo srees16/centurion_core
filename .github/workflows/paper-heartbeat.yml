@@ -1,0 +1,41 @@
+name: Paper Heartbeat
+
+# Did the paper book trade today? Runs after the last backup attempt and fails
+# when the book is more than one weekday behind, so GitHub's failure
+# notification reaches the owner. It never trades; it only looks.
+on:
+  schedule:
+    - cron: "45 18 * * 1-5"    # 00:15 IST, after the 22:05 IST backup window
+  workflow_dispatch:
+    inputs:
+      send_test_email:
+        description: "Send a test email instead of checking the book (verifies CENTURION_EMAIL_PASS)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
+      CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
+      CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
+      CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
+      CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+      CENTURION_HEARTBEAT_TEST_EMAIL: ${{ inputs.send_test_email }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      # Minimal set for tools.paper_heartbeat and the notification manager;
+      # verified by importing both in a clean environment.
+      - run: pip install --quiet pandas sqlalchemy psycopg2-binary python-dotenv
+      - name: Check when the book last traded
+        run: python -m tools.paper_heartbeat

@@ -1,6 +1,8 @@
 Realistically achievable target: Sharpe >= 1.5, CAGR >=25%, MaxDD<=30%, Calmar >= 1%, PBO <= 30%
 Goal is to have the best possible Sharpe and CAGR, lowest possible maxDD
 
+*success criterion should be highest Sharpe + lowest max DD, not a CAGR number. A config with 45%+ CAGR and 0.90 Sharpe is far better than 60% CAGR and 0.50 Sharpe, because the former will survive in live trading while the latter will blow up.*
+
 ┌──────────────────────────────────────────────────────────────────────┐
 │  PERFORMANCE SUMMARY — ALL CONFIGURATIONS                           │
 ├──────────────┬────────┬────────┬────────┬────────┬─────────┬────────┤
@@ -92,9 +94,7 @@ Plan for the R22 infusion quantification:
 3. Then launch a separate R22 run with _R22_BULL_INFUSION = True + _R22_INFUSION_AMOUNT = 50,000 using the same v27 weights
 4. Compare side-by-side: terminal equity, CAGR, Sharpe — to isolate the exact capital gain from bull-crossover infusions
 ~~~~~~
-since the success criterion should be highest Sharpe + lowest max DD, not a CAGR number. ensure that we achieve the best possible config with at least 40%+ CAGR and highest Sharpe (~0.90) with lowest possible max DD. This is to ensure that centurion_core survives & even thrives in live trading and NOT blow up. Be more aggressive in sustained uptrends, more defensive in downtrends. Verify that while the backtest performance is great, it does not fail in live Ind markets and backtest CAGR does not lead to overfitting
-
-*success criterion should be highest Sharpe + lowest max DD, not a CAGR number. A config with 45%+ CAGR and 0.90 Sharpe is far better than 60% CAGR and 0.50 Sharpe, because the former will survive in live trading while the latter will blow up.*
+Ensure that centurion_core survives & even thrives in live trading and NOT blow up. Be more aggressive in sustained uptrends, and more defensive in downtrends. Verify that while the backtest performance is great, it does not fail in live Ind markets and backtest CAGR does not lead to overfitting
 ~~~~~~
 R19C benchmark: CAGR=48.78%, Sharpe=1.025, MaxDD=67.41%
 R19C Signal weights (winner):
@@ -102,7 +102,6 @@ momentum=16%, mean_reversion=13%, penfold_trend=12%, ehlers_dsp=12%, ewmac_16_64
 
 R21A OOS metrics (Sharpe=2.093, CAGR=74.1%, MaxDD=25.2%)
 R21A Full Period: Sharpe=1.181, CAGR=32.7%, MaxDD=29.6%, Calmar=1.1, PBO=27.1%
-realistic achievable target: Sharpe >= 1.8, CAGR >= 55%, MaxDD<= 35%, PBO <= 35%
 ~~~~~~
 Target: Sharpe >= 1.8, CAGR >= 55%, MaxDD<= 35%, PBO <= 35%
 1. abort the backtest
@@ -133,7 +132,7 @@ Task: you are the best quantitative trader, research analyst and strategist havi
 
 ~~~~~~
 
-/godmode Execute the following tasks in order:
+Execute the following tasks in order:
 
 1. Knowledge Extraction
 - Parse and study: centurion_core/rag_pipeline/ingest_docs/Evidence-Based Technical Analysis - David R. Aronson.pdf
@@ -199,7 +198,7 @@ Upgrade centurion_core to a statistically robust, evidence-based trading system 
 ~~~~~~
 there are various strategies that are implemented using the techniques discussed in the pdf docs. evaluate which combination of strategies would result in a higher sustained CAGR in bull, bear and range-bound regimes.
 ~~~~~~
-/godmode you are the senior technical architect at THE most reputed quant trading firm in the world. However you are designing centurion_core for 1 or 2 retail traders, a trading platform that would automatically trigger buy/sell orders based on fundamental analysis, technical analysis, qualitative analysis, macro-economic head & tail winds and event-driven news updates. Considering these requirements, perform the below tasks:
+You are the senior technical architect at THE most reputed quant trading firm in the world. You are designing centurion_core for 1 or 2 retail traders, a trading platform that would automatically trigger buy/sell orders based on fundamental analysis, technical analysis, qualitative analysis, macro-economic head & tail winds and event-driven news updates. Considering these requirements, perform the below tasks:
 
 audit, investigate and analyze the characteristics of a trading terminal of a highly reputable quant firm. Compare & contrast that with the current implementation of centurion_core app with focus "ind stocks module". Remember that centurion_core app is to be used by 1-2 users only. List out the implementation gaps in high level system design & architecture, stock analysis methodology along with low level technical details. Give readable and crisp details.
 
