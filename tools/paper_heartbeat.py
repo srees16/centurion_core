@@ -50,10 +50,13 @@ def check(max_behind: int = 1) -> dict:
     """Read the book's last session from Neon and judge it."""
     from database.paper_cloud import get_paper_cloud
 
-    cloud = get_paper_cloud()
-    if cloud is None:
+    try:
+        cloud = get_paper_cloud()
+        state = (cloud.read_state() or {}) if cloud is not None else None
+    except Exception as exc:                              # noqa: BLE001 - report, never traceback
+        return {"ok": False, "stale": True, "reason": f"database unreachable: {exc}"[:200]}
+    if cloud is None or state is None:
         return {"ok": False, "reason": "no database connection", "stale": True}
-    state = cloud.read_state() or {}
     if str(state.get("active", "")).lower() in ("false", "0") and not state.get("epoch"):
         return {"ok": True, "reason": "no book started", "stale": False}
     snaps = cloud.read_snapshots()

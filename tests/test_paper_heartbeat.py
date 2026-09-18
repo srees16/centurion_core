@@ -65,3 +65,14 @@ def test_two_missed_weekdays_raise_the_alarm(monkeypatch):
 def test_no_database_is_treated_as_stale(monkeypatch):
     monkeypatch.setattr("database.paper_cloud.get_paper_cloud", lambda: None)
     assert check()["stale"] is True
+
+
+def test_a_database_error_is_reported_not_raised(monkeypatch):
+    """A blip must fail the run with a readable reason, not a traceback."""
+    def boom():
+        raise RuntimeError("could not connect to server")
+
+    monkeypatch.setattr("database.paper_cloud.get_paper_cloud", boom)
+    result = check()
+    assert result["stale"] is True
+    assert "database unreachable" in result["reason"]
