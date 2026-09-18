@@ -21,9 +21,14 @@ HASH_NEUTRAL_DEFAULTS: Dict[Tuple[str, str], Any] = {
     ("signals", "ewm_memory_spans"): 0,
     ("signals", "calendar_schedule"): False,
     ("signals", "delivery_lookback"): 63,
+    ("signals", "residual_momentum_months"): 36,
+    ("signals", "residual_momentum_window"): 11,
+    ("signals", "high_lookback"): 252,
+    ("signals", "beta_lookback"): 252,
     ("portfolio", "calendar_schedule"): False,
     ("universe", "calendar_schedule"): False,
     ("universe", "history_window_days"): 0,
+    ("universe", "price_filter_unadjusted"): False,
     ("allocator", "target_vol_annual"): 0.0,
     ("allocator", "vol_target_min_scale"): 0.3,
 }
@@ -59,6 +64,10 @@ class UniverseConfig:
     # Anchor independence (legacy values keep the legacy behaviour and hash):
     calendar_schedule: bool = False   # refresh on calendar period starts, not row counts
     history_window_days: int = 0      # 0: count history since the first loaded row; >0: within this trailing window
+    # False (legacy): the min_price test uses back-adjusted closes, so which names are
+    # eligible in 2013 depends on splits and dividends that came later - a look-ahead
+    # worth ~0.14 Sharpe over 2013-19. True: test the price actually printed that day.
+    price_filter_unadjusted: bool = False
 
 
 @dataclass(frozen=True)
@@ -89,6 +98,16 @@ class SignalConfig:
     # "delivery" group: cross-sectional rank of trailing mean delivery % (share of traded
     # quantity taken to demat, from NSE's MTO files). Only used when group_weights names it.
     delivery_lookback: int = 63
+    # Price-based groups screened from awesome-systematic-trading (17 Sep 2026); each is
+    # used only when group_weights names it.
+    # "residual_momentum": market-model residuals over the last `window` months before the
+    # latest one, scaled by their std; the model is fitted on `months` monthly returns.
+    residual_momentum_months: int = 36
+    residual_momentum_window: int = 11
+    # "near_high": close / highest close over `high_lookback` sessions (52-week-high effect).
+    high_lookback: int = 252
+    # "low_beta": minus the beta of daily returns to the equal-weight universe.
+    beta_lookback: int = 252
 
     def weights(self) -> Dict[str, float]:
         return dict(self.group_weights)
@@ -240,9 +259,15 @@ class EngineConfig:
         # over the previous window, each needing that memory; the group-level
         # normaliser pools again; the FDM pools normalised group forecasts over
         # its lookback. Stages add, they do not overlap.
+        active = {g for g, w in sig.group_weights if w}
+        # New groups count only when used, so existing configurations keep their warm-up.
+        extra = [lookback for group, lookback in (
+            ("residual_momentum", (sig.residual_momentum_months + 1) * 23),
+            ("near_high", sig.high_lookback),
+            ("low_beta", sig.beta_lookback)) if group in active]
         rule_memory = max(sig.ewm_memory_spans * sig.max_span(),
                           sig.momentum_lookback + sig.momentum_skip, sig.low_vol_lookback,
-                          sig.delivery_lookback)
+                          sig.delivery_lookback, *extra)
         forecast_chain = (rule_memory + 2 * sig.normalizer_window_days + sig.fdm_lookback_days
                           + sig.normalizer_min_obs)
         return max(

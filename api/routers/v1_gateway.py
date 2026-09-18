@@ -22,6 +22,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["API v1"])
 
+# No Kite login is a client state, not a server fault: 409, not 503. A 5xx is
+# reported to Sentry by the FastAPI integration and retried by the frontend's
+# API client, so every poll of a page left open after the token expired became
+# three requests and three Sentry errors.
+KITE_SESSION_INACTIVE = "Kite session not active"
+
 
 def _sanitize_floats(obj):
     """Replace inf/nan floats with None so JSON serialization doesn't fail."""
@@ -861,7 +867,7 @@ async def screener_execute(req: Dict[str, Any]):
     """
     kite = get_kite_session()
     if not kite:
-        raise HTTPException(status_code=503, detail="Kite session not active")
+        raise HTTPException(status_code=409, detail=KITE_SESSION_INACTIVE)
     try:
         plans = req.get("plans", [])
         if not plans:
@@ -1403,7 +1409,7 @@ async def kite_quotes(symbols: str):
     """Get live quotes for comma-separated symbols."""
     kite = get_kite_session()
     if not kite:
-        raise HTTPException(status_code=503, detail="Kite session not active")
+        raise HTTPException(status_code=409, detail=KITE_SESSION_INACTIVE)
     try:
         from kite_connect.core.quotes import get_batch_quotes
         syms = [s.strip() for s in symbols.split(",") if s.strip()]
@@ -1418,7 +1424,7 @@ async def kite_holdings():
     """Get portfolio holdings."""
     kite = get_kite_session()
     if not kite:
-        raise HTTPException(status_code=503, detail="Kite session not active")
+        raise HTTPException(status_code=409, detail=KITE_SESSION_INACTIVE)
     try:
         holdings = await kite_call(kite.holdings)
         return holdings
@@ -1433,7 +1439,7 @@ async def kite_positions():
     """Get current positions."""
     kite = get_kite_session()
     if not kite:
-        raise HTTPException(status_code=503, detail="Kite session not active")
+        raise HTTPException(status_code=409, detail=KITE_SESSION_INACTIVE)
     try:
         positions = await kite_call(kite.positions)
         return positions.get("net", [])
@@ -1453,7 +1459,7 @@ async def kite_portfolio_pnl():
     """
     kite = get_kite_session()
     if not kite:
-        raise HTTPException(status_code=503, detail="Kite session not active")
+        raise HTTPException(status_code=409, detail=KITE_SESSION_INACTIVE)
     try:
         positions_data = await kite_call(kite.positions)
         holdings_data = await kite_call(kite.holdings)
@@ -1540,7 +1546,7 @@ async def kite_orders():
     """Get order book."""
     kite = get_kite_session()
     if not kite:
-        raise HTTPException(status_code=503, detail="Kite session not active")
+        raise HTTPException(status_code=409, detail=KITE_SESSION_INACTIVE)
     try:
         orders = await kite_call(kite.orders)
         return orders
@@ -1555,7 +1561,7 @@ async def kite_place_order(order: Dict[str, Any]):
     """Place an order via Kite."""
     kite = get_kite_session()
     if not kite:
-        raise HTTPException(status_code=503, detail="Kite session not active")
+        raise HTTPException(status_code=409, detail=KITE_SESSION_INACTIVE)
     try:
         variety = order.pop("variety", "regular")
         order_id = await asyncio.to_thread(

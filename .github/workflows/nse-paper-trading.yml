@@ -2,18 +2,20 @@ name: Paper Trading Cron
 
 on:
   schedule:
-    # IST = UTC+5:30. Market hours: 9:15 AM - 3:30 PM IST
-    # Pre-market scan: 9:20 AM IST = 3:50 AM UTC
-    - cron: "50 3 * * 1-5"
-    # Intraday rescans: 10:30/12:30/14:30 IST = 5:00/7:00/9:00 UTC
-    - cron: "0 5 * * 1-5"
-    - cron: "0 7 * * 1-5"
-    - cron: "0 9 * * 1-5"
-    # EOD snapshot: 3:35 PM IST = 10:05 AM UTC
-    - cron: "5 10 * * 1-5"
-    # NSE engine EOD: 7:30 PM IST = 2:00 PM UTC (after NSE publishes the day's
-    # bhavcopy, ~6-7 PM IST).  Keep this string in sync with the job conditions.
-    - cron: "0 14 * * 1-5"
+    # IST = UTC+5:30.
+    # NSE engine EOD. The on-time start is an external workflow_dispatch at
+    # 19:30 IST Mon-Fri (cron-job.org, POST .../actions/workflows/
+    # nse-paper-trading.yml/dispatches): GitHub's scheduler is best-effort and
+    # delivered these crons 1-4 hours late or not at all. These two are
+    # backups only. Re-running a session is safe - stops and fills run once
+    # per session (engine_last_session), later runs only re-plan - and the
+    # 22:07 run also picks up a bhavcopy that was published after 19:30.
+    # Minutes avoid the congested top of the hour. Keep these strings in sync
+    # with the job conditions.
+    - cron: "35 13 * * 1-5"   # 19:05 IST
+    - cron: "35 14 * * 1-5"   # 20:05 IST
+    - cron: "35 15 * * 1-5"   # 21:05 IST
+    - cron: "35 16 * * 1-5"   # 22:05 IST
     # Saturday weekly checkpoint: 7:30 AM IST = 2:00 AM UTC
     - cron: "0 2 * * 6"
   workflow_dispatch:
@@ -48,7 +50,7 @@ jobs:
   # the Saturday weekly checkpoint (no market data needed).
   paper-trade:
     if: >-
-      (vars.CENTURION_NSE_ENGINE != 'true' && github.event.schedule != '0 14 * * 1-5')
+      (vars.CENTURION_NSE_ENGINE != 'true' && !startsWith(github.event.schedule, '35 1'))
       || (vars.CENTURION_NSE_ENGINE == 'true' && github.event.schedule == '0 2 * * 6')
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -87,8 +89,33 @@ jobs:
             python cloud_paper_runner.py
           fi
 
+  # GitHub delivers scheduled runs 1-4 hours late (measured: a 22:05 IST cron
+  # arrived at 01:20 IST). Snapshots are now dated by the trading session, not
+  # the clock, so a late run is harmless - the window only stops a run so late
+  # that it would trade on the next morning's stale plan. Four attempts an
+  # evening make a missed session unlikely; re-runs of a processed session only
+  # re-plan. Manual dispatches always run.
+  engine-window:
+    if: vars.CENTURION_NSE_ENGINE == 'true' && startsWith(github.event.schedule, '35 1')
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      in_window: ${{ steps.clock.outputs.in_window }}
+    steps:
+      - id: clock
+        run: |
+          now=$(TZ=Asia/Kolkata date +%H%M)
+          if [ "$((10#$now))" -ge 1830 ] || [ "$((10#$now))" -le 559 ]; then
+            echo "in_window=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "in_window=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::scheduled run started at $now IST, outside 18:30-05:59 IST - skipped (it would plan on stale data)"
+          fi
+
   # NSE engine paper trading (CENTURION_NSE_ENGINE == 'true'): once per
-  # trading day after the bhavcopy is published, or on manual dispatch.
+  # trading day after the bhavcopy is published - dispatched at 19:30 IST by
+  # cron-job.org, with the schedule crons above as backups - or on manual
+  # dispatch.
   #
   # Data: data/nse_engine/{archive,store} are gitignored, so they live in the
   # Actions cache.  Every run restores the newest cache entry (restore-keys),
@@ -103,9 +130,13 @@ jobs:
   # in total.  Later runs: ~12-20 min (mostly pip install, cache transfer,
   # the shift-reference backtest and the engine run).
   nse-engine-paper:
+    needs: engine-window
+    # !cancelled(): a dispatch skips engine-window, which must not skip this job.
     if: >-
-      vars.CENTURION_NSE_ENGINE == 'true'
-      && (github.event.schedule == '0 14 * * 1-5' || github.event_name == 'workflow_dispatch')
+      !cancelled() && vars.CENTURION_NSE_ENGINE == 'true'
+      && (github.event_name == 'workflow_dispatch'
+          || (startsWith(github.event.schedule, '35 1')
+              && needs.engine-window.outputs.in_window == 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:

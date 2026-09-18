@@ -814,6 +814,7 @@ def load_market_data(
         price_mult = mult * div_mult
         del div_mult, split_f
     del div_amounts
+    close_unadj = close.astype(float_dtype)          # as printed, for point-in-time price rules
     frames = {"close": close * price_mult, "open": open_ * price_mult}
     for col in ("high", "low"):
         frames[col] = pivot(rows, col, dates, keep) * price_mult
@@ -840,6 +841,7 @@ def load_market_data(
         volume=frames["volume"], value=value.astype(float_dtype),
         index_close=index_close.astype(float_dtype),
         delivery_pct=delivery_pct,
+        close_unadj=close_unadj,
         etfs=etf_symbols(store, rows, keep),
         sectors=sectors,
         source=f"nse_bhavcopy:{store}" + ("" if adjust_dividends else ":price_only"),

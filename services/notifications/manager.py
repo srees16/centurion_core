@@ -575,6 +575,102 @@ class NotificationManager:
         subject = f"{emoji} Centurion Daily — {buy_count} BUY, {sell_count} SELL — {now}"
         return self._send_html_email(subject, html)
 
+    # ── NSE Engine Daily Paper Email ─────────────────────────────────
+
+    def email_engine_daily_report(self, report: dict) -> bool:
+        """Send the NSE engine's EOD paper session: book, fills, stops, queued orders.
+
+        ``report`` keys: session, deployment, equity, initial_capital, cash,
+        pnl, pnl_pct, max_drawdown_pct, open_positions, filled, cancelled,
+        stops, queued, notes, alerts.
+        """
+        td = "padding:5px 10px;border:1px solid #e5e7eb;"
+        th = "padding:6px 10px;text-align:left;background:#f3f4f6;"
+
+        def inr(v) -> str:
+            try:
+                return f"₹{float(v):,.2f}"
+            except (TypeError, ValueError):
+                return "—"
+
+        def table(title: str, headers: List[str], rows: List[List[str]]) -> str:
+            if not rows:
+                return ""
+            head = "".join(f"<th style='{th}'>{h}</th>" for h in headers)
+            body = "".join("<tr>" + "".join(f"<td style='{td}'>{c}</td>" for c in r) + "</tr>" for r in rows)
+            return (f"<h3 style='margin:22px 0 8px;color:#1a1a2e;font-size:15px;'>{title}</h3>"
+                    f"<table style='border-collapse:collapse;width:100%;font-size:13px;'>"
+                    f"<tr>{head}</tr>{body}</table>")
+
+        filled = report.get("filled") or []
+        stops = report.get("stops") or []
+        queued = report.get("queued") or []
+        cancelled = report.get("cancelled") or []
+        pnl = float(report.get("pnl") or 0.0)
+        pnl_pct = float(report.get("pnl_pct") or 0.0)
+        pnl_color = "#15803d" if pnl >= 0 else "#dc2626"
+
+        fills_html = table(
+            f"Filled at the open ({len(filled)})", ["Symbol", "Side", "Qty", "Price", "Costs"],
+            [[f.get("symbol", ""), f.get("side") or "SELL", str(f.get("quantity", "")),
+              inr(f.get("fill_price") or f.get("exit")), inr(f.get("costs"))] for f in filled])
+        stops_html = table(
+            f"Stops triggered ({len(stops)})", ["Symbol", "Qty", "Entry", "Exit", "P&amp;L"],
+            [[s.get("symbol", ""), str(s.get("quantity", "")), inr(s.get("entry")), inr(s.get("exit")),
+              f"<span style='color:{'#15803d' if float(s.get('pnl') or 0) >= 0 else '#dc2626'};'>"
+              f"{inr(s.get('pnl'))} ({float(s.get('pnl_pct') or 0):+.1f}%)</span>"] for s in stops])
+        queued_html = table(
+            f"Queued for the next open ({len(queued)})", ["Symbol", "Side", "Qty", "Reason"],
+            [[q.get("symbol", ""), q.get("side", ""), str(q.get("quantity", "")), q.get("reason", "")]
+             for q in queued])
+        cancelled_html = table(
+            f"Cancelled ({len(cancelled)})", ["Symbol", "Side", "Why"],
+            [[c.get("symbol", ""), c.get("side", ""), c.get("note", "")] for c in cancelled])
+        alerts = [a for a in (report.get("alerts") or []) if a]
+        alerts_html = "".join(
+            f"<p style='margin:8px 0;padding:8px 12px;background:#fef2f2;border-left:4px solid #dc2626;"
+            f"font-size:13px;'>{a}</p>" for a in alerts)
+        notes = [n for n in (report.get("notes") or []) if n]
+        notes_html = ("<p style='margin-top:18px;font-size:12px;color:#6b7280;'>"
+                      + "<br>".join(notes) + "</p>") if notes else ""
+        activity = "" if (filled or stops or queued or cancelled) else (
+            "<p style='margin-top:18px;font-size:13px;color:#6b7280;'>No fills, stops or new orders this session.</p>")
+
+        rows = [
+            ("Equity", f"{inr(report.get('equity'))} <span style='color:#9ca3af;'>(start "
+                       f"{inr(report.get('initial_capital'))})</span>"),
+            ("Total P&amp;L", f"<b style='color:{pnl_color};'>{inr(pnl)} ({pnl_pct:+.2f}%)</b>"),
+            ("Cash", inr(report.get("cash"))),
+            ("Open positions", str(report.get("open_positions", 0))),
+            ("Max drawdown", f"{float(report.get('max_drawdown_pct') or 0):.1f}%"),
+            ("Deployment", str(report.get("deployment", ""))),
+        ]
+        summary = "".join(f"<tr><td style='{td}color:#666;width:38%;'>{k}</td><td style='{td}'>{v}</td></tr>"
+                          for k, v in rows)
+        session = report.get("session", "")
+        html = f"""\
+<html><body style="font-family:Segoe UI,Arial,sans-serif;background:#f9fafb;padding:20px;">
+<div style="max-width:680px;margin:0 auto;background:#fff;border-radius:10px;
+            box-shadow:0 2px 8px rgba(0,0,0,0.08);overflow:hidden;">
+  <div style="background:#1a1a2e;padding:16px 24px;">
+    <h2 style="margin:0;color:#fff;font-size:18px;">Centurion &mdash; NSE Engine Paper Session</h2>
+    <p style="margin:4px 0 0;color:#9ca3af;font-size:13px;">Session {session}</p>
+  </div>
+  <div style="padding:20px 24px;">
+    {alerts_html}
+    <table style="border-collapse:collapse;width:100%;font-size:14px;">{summary}</table>
+    {fills_html}{stops_html}{queued_html}{cancelled_html}{activity}{notes_html}
+  </div>
+  <div style="padding:12px 24px;background:#f3f4f6;font-size:12px;color:#9ca3af;text-align:center;">
+    Paper trading &mdash; no real orders placed
+  </div>
+</div></body></html>"""
+
+        flag = "🔴" if alerts else ("🟢" if pnl >= 0 else "🟠")
+        subject = (f"{flag} Centurion paper {session} — equity {inr(report.get('equity'))[:-3]} "
+                   f"({pnl_pct:+.2f}%) — {len(filled)} filled, {len(stops)} stops, {len(queued)} queued")
+        return self._send_html_email(subject, html)
+
     # ── Weekly Reconciliation Email ──────────────────────────────────
 
     def email_reconciliation_report(self, report: dict) -> bool:

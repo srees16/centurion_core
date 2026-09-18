@@ -1,114 +1,228 @@
 ================================================================================
-  ACTION TRACKER — updated 17 Sep 2026, 17:00 IST
-  Target: CAGR > 35% at capital > Rs 30L | Sharpe >= 1.5 | MaxDD <= 30%
-          Calmar >= 1 | PBO <= 30%
-  Quote an ID (e.g. "do L2", "start R4") to steer what gets worked on next.
+  CENTURION IND STOCKS — ACTION TRACKER            updated 18 Sep 2026, 16:25 IST
 ================================================================================
-  [x] done   [~] running/queued   [ ] not started   [!] needs you
 
---- YOU ------------------------------------------------------------------------
-[x] U1  Merge feature/restarted -> main. Sentry fixes live and verified.
-[!] U2  Rotate the Kaggle API token (pasted in chat) and the account password.
-[!] U3  Reload my_todos.txt in VS Code (discard the editor's copy). A stale tab
-        saved over it twice (10:39, 10:53), wiping this tracker - which is why
-        it now lives here. Say "move tracker back" once reloaded.
-[ ] U4  Tonight after 19:30 IST: trade-monitor page should show the Rs 35L
-        book's 21 pending orders as open positions.
-[ ] U5  Decide the MaxDD you accept with leverage (see L3).
-[ ] U6  Confirm live capital will really be >= Rs 30L (see L4).
-[ ] U7  Push? Local commits are not on origin (tracker docs, the net-zero
-        Streamlit delete/revert pair, a Kaggle stitch fix).
-[~] U8  Anchor aligned in the working tree (data_anchor_date 2012-01-02,
-        promote default too) - REVIEW, commit, push, merge to main. Rebalance
-        day moves Tue -> Wed (next: 23 Sep, not 22 Sep); no book reset.
-        Background: align the paper book's data anchor with what was validated.
-        Every validation run started 2012-01-02 (the local store's first
-        session); the paper book on GitHub loads from 2011-01-01. Same config,
-        2026 YTD: validated anchor +15.7% / Sharpe 0.88 / MaxDD 13.0%, paper
-        anchor +15.5% / 0.84 / 16.3%. Today's portfolio is 99.9% identical,
-        but the paths drift. Fix = data_anchor_date 2012-01-02 in
-        config/nse_engine_deployed.json (takes effect after merge; no book
-        reset needed). Recommended. Say "do U8".
+HOW TO USE
+  1. Take the first [ ] item in section 4 (QUEUE) and paste its Prompt, e.g. "do R8".
+  2. Claude sets it to [~], implements it, and leaves the changes uncommitted
+     for your review. When done it moves the item to section 6 (DONE) with
+     the result.
+  3. To reorder, say e.g. "make G5 #1" or "move L2 to backlog".
 
---- RUNNING / QUEUED -----------------------------------------------------------
-[x] K1  Kaggle b - delivery tilt: all 9 folds in (see R2).
-[x] K3  History 2006-2011: downloaded and built into a SEPARATE store
-        (data/nse_engine/store_ext2006, 252 MB, 2006-2026). Proven safe: loaded
-        from the old store's first session its windows hash identically.
-        This check is what exposed U8.
-[!] K4  GAP: NSE has no index-close files before 2012 - no NIFTY 50 for
-        2006-11, so the regime gate cannot run on 2008. Needs a source:
-        yfinance ^NSEI starts Sep 2007 (200-DMA only valid mid-2008, misses
-        the start of the crash) vs niftyindices.com history (to 1995,
-        unofficial API). Blocks R4.
-[~] P1  Paper session tonight 19:30 IST - first fills of the Rs 35L book.
+STATUS    [ ] pending    [~] in progress    [!] needs you    [x] done
+PRIORITY  P0 safety/urgent   P1 high   P2 medium   P3 low
+OWNER     YOU = your action or decision    CLAUDE = code/research via prompt
 
---- PHASE 1: RAISE SHARPE (unlevered) ------------------------------------------
-[x] R0  Regime-gate tuning - CLOSED. No gain; folds disagreed on every setting.
-[x] R1  Anchor independence - DONE. OOS 2017-25: Sharpe 1.15 | CAGR 22.8% |
-        MaxDD 21.1% (deployed: 1.24 | 23.7% | 22.3%). Within noise.
-[x] R3  Portfolio vol targeting - CLOSED. All 9 folds chose OFF; it lowered
-        train Sharpe in every fold (by 0.02-0.11).
-[x] R2  Delivery-% tilt - CLOSED, not adopted. 9 folds 2017-25 vs base:
-        Sharpe 1.21 vs 1.15 (diff +0.06, 90% CI -0.16..+0.26) | CAGR 21.4%
-        vs 22.8% | MaxDD 19.1% vs 21.1%. Lower risk and lower return; the
-        Sharpe gain is inside noise and adds 64 trials to PBO.
-[ ] R4  Walk-forward 2007-2025 after K3 + K4 - the 2008 crash test: how much
-        of a 60% fall the regime gates dodge, 2009-10 whipsaw, gapped stops.
-[ ] R5  NIFTY time-series-momentum sleeve (low - overlaps the regime gate).
-[ ] R6  R21A rules as signal groups (expect +/-0.1 Sharpe).
-[ ] R7  Turnover reduction (no-trade band / hold buffer). Cost drag is
-        3.15%/yr at 7x turnover - the most direct CAGR lever. Recommended.
-[ ] R8  Stress the deployed config: impact x1.5/x2 and 1-day fill lag
-        (lag code exists, never run). Sets the honest live CAGR.
-[ ] R9  Universe size 150/300/500 - never varied (all 1,466 runs use 300).
-[ ] R10 52-week-high proximity group (from OHLC already in the store).
+--------------------------------------------------------------------------------
+ 1. SNAPSHOT
+--------------------------------------------------------------------------------
+  Targets       Sharpe >= 1.5 | CAGR 30-35% | MaxDD < 30% | PBO < 30%
 
---- PHASE 2: LEVERAGE (the only route to CAGR > 35%) ---------------------------
-[x] L0  Paper capital Rs 35L; new book live with 21 queued orders.
-[!] L1  Capital alone LOWERS CAGR (impact costs), same config 2013-2025:
-        Rs 5L 24.1% | Rs 10L 23.5% | Rs 35L 22.8% | Rs 1Cr 22.4%
-[ ] L2  NIFTY futures overlay - NOT BUILT. 1 lot ~ Rs 15L = 0.43x of Rs 35L.
-        CAGR 35% needs ~1.5x gross => MaxDD ~35-40%. Build: allocator sizing,
-        roll, margin cash (SEBI 50% cash rule), carry cost, Kaggle walk-forward.
-[ ] L3  Your call: MaxDD <= 30% caps levered CAGR near 30%.
-[ ] L4  Paper at Rs 35L only measures the right costs if live trades that size.
+  HONEST NUMBERS after the 18 Sep look-ahead fix (B1), deployed logic:
+    Backtest 2013-25, model costs ....... Sharpe 1.14 | CAGR 23.2% | MaxDD 24.7%
+    Walk-forward OOS 2017-25 ............ Sharpe 1.26 | CAGR 23.8% | MaxDD 23.7%
+    Stressed: x2 costs + 1-day lag ...... Sharpe 0.97 | CAGR 20.4% | MaxDD 22.6%
+    Plan for live, unlevered ............ Sharpe 0.8-1.1 | CAGR 15-20% | MaxDD 25-35%
+  Robustness: cost break-even near x12 modelled impact; 1-day fill delay costs
+    0.05 Sharpe and REDUCES MaxDD. The edge is not cost-fragile (R8).
+  Overfitting: PBO 36-47% by block count (CAUTION band); deflated Sharpe 0.93
+    counting all 2,067 recorded runs - below the 0.95 gate. No new
+    configuration may be promoted on 2013-25 without counting every trial.
+  Behaviour: vol 13.4% | turnover 7.0x | cost drag 3.15%/yr | 44% of trades win
+    | avg 17.9 positions at 0.88 gross | 86% of days in drawdown
+    | worst years 2018 -11.4%, 2022 -3.8%
+  Paper book: Rs 35L since 17 Sep, 21 positions, equity Rs 35,23,526.
+  Reality check: Sharpe 1.5 and CAGR 30%+ are not reachable unlevered on this
+    evidence. CAGR 35% needs leverage (L2), which breaks MaxDD 30% (U5).
 
---- PAPER PIPELINE GAPS (audit 17 Sep) - block a trustworthy paper verdict ---
-[!] G1  Paper switch expires: frontend starts it for 4 weeks by default
-        (route.ts weeks=4); validation needs 60-90 sessions. Check expires_at.
-[ ] G2  Shift/reality-gap alerts never send (send_alert does not exist);
-        size multiplier resets to 1.0 every Actions run (file not persisted).
-[ ] G3  No automatic halt: plan promises "DD > 1.5x backtest MaxDD -> halt
-        new entries"; engine path has no DD/VIX kill (only regime scaling).
-[ ] G4  No paper pass/fail gate script (TE <= 8%, gap >= -3bp, costs <= 1.5x).
-[ ] G5  Filled-order costs/impact are not synced to Neon - lost after each
-        run, so "costs vs model" cannot be measured.
-[ ] G6  Weekly email broken: every Saturday is "Week 1", same row overwritten.
-        No daily email on the engine path.
-[!] G7  HF Space: if CENTURION_NSE_ENGINE=true there, a 09:25 IST scheduler
-        job can write the same Neon book (no book_owner guard). Check the env.
-[ ] G8  Snapshot dated by today's IST date, not the store session date.
-[ ] G9  5 legacy weekday crons (09:20-15:35 IST) start empty runs; remove.
+--------------------------------------------------------------------------------
+ 2. IN PROGRESS [~]
+--------------------------------------------------------------------------------
+[~] P0  P2   First scheduled paper session, Fri 18 Sep                 CLAUDE
+             Watcher checks for an 18 Sep snapshot until 23:00 IST.
+             Done when: snapshot 2026-09-18 exists and a scheduled or
+             cron-job.org run succeeded. If none by 20:30 IST: dispatch
+             manually and check U9.
+[~] P0  U9   cron-job.org 19:30 IST trigger                             YOU
+             The POST works (204 with the CLI token); your job/token untested.
+             Done when: cron-job.org history shows 204 on Fri 18 Sep.
+[~] P1  G6   Daily engine email                                          CLAUDE
+             Live on main; first real send = the 18 Sep session.
+             Done when: email received (check spam). If the log says
+             "Authentication": replace CENTURION_EMAIL_PASS (YOU).
+[~] P1  P3   60-90 paper sessions (to ~Jan 2027)                         —
+             Judged on behaviour, not Sharpe: tracking error <= 8%/yr,
+             costs <= 1.5x model, MaxDD <= 1.5x backtest. Needs G4 + G5.
 
---- DEPLOYMENT PLUMBING --------------------------------------------------------
-[ ] D1  Second deployment slot: paper-trade a candidate beside the live book.
-[ ] D2  Show the 26% out-of-sample haircut beside every validate result.
-[ ] D3  Script the Stage-E capital ladder (20/40/70/100%) as gate checks.
+--------------------------------------------------------------------------------
+ 3. NEEDS YOU [!]
+--------------------------------------------------------------------------------
+[!] P0  U13  MERGE TODAY'S WORK BEFORE 19:30 IST. Uncommitted on
+             feature/restarted: B1 look-ahead fix (nse_engine/{config,types,
+             universe,data/panel}.py), G7 writer guard (scheduler.py,
+             cloud_paper_runner.py, database/paper_cloud.py), G5 fill records
+             (database/models.py, paper_trader.py), B3 tests (tests/,
+             pytest.ini, .github/workflows/tests.yml), plus docs and this file.
+             G5 is the deadline: every session that runs without it loses that
+             day's fill costs permanently.
+[!] P0  U2   Rotate the Kaggle API token (pasted in chat) and the account password.
+[!] P1  U11  Stop deleting Actions runs: the 17 Sep 20:41 IST session run (21
+             fills) and a 20:16 run were deleted. Logs = the paper audit trail.
+[!] P1  U12  Resolve the "Kite session not active" issue in Sentry (fix is live).
+[!] P2  U5   Decide the MaxDD you accept with leverage. MaxDD <= 30% caps levered
+             CAGR near 30%; CAGR 35% means MaxDD ~35-40%. Blocks L2.
+[!] P2  U6   Confirm live capital will really be >= Rs 30L. Capital alone lowers
+             CAGR (Rs 5L 24.1% | Rs 35L 22.8% | Rs 1Cr 22.4%), and paper at
+             Rs 35L only measures the right costs if live trades that size.
 
---- CLOSED / PARKED ------------------------------------------------------------
-[x] C2  Five Sentry issues fixed and live.
-[x] C3  Trade-monitor page shows the engine's paper book daily.
-[x] C4  IND audit: dead code, duplication, folder structure.
-[x] C6  April R21A checklist audited: v43 PBO never produced, R22 never run,
-        NIFTY500 extraction deleted, mean_reversion zeroed (stale fallback
-        weights remain) - all superseded by nse_engine; no action.
-[ ] C5  Streamlit removal - REVERTED (files still needed). Tell me which parts
-        are unused before retrying. README line 160 wrongly says it's done.
+--------------------------------------------------------------------------------
+ 4. QUEUE — pending, in priority order (do #1 first)
+--------------------------------------------------------------------------------
+#1  [ ] P1  G3   Automatic drawdown halt                                     CLAUDE
+             Prompt:    do G3
+             Why:       the plan promises "DD > 1.5x backtest MaxDD -> halt new
+                        entries"; nothing implements it. Cheap, and it is the
+                        only item that protects capital rather than measuring.
+             Done when: the engine stops new buys past the threshold, keeps
+                        stops and exits working, alerts, and is covered by tests.
 
---- EXPECTATIONS ---------------------------------------------------------------
-  Backtest OOS, unlevered:  Sharpe 1.15-1.27 | CAGR 23-24% | MaxDD 21-24%
-  Plan for live, unlevered: Sharpe 0.8-1.1   | CAGR 15-20% | MaxDD 25-35%
-  Years of live record to CONFIRM a Sharpe (95%, measured fat tails):
-    live 0.9 > 0 ............. 3.5 yrs    |  1.22 > deflated 0.49 .... 5.5 yrs
-  => go live on behaviour gates, size up in stages, stop on drawdown/tracking.
+#2  [ ] P1  G4   Paper pass/fail gate                                        CLAUDE
+             Prompt:    do G4
+             Depends:   G5 (done) + ~30 sessions of data, so it reports
+                        "not enough data yet" until late October.
+             Done when: one command reports tracking error vs the same-period
+                        backtest, mean daily gap, realised-vs-model cost ratio
+                        and drawdown vs 1.5x backtest, with PASS/WATCH/FAIL.
+
+#3  [ ] P1  R7   Turnover reduction                                          CLAUDE
+             Prompt:    do R7
+             Why:       costs are 3.15%/yr at 7x turnover. R8 showed the edge
+                        survives x4 costs, so the prize is ~1-1.5pp of CAGR,
+                        not a transformation. Still the best unlevered lever.
+             Cost:      a walk-forward pair (~35 min each) and ~600 more
+                        recorded trials, which pushes the deflated Sharpe down.
+             Done when: pre-registered pass rule, walk-forward vs base, verdict.
+
+#4  [ ] P2  B2   Unify annualisation conventions                             CLAUDE
+             Prompt:    do B2
+             Why:       CAGR is annualised two ways: run manifests use elapsed
+                        calendar years, validation uses n/252. Same returns ->
+                        24.05% vs 24.51%. (The rf convention is consistent:
+                        arithmetic rf/252 in both.) Reports disagree by ~0.5pp.
+             Done when: one convention, documented, all reports consistent.
+
+#5  [ ] P2  G2   Make drift alerts work                                      CLAUDE
+             Prompt:    do G2
+             Done when: alerts arrive by email; shift state stored in Neon.
+
+#6  [ ] P2  G11  Fix the weekly Saturday email ("Week 1" every week)         CLAUDE
+             Prompt:    do G11
+
+#7  [ ] P2  G8   Date snapshots by the market session, not the clock         CLAUDE
+             Prompt:    do G8
+
+#8  [ ] P2  G10  Per-position P&L on the trade monitor (shows 0.0%)          CLAUDE
+             Prompt:    do G10
+
+#9  [ ] P2  K4   NIFTY 50 index history 2007-2011                            CLAUDE
+             Prompt:    do K4
+             Why:       NSE index files start 2012; the regime gate cannot run
+                        on 2008. yfinance ^NSEI (from Sep 2007) vs
+                        niftyindices.com (to 1995, unofficial API).
+
+#10 [ ] P2  R4   Walk-forward 2007-2025 (2008 crash test)                    CLAUDE
+             Prompt:    start R4
+             Depends:   K4, B1
+
+#11 [ ] P2  D1   Second paper slot (candidate beside the deployed book)      CLAUDE
+             Prompt:    do D1
+
+#12 [ ] P2  L2   NIFTY futures overlay (leverage)                            CLAUDE
+             Prompt:    do L2
+             Depends:   U5
+             Why:       the only route to CAGR > 35%; needs ~1.5x gross.
+
+--------------------------------------------------------------------------------
+ 5. BACKLOG — low priority, pick only after the queue
+--------------------------------------------------------------------------------
+[ ] P3  R9   Universe size 150/300/500 (never varied).          Prompt: do R9
+[ ] P3  D2   Show the 26% OOS haircut beside validate results.  Prompt: do D2
+[ ] P3  D3   Script the capital ladder 20/40/70/100% as gates.  Prompt: do D3
+[ ] P3  R5   NIFTY time-series-momentum sleeve (overlaps regime gate). Prompt: do R5
+[ ] P3  R6   R21A rules as signal groups (expect +/-0.1 Sharpe). Prompt: do R6
+[ ] P3  G12  Daily Detail lists only the current book (epoch 17 Sep). Earlier
+             books' rows are kept in Neon but no endpoint exposes them; a book
+             selector would show them.                        Prompt: do G12
+[ ] P3  C5   Streamlit removal - REVERTED; tell Claude which parts are unused
+             first. README line 160 wrongly says it's done.  Prompt: do C5
+
+--------------------------------------------------------------------------------
+ 6. DONE [x] — most recent first
+--------------------------------------------------------------------------------
+[x] 18 Sep  B3   Test suite added (tests/, pytest.ini, CI workflow): 58 fast
+                 tests on synthetic data + 2 store-backed ones marked slow.
+                 Covers signal causality for all 7 groups, the B1 universe
+                 look-ahead, cost/impact behaviour, metric formulas, book
+                 membership (U10), fill records (G5), the writer guard (G7)
+                 and config-hash identity. Verified they FAIL when B1 is
+                 reverted, and pass in a clean CI-only environment.
+[x] 18 Sep  G5   Every execution event now persists to Neon (paper_fills):
+                 fills, cancels and stop exits with decision price, realised
+                 price, impact bps, costs and P&L. Tested end to end against a
+                 fake store: 3 fills + 1 cancel + 1 stop recorded, slippage vs
+                 the decision price readable per order (+74bp, +73bp, -150bp).
+                 Unblocks G4 (costs vs model). MERGE BEFORE TONIGHT'S SESSION
+                 or today's fill costs are lost like every previous day's.
+[x] 18 Sep  R8   Cost/lag stress (20 backtests, deliberately not recorded:
+                 same strategy, different assumptions). Impact+spread x1.5:
+                 Sharpe 1.16 / CAGR 23.6%; x2: 1.10 / 22.7%; x4: 0.89 / 19.2%.
+                 CAGR reaches the 6% cash yield only near x12 (extrapolated).
+                 1-day fill delay: -0.05 Sharpe but MaxDD -25.1% -> -20.9%.
+                 Honest worst case (x2 costs + 1-day lag + B1): Sharpe 0.97 /
+                 CAGR 20.4% / MaxDD -22.6%. The edge is not cost-fragile.
+[x] 18 Sep  B1b  Walk-forward re-run locally with the fixed price filter (both
+                 arms on this Mac, 32-point grid, 9 folds, 594 backtests):
+                 OOS Sharpe 1.259 vs 1.267 legacy (diff -0.008, 90% CI -0.08
+                 to +0.07), CAGR 23.8% vs 24.1%, MaxDD -23.7% both. Selection
+                 changed in 2 of 9 folds (2022, 2024: regime neutral scale 0.6
+                 not 1.0). Mean IN-SAMPLE Sharpe fell 1.079 -> 0.938 and
+                 OOS/IS rose 1.17 -> 1.34: the look-ahead inflated training
+                 scores, not out-of-sample results. WF verdict stands.
+[x] 18 Sep  G7   HF Space can no longer write the Actions paper book: the
+                 runner stamps book_writer=github_actions, and the Space's
+                 09:25 IST engine job runs a paper session only when it is the
+                 writer or CENTURION_NSE_ENGINE_HF_PAPER=true. Fails closed
+                 when the database is unreachable or the writer is unset.
+[x] 18 Sep  B1   Back-adjustment look-ahead fixed: universe price filter reads
+                 the close as printed (UniverseConfig.price_filter_unadjusted,
+                 hash-neutral default off; MarketData.close_unadj added).
+                 Universe now end-date invariant (0.00 names/day differ, was
+                 12.1). Honest baseline 2013-25: Sharpe 1.14 / CAGR 23.2% /
+                 MaxDD -24.7%. Recorded run 20260918T083737508762Z_bd79bf28.
+[x] 17 Sep  U10  Hidden paper positions fixed (book start = the reset day's 09:15
+                 open). Trade monitor lists all 21 positions.
+[x] 17 Sep  R10  awesome-systematic-trading: 12/61 runnable; residual momentum,
+                 52-week high, low beta passed the screen but lowered Sharpe and
+                 CAGR in the engine. Not adopted (groups kept, hash-neutral).
+[x] 17 Sep  V1   PBO re-check: 24-36% by block count; walk-forward holds (OOS
+                 1.24 vs IS 1.06); DSR fails at 1,000+ trials.
+[x] 17 Sep  G9   Legacy crons removed; backups 20:07/22:07 IST, 19:00-23:45 window.
+[x] 17 Sep  G1   Paper switch active until 3 Feb 2027.
+[x] 17 Sep  C8   Trade monitor: every table column sortable.
+[x] 17 Sep  C7   Sentry "Kite session not active": 409 not 503; Fly Kite re-checks.
+[x] 17 Sep  P1   First paper session: 21 fills, equity Rs 35,23,526 (+0.7%).
+[x] 17 Sep  U8   Data anchor aligned to 2012-01-02 (rebalance now Wednesdays).
+[x] 17 Sep  R2   Delivery-% tilt: Sharpe +0.06 (inside noise), CAGR -1.4pts. Closed.
+[x] 17 Sep  K1   Kaggle b (delivery): 9 folds stitched.
+[x] 17 Sep  K3   2006-2011 history in a separate store (store_ext2006), verified.
+[x] 17 Sep  R3   Portfolio vol targeting: all 9 folds chose OFF. Closed.
+[x] 17 Sep  R1   Anchor independence: OOS 1.15 | 22.8% | 21.1%. Within noise.
+[x] 17 Sep  L0   Paper capital Rs 35L.
+[x] 17 Sep  U7   All work merged to main (both repos).
+[x] 16 Sep  R0   Regime-gate tuning: no gain. Closed.
+[x] 16 Sep  C6   April R21A checklist audited: superseded by nse_engine.
+[x] 16 Sep  C4   IND audit: dead code, duplication, folder structure.
+[x] 16 Sep  C3   Trade-monitor page shows the engine's paper book daily.
+[x] 16 Sep  C2   Five Sentry issues fixed.
+[x] 16 Sep  U1   Merge feature/restarted -> main.
+[x] 16 Sep  U3   Tracker lives here, not in my_todos.txt.

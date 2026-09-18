@@ -41,6 +41,30 @@ def _epoch_from_state(state) -> Optional[pd.Timestamp]:
     return _to_utc(ep) if ep else None
 
 
+_NSE_OPEN = pd.Timedelta(hours=9, minutes=15)
+
+
+def _book_start_from_state(state) -> Optional[pd.Timestamp]:
+    """UTC instant from which position rows belong to the current book.
+
+    Not the epoch itself: engine fills are stamped at the session open, so a
+    book started during a trading day (epoch 10:46 IST) fills its first orders
+    at that day's 09:15 IST open, before the epoch. Filtering positions on the
+    epoch hid all 21 fills of the 17 Sep 2026 book from the trade monitor and
+    would have dropped them on the next restore. ``start_new_book`` records
+    ``book_start``; a book started before that key existed begins at the NSE
+    open of its epoch's day, or at the epoch if that is earlier.
+    """
+    state = state or {}
+    if state.get("book_start"):
+        return _to_utc(state["book_start"])
+    ep = _epoch_from_state(state)
+    if ep is None:
+        return None
+    day_open = (ep.tz_convert("Asia/Kolkata").normalize() + _NSE_OPEN).tz_convert("UTC")
+    return min(ep, day_open)
+
+
 def _records(df) -> List[dict]:
     if df is None or getattr(df, "empty", True):
         return []
@@ -92,15 +116,16 @@ def restore_paper_state(cloud) -> Optional[dict]:
     epoch = state.get("epoch")
     if epoch:
         ep = _to_utc(epoch)
-        if ep is not None:
+        start = _book_start_from_state(state)
+        if ep is not None and start is not None:
             before = len(open_pos) + len(closed_pos)
-            open_pos = [p for p in open_pos if (_to_utc(p.get("opened_at")) or ep) >= ep]
-            closed_pos = [p for p in closed_pos if (_to_utc(p.get("opened_at")) or ep) >= ep]
+            open_pos = [p for p in open_pos if (_to_utc(p.get("opened_at")) or start) >= start]
+            closed_pos = [p for p in closed_pos if (_to_utc(p.get("opened_at")) or start) >= start]
             snapshots = [s for s in snapshots if str(s.get("date")) >= ep.date().isoformat()]
             dropped = before - len(open_pos) - len(closed_pos)
             if dropped:
-                logger.warning("Cloud restore: ignored %d position rows older than book epoch %s",
-                               dropped, epoch)
+                logger.warning("Cloud restore: ignored %d position rows from before this book (start %s, epoch %s)",
+                               dropped, start.isoformat(), epoch)
     return {
         "cash": cash,
         "initial_capital": initial,
@@ -161,6 +186,7 @@ class PaperCloudSync:
                     Base.metadata.tables["paper_daily_snapshots"],
                     Base.metadata.tables["paper_signal_log"],
                     Base.metadata.tables["paper_weekly_checkpoints"],
+                    Base.metadata.tables["paper_fills"],
                 ],
             )
             logger.info("Paper trading cloud tables ensured.")
@@ -253,6 +279,38 @@ class PaperCloudSync:
         except Exception as exc:
             logger.warning("Cloud sync signals failed: %s", exc)
             return False
+
+    def sync_fills(self, fills: List[dict]) -> bool:
+        """Insert execution events, skipping ones already stored.
+
+        Keyed by (order_id, symbol, occurred_at) so a re-run of the same
+        session cannot double-count a fill.
+        """
+        if not fills:
+            return True
+        try:
+            from database.models import PaperFillRecord
+            with self._db.get_session() as session:
+                for f in fills:
+                    exists = session.query(PaperFillRecord).filter_by(
+                        order_id=str(f.get("order_id") or ""),
+                        symbol=f.get("symbol", ""),
+                        occurred_at=str(f.get("occurred_at") or ""),
+                    ).first()
+                    if exists:
+                        continue
+                    session.add(PaperFillRecord(**{k: v for k, v in f.items()
+                                                   if hasattr(PaperFillRecord, k)}))
+                session.commit()
+            return True
+        except Exception as exc:                          # noqa: BLE001 - never block a run
+            logger.warning("Cloud sync fills failed: %s", exc)
+            return False
+
+    def read_fills(self, since_epoch: bool = True) -> pd.DataFrame:
+        """Execution events of the current book (all books with ``since_epoch=False``)."""
+        df = self._read("SELECT * FROM paper_fills ORDER BY occurred_at")
+        return self._since_epoch(df, "occurred_at", since_epoch)
 
     def sync_weekly(self, ckpt: dict) -> bool:
         """Upsert a weekly checkpoint row."""
@@ -366,6 +424,14 @@ class PaperCloudSync:
             logger.debug("book_owner lookup failed: %s", exc)
             return ""
 
+    def book_writer(self) -> str:
+        """Which runner last wrote this book (``github_actions``, ``hf_scheduler``, ...)."""
+        try:
+            return str(self.read_state().get("book_writer") or "")
+        except Exception as exc:                          # noqa: BLE001 - reading only
+            logger.debug("book_writer lookup failed: %s", exc)
+            return ""
+
     def start_new_book(self, initial_capital: float, owner: str = "nse_engine",
                        force: bool = False) -> Dict[str, object]:
         """Open a fresh paper book at ``initial_capital`` without deleting history.
@@ -381,9 +447,25 @@ class PaperCloudSync:
         if open_now and not force:
             raise RuntimeError(f"{len(open_now)} open positions in the current book — "
                                "close them first or pass force=True")
-        now = datetime.now(timezone.utc).isoformat()
+        now_ts = pd.Timestamp(datetime.now(timezone.utc))
+        now = now_ts.isoformat()
+        # First instant this book's rows can carry: fills are stamped at a session open,
+        # which can precede ``now`` by a few hours (today's 09:15 IST), but must come
+        # after every row the previous books wrote.
+        day_open = (now_ts.tz_convert("Asia/Kolkata").normalize() + _NSE_OPEN).tz_convert("UTC")
+        book_start = min(now_ts, day_open)
+        try:
+            old = self.read_positions(since_epoch=False)
+            stamps = [t for col in ("opened_at", "closed_at") if old is not None and col in old.columns
+                      for t in old[col].map(lambda v: _to_utc(v) if v else None) if t is not None and t <= now_ts]
+            if stamps:
+                book_start = max(book_start, max(stamps) + pd.Timedelta(microseconds=1))
+        except Exception as exc:                          # noqa: BLE001 - keep the conservative start
+            logger.warning("book_start: could not read earlier rows (%s); using the epoch", exc)
+            book_start = now_ts
         values = {
             "epoch": now,
+            "book_start": book_start.isoformat(),
             "cash": float(initial_capital),
             "initial_capital": float(initial_capital),
             "engine_pending_orders": "[]",
@@ -401,14 +483,20 @@ class PaperCloudSync:
         """Rows of the current book only: ``column`` at or after the epoch."""
         if not enabled or df is None or df.empty or column not in df.columns:
             return df
-        ep = self.epoch()
+        try:
+            state = self.read_state()
+        except Exception as exc:                          # noqa: BLE001 - reading only
+            logger.debug("epoch lookup failed: %s", exc)
+            return df
+        ep = _epoch_from_state(state)
         if ep is None:
             return df
         if column in ("date", "week_start"):
             cutoff = ep.date().isoformat()
             keep = df[column].astype(str) >= cutoff
         else:
-            keep = df[column].map(lambda v: (_to_utc(v) or ep) >= ep)
+            start = _book_start_from_state(state)
+            keep = df[column].map(lambda v: (_to_utc(v) or start) >= start)
         return df[keep].reset_index(drop=True)
 
     # ── Read methods (called by Paper Dashboard UI) ────────────

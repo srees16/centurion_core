@@ -130,6 +130,54 @@ exists to catch a broken strategy, not to tune one. If it fails, do not
 re-tune on 2026 data: return to Stage B with a new hypothesis, and treat
 paper trading as the next clean test.
 
+## 5b. Data integrity — the back-adjustment look-ahead (fixed 18 Sep 2026)
+
+Prices in the panel are back-adjusted from the **end** of the loaded window, so
+a 2013 close moves when a 2024 split, bonus or dividend happens. Returns are
+unaffected (a truncated load reproduces them to 2.4e-07), but the universe's
+`min_price_inr` test read those adjusted levels, so **which names were eligible
+in 2013 depended on what happened later**: 4,462 price-filter cells passed only
+because of later actions, and ~12 of 255 universe names differed per day
+between a load ending in 2019 and one ending in 2025.
+
+`UniverseConfig.price_filter_unadjusted` (hash-neutral, default False =
+legacy) makes the test read `MarketData.close_unadj`, the close as printed
+that day. With it on, universe membership is identical whatever the load ends
+(0.00 names differ per day); the residual 1.2 bp/day end-date effect is
+integer share rounding at adjusted price levels, and it no longer favours the
+backtest.
+
+Measured on the deployed configuration, same data, 2013-01-01..2025-12-31:
+
+| Window | Legacy Sharpe / CAGR | As-printed filter |
+|---|---|---|
+| 2013-2016 | 0.98 / 22.3% | **0.76 / 18.3%** |
+| 2017-2020 | 0.89 / 17.9% | 0.87 / 17.4% |
+| 2021-2025 | 1.69 / 32.0% | 1.69 / 32.2% |
+| Full | 1.22 / 24.5% | **1.14 / 23.2%** |
+
+The bias grows with distance into the past, as later corporate actions
+accumulate. The walk-forward OOS window (2017-2025) is materially unaffected,
+so the headline OOS Sharpe 1.24 stands; the full-sample backtest and anything
+measured on 2013-2016 was flattered.
+
+Live trading was never affected: on the day itself an adjusted close equals
+the printed one, so the paper book's eligibility has always been correct.
+
+**Walk-forward re-run (B1b, 18 Sep 2026, both arms on one machine, 32-point
+grid, 9 folds, 594 backtests):** OOS excess Sharpe 1.259 with the fix against
+1.267 without (difference -0.008, 90% CI -0.08 to +0.07), CAGR 23.8% against
+24.1%, MaxDD -23.7% either way. Two of nine folds chose differently (2022 and
+2024 took `regime.scale_neutral` 0.6 instead of 1.0). The telling change is
+in-sample: mean IS Sharpe fell from 1.079 to 0.938 and the OOS/IS ratio rose
+from 1.17 to 1.34. The look-ahead flattered the *training* windows, which is
+where the selection happens, not the out-of-sample record.
+
+**Rule from here:** every new validation run sets
+`universe.price_filter_unadjusted=true`. It changes the configuration hash, so
+the deployed `679cbd0c` keeps its identity and its recorded trials; adopting
+the fix means promoting a new configuration through the usual gates.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast
@@ -274,6 +322,25 @@ every configuration recorded (so PBO/DSR count them):
    attempt. R21A's own incremental tests found each hurt v27, but that was on
    the survivor universe with optimised weights; the question is open here.
    Expectation: a Sharpe change of ±0.1, not a new regime of returns.
+5. **Price-based strategies from awesome-systematic-trading — tested 17 Sep
+   2026, all rejected.** Of the repository's 61 strategy files, 49 need data
+   the store does not have (fundamentals, earnings dates, futures, options,
+   FX, crypto, short interest) or short selling; the rest were screened on
+   the deployed universe, 2013–2025, with pass rules fixed before running
+   (incremental rank IC over the deployed forecast, t ≥ 2.5, positive in
+   2013–19 and 2020–25, positive among the names the book buys; t ≥ 3.0 for
+   the survivor-biased sector-map rules). Residual momentum, 52-week-high
+   proximity and low beta passed; consistent momentum, momentum × volatility,
+   12-month seasonality (lag 12 and 1–5-year average), short-term reversal,
+   industry momentum and industry 52-week high did not. Turn-of-the-month and
+   payday effects on NIFTY 50 were not significant (t = 1.20, 0.42).
+   The three survivors became signal groups (`residual_momentum`,
+   `near_high`, `low_beta`; hash-neutral) and were backtested at fixed weights
+   (0.2 and 1/3 beside fast/slow trend), six recorded runs. None beat the
+   deployed config: Sharpe change −0.04/−0.09, −0.00/−0.12 and −0.11/−0.25,
+   CAGR lower in all six. The rule required +0.10, so none went to
+   walk-forward. The information is real (it predicts next-month returns) but
+   it overlaps the trend forecast and dilutes it in a 20-name book.
 
 Not on the list, on purpose: re-optimising signal weights (R21A's 247% data-
 mining bias estimate came from exactly that), leverage (MTF at ≈ 14.6%/yr

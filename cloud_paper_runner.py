@@ -18,7 +18,7 @@ Optional:
 import os
 import sys
 import logging
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 
 # Ensure centurion_core is on the path
@@ -403,8 +403,15 @@ def _run_engine_paper():
 
     dep = _load_engine_deployment()
     pt = _open_paper_trader()
+    previous_session = pt.engine_last_session()
     executor = EngineExecutor(kite=None, paper=True, paper_trader=pt, deployment=dep)
     session = executor.run_paper_session()
+    missed = _missed_sessions(previous_session, session.get("session"))
+    if missed:
+        session.setdefault("notes", []).append(
+            f"MISSED {missed} session(s) since {previous_session}: orders decided then were "
+            "cancelled as stale, so the book sat in cash for those days")
+        logger.warning("Paper book missed %d session(s) after %s", missed, previous_session)
     plan = session.get("plan")
     entries = _engine_signal_entries(plan)
     n_traded = sum(1 for e in entries if e["was_traded"])
@@ -415,13 +422,18 @@ def _run_engine_paper():
             logger.warning("Signal log failed: %s", exc)
     snapshot = {}
     try:
-        snapshot = pt.snapshot_daily(signals_generated=len(entries), signals_traded=n_traded) or {}
+        snapshot = pt.snapshot_daily(signals_generated=len(entries), signals_traded=n_traded,
+                                     session_date=session.get("session")) or {}
     except Exception as exc:
         logger.warning("Snapshot failed: %s", exc)
     try:
         cloud = pt._get_cloud()
         if cloud and hasattr(cloud, "sync_state"):
-            cloud.sync_state({"book_owner": "nse_engine"})   # tells the HF scheduler to leave this book alone
+            cloud.sync_state({                               # tells other runners to leave this book alone
+                "book_owner": "nse_engine",
+                "book_writer": "github_actions",
+                "book_writer_seen_at": datetime.now(timezone.utc).isoformat(),
+            })
     except Exception as exc:
         logger.debug("book_owner sync skipped: %s", exc)
     fills = session.get("fills") or {}
@@ -437,7 +449,70 @@ def _run_engine_paper():
     for note in session.get("notes", []):
         msg += f" | {note}"
     logger.info("NSE engine paper run: %s", msg)
+    _email_engine_session(pt, dep, session, snapshot, shift)
     return "success", msg
+
+
+def _missed_sessions(previous, current) -> int:
+    """Trading sessions between the last processed one and this one (0 when consecutive).
+
+    Counted on NSE weekdays, so a normal Friday-to-Monday gap is 0; holidays can
+    show 1 and are harmless. Anything larger means the scheduler dropped a day.
+    """
+    import pandas as pd
+
+    if not previous or not current:
+        return 0
+    try:
+        a, b = pd.Timestamp(previous).date(), pd.Timestamp(current).date()
+    except Exception:                                    # noqa: BLE001
+        return 0
+    if b <= a:
+        return 0
+    return max(len(pd.bdate_range(a, b)) - 2, 0)
+
+
+def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict) -> None:
+    """Daily email for a newly processed session (best-effort).
+
+    A re-run of a session already processed (a backup cron or a manual
+    re-dispatch) only re-plans, so it sends nothing: one email per session.
+    """
+    if session.get("fills") is None:
+        logger.info("Daily email skipped: session %s was already processed", session.get("session"))
+        return
+    try:
+        from services.notifications.manager import NotificationManager
+        dash = pt.dashboard()
+        fills = session.get("fills") or {}
+        plan = session.get("plan")
+        alerts = list(shift.get("reality_gap_alerts") or [])
+        verdict = shift.get("position_verdict") or shift.get("effective_verdict") or shift.get("verdict")
+        if verdict in ("drifting", "regime_break"):
+            alerts.append(f"Distribution shift: {verdict} (size multiplier {shift.get('position_size_multiplier', shift.get('multiplier', '—'))})")
+        sent = NotificationManager().email_engine_daily_report({
+            "session": session.get("session"),
+            "deployment": f"{dep.status} · paper since {dep.paper_start_date}",
+            "equity": dash.current_capital,
+            "initial_capital": dash.initial_capital,
+            "cash": pt.cash,
+            "pnl": dash.total_pnl,
+            "pnl_pct": dash.total_pnl_pct,
+            "max_drawdown_pct": snapshot.get("max_drawdown_pct", dash.max_drawdown_pct),
+            "open_positions": dash.open_positions,
+            "filled": fills.get("filled", []),
+            "cancelled": fills.get("cancelled", []),
+            "stops": session.get("stops", []),
+            "queued": [r for r in session.get("results", []) if r.get("status") == "PENDING"],
+            "notes": list(session.get("notes", [])) + (
+                [f"shift multiplier {plan.shift_multiplier:.2f}"] if plan and plan.shift_multiplier != 1.0 else []),
+            "alerts": alerts,
+        })
+        if not sent:
+            logger.warning("Daily email returned False — check CENTURION_EMAIL_USER / CENTURION_EMAIL_PASS / "
+                           "CENTURION_EMAIL_HOST / CENTURION_EMAIL_PORT secrets")
+    except Exception as exc:
+        logger.warning("Daily email failed: %s", exc)
 
 
 # ── Weekly checkpoint (Saturday) ──────────────────────────────────────
