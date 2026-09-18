@@ -23,6 +23,24 @@ except ImportError:
     print("Warning: plyer not available. Notifications will be printed to console.")
 
 
+def _smtp_settings() -> tuple:
+    """(host, port, user, password) from the environment, whitespace removed.
+
+    Gmail shows an App Password as four groups of four, and copying it brings
+    real spaces or non-breaking ones (U+00A0). ``smtplib`` encodes credentials
+    as ASCII, so a stray NBSP fails the login with "'ascii' codec can't encode
+    character '\xa0'" - which looks nothing like a password problem. Google
+    ignores the spaces, so strip every kind here.
+    """
+    def clean(value: str) -> str:
+        return "".join(str(value or "").split())         # drops spaces, tabs, NBSP, newlines
+
+    return (clean(os.getenv("CENTURION_EMAIL_HOST", "smtp.gmail.com")),
+            int(clean(os.getenv("CENTURION_EMAIL_PORT", "587")) or 587),
+            clean(os.getenv("CENTURION_EMAIL_USER", "")),
+            clean(os.getenv("CENTURION_EMAIL_PASS", "")))
+
+
 class NotificationManager:
     """Manages popup notifications for significant news."""
     
@@ -223,10 +241,7 @@ class NotificationManager:
         if recipients is None:
             recipients = ["s.srees@live.com"]
 
-        smtp_host = os.getenv("CENTURION_EMAIL_HOST", "smtp.gmail.com")
-        smtp_port = int(os.getenv("CENTURION_EMAIL_PORT", "587"))
-        smtp_user = os.getenv("CENTURION_EMAIL_USER", "")
-        smtp_pass = os.getenv("CENTURION_EMAIL_PASS", "")
+        smtp_host, smtp_port, smtp_user, smtp_pass = _smtp_settings()
 
         if not smtp_user or not smtp_pass:
             logger.debug("Email not configured — skipping order email")
@@ -348,10 +363,7 @@ class NotificationManager:
         if recipients is None:
             recipients = ["s.srees@live.com"]
 
-        smtp_host = os.getenv("CENTURION_EMAIL_HOST", "smtp.gmail.com")
-        smtp_port = int(os.getenv("CENTURION_EMAIL_PORT", "587"))
-        smtp_user = os.getenv("CENTURION_EMAIL_USER", "")
-        smtp_pass = os.getenv("CENTURION_EMAIL_PASS", "")
+        smtp_host, smtp_port, smtp_user, smtp_pass = _smtp_settings()
 
         if not smtp_user or not smtp_pass:
             logger.warning(
@@ -454,10 +466,7 @@ class NotificationManager:
         if recipients is None:
             recipients = ["s.srees@live.com"]
 
-        smtp_host = os.getenv("CENTURION_EMAIL_HOST", "smtp.gmail.com")
-        smtp_port = int(os.getenv("CENTURION_EMAIL_PORT", "587"))
-        smtp_user = os.getenv("CENTURION_EMAIL_USER", "")
-        smtp_pass = os.getenv("CENTURION_EMAIL_PASS", "")
+        smtp_host, smtp_port, smtp_user, smtp_pass = _smtp_settings()
 
         if not smtp_user or not smtp_pass:
             logger.debug("Email not configured — skipping")
