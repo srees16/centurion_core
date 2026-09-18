@@ -403,8 +403,15 @@ def _run_engine_paper():
 
     dep = _load_engine_deployment()
     pt = _open_paper_trader()
+    previous_session = pt.engine_last_session()
     executor = EngineExecutor(kite=None, paper=True, paper_trader=pt, deployment=dep)
     session = executor.run_paper_session()
+    missed = _missed_sessions(previous_session, session.get("session"))
+    if missed:
+        session.setdefault("notes", []).append(
+            f"MISSED {missed} session(s) since {previous_session}: orders decided then were "
+            "cancelled as stale, so the book sat in cash for those days")
+        logger.warning("Paper book missed %d session(s) after %s", missed, previous_session)
     plan = session.get("plan")
     entries = _engine_signal_entries(plan)
     n_traded = sum(1 for e in entries if e["was_traded"])
@@ -415,7 +422,8 @@ def _run_engine_paper():
             logger.warning("Signal log failed: %s", exc)
     snapshot = {}
     try:
-        snapshot = pt.snapshot_daily(signals_generated=len(entries), signals_traded=n_traded) or {}
+        snapshot = pt.snapshot_daily(signals_generated=len(entries), signals_traded=n_traded,
+                                     session_date=session.get("session")) or {}
     except Exception as exc:
         logger.warning("Snapshot failed: %s", exc)
     try:
@@ -443,6 +451,25 @@ def _run_engine_paper():
     logger.info("NSE engine paper run: %s", msg)
     _email_engine_session(pt, dep, session, snapshot, shift)
     return "success", msg
+
+
+def _missed_sessions(previous, current) -> int:
+    """Trading sessions between the last processed one and this one (0 when consecutive).
+
+    Counted on NSE weekdays, so a normal Friday-to-Monday gap is 0; holidays can
+    show 1 and are harmless. Anything larger means the scheduler dropped a day.
+    """
+    import pandas as pd
+
+    if not previous or not current:
+        return 0
+    try:
+        a, b = pd.Timestamp(previous).date(), pd.Timestamp(current).date()
+    except Exception:                                    # noqa: BLE001
+        return 0
+    if b <= a:
+        return 0
+    return max(len(pd.bdate_range(a, b)) - 2, 0)
 
 
 def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict) -> None:

@@ -12,8 +12,10 @@ on:
     # 22:07 run also picks up a bhavcopy that was published after 19:30.
     # Minutes avoid the congested top of the hour. Keep these strings in sync
     # with the job conditions.
-    - cron: "37 14 * * 1-5"   # 20:07 IST
-    - cron: "37 16 * * 1-5"   # 22:07 IST
+    - cron: "35 13 * * 1-5"   # 19:05 IST
+    - cron: "35 14 * * 1-5"   # 20:05 IST
+    - cron: "35 15 * * 1-5"   # 21:05 IST
+    - cron: "35 16 * * 1-5"   # 22:05 IST
     # Saturday weekly checkpoint: 7:30 AM IST = 2:00 AM UTC
     - cron: "0 2 * * 6"
   workflow_dispatch:
@@ -48,8 +50,7 @@ jobs:
   # the Saturday weekly checkpoint (no market data needed).
   paper-trade:
     if: >-
-      (vars.CENTURION_NSE_ENGINE != 'true' && github.event.schedule != '37 14 * * 1-5'
-       && github.event.schedule != '37 16 * * 1-5')
+      (vars.CENTURION_NSE_ENGINE != 'true' && !startsWith(github.event.schedule, '35 1'))
       || (vars.CENTURION_NSE_ENGINE == 'true' && github.event.schedule == '0 2 * * 6')
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -88,12 +89,14 @@ jobs:
             python cloud_paper_runner.py
           fi
 
-  # Backup crons can arrive hours late. snapshot_daily dates the snapshot by the
-  # IST wall clock, so a backup starting after midnight IST would file today's
-  # session under tomorrow. Scheduled runs outside 19:00-23:45 IST are dropped;
-  # manual dispatches always run.
+  # GitHub delivers scheduled runs 1-4 hours late (measured: a 22:05 IST cron
+  # arrived at 01:20 IST). Snapshots are now dated by the trading session, not
+  # the clock, so a late run is harmless - the window only stops a run so late
+  # that it would trade on the next morning's stale plan. Four attempts an
+  # evening make a missed session unlikely; re-runs of a processed session only
+  # re-plan. Manual dispatches always run.
   engine-window:
-    if: vars.CENTURION_NSE_ENGINE == 'true' && (github.event.schedule == '37 14 * * 1-5' || github.event.schedule == '37 16 * * 1-5')
+    if: vars.CENTURION_NSE_ENGINE == 'true' && startsWith(github.event.schedule, '35 1')
     runs-on: ubuntu-latest
     timeout-minutes: 2
     outputs:
@@ -102,11 +105,11 @@ jobs:
       - id: clock
         run: |
           now=$(TZ=Asia/Kolkata date +%H%M)
-          if [ "$((10#$now))" -ge 1900 ] && [ "$((10#$now))" -le 2345 ]; then
+          if [ "$((10#$now))" -ge 1830 ] || [ "$((10#$now))" -le 559 ]; then
             echo "in_window=true" >> "$GITHUB_OUTPUT"
           else
             echo "in_window=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::backup schedule started at $now IST, outside 19:00-23:45 IST - engine run skipped"
+            echo "::notice::scheduled run started at $now IST, outside 18:30-05:59 IST - skipped (it would plan on stale data)"
           fi
 
   # NSE engine paper trading (CENTURION_NSE_ENGINE == 'true'): once per
@@ -132,7 +135,7 @@ jobs:
     if: >-
       !cancelled() && vars.CENTURION_NSE_ENGINE == 'true'
       && (github.event_name == 'workflow_dispatch'
-          || ((github.event.schedule == '37 14 * * 1-5' || github.event.schedule == '37 16 * * 1-5')
+          || (startsWith(github.event.schedule, '35 1')
               && needs.engine-window.outputs.in_window == 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 180

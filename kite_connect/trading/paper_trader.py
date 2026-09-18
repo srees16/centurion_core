@@ -1514,13 +1514,18 @@ class PaperTrader:
 
     # ── Checkpoint methods for 4-week paper validation ─────────
 
-    def snapshot_daily(self, signals_generated: int = 0, signals_traded: int = 0) -> dict:
-        """Save end-of-day equity snapshot for equity curve reconstruction.
+    def snapshot_daily(self, signals_generated: int = 0, signals_traded: int = 0,
+                       session_date=None) -> dict:
+        """Save the end-of-day equity snapshot for equity-curve reconstruction.
 
-        Call this once daily (EOD scheduler job). Even if something crashes
-        mid-week, we'll have daily granularity up to the crash point.
+        ``session_date`` is the trading session this run processed. Pass it:
+        GitHub delivers scheduled runs 1-4 hours late, so a run that starts
+        after midnight IST would otherwise file the session under the next
+        day's date (and a later run would overwrite the real one). Without it
+        the IST wall-clock date is used, which is right only for same-day runs.
         """
-        today = datetime.now(_IST).strftime("%Y-%m-%d")
+        today = (pd.Timestamp(session_date).date().isoformat() if session_date is not None
+                 else datetime.now(_IST).strftime("%Y-%m-%d"))
         dashboard = self.dashboard()
 
         # Count trades closed today
