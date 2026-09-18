@@ -203,6 +203,7 @@ class PaperTrader:
         self.cash = initial_capital
         self._positions: List[PaperPosition] = []
         self._price_overrides: Dict[str, float] = {}  # e.g. latest daily close (mark-to-market)
+        self._fill_events: List[dict] = []            # execution events awaiting the Neon write (G5)
         self.restored_from: str = "new"               # new | local | cloud
 
         if slippage_bps is not None:
@@ -888,7 +889,16 @@ class PaperTrader:
                 exit_price = self._apply_slippage(raw_fill, "SELL", symbol=pos.symbol)
             when = f"{bar_date.isoformat()}T09:15:00+05:30" if bar_date else None
             reason = "GTT_SL_GAP" if open_px <= pos.stop_loss else "GTT_SL"
-            events.append(self._book_close(pos, exit_price, reason, when=when, sell_cost=sell_cost))
+            closed = self._book_close(pos, exit_price, reason, when=when, sell_cost=sell_cost)
+            self._record_fill(order_id="", session_date=bar_date.isoformat() if bar_date else "",
+                              source="stop", symbol=pos.symbol, side="SELL", status=FILLED,
+                              requested_qty=int(pos.quantity), quantity=int(pos.quantity),
+                              ref_price=float(pos.stop_loss), fill_price=float(exit_price),
+                              impact_bps=float(bps) if cost_config is not None else 0.0,
+                              costs_inr=float(sell_cost or 0.0), pnl=float(closed.get("pnl") or 0.0),
+                              note=reason, occurred_at=when or "")
+            events.append(closed)
+        self._flush_fills()
         return events
 
     def holdings(self) -> Dict[str, dict]:
@@ -1140,6 +1150,26 @@ class PaperTrader:
             conn.close()
         self._sync_engine_state()
 
+    def _record_fill(self, **row) -> None:
+        """Buffer one execution event for Neon (see ``_flush_fills``)."""
+        self._fill_events.append(row)
+
+    def _flush_fills(self) -> int:
+        """Persist buffered execution events; local SQLite dies with the runner."""
+        events, self._fill_events = list(self._fill_events), []
+        if not events:
+            return 0
+        cloud = self._get_cloud()
+        if not cloud or not hasattr(cloud, "sync_fills"):
+            return 0
+        try:
+            cloud.sync_fills(events)
+        except Exception as exc:                          # noqa: BLE001 - never block a run
+            logger.warning("Fill sync failed: %s", exc)
+            return 0
+        logger.info("Persisted %d execution events to the cloud (fills, cancels, stops)", len(events))
+        return len(events)
+
     def _sync_engine_state(self) -> None:
         cloud = self._get_cloud()
         if not cloud or not hasattr(cloud, "sync_state"):
@@ -1228,6 +1258,12 @@ class PaperTrader:
 
         def cancel(o, note, level=logging.INFO):
             self._resolve_pending(o["id"], CANCELLED, note)
+            self._record_fill(order_id=o["id"], session_date=session.date().isoformat(),
+                              decision_date=str(o.get("decision_date") or ""), source="cancel",
+                              symbol=o["symbol"], side=o["side"], status=CANCELLED,
+                              requested_qty=int(o.get("quantity") or 0), quantity=0,
+                              ref_price=float(o.get("ref_price") or 0.0), note=note[:200],
+                              occurred_at=session_open_timestamp(session))
             report["cancelled"].append({"id": o["id"], "symbol": o["symbol"], "side": o["side"], "note": note})
             logger.log(level, "PAPER PENDING CANCELLED %s %s x %d (decided %s): %s",
                        o["side"], o["symbol"], o["quantity"], o["decision_date"], note)
@@ -1277,6 +1313,12 @@ class PaperTrader:
                                       apply_slippage=False, when=when, total_sell_cost=fill.statutory_inr)
             note = f"impact {fill.impact_bps:.1f} bp" + (f"; capped {fill.quantity}/{diff}" if fill.capped else "")
             self._resolve_pending(o["id"], FILLED, note, fill.quantity, exit_px, fill.cost_inr, when)
+            self._record_fill(order_id=o["id"], session_date=session.date().isoformat(),
+                              decision_date=str(o.get("decision_date") or ""), source="pending_open",
+                              symbol=sym, side="SELL", status=FILLED, requested_qty=int(diff),
+                              quantity=int(fill.quantity), ref_price=float(o.get("ref_price") or 0.0),
+                              fill_price=float(exit_px), impact_bps=float(fill.impact_bps),
+                              costs_inr=float(fill.cost_inr), note=note[:200], occurred_at=when)
             report["filled"].append({**res, "id": o["id"], "open": px, "impact_bps": fill.impact_bps,
                                      "costs": fill.cost_inr})
 
@@ -1337,11 +1379,18 @@ class PaperTrader:
             res = self._open_lot(o["symbol"], f.quantity, entry_px, stop, f.statutory_inr, when, o["reason"])
             note = f"impact {f.impact_bps:.1f} bp" + (f"; filled {f.quantity}/{diff}" if f.quantity < diff else "")
             self._resolve_pending(o["id"], FILLED, note, f.quantity, entry_px, f.cost_inr, when)
+            self._record_fill(order_id=o["id"], session_date=session.date().isoformat(),
+                              decision_date=str(o.get("decision_date") or ""), source="pending_open",
+                              symbol=o["symbol"], side="BUY", status=FILLED, requested_qty=int(diff),
+                              quantity=int(f.quantity), ref_price=float(o.get("ref_price") or 0.0),
+                              fill_price=float(entry_px), impact_bps=float(f.impact_bps),
+                              costs_inr=float(f.cost_inr), note=note[:200], occurred_at=when)
             report["filled"].append({**res, "id": o["id"], "open": f.price, "impact_bps": f.impact_bps,
                                      "costs": f.cost_inr})
 
         if fillable or report["cancelled"]:
             self._sync_engine_state()
+        self._flush_fills()
         logger.info("Pending orders at open %s: filled=%d cancelled=%d kept=%d", session.date(),
                     len(report["filled"]), len(report["cancelled"]), len(report["kept"]))
         return report
@@ -1465,13 +1514,18 @@ class PaperTrader:
 
     # ── Checkpoint methods for 4-week paper validation ─────────
 
-    def snapshot_daily(self, signals_generated: int = 0, signals_traded: int = 0) -> dict:
-        """Save end-of-day equity snapshot for equity curve reconstruction.
+    def snapshot_daily(self, signals_generated: int = 0, signals_traded: int = 0,
+                       session_date=None) -> dict:
+        """Save the end-of-day equity snapshot for equity-curve reconstruction.
 
-        Call this once daily (EOD scheduler job). Even if something crashes
-        mid-week, we'll have daily granularity up to the crash point.
+        ``session_date`` is the trading session this run processed. Pass it:
+        GitHub delivers scheduled runs 1-4 hours late, so a run that starts
+        after midnight IST would otherwise file the session under the next
+        day's date (and a later run would overwrite the real one). Without it
+        the IST wall-clock date is used, which is right only for same-day runs.
         """
-        today = datetime.now(_IST).strftime("%Y-%m-%d")
+        today = (pd.Timestamp(session_date).date().isoformat() if session_date is not None
+                 else datetime.now(_IST).strftime("%Y-%m-%d"))
         dashboard = self.dashboard()
 
         # Count trades closed today

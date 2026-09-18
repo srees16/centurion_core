@@ -71,6 +71,7 @@ Goal is to have the best possible Sharpe and CAGR, lowest possible maxDD
 ================================================================================
 
 refer for applicable improvements: https://github.com/paperswithbacktest/awesome-systematic-trading
+https://github.com/QuantConnect/Lean
 
 prompts:
 

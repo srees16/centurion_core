@@ -41,6 +41,12 @@ class MarketData:
     value: pd.DataFrame
     index_close: pd.DataFrame
     delivery_pct: Optional[pd.DataFrame] = None
+    #: close as printed by the bhavcopy that day, with no corporate-action
+    #: back-adjustment. Prices in ``close`` are adjusted from the END of the
+    #: loaded window, so a 2013 level moves when a 2024 split happens; any
+    #: rule about the price a trader would have seen (eligibility, lot value)
+    #: must use this frame instead. Never use it for returns.
+    close_unadj: Optional[pd.DataFrame] = None
     etfs: FrozenSet[str] = frozenset()
     sectors: Dict[str, str] = field(default_factory=dict)
     source: str = "unknown"
@@ -65,6 +71,9 @@ class MarketData:
             raise ValueError("index_close index is not aligned to dates")
         if self.delivery_pct is not None and not self.delivery_pct.index.equals(self.dates):
             raise ValueError("delivery_pct index is not aligned to dates")
+        if self.close_unadj is not None and (not self.close_unadj.index.equals(self.dates)
+                                             or not self.close_unadj.columns.equals(cols)):
+            raise ValueError("close_unadj is not aligned to dates/close columns")
 
     def until(self, as_of: pd.Timestamp) -> "MarketData":
         """Return a view containing only rows dated <= ``as_of``.

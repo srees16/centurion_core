@@ -186,6 +186,7 @@ class PaperCloudSync:
                     Base.metadata.tables["paper_daily_snapshots"],
                     Base.metadata.tables["paper_signal_log"],
                     Base.metadata.tables["paper_weekly_checkpoints"],
+                    Base.metadata.tables["paper_fills"],
                 ],
             )
             logger.info("Paper trading cloud tables ensured.")
@@ -278,6 +279,38 @@ class PaperCloudSync:
         except Exception as exc:
             logger.warning("Cloud sync signals failed: %s", exc)
             return False
+
+    def sync_fills(self, fills: List[dict]) -> bool:
+        """Insert execution events, skipping ones already stored.
+
+        Keyed by (order_id, symbol, occurred_at) so a re-run of the same
+        session cannot double-count a fill.
+        """
+        if not fills:
+            return True
+        try:
+            from database.models import PaperFillRecord
+            with self._db.get_session() as session:
+                for f in fills:
+                    exists = session.query(PaperFillRecord).filter_by(
+                        order_id=str(f.get("order_id") or ""),
+                        symbol=f.get("symbol", ""),
+                        occurred_at=str(f.get("occurred_at") or ""),
+                    ).first()
+                    if exists:
+                        continue
+                    session.add(PaperFillRecord(**{k: v for k, v in f.items()
+                                                   if hasattr(PaperFillRecord, k)}))
+                session.commit()
+            return True
+        except Exception as exc:                          # noqa: BLE001 - never block a run
+            logger.warning("Cloud sync fills failed: %s", exc)
+            return False
+
+    def read_fills(self, since_epoch: bool = True) -> pd.DataFrame:
+        """Execution events of the current book (all books with ``since_epoch=False``)."""
+        df = self._read("SELECT * FROM paper_fills ORDER BY occurred_at")
+        return self._since_epoch(df, "occurred_at", since_epoch)
 
     def sync_weekly(self, ckpt: dict) -> bool:
         """Upsert a weekly checkpoint row."""
@@ -389,6 +422,14 @@ class PaperCloudSync:
             return str(self.read_state().get("book_owner") or "")
         except Exception as exc:                          # noqa: BLE001 - reading only
             logger.debug("book_owner lookup failed: %s", exc)
+            return ""
+
+    def book_writer(self) -> str:
+        """Which runner last wrote this book (``github_actions``, ``hf_scheduler``, ...)."""
+        try:
+            return str(self.read_state().get("book_writer") or "")
+        except Exception as exc:                          # noqa: BLE001 - reading only
+            logger.debug("book_writer lookup failed: %s", exc)
             return ""
 
     def start_new_book(self, initial_capital: float, owner: str = "nse_engine",
