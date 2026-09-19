@@ -91,6 +91,10 @@ def restore_paper_state(cloud) -> Optional[dict]:
     state = cloud.read_state() if hasattr(cloud, "read_state") else {}
     positions = _records(cloud.read_positions())
     snapshots = sorted(_records(cloud.read_snapshots()), key=lambda s: str(s.get("date")))
+    # Weekly checkpoints too: without them a fresh runner sees an empty table,
+    # numbers every Saturday "Week 1" and measures the week over the whole book.
+    weekly = sorted(_records(cloud.read_weekly()) if hasattr(cloud, "read_weekly") else [],
+                    key=lambda w: int(w.get("week_number") or 0))
 
     def _is_open(p):
         v = p.get("is_open")
@@ -132,6 +136,7 @@ def restore_paper_state(cloud) -> Optional[dict]:
         "positions": open_pos,
         "closed_positions": closed_pos,
         "snapshots": snapshots,
+        "weekly": weekly,
     }
 
 
