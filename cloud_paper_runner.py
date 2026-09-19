@@ -570,16 +570,30 @@ def _run_weekly_checkpoint():
     except Exception:
         pass
 
-    # Verdict logic
-    if dash.sharpe_ratio >= 0.5 and dash.max_drawdown_pct < 30:
+    # Verdict. A Sharpe over a handful of sessions is noise, and win rate is
+    # undefined until something closes, so the gates only apply once the book
+    # has a sample: below that the honest answer is "too early", not FAIL.
+    sessions = pt.session_count()
+    min_sessions = int(os.environ.get("CENTURION_PAPER_MIN_SESSIONS", "20"))
+    if sessions < min_sessions:
+        verdict = (f"TOO EARLY — {sessions} of {min_sessions} sessions; "
+                   f"{dash.closed_trades} trades closed so far")
+        verdict_color = "#6b7280"
+        verdict_detail = (f"Ratios need closed trades and a few weeks of returns. "
+                          f"Equity {dash.initial_capital:,.0f} → {dash.current_capital:,.0f} "
+                          f"({dash.total_pnl_pct:+.1f}%).")
+    elif dash.sharpe_ratio >= 0.5 and dash.max_drawdown_pct < 30:
         verdict = "PASS — Ready for live trading"
         verdict_color = "#15803d"
+        verdict_detail = ""
     elif dash.sharpe_ratio >= 0.2:
         verdict = "MARGINAL — Consider extending paper period"
         verdict_color = "#d97706"
+        verdict_detail = ""
     else:
         verdict = "FAIL — Do not go live, needs investigation"
         verdict_color = "#dc2626"
+        verdict_detail = ""
 
     html = f"""\
 <html><body style="font-family:Segoe UI,Arial,sans-serif;background:#f9fafb;padding:20px;">
@@ -596,7 +610,7 @@ def _run_weekly_checkpoint():
     <div style="background:#f0fdf4;border-left:4px solid {verdict_color};padding:12px 16px;margin-bottom:20px;border-radius:4px;">
       <strong style="color:{verdict_color};font-size:14px;">VERDICT: {verdict}</strong>
       <p style="margin:4px 0 0;color:#666;font-size:12px;">
-        Sharpe {dash.sharpe_ratio:.3f} | Max DD {dash.max_drawdown_pct:.1f}% | Win Rate {dash.win_rate:.0%}
+        {verdict_detail or f"Sharpe {dash.sharpe_ratio:.3f} | Max DD {dash.max_drawdown_pct:.1f}% | Win Rate {dash.win_rate:.0%}"}
       </p>
     </div>
 
@@ -624,7 +638,12 @@ def _run_weekly_checkpoint():
           <td style="padding:6px 12px;border:1px solid #e5e7eb;">₹{dash.initial_capital:,.0f} → ₹{dash.current_capital:,.0f}</td></tr>
       <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">Total P&amp;L</td>
           <td style="padding:6px 12px;border:1px solid #e5e7eb;font-weight:bold;color:{pnl_color};">
-            ₹{dash.total_pnl:,.0f} ({dash.total_pnl_pct:+.1f}%)</td></tr>
+            ₹{dash.current_capital - dash.initial_capital:,.0f} ({dash.total_pnl_pct:+.1f}%)</td></tr>
+      <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">of which realised</td>
+          <td style="padding:6px 12px;border:1px solid #e5e7eb;">
+            ₹{dash.total_pnl:,.0f} from {dash.closed_trades} closed trades;
+            ₹{dash.current_capital - dash.initial_capital - dash.total_pnl:,.0f} unrealised
+            on {dash.open_positions} open</td></tr>
       <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">Sharpe / Sortino</td>
           <td style="padding:6px 12px;border:1px solid #e5e7eb;">{dash.sharpe_ratio:.3f} / {dash.sortino_ratio:.3f}</td></tr>
       <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">Profit Factor</td>
