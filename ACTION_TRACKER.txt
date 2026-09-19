@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 18 Sep 2026, 21:25 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 19 Sep 2026, 09:05 IST
 ================================================================================
 
 HOW TO USE
@@ -39,15 +39,6 @@ OWNER     YOU = your action or decision    CLAUDE = code/research via prompt
 --------------------------------------------------------------------------------
  2. IN PROGRESS [~]
 --------------------------------------------------------------------------------
-[!] P0  U15  ONE SECRET makes the 19:00 IST start work: put a GitHub
-             fine-grained token (Actions: read and write on centurion_core)
-             into the HF Space as CENTURION_GH_DISPATCH_TOKEN. The Space then
-             dispatches the session at 19:00 IST to the minute (code added and
-             tested 18 Sep). Without it the only triggers are GitHub's own
-             crons, which ran 1-4 h late or not at all.
-[ ] P2  U9   cron-job.org is optional once U15 is in place. If you keep it:
-             no dispatch appeared on 18 Sep, so check its history (404 = GET
-             not POST, 401 = token, 403 = permissions, 422 = body).
 [~] P1  P3   60-90 paper sessions (to ~Jan 2027)                         —
              Judged on behaviour, not Sharpe: tracking error <= 8%/yr,
              costs <= 1.5x model, MaxDD <= 1.5x backtest. Needs G4 + G5.
@@ -55,17 +46,6 @@ OWNER     YOU = your action or decision    CLAUDE = code/research via prompt
 --------------------------------------------------------------------------------
  3. NEEDS YOU [!]
 --------------------------------------------------------------------------------
-[!] P0  U13  MERGE feature/restarted INTO main (pushed at 17:43 IST, not
-             merged). main still runs without: B1 look-ahead fix, G7 writer
-             guard, G5 fill records, G8 session-dated snapshots, the extra
-             backup crons and the test suite. Monday's session runs on
-             whatever is on main.
-[!] P0  U14  Daily email REJECTED by Gmail. The 18 Sep session tried to send and
-             got "534 5.7.9 Application-specific password required":
-             CENTURION_EMAIL_PASS holds a normal account password. Generate an
-             App Password (Google account > Security > 2-Step Verification >
-             App passwords) and update the secret. The email itself builds and
-             sends correctly, so this is the only thing between you and it.
 [!] P0  U2   Rotate the Kaggle API token (pasted in chat) and the account password.
 [!] P1  U11  Stop deleting Actions runs: the 17 Sep 20:41 IST session run (21
              fills) and a 20:16 run were deleted. Logs = the paper audit trail.
@@ -116,26 +96,23 @@ OWNER     YOU = your action or decision    CLAUDE = code/research via prompt
              Prompt:    do G2
              Done when: alerts arrive by email; shift state stored in Neon.
 
-#6  [ ] P2  G11  Fix the weekly Saturday email ("Week 1" every week)         CLAUDE
-             Prompt:    do G11
-
-#7  [ ] P2  G10  Per-position P&L on the trade monitor (shows 0.0%)          CLAUDE
+#6  [ ] P2  G10  Per-position P&L on the trade monitor (shows 0.0%)          CLAUDE
              Prompt:    do G10
 
-#8  [ ] P2  K4   NIFTY 50 index history 2007-2011                            CLAUDE
+#7  [ ] P2  K4   NIFTY 50 index history 2007-2011                            CLAUDE
              Prompt:    do K4
              Why:       NSE index files start 2012; the regime gate cannot run
                         on 2008. yfinance ^NSEI (from Sep 2007) vs
                         niftyindices.com (to 1995, unofficial API).
 
-#9  [ ] P2  R4   Walk-forward 2007-2025 (2008 crash test)                    CLAUDE
+#8  [ ] P2  R4   Walk-forward 2007-2025 (2008 crash test)                    CLAUDE
              Prompt:    start R4
              Depends:   K4, B1
 
-#10 [ ] P2  D1   Second paper slot (candidate beside the deployed book)      CLAUDE
+#9  [ ] P2  D1   Second paper slot (candidate beside the deployed book)      CLAUDE
              Prompt:    do D1
 
-#11 [ ] P2  L2   NIFTY futures overlay (leverage)                            CLAUDE
+#10 [ ] P2  L2   NIFTY futures overlay (leverage)                            CLAUDE
              Prompt:    do L2
              Depends:   U5
              Why:       the only route to CAGR > 35%; needs ~1.5x gross.
@@ -157,6 +134,29 @@ OWNER     YOU = your action or decision    CLAUDE = code/research via prompt
 --------------------------------------------------------------------------------
  6. DONE [x] — most recent first
 --------------------------------------------------------------------------------
+[x] 19 Sep  G11  Weekly report fixed after the first one arrived wrong: weekly
+                 checkpoints are now restored from Neon so week numbers
+                 continue (it said "Week 1" and measured the whole book); the
+                 verdict reads "TOO EARLY - n of 20 sessions" instead of FAIL
+                 until there is a sample; Total P&L now shows the equity change
+                 and splits realised vs unrealised (it read "Rs 0 (+2.2%)").
+                 3 new tests, suite 78. Next Saturday should read Week 2.
+[x] 18 Sep  U15  19:00 IST trigger LIVE: the HF Space registered "NSE paper
+                 start : 19:00 IST, Mon-Fri (GitHub Actions dispatch)" at
+                 22:42 IST, so CENTURION_GH_DISPATCH_TOKEN is set and the
+                 merged code is deployed. First automatic run: Mon 21 Sep
+                 19:00 IST - expect a workflow_dispatch run with reason
+                 "hf scheduler 19:00 IST".
+[x] 18 Sep  U13  All of 18 Sep merged to main (9dc75f6): B1, B1b, G7, R8, G5,
+                 G8, B3, the 19:00 dispatch, the heartbeat and the CI fixes.
+[x] 18 Sep  U14  Daily email works: Gmail App Password set and a test mail
+                 arrived. Two bugs found on the way - the heartbeat workflow
+                 missed python-dotenv, and a non-breaking space in the pasted
+                 password broke smtplib's ASCII encoding. SMTP settings are now
+                 stripped of spaces/NBSP/newlines (5 paste variants tested) and
+                 both workflows install from requirements-test.txt so the CI
+                 dependency list cannot drift again. Suite: 75 tests.
+                 First real session report: Monday's 19:00 IST run.
 [x] 18 Sep  SCHED Daily trigger rebuilt after the missed day. Primary: HF
                  scheduler dispatches Actions at 19:00 IST exactly (needs
                  U15's secret; tested against a stubbed API for 204/401/403/

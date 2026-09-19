@@ -455,6 +455,19 @@ class PaperTrader:
                       float(snap.get("cumulative_pnl_pct") or 0), float(snap.get("max_drawdown_pct") or 0),
                       int(snap.get("signals_generated") or 0), int(snap.get("signals_traded") or 0),
                       snap.get("snapshot_json") or "{}"))
+            for w in state.get("weekly", []):
+                conn.execute("""
+                    INSERT OR REPLACE INTO weekly_checkpoints
+                    (week_number, week_start, week_end, start_equity, end_equity, week_return_pct,
+                     trades_opened, trades_closed, win_rate, sharpe_ratio, max_dd_pct,
+                     avg_holding_days, summary_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (int(w["week_number"]), str(w["week_start"]), str(w["week_end"]),
+                      float(w.get("start_equity") or 0), float(w.get("end_equity") or 0),
+                      float(w.get("week_return_pct") or 0), int(w.get("trades_opened") or 0),
+                      int(w.get("trades_closed") or 0), float(w.get("win_rate") or 0),
+                      float(w.get("sharpe_ratio") or 0), float(w.get("max_dd_pct") or 0),
+                      float(w.get("avg_holding_days") or 0), w.get("summary_json") or "{}"))
             conn.execute("INSERT OR REPLACE INTO paper_state (key, value) VALUES ('cash', ?)",
                          (str(self.cash),))
             conn.execute("INSERT OR REPLACE INTO paper_state (key, value) VALUES ('initial_capital', ?)",
@@ -463,8 +476,9 @@ class PaperTrader:
         finally:
             conn.close()
         self._restore_engine_state_from_cloud(cloud)
-        logger.info("Paper state restored from cloud: cash=%.2f, %d open positions, %d snapshots",
-                    self.cash, len(self._positions), len(state.get("snapshots", [])))
+        logger.info("Paper state restored from cloud: cash=%.2f, %d open positions, %d snapshots, "
+                    "%d weekly checkpoints", self.cash, len(self._positions),
+                    len(state.get("snapshots", [])), len(state.get("weekly", [])))
         return True
 
     def _save_cash(self):
@@ -1649,6 +1663,15 @@ class PaperTrader:
         equity = (1.0 + returns).cumprod() * float(self.initial_capital)
         return compute_metrics(returns, equity, rf_annual=self._risk_free_annual(),
                                initial_capital=float(self.initial_capital))
+
+    def session_count(self) -> int:
+        """Daily snapshots recorded for this book - how much evidence exists."""
+        conn = sqlite3.connect(str(_DB_PATH))
+        try:
+            row = conn.execute("SELECT COUNT(*) FROM daily_snapshots").fetchone()
+        finally:
+            conn.close()
+        return int(row[0]) if row else 0
 
     def _live_daily_returns(self, conn) -> pd.Series:
         """Dated daily returns of the paper book from ``daily_snapshots``."""

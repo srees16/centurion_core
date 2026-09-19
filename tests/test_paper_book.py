@@ -131,3 +131,47 @@ class TestWriterGuard:
         scheduler = pytest.importorskip("scheduler")
         monkeypatch.setenv("CENTURION_NSE_ENGINE_HF_PAPER", "true")
         assert scheduler._hf_paper_session_allowed()[0] is True
+
+
+class TestWeeklyReport:
+    """G11: week numbering survives a fresh runner, and a 2-day-old book is not judged."""
+
+    def _trader(self, tmp_path, monkeypatch, weekly_rows, snapshots):
+        import kite_connect.trading.paper_trader as ptmod
+        monkeypatch.setattr(ptmod, "_DB_PATH", tmp_path / "paper.sqlite3")
+        pt = ptmod.PaperTrader(kite=None, initial_capital=3_500_000)
+        import sqlite3
+        conn = sqlite3.connect(str(ptmod._DB_PATH))
+        for d, eq in snapshots:
+            conn.execute("INSERT OR REPLACE INTO daily_snapshots (date, equity, cash, open_positions,"
+                         " closed_today, day_pnl, cumulative_pnl, cumulative_pnl_pct, max_drawdown_pct,"
+                         " signals_generated, signals_traded, snapshot_json) "
+                         "VALUES (?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, '{}')", (d, eq))
+        for w in weekly_rows:
+            conn.execute("INSERT OR REPLACE INTO weekly_checkpoints (week_number, week_start, week_end,"
+                         " start_equity, end_equity, week_return_pct, trades_opened, trades_closed,"
+                         " win_rate, sharpe_ratio, max_dd_pct, avg_holding_days, summary_json) "
+                         "VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, '{}')", w)
+        conn.commit(); conn.close()
+        return pt
+
+    def test_week_number_continues_after_a_restore(self, tmp_path, monkeypatch):
+        """With last week's checkpoint restored, this Saturday is Week 2, not Week 1 again."""
+        pt = self._trader(tmp_path, monkeypatch,
+                          weekly_rows=[(1, "2026-09-17", "2026-09-18")],
+                          snapshots=[("2026-09-17", 3_523_526), ("2026-09-18", 3_577_634),
+                                     ("2026-09-21", 3_600_000), ("2026-09-25", 3_650_000)])
+        ckpt = pt.checkpoint_weekly()
+        assert ckpt["week_number"] == 2
+        assert ckpt["week_start"] == "2026-09-21", "the week must start after the last checkpoint"
+
+    def test_without_the_restore_it_would_repeat_week_one(self, tmp_path, monkeypatch):
+        """The bug being fixed: an empty local table restarts the numbering."""
+        pt = self._trader(tmp_path, monkeypatch, weekly_rows=[],
+                          snapshots=[("2026-09-21", 3_600_000), ("2026-09-25", 3_650_000)])
+        assert pt.checkpoint_weekly()["week_number"] == 1
+
+    def test_session_count_drives_the_verdict(self, tmp_path, monkeypatch):
+        pt = self._trader(tmp_path, monkeypatch, weekly_rows=[],
+                          snapshots=[("2026-09-17", 3_523_526), ("2026-09-18", 3_577_634)])
+        assert pt.session_count() == 2, "two sessions is not a track record"
