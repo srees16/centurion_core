@@ -175,3 +175,58 @@ class TestWeeklyReport:
         pt = self._trader(tmp_path, monkeypatch, weekly_rows=[],
                           snapshots=[("2026-09-17", 3_523_526), ("2026-09-18", 3_577_634)])
         assert pt.session_count() == 2, "two sessions is not a track record"
+
+
+class TestDispatchBreadcrumb:
+    """The Space's logs are unreachable from outside, so a dispatch attempt
+    must record what happened where the book can be read (21 Sep 2026: nothing
+    ran and there was no way to tell whether the Space had even tried)."""
+
+    class _Cloud:
+        def __init__(self, last_session=""):
+            self.last, self.written = last_session, {}
+        def read_state(self): return {"engine_last_session": self.last}
+        def sync_state(self, values): self.written.update(values); return True
+
+    def _run(self, monkeypatch, cloud, urlopen):
+        import urllib.request
+        scheduler = pytest.importorskip("scheduler")
+        monkeypatch.setattr(scheduler, "_save_run", lambda *a, **k: None)
+        monkeypatch.setattr(pc, "get_paper_cloud", lambda: cloud)
+        monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+        scheduler._dispatch_nse_paper_workflow()
+
+    def test_a_successful_dispatch_is_recorded(self, monkeypatch):
+        monkeypatch.setenv("CENTURION_GH_DISPATCH_TOKEN", "tok")
+
+        class Resp:
+            status = 204
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        cloud = self._Cloud(last_session="2026-09-18")
+        self._run(monkeypatch, cloud, lambda req, timeout=None: Resp())
+        assert cloud.written["nse_dispatch_status"] == "dispatched"
+
+    def test_a_rejected_token_is_recorded_with_its_code(self, monkeypatch):
+        import io, urllib.error
+        monkeypatch.setenv("CENTURION_GH_DISPATCH_TOKEN", "tok")
+
+        def boom(req, timeout=None):
+            raise urllib.error.HTTPError(req.full_url, 401, "err", {}, io.BytesIO(b'{"message":"bad"}'))
+
+        cloud = self._Cloud(last_session="2026-09-18")
+        self._run(monkeypatch, cloud, boom)
+        assert cloud.written["nse_dispatch_status"] == "http_401"
+
+    def test_the_retry_skips_a_session_already_processed(self, monkeypatch):
+        from datetime import datetime, timedelta, timezone
+        monkeypatch.setenv("CENTURION_GH_DISPATCH_TOKEN", "tok")
+        today = datetime.now(timezone(timedelta(hours=5, minutes=30))).date().isoformat()
+
+        def must_not_post(req, timeout=None):
+            raise AssertionError("the retry posted although the session was done")
+
+        cloud = self._Cloud(last_session=today)
+        self._run(monkeypatch, cloud, must_not_post)
+        assert cloud.written == {}

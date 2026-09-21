@@ -1558,9 +1558,35 @@ def _dispatch_nse_paper_workflow():
     import urllib.error
     import urllib.request
 
+    def report(status: str, detail: str = "") -> None:
+        """Leave a breadcrumb in Neon: the Space's own logs are not reachable
+        from outside, so without this a silent day cannot be told apart from a
+        day the Space never tried."""
+        try:
+            from database.paper_cloud import get_paper_cloud
+            cloud = get_paper_cloud()
+            if cloud:
+                cloud.sync_state({"nse_dispatch_at": datetime.now(timezone.utc).isoformat(),
+                                  "nse_dispatch_status": status,
+                                  "nse_dispatch_detail": str(detail)[:200]})
+        except Exception as exc:                          # noqa: BLE001 - reporting only
+            logger.debug("dispatch breadcrumb failed: %s", exc)
+
     token = os.environ.get("CENTURION_GH_DISPATCH_TOKEN", "")
     if not token:
         logger.debug("NSE paper dispatch: no CENTURION_GH_DISPATCH_TOKEN, skipping")
+        report("no_token")
+        return
+    # The retry at 20:30 IST does nothing when the 19:00 attempt already worked.
+    try:
+        from database.paper_cloud import get_paper_cloud
+        cloud = get_paper_cloud()
+        done = str((cloud.read_state() or {}).get("engine_last_session") or "") if cloud else ""
+    except Exception:                                     # noqa: BLE001 - attempt anyway
+        done = ""
+    today_ist = datetime.now(_IST).date().isoformat()
+    if done and done >= today_ist:
+        logger.info("NSE paper dispatch: session %s already processed, skipping", done)
         return
     repo = os.environ.get("CENTURION_GH_REPO", "srees16/centurion_core")
     workflow = os.environ.get("CENTURION_GH_WORKFLOW", "nse-paper-trading.yml")
@@ -1578,13 +1604,16 @@ def _dispatch_nse_paper_workflow():
             ok = resp.status == 204
         logger.info("NSE paper dispatch: %s (HTTP %s)", "started" if ok else "unexpected status", resp.status)
         _save_run("nse_engine_dispatch", {"status": "success" if ok else "error", "http": resp.status})
+        report("dispatched" if ok else "unexpected_status", f"HTTP {resp.status}")
     except urllib.error.HTTPError as exc:                 # 401 token, 403 scope, 404 path, 422 body
         detail = exc.read()[:200].decode("utf-8", "replace")
         logger.error("NSE paper dispatch failed: HTTP %s %s", exc.code, detail)
         _save_run("nse_engine_dispatch", {"status": "error", "http": exc.code, "detail": detail})
+        report(f"http_{exc.code}", detail)
     except Exception as exc:                              # noqa: BLE001 - never kill the scheduler
         logger.error("NSE paper dispatch failed: %s", exc)
         _save_run("nse_engine_dispatch", {"status": "error", "detail": str(exc)})
+        report("error", str(exc))
 
 
 @_tracked_job("nse_engine_executor", "NSE Engine Executor")
@@ -3093,7 +3122,14 @@ def start_scheduler():
             name="NSE Engine Dispatch",
             misfire_grace_time=3600,          # a Space restart near 19:00 still fires
         )
-        logger.info("  NSE paper start : 19:00 IST, Mon-Fri (GitHub Actions dispatch)")
+        scheduler.add_job(
+            _dispatch_nse_paper_workflow,
+            CronTrigger(hour=20, minute=30, day_of_week="mon-fri", timezone="Asia/Kolkata"),
+            id="nse_engine_dispatch_retry",
+            name="NSE Engine Dispatch (retry)",
+            misfire_grace_time=3600,
+        )
+        logger.info("  NSE paper start : 19:00 IST + retry 20:30 IST, Mon-Fri (GitHub Actions dispatch)")
 
     # ── NSE engine executor (opt-in: CENTURION_NSE_ENGINE=true) — 09:25 IST ──
     if os.environ.get("CENTURION_NSE_ENGINE", "false").lower() in ("true", "1", "yes"):
