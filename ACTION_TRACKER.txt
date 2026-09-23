@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 19 Sep 2026, 09:05 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 23 Sep 2026, 20:55 IST
 ================================================================================
 
 HOW TO USE
@@ -134,6 +134,16 @@ OWNER     YOU = your action or decision    CLAUDE = code/research via prompt
 --------------------------------------------------------------------------------
  6. DONE [x] — most recent first
 --------------------------------------------------------------------------------
+[x] 23 Sep  G13  Daily Detail was blank on 18, 21, 22 and 23 Sep because the
+                 book held (23 Sep WAS a rebalance day, but every position sat
+                 inside the 25% no-trade buffer, so 0 buys and 0 sells). A
+                 quiet day now records a decision: new paper_sessions table
+                 (rebalance day?, planned buys/sells, queued, filled, stops
+                 armed/hit, shift multiplier, one-sentence outcome), exposed by
+                 daily-detail with the paper_fills executions; the page shows a
+                 Session card on every date plus an Executions table with
+                 decided vs filled price, slippage, impact and costs.
+                 4 new tests (88); frontend type-checks and builds.
 [x] 19 Sep  G11  Weekly report fixed after the first one arrived wrong: weekly
                  checkpoints are now restored from Neon so week numbers
                  continue (it said "Week 1" and measured the whole book); the

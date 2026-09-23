@@ -192,6 +192,7 @@ class PaperCloudSync:
                     Base.metadata.tables["paper_signal_log"],
                     Base.metadata.tables["paper_weekly_checkpoints"],
                     Base.metadata.tables["paper_fills"],
+                    Base.metadata.tables["paper_sessions"],
                 ],
             )
             logger.info("Paper trading cloud tables ensured.")
@@ -284,6 +285,31 @@ class PaperCloudSync:
         except Exception as exc:
             logger.warning("Cloud sync signals failed: %s", exc)
             return False
+
+    def sync_session(self, row: dict) -> bool:
+        """Upsert one session's activity record (keyed by session date)."""
+        try:
+            from database.models import PaperSessionRecord
+            with self._db.get_session() as session:
+                existing = session.query(PaperSessionRecord).filter_by(
+                    session_date=row["session_date"]).first()
+                if existing:
+                    for k, v in row.items():
+                        if hasattr(existing, k):
+                            setattr(existing, k, v)
+                else:
+                    session.add(PaperSessionRecord(**{k: v for k, v in row.items()
+                                                      if hasattr(PaperSessionRecord, k)}))
+                session.commit()
+            return True
+        except Exception as exc:                          # noqa: BLE001 - never block a run
+            logger.warning("Cloud sync session failed: %s", exc)
+            return False
+
+    def read_sessions(self, since_epoch: bool = True) -> pd.DataFrame:
+        """Session activity of the current book."""
+        df = self._read("SELECT * FROM paper_sessions ORDER BY session_date")
+        return self._since_epoch(df, "session_date", since_epoch)
 
     def sync_fills(self, fills: List[dict]) -> bool:
         """Insert execution events, skipping ones already stored.
@@ -496,7 +522,7 @@ class PaperCloudSync:
         ep = _epoch_from_state(state)
         if ep is None:
             return df
-        if column in ("date", "week_start"):
+        if column in ("date", "week_start", "session_date"):
             cutoff = ep.date().isoformat()
             keep = df[column].astype(str) >= cutoff
         else:

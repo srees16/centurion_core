@@ -1217,10 +1217,34 @@ async def screener_daily_detail(date: str):
         else:
             closed = _sqlite_rows("paper_positions", f"SELECT * FROM paper_positions WHERE closed_at LIKE '{date}%' AND is_open=0")
 
+        # 5. What the engine decided that session, and every execution it made.
+        #    A day with no trades must be visibly a decision, not a blank page.
+        session_activity = None
+        executions = []
+        if cloud:
+            try:
+                df = cloud.read_sessions()
+                if not df.empty:
+                    row = df[df["session_date"].astype(str) == date]
+                    if not row.empty:
+                        session_activity = _sanitize_floats(row.iloc[0].to_dict())
+            except Exception as exc:                      # noqa: BLE001 - older books have no table
+                logger.debug("session activity unavailable: %s", exc)
+            try:
+                df = cloud.read_fills()
+                if not df.empty:
+                    same_day = df[df["session_date"].astype(str) == date]
+                    executions = _sanitize_floats(same_day.to_dict(orient="records"))
+            except Exception as exc:                      # noqa: BLE001
+                logger.debug("fills unavailable: %s", exc)
+
         return {
             "date": date,
             "snapshot": snapshot,
             "snapshot_detail": snapshot_detail,
+            "session": session_activity,
+            "executions": executions,
+            "executions_count": len(executions),
             "signals": signals,
             "total_signals": total_signals,
             "traded_signals": traded_signals,

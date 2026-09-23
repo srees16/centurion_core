@@ -230,3 +230,60 @@ class TestDispatchBreadcrumb:
         cloud = self._Cloud(last_session=today)
         self._run(monkeypatch, cloud, must_not_post)
         assert cloud.written == {}
+
+
+class TestSessionActivity:
+    """A day with no trades must be recorded as a decision, not left blank.
+
+    18-23 Sep 2026: four sessions ran, the book held inside its no-trade buffer,
+    and the Daily Detail tab showed nothing at all for any of them.
+    """
+
+    class _Plan:
+        def __init__(self, notes, buys=(), sells=(), stops=(), skipped=()):
+            self.notes, self.skipped, self.stop_instructions = notes, list(skipped), list(stops)
+            self.buys, self.sells, self.shift_multiplier = list(buys), list(sells), 1.0
+
+    def _record(self, monkeypatch, plan, queued=0, fills=None, stops=()):
+        import cloud_paper_runner as runner
+
+        captured = {}
+
+        class Cloud:
+            def sync_session(self, row): captured.update(row); return True
+
+        pt = type("PT", (), {"_get_cloud": lambda self: Cloud(), "cash": 50_000.0})()
+        session = {"session": "2026-09-23", "notes": [], "stops": list(stops)}
+        snapshot = {"equity": 3_621_800.0, "open_positions": 21}
+        runner._record_session_activity(pt, session, snapshot, plan, queued, fills or {})
+        return captured
+
+    def test_a_rebalance_day_that_needed_no_trades_says_so(self, monkeypatch):
+        row = self._record(monkeypatch, self._Plan(notes=["rebalance_day"], stops=[1] * 20))
+        assert row["rebalance_day"] is True
+        assert row["planned_buys"] == 0 and row["planned_sells"] == 0
+        assert "no-trade buffer" in row["outcome"]
+        assert row["stops_armed"] == 20 and row["open_positions"] == 21
+
+    def test_a_hold_day_is_distinguished_from_a_rebalance_day(self, monkeypatch):
+        row = self._record(monkeypatch, self._Plan(notes=[]))
+        assert row["rebalance_day"] is False
+        assert "not a rebalance day" in row["outcome"]
+
+    def test_an_active_day_lists_what_happened(self, monkeypatch):
+        row = self._record(monkeypatch, self._Plan(notes=["rebalance_day"], buys=[1, 2], sells=[3]),
+                           queued=3, fills={"filled": [1, 2], "cancelled": [3]}, stops=[9])
+        assert row["filled"] == 2 and row["cancelled"] == 1 and row["queued"] == 3
+        assert row["stops_triggered"] == 1
+        assert "filled at the open" in row["outcome"]
+
+    def test_recording_never_breaks_a_session(self, monkeypatch):
+        import cloud_paper_runner as runner
+
+        class Broken:
+            def sync_session(self, row): raise RuntimeError("neon down")
+
+        pt = type("PT", (), {"_get_cloud": lambda self: Broken(), "cash": 0.0})()
+        runner._record_session_activity(pt, {"session": "2026-09-23", "notes": [], "stops": []},
+                                        {"equity": 1.0, "open_positions": 0},
+                                        self._Plan(notes=[]), 0, {})      # must not raise
