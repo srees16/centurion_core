@@ -869,6 +869,34 @@ class PaperFillRecord(Base):
     )
 
 
+class PaperSessionRecord(Base):
+    """What the engine decided in one session, whether or not it traded.
+
+    Without this, a day with no trades looks identical to a day that never ran:
+    the trade monitor showed four empty "Daily Detail" tabs in a row while the
+    book was simply holding inside its no-trade buffer.
+    """
+    __tablename__ = 'paper_sessions'
+
+    session_date = Column(String(10), primary_key=True)
+    ran_at = Column(String(40), default='')
+    equity = Column(Float, default=0)
+    cash = Column(Float, default=0)
+    open_positions = Column(Integer, default=0)
+    rebalance_day = Column(Boolean, default=False)
+    planned_buys = Column(Integer, default=0)
+    planned_sells = Column(Integer, default=0)
+    queued = Column(Integer, default=0)
+    filled = Column(Integer, default=0)
+    cancelled = Column(Integer, default=0)
+    stops_triggered = Column(Integer, default=0)
+    stops_armed = Column(Integer, default=0)
+    skipped = Column(Integer, default=0)
+    shift_multiplier = Column(Float, default=1.0)
+    outcome = Column(String(200), default='')     # a sentence: why nothing traded, or what did
+    notes = Column(Text, default='')
+
+
 class PaperWeeklyCheckpointRecord(Base):
     """Cloud-synced copy of local weekly_checkpoints (SQLite)."""
     __tablename__ = 'paper_weekly_checkpoints'
