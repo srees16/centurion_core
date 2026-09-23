@@ -449,8 +449,63 @@ def _run_engine_paper():
     for note in session.get("notes", []):
         msg += f" | {note}"
     logger.info("NSE engine paper run: %s", msg)
+    _record_session_activity(pt, session, snapshot, plan, queued, fills)
     _email_engine_session(pt, dep, session, snapshot, shift)
     return "success", msg
+
+
+def _session_outcome(plan, queued: int, fills: dict, stops: int, rebalance: bool) -> str:
+    """One sentence for the trade monitor: what this session did, or why it did nothing."""
+    filled, cancelled = len(fills.get("filled", [])), len(fills.get("cancelled", []))
+    parts = []
+    if filled:
+        parts.append(f"{filled} order(s) filled at the open")
+    if cancelled:
+        parts.append(f"{cancelled} cancelled")
+    if stops:
+        parts.append(f"{stops} stop exit(s)")
+    if queued:
+        parts.append(f"{queued} order(s) queued for the next open")
+    if parts:
+        return "; ".join(parts)
+    if plan is None:
+        return "no plan: the session was already processed, so only stops and marks were refreshed"
+    if not rebalance:
+        return "held: not a rebalance day, so no orders were planned"
+    return ("held: rebalance day, but every position was already within the no-trade buffer, "
+            "so nothing needed trading")
+
+
+def _record_session_activity(pt, session: dict, snapshot: dict, plan, queued: int, fills: dict) -> None:
+    """Persist what the engine decided, so a quiet day is visible as a decision."""
+    try:
+        cloud = pt._get_cloud()
+        if not cloud or not hasattr(cloud, "sync_session"):
+            return
+        notes = list(session.get("notes") or [])
+        rebalance = bool(plan is not None and "rebalance_day" in (plan.notes or []))
+        stops = len(session.get("stops") or [])
+        cloud.sync_session({
+            "session_date": session.get("session"),
+            "ran_at": datetime.now(timezone.utc).isoformat(),
+            "equity": float(snapshot.get("equity") or 0.0),
+            "cash": float(pt.cash),
+            "open_positions": int(snapshot.get("open_positions") or 0),
+            "rebalance_day": rebalance,
+            "planned_buys": len(plan.buys) if plan is not None else 0,
+            "planned_sells": len(plan.sells) if plan is not None else 0,
+            "queued": int(queued),
+            "filled": len(fills.get("filled", [])),
+            "cancelled": len(fills.get("cancelled", [])),
+            "stops_triggered": stops,
+            "stops_armed": len(plan.stop_instructions) if plan is not None else 0,
+            "skipped": len(plan.skipped) if plan is not None else 0,
+            "shift_multiplier": float(plan.shift_multiplier) if plan is not None else 1.0,
+            "outcome": _session_outcome(plan, queued, fills, stops, rebalance)[:200],
+            "notes": "; ".join(notes)[:500],
+        })
+    except Exception as exc:                              # noqa: BLE001 - reporting only
+        logger.warning("Session activity not recorded: %s", exc)
 
 
 def _missed_sessions(previous, current) -> int:

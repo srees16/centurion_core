@@ -175,3 +175,115 @@ class TestWeeklyReport:
         pt = self._trader(tmp_path, monkeypatch, weekly_rows=[],
                           snapshots=[("2026-09-17", 3_523_526), ("2026-09-18", 3_577_634)])
         assert pt.session_count() == 2, "two sessions is not a track record"
+
+
+class TestDispatchBreadcrumb:
+    """The Space's logs are unreachable from outside, so a dispatch attempt
+    must record what happened where the book can be read (21 Sep 2026: nothing
+    ran and there was no way to tell whether the Space had even tried)."""
+
+    class _Cloud:
+        def __init__(self, last_session=""):
+            self.last, self.written = last_session, {}
+        def read_state(self): return {"engine_last_session": self.last}
+        def sync_state(self, values): self.written.update(values); return True
+
+    def _run(self, monkeypatch, cloud, urlopen):
+        import urllib.request
+        scheduler = pytest.importorskip("scheduler")
+        monkeypatch.setattr(scheduler, "_save_run", lambda *a, **k: None)
+        monkeypatch.setattr(pc, "get_paper_cloud", lambda: cloud)
+        monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+        scheduler._dispatch_nse_paper_workflow()
+
+    def test_a_successful_dispatch_is_recorded(self, monkeypatch):
+        monkeypatch.setenv("CENTURION_GH_DISPATCH_TOKEN", "tok")
+
+        class Resp:
+            status = 204
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        cloud = self._Cloud(last_session="2026-09-18")
+        self._run(monkeypatch, cloud, lambda req, timeout=None: Resp())
+        assert cloud.written["nse_dispatch_status"] == "dispatched"
+
+    def test_a_rejected_token_is_recorded_with_its_code(self, monkeypatch):
+        import io, urllib.error
+        monkeypatch.setenv("CENTURION_GH_DISPATCH_TOKEN", "tok")
+
+        def boom(req, timeout=None):
+            raise urllib.error.HTTPError(req.full_url, 401, "err", {}, io.BytesIO(b'{"message":"bad"}'))
+
+        cloud = self._Cloud(last_session="2026-09-18")
+        self._run(monkeypatch, cloud, boom)
+        assert cloud.written["nse_dispatch_status"] == "http_401"
+
+    def test_the_retry_skips_a_session_already_processed(self, monkeypatch):
+        from datetime import datetime, timedelta, timezone
+        monkeypatch.setenv("CENTURION_GH_DISPATCH_TOKEN", "tok")
+        today = datetime.now(timezone(timedelta(hours=5, minutes=30))).date().isoformat()
+
+        def must_not_post(req, timeout=None):
+            raise AssertionError("the retry posted although the session was done")
+
+        cloud = self._Cloud(last_session=today)
+        self._run(monkeypatch, cloud, must_not_post)
+        assert cloud.written == {}
+
+
+class TestSessionActivity:
+    """A day with no trades must be recorded as a decision, not left blank.
+
+    18-23 Sep 2026: four sessions ran, the book held inside its no-trade buffer,
+    and the Daily Detail tab showed nothing at all for any of them.
+    """
+
+    class _Plan:
+        def __init__(self, notes, buys=(), sells=(), stops=(), skipped=()):
+            self.notes, self.skipped, self.stop_instructions = notes, list(skipped), list(stops)
+            self.buys, self.sells, self.shift_multiplier = list(buys), list(sells), 1.0
+
+    def _record(self, monkeypatch, plan, queued=0, fills=None, stops=()):
+        import cloud_paper_runner as runner
+
+        captured = {}
+
+        class Cloud:
+            def sync_session(self, row): captured.update(row); return True
+
+        pt = type("PT", (), {"_get_cloud": lambda self: Cloud(), "cash": 50_000.0})()
+        session = {"session": "2026-09-23", "notes": [], "stops": list(stops)}
+        snapshot = {"equity": 3_621_800.0, "open_positions": 21}
+        runner._record_session_activity(pt, session, snapshot, plan, queued, fills or {})
+        return captured
+
+    def test_a_rebalance_day_that_needed_no_trades_says_so(self, monkeypatch):
+        row = self._record(monkeypatch, self._Plan(notes=["rebalance_day"], stops=[1] * 20))
+        assert row["rebalance_day"] is True
+        assert row["planned_buys"] == 0 and row["planned_sells"] == 0
+        assert "no-trade buffer" in row["outcome"]
+        assert row["stops_armed"] == 20 and row["open_positions"] == 21
+
+    def test_a_hold_day_is_distinguished_from_a_rebalance_day(self, monkeypatch):
+        row = self._record(monkeypatch, self._Plan(notes=[]))
+        assert row["rebalance_day"] is False
+        assert "not a rebalance day" in row["outcome"]
+
+    def test_an_active_day_lists_what_happened(self, monkeypatch):
+        row = self._record(monkeypatch, self._Plan(notes=["rebalance_day"], buys=[1, 2], sells=[3]),
+                           queued=3, fills={"filled": [1, 2], "cancelled": [3]}, stops=[9])
+        assert row["filled"] == 2 and row["cancelled"] == 1 and row["queued"] == 3
+        assert row["stops_triggered"] == 1
+        assert "filled at the open" in row["outcome"]
+
+    def test_recording_never_breaks_a_session(self, monkeypatch):
+        import cloud_paper_runner as runner
+
+        class Broken:
+            def sync_session(self, row): raise RuntimeError("neon down")
+
+        pt = type("PT", (), {"_get_cloud": lambda self: Broken(), "cash": 0.0})()
+        runner._record_session_activity(pt, {"session": "2026-09-23", "notes": [], "stops": []},
+                                        {"equity": 1.0, "open_positions": 0},
+                                        self._Plan(notes=[]), 0, {})      # must not raise
