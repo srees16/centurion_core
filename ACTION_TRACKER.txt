@@ -31,7 +31,7 @@ OWNER     YOU = your action or decision    CLAUDE = code/research via prompt
   Behaviour: vol 13.4% | turnover 7.0x | cost drag 3.15%/yr | 44% of trades win
     | avg 17.9 positions at 0.88 gross | 86% of days in drawdown
     | worst years 2018 -11.4%, 2022 -3.8%
-  Paper book: Rs 35L since 17 Sep, 21 positions, equity Rs 35,77,634 (+2.2%);
+  Paper book: Rs 35L since 17 Sep (rebalances 2/9/17 Sep, next 24 Sep), 21 positions, equity Rs 35,77,634 (+2.2%);
     sessions traded 17 and 18 Sep, both needing a manual dispatch.
   Reality check: Sharpe 1.5 and CAGR 30%+ are not reachable unlevered on this
     evidence. CAGR 35% needs leverage (L2), which breaks MaxDD 30% (U5).
@@ -50,6 +50,11 @@ OWNER     YOU = your action or decision    CLAUDE = code/research via prompt
 [!] P1  U11  Stop deleting Actions runs: the 17 Sep 20:41 IST session run (21
              fills) and a 20:16 run were deleted. Logs = the paper audit trail.
 [!] P1  U12  Resolve the "Kite session not active" issue in Sentry (fix is live).
+[!] P1  U16  Backfill? Sessions 18, 21 and 22 Sep keep the amber "no session
+             recorded" card: activity recording only started with tonight's
+             merge, and 23 Sep was re-run to capture it. The facts are in the
+             Actions logs (all three were hold days, 21 positions, no fills).
+             Say "backfill sessions" and I will write them from those logs.
 [!] P2  U5   Decide the MaxDD you accept with leverage. MaxDD <= 30% caps levered
              CAGR near 30%; CAGR 35% means MaxDD ~35-40%. Blocks L2.
 [!] P2  U6   Confirm live capital will really be >= Rs 30L. Capital alone lowers
@@ -134,6 +139,13 @@ OWNER     YOU = your action or decision    CLAUDE = code/research via prompt
 --------------------------------------------------------------------------------
  6. DONE [x] — most recent first
 --------------------------------------------------------------------------------
+[x] 23 Sep  G14  Daily Detail now always shows Trades Opened / Closed /
+                 Executions with counts and a plain empty state, the date
+                 buttons are shaded by what happened (green = holdings changed,
+                 amber = rebalance decided and fills next session, plain =
+                 held), with a legend and tooltips, and a date without a
+                 session record falls back to its snapshot instead of the
+                 amber "no session" card. New API: monitor/sessions.
 [x] 23 Sep  G13  Daily Detail was blank on 18, 21, 22 and 23 Sep because the
                  book held (23 Sep WAS a rebalance day, but every position sat
                  inside the 25% no-trade buffer, so 0 buys and 0 sells). A
@@ -178,7 +190,7 @@ OWNER     YOU = your action or decision    CLAUDE = code/research via prompt
                  tests; suite now 69.
 [x] 18 Sep  P2   18 Sep session traded (dispatched by hand at 20:43 IST after both
                  triggers failed): equity Rs 35,77,634 (+2.2%), 21 positions,
-                 no fills or stops (next rebalance Wed 23 Sep). Snapshots now
+                 no fills or stops. Snapshots now
                  list 17 and 18 Sep.
 [x] 18 Sep  G8   Snapshots dated by the trading session, not the IST clock, so a
                  late run records the right day. Window widened to 18:30-05:59

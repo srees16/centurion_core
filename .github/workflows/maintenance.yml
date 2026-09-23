@@ -1,0 +1,50 @@
+name: Maintenance
+
+# One-off jobs against the paper book's database, run by hand. Nothing here
+# trades; each task is additive and safe to repeat.
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: "What to run"
+        required: true
+        type: choice
+        options:
+          - backfill-sessions
+      force:
+        description: "Overwrite records that already exist"
+        required: false
+        type: boolean
+        default: false
+      dry_run:
+        description: "Report what would change, write nothing"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: paper-trade-book-v2      # never run while a session is writing the book
+  cancel-in-progress: false
+
+jobs:
+  maintenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install --quiet -r requirements-test.txt psycopg2-binary
+      - name: Backfill session records
+        if: inputs.task == 'backfill-sessions'
+        run: |
+          python -m tools.backfill_sessions \
+            ${{ inputs.force && '--force' || '' }} \
+            ${{ inputs.dry_run && '--dry-run' || '' }}
