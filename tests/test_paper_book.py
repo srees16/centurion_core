@@ -287,3 +287,46 @@ class TestSessionActivity:
         runner._record_session_activity(pt, {"session": "2026-09-23", "notes": [], "stops": []},
                                         {"equity": 1.0, "open_positions": 0},
                                         self._Plan(notes=[]), 0, {})      # must not raise
+
+
+class TestSessionBackfill:
+    """Reconstructed sessions must be additive, repeatable and faithful."""
+
+    class _Cloud:
+        def __init__(self, existing=()):
+            self.existing, self.written = list(existing), []
+        def read_sessions(self, since_epoch=True):
+            return pd.DataFrame({"session_date": self.existing}) if self.existing else pd.DataFrame()
+        def sync_session(self, row): self.written.append(row); return True
+
+    def _run(self, monkeypatch, cloud, **kw):
+        import tools.backfill_sessions as bf
+        monkeypatch.setattr("database.paper_cloud.get_paper_cloud", lambda: cloud)
+        return bf.backfill(**kw)
+
+    def test_a_dry_run_writes_nothing(self, monkeypatch):
+        cloud = self._Cloud()
+        result = self._run(monkeypatch, cloud, dry_run=True)
+        assert result["written"] and cloud.written == []
+
+    def test_running_twice_changes_nothing_the_second_time(self, monkeypatch):
+        cloud = self._Cloud()
+        first = self._run(monkeypatch, cloud)
+        cloud2 = self._Cloud(existing=first["written"])
+        second = self._run(monkeypatch, cloud2)
+        assert second["written"] == [] and cloud2.written == []
+
+    def test_it_never_rewrites_a_genuinely_recorded_session(self):
+        """23 Sep was recorded by the engine itself and must not be reconstructed."""
+        import tools.backfill_sessions as bf
+        assert all(s["session_date"] != "2026-09-23" for s in bf.SESSIONS)
+
+    def test_the_rows_match_what_the_book_shows(self, monkeypatch):
+        """17 Sep is the day the portfolio was bought: 21 fills, 21 positions."""
+        import tools.backfill_sessions as bf
+        row = next(s for s in bf.SESSIONS if s["session_date"] == "2026-09-17")
+        assert row["filled"] == 21 and row["open_positions"] == 21 and row["rebalance_day"] is True
+        for s in bf.SESSIONS:
+            assert s["notes"].startswith("backfilled"), "a reconstructed row must say so"
+            if s["session_date"] in {"2026-09-18", "2026-09-21", "2026-09-22"}:
+                assert s["filled"] == 0 and s["queued"] == 0 and s["rebalance_day"] is False

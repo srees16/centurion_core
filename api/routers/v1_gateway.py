@@ -1079,6 +1079,26 @@ async def screener_daily_snapshots():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/screener/monitor/sessions")
+async def screener_sessions():
+    """What each session decided, for the current book.
+
+    The trade monitor uses this to mark the days the portfolio actually
+    changed: a rebalance decides orders at the close, and they fill at the
+    next session's open, so the two are different days.
+    """
+    try:
+        cloud = _cloud_or_none()
+        if cloud:
+            df = cloud.read_sessions()
+            if not df.empty:
+                rows = _sanitize_floats(df.to_dict(orient="records"))
+                return {"sessions": rows, "count": len(rows)}
+        return {"sessions": [], "count": 0}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/screener/monitor/signal-log")
 async def screener_signal_log():
     """Get signal audit log for backtest-vs-live comparison."""
