@@ -1,33 +1,27 @@
+# The web application and research stack.
+#
+# The engine, paper trading, tests and the heartbeat need only the pinned
+# core, which is listed once in requirements-core.txt and included here.
+-r requirements-core.txt
+
 aiohttp
 anthropic
 openai
-beautifulsoup4
 fake-useragent
-lxml
-requests
-pandas
-numpy
 openpyxl
-yfinance
 transformers
 torch
 plyer
-python-dateutil
 streamlit
 plotly
 scikit-learn
 matplotlib
 statsmodels
 selenium
-sqlalchemy
-psycopg2-binary
-python-dotenv
 pyyaml
 bcrypt
 minio
 redis
-scipy
-pyarrow
 seaborn
 hmmlearn>=0.3.0
 Backtesting

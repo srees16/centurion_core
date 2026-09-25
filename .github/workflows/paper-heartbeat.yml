@@ -36,6 +36,6 @@ jobs:
           cache: pip
       # Minimal set for tools.paper_heartbeat and the notification manager;
       # verified by importing both in a clean environment.
-      - run: pip install --quiet -r requirements-test.txt psycopg2-binary
+      - run: pip install --quiet -r requirements-core.txt
       - name: Check when the book last traded
         run: python -m tools.paper_heartbeat
