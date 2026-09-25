@@ -68,7 +68,11 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
+          if [ "${{ vars.CENTURION_NSE_ENGINE }}" = "true" ]; then
+            pip install -r requirements-core.txt       # Saturday checkpoint, engine path
+          else
+            pip install -r requirements.txt            # legacy pipeline needs the full set
+          fi
 
       - name: Run paper trading pipeline
         env:
@@ -170,7 +174,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt pyarrow
+          pip install -r requirements-core.txt
 
       - name: Restore NSE archive and store cache
         id: nse-cache

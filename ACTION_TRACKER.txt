@@ -50,11 +50,11 @@ OWNER     YOU = your action or decision    CLAUDE = code/research via prompt
 [!] P1  U11  Stop deleting Actions runs: the 17 Sep 20:41 IST session run (21
              fills) and a 20:16 run were deleted. Logs = the paper audit trail.
 [!] P1  U12  Resolve the "Kite session not active" issue in Sentry (fix is live).
-[!] P1  U16  Backfill? Sessions 18, 21 and 22 Sep keep the amber "no session
-             recorded" card: activity recording only started with tonight's
-             merge, and 23 Sep was re-run to capture it. The facts are in the
-             Actions logs (all three were hold days, 21 positions, no fills).
-             Say "backfill sessions" and I will write them from those logs.
+[!] P1  U17  Local research runs pandas 3.0.2 / numpy 2.4.4; the paper book
+             runs 3.0.6 / 2.4.6 (now pinned). Results are version-sensitive, so
+             some paper-vs-backtest tracking error is environment, not
+             strategy. Decide: align local to the pinned set, or accept and
+             note it when G4 reads tracking error.
 [!] P2  U5   Decide the MaxDD you accept with leverage. MaxDD <= 30% caps levered
              CAGR near 30%; CAGR 35% means MaxDD ~35-40%. Blocks L2.
 [!] P2  U6   Confirm live capital will really be >= Rs 30L. Capital alone lowers
@@ -139,6 +139,19 @@ OWNER     YOU = your action or decision    CLAUDE = code/research via prompt
 --------------------------------------------------------------------------------
  6. DONE [x] — most recent first
 --------------------------------------------------------------------------------
+[x] 25 Sep  B5   Dependency risk fixed after it stopped the book. SQLAlchemy
+                 2.1 changed which driver a bare postgresql:// URL resolves to
+                 (psycopg v3, not installed), so every run died before reaching
+                 Neon; the runner now names psycopg2 in the URL as
+                 database/connection.py always did. The daily job also stopped
+                 installing all 56 app packages: new pinned requirements-paper.txt
+                 one pinned requirements-core.txt (33 packages, the versions
+                 the book already trades on) that requirements.txt includes, so
+                 nothing is listed twice; Saturday job switched
+                 too, and a failure now emails you with a link to the run.
+                 Verified in a clean environment: engine backtest runs, paper
+                 runner imports, 94 tests pass. COST: the 24 Sep rebalance
+                 queued 2 orders that could not fill on 25 Sep.
 [x] 23 Sep  G14  Daily Detail now always shows Trades Opened / Closed /
                  Executions with counts and a plain empty state, the date
                  buttons are shaded by what happened (green = holdings changed,

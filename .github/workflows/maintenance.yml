@@ -41,7 +41,7 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - run: pip install --quiet -r requirements-test.txt psycopg2-binary
+      - run: pip install --quiet -r requirements-core.txt
       - name: Backfill session records
         if: inputs.task == 'backfill-sessions'
         run: |
