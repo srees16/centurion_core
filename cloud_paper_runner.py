@@ -37,22 +37,37 @@ logger = logging.getLogger("cloud_paper_runner")
 
 # ── Neon state helpers ────────────────────────────────────────────────────
 
-def _get_neon_engine():
-    """Create a SQLAlchemy engine for Neon."""
+def _neon_url(raw: str) -> str:
+    """Normalise a Neon URL for psycopg2.
+
+    The driver must be named explicitly. SQLAlchemy used to resolve a bare
+    ``postgresql://`` to psycopg2, but a release in Sep 2026 made it psycopg
+    (v3), which this project does not install - every paper run then died with
+    "No module named 'psycopg'" before it could reach the book.
+    ``database/connection.py`` has always pinned the driver; this mirrors it.
+    """
     import re
-    from sqlalchemy import create_engine
 
-    url = os.environ.get("CENTURION_DATABASE_URL", "")
-    if not url:
-        raise RuntimeError("CENTURION_DATABASE_URL not set")
-
-    # Strip channel_binding (psycopg2 doesn't support it)
+    url = raw
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+psycopg2://", 1)
+    elif url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
+    # channel_binding is a libpq option psycopg2 does not accept
     url = re.sub(r"[&?]channel_binding=[^&]*", "", url)
     if "sslmode" not in url:
-        sep = "&" if "?" in url else "?"
-        url += f"{sep}sslmode=require"
+        url += ("&" if "?" in url else "?") + "sslmode=require"
+    return url
 
-    return create_engine(url, pool_pre_ping=True, pool_size=2)
+
+def _get_neon_engine():
+    """Create a SQLAlchemy engine for Neon."""
+    from sqlalchemy import create_engine
+
+    raw = os.environ.get("CENTURION_DATABASE_URL", "")
+    if not raw:
+        raise RuntimeError("CENTURION_DATABASE_URL not set")
+    return create_engine(_neon_url(raw), pool_pre_ping=True, pool_size=2)
 
 
 def _check_active() -> bool:
