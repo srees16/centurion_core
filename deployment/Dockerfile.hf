@@ -24,7 +24,9 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
-COPY requirements.txt .
+# Both: requirements.txt starts with `-r requirements-core.txt`, so the
+# include must be in the build context or pip cannot open it.
+COPY requirements.txt requirements-core.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
