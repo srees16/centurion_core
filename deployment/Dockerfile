@@ -19,7 +19,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
-COPY requirements.txt .
+# requirements.txt includes requirements-core.txt, so copy both.
+COPY requirements.txt requirements-core.txt ./
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt

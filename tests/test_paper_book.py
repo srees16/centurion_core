@@ -357,3 +357,27 @@ class TestNeonUrl:
     def test_an_explicit_driver_is_left_alone(self):
         from cloud_paper_runner import _neon_url
         assert _neon_url("postgresql+psycopg://u:p@h/d").startswith("postgresql+psycopg://")
+
+
+class TestDeploymentContext:
+    """The container build must be able to open every requirements file.
+
+    25 Sep 2026: requirements.txt began with `-r requirements-core.txt`, the
+    Dockerfiles copied only requirements.txt, and the Space died with
+    "Could not open requirements file" - the site returned a plain-text 503
+    that the login page could not parse as JSON.
+    """
+
+    def test_every_dockerfile_copies_the_included_file(self):
+        from pathlib import Path
+        root = Path(__file__).resolve().parent.parent
+        included = [l.split("-r ", 1)[1].strip()
+                    for l in (root / "requirements.txt").read_text().splitlines()
+                    if l.strip().startswith("-r ")]
+        assert included, "requirements.txt no longer includes another file; update this test"
+        for docker in root.glob("deployment/Dockerfile*"):
+            text = docker.read_text()
+            if "requirements.txt" not in text:
+                continue
+            for name in included:
+                assert name in text, f"{docker.name} installs requirements.txt but never copies {name}"
