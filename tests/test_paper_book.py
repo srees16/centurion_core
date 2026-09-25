@@ -330,3 +330,30 @@ class TestSessionBackfill:
             assert s["notes"].startswith("backfilled"), "a reconstructed row must say so"
             if s["session_date"] in {"2026-09-18", "2026-09-21", "2026-09-22"}:
                 assert s["filled"] == 0 and s["queued"] == 0 and s["rebalance_day"] is False
+
+
+class TestNeonUrl:
+    """25 Sep 2026: every paper run died with "No module named 'psycopg'".
+
+    SQLAlchemy changed which driver a bare postgresql:// URL resolves to, and
+    this project installs psycopg2. The driver must be named in the URL.
+    """
+
+    @pytest.mark.parametrize("raw", [
+        "postgresql://u:p@host/db",
+        "postgres://u:p@host/db",
+        "postgresql://u:p@host/db?sslmode=require&channel_binding=require",
+    ])
+    def test_the_driver_is_always_named(self, raw):
+        from cloud_paper_runner import _neon_url
+        url = _neon_url(raw)
+        assert url.startswith("postgresql+psycopg2://"), url
+
+    def test_channel_binding_is_dropped_and_ssl_required(self):
+        from cloud_paper_runner import _neon_url
+        url = _neon_url("postgresql://u:p@host/db?channel_binding=require")
+        assert "channel_binding" not in url and "sslmode=require" in url
+
+    def test_an_explicit_driver_is_left_alone(self):
+        from cloud_paper_runner import _neon_url
+        assert _neon_url("postgresql+psycopg://u:p@h/d").startswith("postgresql+psycopg://")

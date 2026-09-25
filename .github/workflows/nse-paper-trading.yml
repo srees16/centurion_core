@@ -308,6 +308,15 @@ jobs:
           if [ "$NEW_BOOK" = "true" ]; then EXTRA="--new-book"; fi
           python cloud_paper_runner.py --engine $EXTRA
 
+      - name: Tell me when a session fails
+        if: failure()
+        env:
+          CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
+          CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
+          CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
+          CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+        run: python -m tools.session_failed "${{ github.run_id }}"
+
       - name: Save NSE archive and store cache
         if: always()
         uses: actions/cache/save@v4
