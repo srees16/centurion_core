@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 28 Sep 2026, 01:30 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 27 Sep 2026, 23:20 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -136,6 +136,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              17 Sep 21:58 IST (409, not 503).  Search with ALL environments
              (events are tagged "development").  Last seen before 17 Sep
              22:00 IST -> Resolve; later -> send Claude the event URL.
+             Also CENTURION-CORE-3Z (Vince chapter 3, fixed in B6): merge
+             B6 to main (the Space redeploys), run chapter 3 once, Resolve.
 
 --------------------------------------------------------------------------------
  5. IN PROGRESS [~]
@@ -221,7 +223,16 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
-28 Sep  D1   Second paper book built.  config/nse_engine_candidate.json
+27 Sep  B6   Sentry CENTURION-CORE-3Z fixed: Vince chapter 3 (Monte Carlo)
+             failed on every run.  It called monte_carlo_simulation with
+             arguments the library never had (trade_returns=, f=, seed=)
+             and printed percent fields x100.  The library gains optional
+             f (Vince's 1 + f*r/|worst loss|, the mapping optimal f and
+             the chapter's charts use) and seed; without f the output is
+             identical to before.  Chapters 1-3 run clean through the API
+             runner (ch03 ~52 s locally, pure-Python chart loops).  Suite
+             101 (no test imports the module).
+27 Sep  D1   Second paper book built.  config/nse_engine_candidate.json
              (new status "candidate": paper only, live refused) holds
              2d64ba4c with the deployed drawdown rule.  The daily job runs
              it after the deployed session in Neon schema "candidate"
@@ -234,7 +245,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              deployed book and switch row untouched.  Regime is neutral on
              74% of 2026 (all of the last 20 sessions), so the books differ
              from day one.  Suite 101 in both environments.
-28 Sep  U21  Your decision: approve U21 - the K5 walk-forward candidate
+27 Sep  U21  Your decision: approve U21 - the K5 walk-forward candidate
              2d64ba4c (B1 + neutral 0.6) paper-trades in a second slot
              beside the deployed book for 60 sessions under the forward
              gate (D1 builds it).

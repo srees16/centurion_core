@@ -70,7 +70,7 @@ if __name__ == "__main__":
         mc_results = {}
         for label, f_val in f_levels.items():
             mc = monte_carlo_simulation(
-                trade_returns=daily_ret,
+                daily_ret,
                 f=f_val,
                 n_simulations=5000,
                 horizon_days=252 * 3,  # 3-year horizon
@@ -78,13 +78,14 @@ if __name__ == "__main__":
             )
             mc_results[label] = mc
 
+            # profit_probability is a fraction; the other fields are already in percent
             print(f"\n  [{label}] f={f_val:.3f}")
             print(f"    P(profit) @ 3yr:   {mc.profit_probability*100:.1f}%")
-            print(f"    Median return:     {mc.median_return*100:.1f}%")
-            print(f"    5th percentile:    {mc.percentile_5*100:.1f}%")
-            print(f"    95th percentile:   {mc.percentile_95*100:.1f}%")
-            print(f"    Median max DD:     {mc.median_max_dd*100:.1f}%")
-            print(f"    Expected CAGR:     {mc.expected_cagr*100:.1f}%")
+            print(f"    Median return:     {mc.median_return:.1f}%")
+            print(f"    5th percentile:    {mc.percentile_5:.1f}%")
+            print(f"    95th percentile:   {mc.percentile_95:.1f}%")
+            print(f"    Median max DD:     {mc.median_max_dd:.1f}%")
+            print(f"    Expected CAGR:     {mc.expected_cagr:.1f}%")
 
         # Plot: MC equity paths for safe_f
         fig, axes = plt.subplots(2, 2, figsize=(14, 10))
