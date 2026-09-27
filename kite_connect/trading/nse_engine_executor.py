@@ -161,6 +161,84 @@ def load_shift_multiplier(as_of, sessions=None, path=None,
     return mult, f"verdict={verdict} updated {upd.date()} ({age} sessions ago){extra}"
 
 
+def kite_book(kite) -> Tuple[Dict[str, object], float]:
+    """The broker's view of the book: CNC holdings with their stop GTT triggers, and cash."""
+    from kite_connect.trading.gtt_stops import get_held_quantities, list_stop_gtts
+
+    qty = get_held_quantities(kite)
+    avg = {h.get("tradingsymbol"): float(h.get("average_price") or 0.0)
+           for h in (kite.holdings() or [])}
+    try:
+        stops = {g["symbol"]: g["trigger"] for g in list_stop_gtts(kite)}
+    except Exception as exc:
+        logger.warning("EngineExecutor: GTT stop lookup failed (%s) — holdings without stop prices", exc)
+        stops = {}
+    margins = kite.margins("equity") or {}
+    cash = float((margins.get("available") or {}).get("live_balance",
+                 (margins.get("available") or {}).get("cash", 0.0)) or 0.0)
+    return {s: {"quantity": q, "avg_price": avg.get(s, 0.0), "stop_price": stops.get(s)}
+            for s, q in qty.items()}, cash
+
+
+def live_order_outcomes(kite, as_of) -> List[dict]:
+    """What became of the engine's orders for the session decided on ``as_of``.
+
+    Reads the broker order book for tags ``NE<yymmdd>...`` and classifies each
+    order: complete, partial (filled < quantity), rejected, cancelled, open.
+    This is the live counterpart of the paper book's fill records: without
+    it a rejected or half-filled order would go unnoticed until the next
+    reconciliation.
+    """
+    prefix = f"NE{pd.Timestamp(as_of):%y%m%d}"
+    out: List[dict] = []
+    try:
+        orders = kite.orders() or []
+    except Exception as exc:                          # noqa: BLE001 - report, do not raise
+        return [{"tag": prefix, "status": "unknown", "error": f"order book unavailable: {exc}"}]
+    for o in orders:
+        tag = str(o.get("tag") or "")
+        if not tag.startswith(prefix):
+            continue
+        qty = int(o.get("quantity") or 0)
+        filled = int(o.get("filled_quantity") or 0)
+        status = str(o.get("status") or "").upper()
+        if status == "COMPLETE" or (filled >= qty and qty > 0):
+            kind = "complete"
+        elif status in ("REJECTED",):
+            kind = "rejected"
+        elif status in ("CANCELLED",):
+            kind = "partial" if filled > 0 else "cancelled"
+        elif filled > 0:
+            kind = "partial"
+        else:
+            kind = "open"
+        out.append({"tag": tag, "order_id": o.get("order_id"), "symbol": o.get("tradingsymbol"),
+                    "side": o.get("transaction_type"), "quantity": qty, "filled": filled,
+                    "average_price": float(o.get("average_price") or 0.0), "status": status,
+                    "outcome": kind, "variety": o.get("variety"),
+                    "error": o.get("status_message") or None})
+    return out
+
+
+def cloud_equity_history(cloud=None) -> pd.Series:
+    """Dated equity of the current book from its Neon daily snapshots (live default).
+
+    The live runner snapshots the live book into the same table under its own
+    epoch, so the drawdown rule reads the same record as the monitor.
+    """
+    if cloud is None:
+        from database.paper_cloud import get_paper_cloud
+        cloud = get_paper_cloud()
+    if cloud is None:
+        return pd.Series(dtype="float64", index=pd.DatetimeIndex([]))
+    df = cloud.read_snapshots()
+    if df is None or len(df) == 0 or "equity" not in df.columns:
+        return pd.Series(dtype="float64", index=pd.DatetimeIndex([]))
+    s = pd.Series(df["equity"].astype("float64").to_numpy(),
+                  index=pd.DatetimeIndex(pd.to_datetime(df["date"].astype(str).str[:10])))
+    return s[~s.index.duplicated(keep="last")].sort_index()
+
+
 def _tick(price: float, mode: str) -> float:
     n = price / TICK
     n = math.floor(n + 1e-9) if mode == "down" else math.ceil(n - 1e-9)
@@ -279,8 +357,10 @@ class EngineExecutor:
                  stopped_out_fn: Optional[Callable] = None, apply_buffer: bool = False,
                  deployment=None, deployment_path: Optional[str] = None,
                  shift_state_path: Optional[str] = None, paper_fill: str = PAPER_FILL_NEXT_OPEN,
-                 equity_history_fn: Optional[Callable] = None, drawdown_rule=None):
+                 equity_history_fn: Optional[Callable] = None, drawdown_rule=None,
+                 dry_run: bool = False):
         self.kite = kite
+        self.dry_run = bool(dry_run)      # live mode: build every order, send none
         self.config = config
         self._deployment = deployment
         self._deployment_path = deployment_path
@@ -366,20 +446,7 @@ class EngineExecutor:
         if self.paper:
             pt = self._pt()
             return pt.holdings(), float(pt.cash)
-        from kite_connect.trading.gtt_stops import get_held_quantities, list_stop_gtts
-        qty = get_held_quantities(self.kite)
-        avg = {h.get("tradingsymbol"): float(h.get("average_price") or 0.0)
-               for h in (self.kite.holdings() or [])}
-        try:
-            stops = {g["symbol"]: g["trigger"] for g in list_stop_gtts(self.kite)}
-        except Exception as exc:
-            logger.warning("EngineExecutor: GTT stop lookup failed (%s) — holdings without stop prices", exc)
-            stops = {}
-        margins = self.kite.margins("equity") or {}
-        cash = float((margins.get("available") or {}).get("live_balance",
-                     (margins.get("available") or {}).get("cash", 0.0)) or 0.0)
-        return {s: {"quantity": q, "avg_price": avg.get(s, 0.0), "stop_price": stops.get(s)}
-                for s, q in qty.items()}, cash
+        return kite_book(self.kite)
 
     def _stopped_out(self, as_of: pd.Timestamp) -> Dict[str, pd.Timestamp]:
         if self._stopped_out_fn is not None:
@@ -430,6 +497,8 @@ class EngineExecutor:
         if fn is None and self.paper:
             pt = self._pt()
             fn = getattr(pt, "equity_history", None)
+        if fn is None and not self.paper:
+            fn = cloud_equity_history           # the live book's own daily snapshots in Neon
         if fn is None:
             return empty
         try:
@@ -661,7 +730,7 @@ class EngineExecutor:
         if not self.paper and paper:
             logger.warning("EngineExecutor.execute: forcing PAPER — %s", reason if not allowed else "no Kite session")
         if not paper:
-            return self._execute_live(plan)
+            return self.dry_run_live(plan) if self.dry_run else self._execute_live(plan)
         if self.paper_fill == PAPER_FILL_IMMEDIATE:
             return self._execute_paper_immediate(plan)
         return self._execute_paper_pending(plan)
@@ -821,24 +890,76 @@ class EngineExecutor:
         report["results"] = self.execute(plan)
         return report
 
+    @staticmethod
+    def order_tag(as_of, side: str, symbol: str) -> str:
+        """Kite tag (max 20 chars) that makes a day's order idempotent: NE<yymmdd><B|S><symbol>."""
+        return f"NE{pd.Timestamp(as_of):%y%m%d}{side[0]}{symbol}"[:20]
+
+    def live_orders(self, plan: ExecutionPlan, variety: Optional[str] = None) -> List[dict]:
+        """The exact broker orders a live session would send for ``plan``, as data.
+
+        Sells first, LIMIT + CNC, the plan's limit prices, one idempotent tag
+        per order, ``variety`` = ``amo`` when the market is closed (the engine
+        decides after the close and wants the next open) else ``regular``.
+        Both the real path and the dry run are built from this list.
+        """
+        from kite_connect.trading.order_service import order_variety_now
+
+        variety = variety or order_variety_now()
+        return [{"symbol": o.symbol, "exchange": "NSE", "transaction_type": o.side,
+                 "quantity": int(o.quantity), "order_type": "LIMIT", "product": "CNC",
+                 "price": float(o.limit_price), "variety": variety, "validity": "DAY",
+                 "tag": self.order_tag(plan.as_of, o.side, o.symbol), "is_exit": o.side == "SELL",
+                 "reason": o.reason, "ref_price": float(o.ref_price),
+                 "current_qty": int(o.current_qty), "target_qty": int(o.target_qty)}
+                for o in plan.sells + plan.buys]
+
+    def dry_run_live(self, plan: ExecutionPlan) -> List[dict]:
+        """What ``_execute_live`` would do, without touching the broker.
+
+        Usable from paper mode too (the paper book stands in for the live
+        one), so the live path can be rehearsed every day before any capital.
+        """
+        from kite_connect.trading.order_service import is_kill_switch_active
+
+        kill = is_kill_switch_active()
+        results: List[dict] = []
+        for spec in self.live_orders(plan):
+            blocked = kill and not spec["is_exit"]
+            results.append({"mode": "live-dry-run", "status": "WOULD_REJECT" if blocked else "WOULD_PLACE",
+                            "success": not blocked, "symbol": spec["symbol"], "side": spec["transaction_type"],
+                            "quantity": spec["quantity"], "limit_price": spec["price"], "variety": spec["variety"],
+                            "tag": spec["tag"], "reason": spec["reason"],
+                            **({"error": "KILL SWITCH active: BUYs are refused"} if blocked else {})})
+        results.append({"mode": "live-dry-run", "type": "gtt_reconcile", "success": True,
+                        "stops": [{"symbol": s.symbol, "quantity": s.quantity, "trigger": s.trigger}
+                                  for s in plan.stop_instructions]})
+        logger.info("EngineExecutor DRY RUN %s: %d order(s) would be sent (%s), %d stop(s) reconciled",
+                    plan.as_of.date(), len(results) - 1,
+                    results[0]["variety"] if len(results) > 1 else "-", len(plan.stop_instructions))
+        return results
+
     def _execute_live(self, plan: ExecutionPlan) -> List[dict]:
-        from kite_connect.trading.order_service import place_order, get_order_book
+        from kite_connect.trading.order_service import get_order_book, place_order
         from kite_connect.trading import gtt_stops
 
         results: List[dict] = []
         existing_tags = {o.get("tag") for o in (get_order_book(self.kite) or [])
                          if o.get("status") not in ("REJECTED", "CANCELLED")}
-        for o in plan.orders:
-            tag = f"NE{plan.as_of:%y%m%d}{o.side[0]}{o.symbol}"[:20]
-            if tag in existing_tags:
-                results.append({"mode": "live", "symbol": o.symbol, "side": o.side, "success": False,
-                                "error": "duplicate (already placed today)", "tag": tag})
+        for spec in self.live_orders(plan):
+            base = {"mode": "live", "symbol": spec["symbol"], "side": spec["transaction_type"],
+                    "quantity": spec["quantity"], "limit_price": spec["price"], "variety": spec["variety"],
+                    "tag": spec["tag"], "reason": spec["reason"]}
+            if spec["tag"] in existing_tags:
+                results.append({**base, "status": "DUPLICATE", "success": False,
+                                "error": "duplicate (already placed today)"})
                 continue
-            res = place_order(self.kite, symbol=o.symbol, exchange="NSE", transaction_type=o.side,
-                              quantity=o.quantity, order_type="LIMIT", product="CNC",
-                              price=o.limit_price, tag=tag, is_exit=(o.side == "SELL"))
-            results.append({"mode": "live", "symbol": o.symbol, "side": o.side, "quantity": o.quantity,
-                            "limit_price": o.limit_price, "reason": o.reason, "tag": tag, **res})
+            res = place_order(self.kite, symbol=spec["symbol"], exchange=spec["exchange"],
+                              transaction_type=spec["transaction_type"], quantity=spec["quantity"],
+                              order_type=spec["order_type"], product=spec["product"], price=spec["price"],
+                              validity=spec["validity"], tag=spec["tag"], is_exit=spec["is_exit"],
+                              variety=spec["variety"])
+            results.append({**base, "status": "PLACED" if res.get("success") else "REJECTED", **res})
         # GTT stops at the quantity actually held now; the reconciliation job
         # re-syncs quantities after pending orders fill.
         stops = {s.symbol: s.trigger for s in plan.stop_instructions}

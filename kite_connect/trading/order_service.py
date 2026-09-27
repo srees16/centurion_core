@@ -97,9 +97,19 @@ def _kill_switch_allows(kite, symbol, exchange, transaction_type, quantity, prod
     return True, ""
 
 
+AMO_VARIETY = "amo"          # after-market order: accepted while the market is closed, sent at the next open
+REGULAR_VARIETY = "regular"
+
+
+def order_variety_now() -> str:
+    """``regular`` during NSE hours, ``amo`` otherwise (the engine decides after the close)."""
+    return REGULAR_VARIETY if _is_nse_market_open() else AMO_VARIETY
+
+
 def place_order(kite, symbol, exchange, transaction_type, quantity,
                 order_type="MARKET", product="CNC", price=None,
-                trigger_price=None, validity="DAY", tag=None, is_exit=False):
+                trigger_price=None, validity="DAY", tag=None, is_exit=False,
+                variety=REGULAR_VARIETY):
     """
     Place an order on Zerodha via Kite Connect.
 
@@ -129,6 +139,11 @@ def place_order(kite, symbol, exchange, transaction_type, quantity,
         Marks a reduce-only exit (stop, rank exit, liquidation).  While the
         kill switch is active only ``SELL`` orders with ``is_exit=True`` are
         accepted; BUYs are always rejected.
+    variety : str
+        ``"regular"`` (market hours only) or ``"amo"``: an after-market order,
+        accepted while the market is closed and released at the next open -
+        what the engine's end-of-day session needs.  The market-hours guard
+        applies to regular orders only.
 
     Returns
     -------
@@ -155,12 +170,17 @@ def place_order(kite, symbol, exchange, transaction_type, quantity,
             return {"success": False, "error": "Circuit breaker OPEN: Kite API consecutive failures detected. Halting orders for safety."}
 
     # ── Gap E fix: market hours guard ──
-    # Block orders outside NSE hours (9:15 AM – 3:30 PM IST, weekdays).
-    # SL and SL-M orders placed by TradeMonitor are exempt (trigger-based).
-    if order_type not in ("SL", "SL-M"):
+    # Block regular orders outside NSE hours (9:15 AM – 3:30 PM IST, weekdays).
+    # SL and SL-M orders placed by TradeMonitor are exempt (trigger-based), and
+    # so are after-market orders, which exist for exactly this window.
+    variety = str(variety or REGULAR_VARIETY).lower()
+    if variety not in (REGULAR_VARIETY, AMO_VARIETY):
+        return {"success": False, "error": f"unsupported order variety {variety!r}"}
+    if order_type not in ("SL", "SL-M") and variety != AMO_VARIETY:
         if not _is_nse_market_open():
             logger.warning("Order blocked for %s — NSE market is closed", symbol)
-            return {"success": False, "error": "NSE market closed (9:15 AM – 3:30 PM IST, Mon-Fri)"}
+            return {"success": False, "error": "NSE market closed (9:15 AM – 3:30 PM IST, Mon-Fri); "
+                                               "use variety='amo' after hours"}
 
     # Generate idempotency tag from order parameters (caller tag takes precedence)
     if tag:
@@ -192,7 +212,7 @@ def place_order(kite, symbol, exchange, transaction_type, quantity,
                 order_type=order_type,
                 product=product,
                 validity=validity,
-                variety="regular",
+                variety=variety,
                 tag=idempotency_tag,
             )
             if order_type in ("LIMIT", "SL") and price is not None:
@@ -201,7 +221,7 @@ def place_order(kite, symbol, exchange, transaction_type, quantity,
                 params["trigger_price"] = float(trigger_price)
 
             order_id = kite.place_order(**params)
-            result = {"success": True, "order_id": order_id}
+            result = {"success": True, "order_id": order_id, "variety": variety}
 
             # For MARKET orders, try to get fill price from order history
             fill_price = price
