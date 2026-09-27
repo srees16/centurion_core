@@ -41,6 +41,8 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 _IST = timezone(timedelta(hours=5, minutes=30))
+SHIFT_MIN_LIVE_DAYS = 30                       # live daily returns before the drift check runs
+SHIFT_STATE_FILENAME = "distribution_shift_state.json"
 _DB_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "paper_trades.sqlite3"
 
 # Fallback statutory cost model (used only if nse_engine.costs is unavailable):
@@ -484,9 +486,33 @@ class PaperTrader:
         finally:
             conn.close()
         self._restore_engine_state_from_cloud(cloud)
+        self._restore_shift_state(state.get("shift_state"))
         logger.info("Paper state restored from cloud: cash=%.2f, %d open positions, %d snapshots, "
                     "%d weekly checkpoints", self.cash, len(self._positions),
                     len(state.get("snapshots", [])), len(state.get("weekly", [])))
+        return True
+
+    @staticmethod
+    def _restore_shift_state(raw) -> bool:
+        """Write the distribution-shift state kept in Neon to the local file the
+        executor reads before planning, so yesterday's verdict sizes today's
+        orders.  Returns True when a valid state was restored."""
+        if not raw:
+            return False
+        try:
+            state = json.loads(raw) if isinstance(raw, str) else dict(raw)
+            float(state["position_size_multiplier"])
+            str(state["updated_at"])
+        except Exception as exc:
+            logger.warning("Ignoring the distribution shift state in the cloud: %s", exc)
+            return False
+        try:
+            (_DB_PATH.parent / SHIFT_STATE_FILENAME).write_text(json.dumps(state, default=str))
+        except OSError as exc:
+            logger.warning("Could not write the restored distribution shift state: %s", exc)
+            return False
+        logger.info("Distribution shift state restored from cloud: verdict=%s multiplier=%s updated %s",
+                    state.get("verdict"), state.get("position_size_multiplier"), state.get("updated_at"))
         return True
 
     def _save_cash(self):
@@ -1719,7 +1745,7 @@ class PaperTrader:
         equity = equity[~equity.index.duplicated(keep="last")]
         return equity.pct_change().dropna()
 
-    def _run_distribution_shift(self, conn=None, min_live_days: int = 30) -> Optional[dict]:
+    def _run_distribution_shift(self, conn=None, min_live_days: int = SHIFT_MIN_LIVE_DAYS) -> Optional[dict]:
         """Compare live daily returns with the backtest once ``min_live_days`` exist.
 
         The backtest reference is chosen by
@@ -1792,57 +1818,61 @@ class PaperTrader:
         try:
             (_DB_PATH.parent / "distribution_shift_latest.json").write_text(
                 json.dumps({**result, "updated_at": now}, default=str, indent=2))
-            if multiplier is not None:
-                (_DB_PATH.parent / "distribution_shift_state.json").write_text(json.dumps({
-                    "verdict": verdict,
-                    "threshold_verdict": result.get("verdict"),
-                    "calibrated_verdict": result.get("calibrated_verdict"),
-                    "wasserstein": result.get("wasserstein"),
-                    "kl_divergence": result.get("kl_divergence"),
-                    "position_size_multiplier": multiplier,
-                    "reference_mode": result.get("reference_mode"),
-                    "drift_onset": onset or None,
-                    "n_live_days": result.get("n_live"),
-                    "tracking_error_annual": result.get("tracking_error_annual"),
-                    "mean_daily_gap": result.get("mean_daily_gap"),
-                    "reality_gap_alerts": gap_alerts,
-                    "updated_at": now,
-                }, default=str))
         except OSError as exc:
-            logger.warning("Could not persist distribution shift state: %s", exc)
+            logger.warning("Could not write the distribution shift report: %s", exc)
+        if multiplier is not None:
+            state = {
+                "verdict": verdict,
+                "threshold_verdict": result.get("verdict"),
+                "calibrated_verdict": result.get("calibrated_verdict"),
+                "wasserstein": result.get("wasserstein"),
+                "kl_divergence": result.get("kl_divergence"),
+                "position_size_multiplier": multiplier,
+                "reference_mode": result.get("reference_mode"),
+                "drift_onset": onset or None,
+                "n_live_days": result.get("n_live"),
+                "tracking_error_annual": result.get("tracking_error_annual"),
+                "mean_daily_gap": result.get("mean_daily_gap"),
+                "reality_gap_alerts": gap_alerts,
+                "updated_at": now,
+            }
+            try:
+                (_DB_PATH.parent / SHIFT_STATE_FILENAME).write_text(json.dumps(state, default=str))
+            except OSError as exc:
+                logger.warning("Could not persist distribution shift state: %s", exc)
+            # The runner's disk is thrown away after each GitHub Actions run: keep the
+            # state in Neon, where the next session restores it before planning.
+            cloud = self._get_cloud()
+            if cloud and hasattr(cloud, "sync_state"):
+                from database.paper_cloud import SHIFT_STATE_KEY
+                if not cloud.sync_state({SHIFT_STATE_KEY: json.dumps(state, default=str)}):
+                    logger.warning("Distribution shift state NOT saved to the cloud: the next session "
+                                   "will size at 1.0")
 
-        if gap_alerts and verdict != "regime_break":
+        def alert(subject: str, body: str) -> None:
             try:
                 from services.notifications.manager import NotificationManager
-                NotificationManager().send_alert(
-                    subject="REALITY GAP — live paper returns trail the same-period backtest",
-                    body=(
-                        f"{'; '.join(gap_alerts)}\n"
-                        f"Aligned days: {result.get('n_live')}  reference: {result.get('reference_source')}\n"
-                        f"Position-size multiplier: {multiplier} (treated as drifting)."
-                    ),
-                )
-            except Exception as exc:
-                logger.debug("Reality-gap alert failed (non-fatal): %s", exc)
+                if not NotificationManager().send_alert(subject=subject, body=body):
+                    logger.warning("Alert NOT emailed (check the CENTURION_EMAIL_* secrets): %s", subject)
+            except Exception as exc:                      # noqa: BLE001 - never break the session
+                logger.warning("Alert failed: %s (%s)", subject, exc)
+
+        if gap_alerts and verdict != "regime_break":
+            alert("REALITY GAP — live paper returns trail the same-period backtest",
+                  f"{'; '.join(gap_alerts)}\n"
+                  f"Aligned days: {result.get('n_live')}  reference: {result.get('reference_source')}\n"
+                  f"Position-size multiplier: {multiplier} (treated as drifting).")
 
         if verdict == "regime_break":
             logger.warning("REGIME BREAK — live returns diverge from the backtest distribution")
-            try:
-                from services.notifications.manager import NotificationManager
-                NotificationManager().send_alert(
-                    subject="REGIME BREAK — Distribution Shift Detected",
-                    body=(
-                        f"Live paper returns diverge from the backtest ({result.get('reference_mode')}).\n"
-                        f"Wasserstein={result.get('wasserstein')}  KL={result.get('kl_divergence')}  "
-                        f"p=({result.get('p_value_wasserstein')}, {result.get('p_value_kl')})\n"
-                        f"Live days: {result.get('n_live')}"
-                        + (f"  Drift since: {onset.get('start_date')}" if onset else "")
-                        + (f"\nReality gap: {'; '.join(gap_alerts)}" if gap_alerts else "")
-                        + "\nReview the strategy before sizing up."
-                    ),
-                )
-            except Exception as exc:
-                logger.debug("Regime-break alert failed (non-fatal): %s", exc)
+            alert("REGIME BREAK — Distribution Shift Detected",
+                  f"Live paper returns diverge from the backtest ({result.get('reference_mode')}).\n"
+                  f"Wasserstein={result.get('wasserstein')}  KL={result.get('kl_divergence')}  "
+                  f"p=({result.get('p_value_wasserstein')}, {result.get('p_value_kl')})\n"
+                  f"Live days: {result.get('n_live')}"
+                  + (f"  Drift since: {onset.get('start_date')}" if onset else "")
+                  + (f"\nReality gap: {'; '.join(gap_alerts)}" if gap_alerts else "")
+                  + "\nReview the strategy before sizing up.")
         return result
 
     def log_signals(self, date_str: str, signals: list) -> None:

@@ -1,7 +1,7 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 27 Sep 2026, 20:20 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 27 Sep 2026, 21:40 IST
 ================================================================================
-HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
+HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do L4".
             Claude marks it [~], works, leaves changes uncommitted for your
             review, then logs it in section 8. Reorder with "make K4 #3".
 STATUS      [ ] pending   [~] in progress   [!] needs you   [x] done
@@ -35,10 +35,11 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 
  REALISTIC LIVE OUTCOME  (central, range)   Sharpe    CAGR     MaxDD    Calmar
    A  as deployed, gross 0.88               1.0     20 (17-23) 27 (25-30)  0.75
-   B  fully invested, gross 1.0  <- chosen  1.0     22 (19-25) 30 (28-33)  0.70
+   B  refill exits (E1: failed 25% rule)    1.05    22 (19-25) 28 (26-31)  0.78
    C  MTF margin 1.2x at ~14% funding       1.0     23 (20-26) 33 (30-36)  0.65
-   PBO stays 39-49% whatever is traded.  Scaling the B1 returns: gross 1.0 ->
-   25.1% / -28.2%;  1.2x -> 25.6% / -29.9%;  1.5x -> 29.9% / -37.1%.  A NIFTY
+   PBO stays 39-49% whatever is traded.  B measured (E1, 2013-25): 24.7% /
+   -25.5% / Sharpe 1.21.  Leverage on A: 1.2x -> 25.6% / -29.9%; 1.5x ->
+   29.9% / -37.1%.  A NIFTY
    futures overlay adds beta (0.40), not edge: 0.25x already gives MaxDD -31%.
    Rolling 3-year windows meet Sharpe 1.5 + CAGR 25% + MaxDD 30% in 26% of
    cases.  Context 2013-25: NIFTY 50 12.1% / Sharpe 0.40 / MaxDD -38%;
@@ -71,15 +72,18 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                (NIFTY -60%) untested: prices exist from 2006 (1,340 names in
                2008) but NIFTY 50 starts Feb 2012 and VIX May 2014, so the
                regime gate would run blind (neutral) -> K4, R4.
-  4 Cash drag  average gross 0.876 (p10 0.52): ~2 CAGR points idle at 6% (E1).
+  4 Cash drag  average gross 0.876: 44% of the cash is risk-off (the regime
+               gate, by design); the rest builds up between rebalances as
+               names exit.  Refilling exits (E1) recovers 1.9 CAGR points
+               and +0.07 Sharpe (p ~0.08) but misses the 25% rule.
   5 Costs      turnover 7.0x, drag 3.1%/yr; the edge survives x4 (R8), so R7
                is worth 1-1.5 points.  Real fills so far: 2 (-8 bp, +10 bp).
-  6 Live path  _execute_live now under test with a fake broker (L3): 21
-               tests, a daily dry run, and the market-hours guard that would
-               have refused every end-of-day order is fixed (after-market
-               orders).  Still missing: a live session driver that reads
-               order outcomes, snapshots the live book and then plans (L5).
-               Drift alerts silent (G2), per-position P&L blank (G10).
+  6 Live path  _execute_live was exercised against a fake broker (L3; the
+               tests were removed at your request) and the market-hours
+               guard that would have refused every end-of-day order is fixed
+               (after-market orders); dry-run mode lives in the executor.
+               Still missing: a live session driver (L5).  Drift alerts
+               fixed (G2); per-position P&L blank (G10).
   7 Sample     8 of 60-90 paper sessions; G4 needs ~30 (late Oct).  A 60-day
                Sharpe has SE ~2: paper proves behaviour, not the Sharpe.
   8 Measure    CAGR convention unified (B2 done: calendar years everywhere).
@@ -115,6 +119,14 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              GitHub/HF secret uses it.  kaggle.com/settings/api: revoke,
              "Generate New Token", save over the file, chmod 600.  Test:
              myenv/bin/kaggle kernels list --mine
+[!] P1  U20  E1 failed your condition for B (CAGR 24.68% < 25%), so the
+             second paper slot has no candidate.  Choose: (a) stop here;
+             or (b) treat refill_exits as a Sharpe hypothesis - a pre-
+             registered walk-forward (~35 min, ~300 trials) and, if it
+             holds, 60 paper sessions in D1 under the forward gate.  It
+             would not reach 25% CAGR either.  I lean (b): no free
+             parameters, better in every sub-period, and paper is the test
+             the forward gate was chosen for.
 [!] P1  U12  Close the Sentry issue "Kite session not active".  Fix live since
              17 Sep 21:58 IST (409, not 503).  Search with ALL environments
              (events are tagged "development").  Last seen before 17 Sep
@@ -137,52 +149,48 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
         One command: tracking error vs same-period backtest, mean daily gap,
         realised/model cost ratio, DD vs 1.5x backtest -> PASS/WATCH/FAIL.
         Reads "not enough data" until ~30 sessions (late Oct).
-#2  [ ] P2  G2   Drift alerts by email; shift state in Neon       Prompt: do G2
  PHASE 1   decide the exposure: one pre-registered trial each               Oct
-#3  [ ] P1  E1   Fully invested (gross ~1.0)                      Prompt: do E1
-        Allocator targets gross 1.0; no signal or weight change; 1 backtest +
-        1 walk-forward.  Expect 25.1% / -28.2% / Sharpe 1.14.  Pass: CAGR >=
-        25% AND MaxDD <= 30% AND Sharpe >= 1.09; WF OOS within 0.05 of 1.24.
-#4  [ ] P1  L4   Leverage due diligence (India)                   Prompt: do L4
+#2  [ ] P1  L4   Leverage due diligence (India)                   Prompt: do L4
         From SEBI/NSE/Zerodha: MTF eligibility vs the book's names, funding
         rate, pledge per order (automation blocker), square-off rules, Kite
         Connect MTF + GTT support, tax.  Done: GO/NO-GO note with sources.
-#5  [ ] P1  E3   MTF-levered variant           after L4 GO + E1  Prompt: do E3
+#3  [ ] P1  E3   MTF-levered variant                  after L4 GO  Prompt: do E3
         ~+0.7 CAGR pts and +2.5 MaxDD pts per 0.1x at 14.6% funding.  Pass
         (proposed): net CAGR >= 25%, MaxDD <= 35%, Sharpe within 0.05 of the
         unlevered winner; margin calls modelled through 2018-20.
-#6  [ ] P1  K4   NIFTY 50 history 2007-2011                       Prompt: do K4
+#4  [ ] P1  K4   NIFTY 50 history 2007-2011                       Prompt: do K4
         yfinance ^NSEI (from Sep 2007) or niftyindices.com; lets the regime
         gate see 2008.
-#7  [ ] P1  R4   Walk-forward 2007-2025, 2008 crash   after K4  Prompt: start R4
+#5  [ ] P1  R4   Walk-forward 2007-2025, 2008 crash   after K4  Prompt: start R4
         Pass: 2008 fold MaxDD <= 35%.  Required before MaxDD <= 30% is
         claimed for live money.
-#8  [ ] P1  D1   Second paper slot for E1         after E1 pass  Prompt: do D1
+#6  [ ] P1  D1   Second paper slot for E1         after E1 pass  Prompt: do D1
         Separate Neon book beside 679cbd0c; same report, same G4 gate.
+        No candidate yet: E1 failed your 25% condition (U20 decides).
  PHASE 2   costs                                                            Nov
-#9  [ ] P2  R7   Turnover 7x -> ~4x                               Prompt: do R7
+#7  [ ] P2  R7   Turnover 7x -> ~4x                               Prompt: do R7
         Expect +1-1.5 CAGR pts; each walk-forward pair adds ~600 trials.
-#10 [ ] P3  X1   Execution: limit-at-open / sliced fills after G4 Prompt: do X1
+#8  [ ] P3  X1   Execution: limit-at-open / sliced fills after G4 Prompt: do X1
         Needs >= 30 real fills first; worth <= +0.1 Sharpe.
  PHASE 3   paper -> live ladder                                       Nov -> Feb
-#11 [ ] P1  V3   Forward promotion gate (U19)                     Prompt: do V3
+#9  [ ] P1  V3   Forward promotion gate (U19)                     Prompt: do V3
         promote requires >= 60 paper sessions beside base, G4 PASS, WF OOS
         within 0.05; PBO/DSR printed with trial counts, not blocking; tests.
-#12 [ ] P1  L5   Live session driver                              Prompt: do L5
+#10 [ ] P1  L5   Live session driver                              Prompt: do L5
         run_live_session: read yesterday's order outcomes (live_order_outcomes)
         into paper_fills-style records, snapshot the live book to Neon under
         its own epoch (drawdown rule + monitor read it), then plan and
         execute; daily email as for paper.  Fake-Kite tests for each step.
         Done: one command runs a live session end to end against the fake.
-#13 [ ] P2  D3   Capital ladder Rs 6L / 12L / 21L / 30L as code   Prompt: do D3
+#11 [ ] P2  D3   Capital ladder Rs 6L / 12L / 21L / 30L as code   Prompt: do D3
         Monthly gates read G4 + the drawdown state -> GO / HOLD / STEP DOWN;
         kill criteria wired.  Go-live rule: G4 PASS at >= 60 sessions, R4
         done, L5 done and a week of matching dry runs, U2 rotated, L4 GO
         before any leverage.  Month 1 = Rs 6L.
-#14 [ ] P2  G10  Per-position P&L on the trade monitor            Prompt: do G10
+#12 [ ] P2  G10  Per-position P&L on the trade monitor            Prompt: do G10
  PHASE 4   research that might move Sharpe (each adds trials)          parallel
-#15 [ ] P3  R6   R21A rules as signal groups (+/-0.1)             Prompt: do R6
-#16 [ ] P3  R9   Universe size 150 / 300 / 500                    Prompt: do R9
+#13 [ ] P3  R6   R21A rules as signal groups (+/-0.1)             Prompt: do R6
+#14 [ ] P3  R9   Universe size 150 / 300 / 500                    Prompt: do R9
         Deploy a Phase-4 winner only on a pre-registered +0.15 OOS Sharpe,
         then >= 60 sessions in a paper slot.  Sharpe 1.5 needs a new return
         stream (short side, futures, options, intraday): data we do not have.
@@ -202,6 +210,41 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+27 Sep  G2   Drift alerts work.  Three faults: (1) the detector's alerts
+             called NotificationManager.send_alert, which did not exist, and
+             the error was logged at debug level - every reality-gap and
+             regime-break alert was dropped; (2) the shift state was a file
+             on the GitHub runner's disk, discarded after every run and
+             written after the plan anyway, so the size multiplier could
+             never apply; (3) nothing said the check waits for 30 daily
+             returns.  Now: send_alert emails (a missing secret logs a
+             warning); the state is saved in Neon and restored before the
+             next plan; the daily email has a Drift check line ("waiting: 8
+             of 30").  Verified with fakes: drifting -> email + x0.75 next
+             session after a fresh-runner restore; regime break -> email +
+             x0.5.  No test files added; suite 101 in the CI-style env.
+27 Sep  E1   Fully invested, pre-registered: FAIL.  Diagnosis first: 44% of
+             the baseline's cash is risk-off (kept); on normal days cash is
+             2.7% after a rebalance and 12% by the next, as ~2 names a week
+             exit.  Mechanism portfolio.refill_exits (hash-neutral, off by
+             default; config 942760af): fill freed slots between rebalances
+             at rebalance weights.  Result 2013-25: Sharpe 1.211 (1.140),
+             CAGR 24.68% (22.75%), MaxDD -25.46% (-24.69%), Calmar 0.969
+             (0.922), gross 0.907, turnover 7.4x, costs 3.30%/yr.  Fails
+             CAGR >= 25%; walk-forward not run, as registered.  Sharpe gain
+             +0.07, one-sided p 0.08 (Memmel and block bootstrap agree),
+             positive in every sub-period.  A1's 25.1% estimate withdrawn:
+             it also levered risk-off days.  Decision U20 added.
+27 Sep  CLEAN  Removed at your request the test files and scripts created
+             since the 18 Sep cleanup: tests/test_drawdown.py,
+             test_drawdown_live.py, test_registry_refresh.py,
+             test_live_path.py, tools/live_dry_run.py, and the one-off
+             tools/backfill_sessions.py with its maintenance workflow and
+             tests.  Kept: the original suite you accepted on 18 Sep, and
+             tools/paper_heartbeat.py and tools/session_failed.py, which the
+             daily workflows call.  Scratch files cleared.  Suite 100 tests,
+             passing in the CI-style core-only environment.  CI no longer
+             covers the drawdown rule, the registry refresh or the live path.
 27 Sep  L3   Live order path under test.  Fake-Kite harness: 21 tests over
              routing (env flags, placeholder deployment, no session), order
              building (sells first, LIMIT/CNC, 20-char idempotent tags),

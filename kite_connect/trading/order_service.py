@@ -25,8 +25,8 @@ def _fallback_kite_exceptions() -> types.SimpleNamespace:
 
     The paper runner and CI install only requirements-core.txt, which has no
     broker client.  Without kiteconnect there is no Kite session, so no real
-    order can be sent; the stand-ins keep this module importable (the live-path
-    tests, tools.live_dry_run) and keep the error classification identical.
+    order can be sent; the stand-ins keep this module importable (dry runs,
+    CI) and keep the error classification identical.
     """
     class KiteException(Exception):
         def __init__(self, message="", code=500):
