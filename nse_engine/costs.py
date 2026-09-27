@@ -31,7 +31,10 @@ logger = logging.getLogger(__name__)
 
 DateLike = Union[str, pd.Timestamp, "np.datetime64"]
 
-STT_RATE = 0.001  # 0.1% on buy and sell (delivery)
+STT_RATE = 0.001  # 0.1% on buy and sell (delivery), from 2012-07-01 and before 2006-06-01
+STT_RATE_2006_2012 = 0.00125  # 0.125%: Finance Act 2006 (from 2006-06-01) until Finance Act 2012 (2012-07-01)
+STT_HIGH_START = pd.Timestamp("2006-06-01")
+STT_HIGH_END = pd.Timestamp("2012-07-01")
 STAMP_DUTY_RATE_NEW = 0.00015  # 0.015% on buys from 2020-07-01
 STAMP_DUTY_RATE_OLD = 0.0001  # 0.01% before (approximation of state rates)
 STAMP_DUTY_CHANGE = pd.Timestamp("2020-07-01")
@@ -88,6 +91,12 @@ def _ts(date: DateLike) -> pd.Timestamp:
     return pd.Timestamp(date)
 
 
+def stt_rate(date: DateLike) -> float:
+    """Delivery STT per side: 0.125% from 1 Jun 2006 to 30 Jun 2012, 0.1% otherwise."""
+    d = _ts(date)
+    return STT_RATE_2006_2012 if STT_HIGH_START <= d < STT_HIGH_END else STT_RATE
+
+
 def stamp_duty_rate(date: DateLike) -> float:
     return STAMP_DUTY_RATE_NEW if _ts(date) >= STAMP_DUTY_CHANGE else STAMP_DUTY_RATE_OLD
 
@@ -111,7 +120,7 @@ def statutory_charges(
     value = abs(float(value_inr))
     if value <= 0:
         return StatutoryCharges(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-    stt = STT_RATE * value
+    stt = stt_rate(date) * value
     stamp = stamp_duty_rate(date) * value if side == "BUY" else 0.0
     exch = exchange_rate(date) * value
     sebi = SEBI_FEE_RATE * value

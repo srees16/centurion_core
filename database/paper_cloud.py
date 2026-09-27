@@ -13,6 +13,9 @@ All writes are best-effort: a Neon failure never blocks the trading loop.
 from __future__ import annotations
 
 import logging
+import os
+import re
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
@@ -85,7 +88,23 @@ SESSION_COLUMNS_ADDED = {"drawdown_state": "VARCHAR(12) DEFAULT 'normal'", "draw
 SHIFT_STATE_KEY = "distribution_shift_state"
 
 
-def add_missing_columns(engine, table: str, columns: Dict[str, str]) -> List[str]:
+#: Env var naming the Postgres schema of a second paper book (tracker D1).
+#: Unset = the deployed book in the default schema.
+ENV_SCHEMA = "CENTURION_PAPER_SCHEMA"
+_SCHEMA_RE = re.compile(r"^[a-z_][a-z0-9_]{0,40}$")
+
+
+def paper_schema_from_env() -> Optional[str]:
+    """The paper book's schema from ``CENTURION_PAPER_SCHEMA`` (None = default schema)."""
+    raw = (os.environ.get(ENV_SCHEMA) or "").strip()
+    if not raw:
+        return None
+    if not _SCHEMA_RE.match(raw):
+        raise ValueError(f"{ENV_SCHEMA}={raw!r} is not a plain lower-case identifier")
+    return raw
+
+
+def add_missing_columns(engine, table: str, columns: Dict[str, str], schema: Optional[str] = None) -> List[str]:
     """``ALTER TABLE table ADD COLUMN`` for each column not present; returns the ones added.
 
     Idempotent and dialect-neutral (Postgres on Neon, SQLite in tests).
@@ -93,16 +112,17 @@ def add_missing_columns(engine, table: str, columns: Dict[str, str]) -> List[str
     from sqlalchemy import inspect, text
 
     try:
-        present = {c["name"] for c in inspect(engine).get_columns(table)}
+        present = {c["name"] for c in inspect(engine).get_columns(table, schema=schema)}
     except Exception as exc:                          # noqa: BLE001 - table may not exist yet
         logger.debug("add_missing_columns: cannot inspect %s: %s", table, exc)
         return []
+    qualified = f'"{schema}".{table}' if schema else table
     added: List[str] = []
     with engine.begin() as conn:
         for name, ddl in columns.items():
             if name in present:
                 continue
-            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+            conn.execute(text(f"ALTER TABLE {qualified} ADD COLUMN {name} {ddl}"))
             added.append(name)
     if added:
         logger.info("%s: added column(s) %s", table, ", ".join(added))
@@ -186,7 +206,7 @@ def get_paper_cloud() -> Optional["PaperCloudSync"]:
     if _cloud is not None:
         # Health check: verify the underlying engine is still usable
         try:
-            with _cloud._db.get_session() as session:
+            with _cloud._session() as session:
                 session.execute(text("SELECT 1"))
         except Exception:
             logger.info("Cloud sync connection stale — reinitialising")
@@ -198,7 +218,7 @@ def get_paper_cloud() -> Optional["PaperCloudSync"]:
         mgr = get_db_manager()
         if mgr is None:
             return None
-        _cloud = PaperCloudSync(mgr)
+        _cloud = PaperCloudSync(mgr, schema=paper_schema_from_env())
         _cloud.ensure_tables()
         return _cloud
     except Exception as exc:
@@ -207,19 +227,63 @@ def get_paper_cloud() -> Optional["PaperCloudSync"]:
 
 
 class PaperCloudSync:
-    """Best-effort sync of paper trading data to Neon PostgreSQL."""
+    """Best-effort sync of paper trading data to Neon PostgreSQL.
 
-    def __init__(self, db_manager):
+    ``schema`` puts the whole book - positions, snapshots, fills, sessions,
+    weekly checkpoints and the key/value state - in its own Postgres schema,
+    so a second paper book (tracker D1: the candidate beside the deployed
+    book) can never touch the first.  Table names are qualified in the SQL
+    text itself (raw SQL) or by SQLAlchemy's ``schema_translate_map`` (ORM),
+    never through ``search_path``, which Neon's transaction-mode pooler does
+    not keep between transactions.
+    """
+
+    schema: Optional[str] = None          # class defaults: objects built without __init__ (tests) stay valid
+    _factory = None
+
+    def __init__(self, db_manager, schema: Optional[str] = None):
+        if schema is not None and not _SCHEMA_RE.match(schema):
+            raise ValueError(f"paper book schema {schema!r} is not a plain lower-case identifier")
         self._db = db_manager
+        self.schema = schema
+        self._factory = None
+
+    def _t(self, table: str) -> str:
+        """``table`` qualified with this book's schema, for raw SQL."""
+        return f'"{self.schema}".{table}' if self.schema else table
+
+    def _translated_engine(self):
+        return self._db.engine.execution_options(schema_translate_map={None: self.schema})
+
+    @contextmanager
+    def _session(self):
+        """A session whose ORM statements land in this book's schema."""
+        if self.schema is None:
+            with self._db.get_session() as session:
+                yield session
+            return
+        if self._factory is None:
+            from sqlalchemy.orm import sessionmaker
+            self._factory = sessionmaker(bind=self._translated_engine(), expire_on_commit=False)
+        session = self._factory()
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
     # ── Table creation ─────────────────────────────────────────
 
     def ensure_tables(self):
         """Create paper trading tables if they don't exist (idempotent)."""
+        self._ensure_schema()
         self._ensure_state_table()
         try:
             from database.models import Base
-            engine = self._db.engine
+            engine = self._db.engine if self.schema is None else self._translated_engine()
             Base.metadata.create_all(
                 engine,
                 tables=[
@@ -231,10 +295,20 @@ class PaperCloudSync:
                     Base.metadata.tables["paper_sessions"],
                 ],
             )
-            add_missing_columns(engine, "paper_sessions", SESSION_COLUMNS_ADDED)
-            logger.info("Paper trading cloud tables ensured.")
+            add_missing_columns(self._db.engine, "paper_sessions", SESSION_COLUMNS_ADDED, schema=self.schema)
+            logger.info("Paper trading cloud tables ensured%s.", f" in schema {self.schema}" if self.schema else "")
         except Exception as exc:
             logger.warning("Could not create paper cloud tables: %s", exc)
+
+    def _ensure_schema(self) -> None:
+        """``CREATE SCHEMA IF NOT EXISTS`` for a second book (Postgres only)."""
+        if self.schema is None or self._db.engine.dialect.name != "postgresql":
+            return
+        try:
+            with self._db.engine.begin() as conn:
+                conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{self.schema}"'))
+        except Exception as exc:
+            logger.warning("Could not create schema %s: %s", self.schema, exc)
 
     # ── Write methods (called by PaperTrader) ──────────────────
 
@@ -242,7 +316,7 @@ class PaperCloudSync:
         """Upsert a paper position row."""
         try:
             from database.models import PaperPositionRecord
-            with self._db.get_session() as session:
+            with self._session() as session:
                 # Try to find existing by symbol + opened_at
                 existing = session.query(PaperPositionRecord).filter_by(
                     symbol=pos_data["symbol"],
@@ -279,7 +353,7 @@ class PaperCloudSync:
         """Upsert a daily snapshot row."""
         try:
             from database.models import PaperDailySnapshotRecord
-            with self._db.get_session() as session:
+            with self._session() as session:
                 existing = session.query(PaperDailySnapshotRecord).filter_by(
                     date=snap["date"],
                 ).first()
@@ -301,7 +375,7 @@ class PaperCloudSync:
             return True
         try:
             from database.models import PaperSignalLogRecord
-            with self._db.get_session() as session:
+            with self._session() as session:
                 session.query(PaperSignalLogRecord).filter_by(date=date_str).delete()
                 for sig in signals:
                     session.add(PaperSignalLogRecord(
@@ -327,7 +401,7 @@ class PaperCloudSync:
         """Upsert one session's activity record (keyed by session date)."""
         try:
             from database.models import PaperSessionRecord
-            with self._db.get_session() as session:
+            with self._session() as session:
                 existing = session.query(PaperSessionRecord).filter_by(
                     session_date=row["session_date"]).first()
                 if existing:
@@ -345,7 +419,7 @@ class PaperCloudSync:
 
     def read_sessions(self, since_epoch: bool = True) -> pd.DataFrame:
         """Session activity of the current book."""
-        df = self._read("SELECT * FROM paper_sessions ORDER BY session_date")
+        df = self._read(f"SELECT * FROM {self._t('paper_sessions')} ORDER BY session_date")
         return self._since_epoch(df, "session_date", since_epoch)
 
     def sync_fills(self, fills: List[dict]) -> bool:
@@ -358,7 +432,7 @@ class PaperCloudSync:
             return True
         try:
             from database.models import PaperFillRecord
-            with self._db.get_session() as session:
+            with self._session() as session:
                 for f in fills:
                     exists = session.query(PaperFillRecord).filter_by(
                         order_id=str(f.get("order_id") or ""),
@@ -377,14 +451,14 @@ class PaperCloudSync:
 
     def read_fills(self, since_epoch: bool = True) -> pd.DataFrame:
         """Execution events of the current book (all books with ``since_epoch=False``)."""
-        df = self._read("SELECT * FROM paper_fills ORDER BY occurred_at")
+        df = self._read(f"SELECT * FROM {self._t('paper_fills')} ORDER BY occurred_at")
         return self._since_epoch(df, "occurred_at", since_epoch)
 
     def sync_weekly(self, ckpt: dict) -> bool:
         """Upsert a weekly checkpoint row."""
         try:
             from database.models import PaperWeeklyCheckpointRecord
-            with self._db.get_session() as session:
+            with self._session() as session:
                 existing = session.query(PaperWeeklyCheckpointRecord).filter_by(
                     week_number=ckpt["week_number"],
                 ).first()
@@ -404,7 +478,7 @@ class PaperCloudSync:
         """Update trailing stop-loss on an open position."""
         try:
             from database.models import PaperPositionRecord
-            with self._db.get_session() as session:
+            with self._session() as session:
                 pos = session.query(PaperPositionRecord).filter_by(
                     symbol=symbol, opened_at=opened_at, is_open=True,
                 ).first()
@@ -420,9 +494,9 @@ class PaperCloudSync:
 
     def _ensure_state_table(self) -> None:
         try:
-            with self._db.get_session() as session:
-                session.execute(text("""
-                    CREATE TABLE IF NOT EXISTS paper_cloud_state (
+            with self._session() as session:
+                session.execute(text(f"""
+                    CREATE TABLE IF NOT EXISTS {self._t("paper_cloud_state")} (
                         key        VARCHAR(64) PRIMARY KEY,
                         value      TEXT NOT NULL,
                         updated_at VARCHAR(40)
@@ -437,17 +511,17 @@ class PaperCloudSync:
         from datetime import datetime, timezone
         try:
             now = datetime.now(timezone.utc).isoformat()
-            with self._db.get_session() as session:
+            with self._session() as session:
                 has_epoch = session.execute(text(
-                    "SELECT 1 FROM paper_cloud_state WHERE key = 'epoch'")).fetchone()
+                    f"SELECT 1 FROM {self._t('paper_cloud_state')} WHERE key = 'epoch'")).fetchone()
                 if not has_epoch and "epoch" not in values:
                     # First write of a persistent book: positions before this are legacy
                     values = {**values, "epoch": now}
                 for key, value in values.items():
                     session.execute(text(
-                        "DELETE FROM paper_cloud_state WHERE key = :key"), {"key": key})
+                        f"DELETE FROM {self._t('paper_cloud_state')} WHERE key = :key"), {"key": key})
                     session.execute(text(
-                        "INSERT INTO paper_cloud_state (key, value, updated_at) "
+                        f"INSERT INTO {self._t('paper_cloud_state')} (key, value, updated_at) "
                         "VALUES (:key, :value, :ts)"),
                         {"key": key, "value": str(value), "ts": now})
                 session.commit()
@@ -460,14 +534,14 @@ class PaperCloudSync:
         """Key/value book state.  RAISES on DB errors (unlike ``_read``) so a
         transient outage is never mistaken for "no book yet" — that would
         overwrite the persisted cash with the initial capital."""
-        with self._db.get_session() as session:
-            rows = session.execute(text("SELECT key, value FROM paper_cloud_state")).fetchall()
+        with self._session() as session:
+            rows = session.execute(text(f"SELECT key, value FROM {self._t('paper_cloud_state')}")).fetchall()
         return {str(k): str(v) for k, v in rows}
 
     def read_open_positions(self, since_epoch: bool = True) -> pd.DataFrame:
         """Open paper positions (stops and entry dates included)."""
         df = self._read(
-            "SELECT * FROM paper_positions WHERE is_open = TRUE ORDER BY opened_at"
+            f"SELECT * FROM {self._t('paper_positions')} WHERE is_open = TRUE ORDER BY opened_at"
         )
         return self._since_epoch(df, "opened_at", since_epoch)
 
@@ -571,27 +645,27 @@ class PaperCloudSync:
 
     def read_snapshots(self, since_epoch: bool = True) -> pd.DataFrame:
         """Daily snapshots of the current book (all books with ``since_epoch=False``)."""
-        df = self._read("SELECT * FROM paper_daily_snapshots ORDER BY date")
+        df = self._read(f"SELECT * FROM {self._t('paper_daily_snapshots')} ORDER BY date")
         return self._since_epoch(df, "date", since_epoch)
 
     def read_signals(self, since_epoch: bool = True) -> pd.DataFrame:
         """Signal log rows of the current book."""
-        df = self._read("SELECT * FROM paper_signal_log ORDER BY date DESC, symbol")
+        df = self._read(f"SELECT * FROM {self._t('paper_signal_log')} ORDER BY date DESC, symbol")
         return self._since_epoch(df, "date", since_epoch)
 
     def read_positions(self, since_epoch: bool = True) -> pd.DataFrame:
         """Open and closed positions of the current book."""
-        df = self._read("SELECT * FROM paper_positions ORDER BY opened_at DESC")
+        df = self._read(f"SELECT * FROM {self._t('paper_positions')} ORDER BY opened_at DESC")
         return self._since_epoch(df, "opened_at", since_epoch)
 
     def read_weekly(self, since_epoch: bool = True) -> pd.DataFrame:
         """Weekly checkpoints of the current book."""
-        df = self._read("SELECT * FROM paper_weekly_checkpoints ORDER BY week_number")
+        df = self._read(f"SELECT * FROM {self._t('paper_weekly_checkpoints')} ORDER BY week_number")
         return self._since_epoch(df, "week_start", since_epoch)
 
     def _read(self, sql: str) -> pd.DataFrame:
         try:
-            with self._db.get_session() as session:
+            with self._session() as session:
                 result = session.execute(text(sql))
                 rows = result.fetchall()
                 if not rows:

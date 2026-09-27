@@ -702,7 +702,8 @@ class NotificationManager:
         flag = "🔴" if alerts else ("🟢" if pnl >= 0 else "🟠")
         dd_state = str(report.get("drawdown_state", "normal") or "normal")
         dd_tag = f" [drawdown {dd_state}]" if dd_state != "normal" else ""
-        subject = (f"{flag} Centurion paper {session}{dd_tag} — equity {inr(report.get('equity'))[:-3]} "
+        book = f" [{report['book_label']}]" if report.get("book_label") else ""
+        subject = (f"{flag} Centurion paper{book} {session}{dd_tag} — equity {inr(report.get('equity'))[:-3]} "
                    f"({pnl_pct:+.2f}%) — {len(filled)} filled, {len(stops)} stops, {len(queued)} queued")
         return self._send_html_email(subject, html)
 

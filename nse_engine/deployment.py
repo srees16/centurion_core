@@ -59,7 +59,10 @@ ENV_PATH = "CENTURION_NSE_DEPLOYMENT"
 
 STATUS_PLACEHOLDER = "placeholder"
 STATUS_APPROVED = "approved"
-STATUSES = (STATUS_PLACEHOLDER, STATUS_APPROVED)
+#: A configuration on trial in a second paper book (tracker D1, forward gate U19):
+#: paper only, never live, until ``promote`` replaces the deployed file with it.
+STATUS_CANDIDATE = "candidate"
+STATUSES = (STATUS_PLACEHOLDER, STATUS_APPROVED, STATUS_CANDIDATE)
 
 REQUIRED_KEYS = ("engine", "paper_start_date", "status")
 OPTIONAL_KEYS = ("source_run_id", "approved_at", "notes", "data_anchor_date", "risk_overlay")
@@ -103,6 +106,9 @@ class Deployment:
         if self.is_placeholder:
             return False, (f"deployment {self.path or DEFAULT_PATH} is a placeholder "
                            "(status='placeholder'): paper trading only")
+        if self.status == STATUS_CANDIDATE:
+            return False, (f"deployment {self.path or DEFAULT_PATH} is a candidate on paper trial "
+                           "(status='candidate'): paper trading only")
         return True, f"deployment approved at {self.approved_at} from run {self.source_run_id}"
 
     def live_config(self) -> EngineConfig:

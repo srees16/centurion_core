@@ -94,12 +94,23 @@ class MarketData:
         )
 
     def compute_hash(self) -> str:
-        """Deterministic content hash of the panel (dates, symbols, closes)."""
+        """Deterministic content hash of the panel: dates, symbols, closes,
+        traded value and the index closes the regime gate reads.
+
+        Index closes are included since 27 Sep 2026 (tracker K5): NIFTY 50
+        gaps had left the regime's trend leg undefined for 2014-16, and a run
+        on the gap-filled data must never share a hash with one on the blind
+        data.  Missing index values hash as -1, distinct from any real close.
+        """
         h = hashlib.sha256()
         h.update(np.asarray(self.dates.asi8).tobytes())
         h.update("|".join(map(str, self.close.columns)).encode())
         h.update(np.nan_to_num(self.close.to_numpy(dtype="float64")).round(4).tobytes())
         h.update(np.nan_to_num(self.value.to_numpy(dtype="float64")).round(0).tobytes())
+        ic = self.index_close
+        if ic is not None and len(ic.columns):
+            h.update("|".join(map(str, ic.columns)).encode())
+            h.update(np.nan_to_num(ic.to_numpy(dtype="float64"), nan=-1.0).round(4).tobytes())
         return h.hexdigest()[:16]
 
 
