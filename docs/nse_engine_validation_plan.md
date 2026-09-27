@@ -302,6 +302,18 @@ test whether live behaves like the backtest, which is what can be measured.
 Real orders need `CENTURION_PAPER_TRADE=false` and `CENTURION_NSE_ENGINE_LIVE=true`
 and an approved deployment.
 
+Before month 1: run `python -m tools.live_dry_run --source kite` after every
+session for at least a week and compare its orders with the paper book's
+queued orders for the same day. The live path is exercised by
+`tests/test_live_path.py` against a fake broker (L3, 27 Sep 2026), which also
+found that the order service's market-hours guard would have refused every
+end-of-day order; live orders now go as after-market orders (`amo`) when the
+market is closed. What live still lacks is a session driver: something that
+reads the previous session's order outcomes, snapshots the live book to Neon
+(the drawdown rule and the monitor read from there) and then plans and
+executes - the paper book has `run_paper_session`, the live book does not yet
+(tracker L5).
+
 | Month | Capital | Condition to continue |
 |---|---|---|
 | 1 | 20% | Stage D gates still hold live |

@@ -185,6 +185,11 @@ EngineExecutor(kite=None, paper: bool = True, config: EngineConfig | None = None
                equity_history_fn=None, drawdown_rule=None)
     .plan(as_of=None) -> ExecutionPlan    # orders + GTT stop instructions, no side effects
     .drawdown_decision(as_of, equity) -> (DrawdownDecision | None, replay frame | None)
+    .live_orders(plan) -> list[dict]      # the exact broker orders: LIMIT, CNC, sells first, tag, variety
+    .dry_run_live(plan) -> list[dict]     # the same list as results, nothing sent (dry_run=True routes here)
+    .execute(plan) -> list[dict]          # paper: queue next-open orders; live: place_order + GTT reconcile
+live_order_outcomes(kite, as_of) -> list[dict]   # complete | partial | rejected | cancelled | open, by tag
+cloud_equity_history(cloud=None) -> pd.Series    # the live book's Neon snapshots (drawdown rule default)
     .execute(plan) -> list[dict]          # CNC orders via order_service; GTT stops
 ```
 The deployment file may carry a **risk overlay**: `risk_overlay.drawdown_rule`
@@ -198,6 +203,23 @@ decision to `generate_targets`, and records the state on the plan
 in `paper_sessions`, in the daily email (subject tag and a red alert on every
 change) and on the monitor's session card. `promote` carries the overlay over
 to the next deployment.
+
+**Live path (L3, 27 Sep 2026).** Real orders need `CENTURION_PAPER_TRADE=false`,
+`CENTURION_NSE_ENGINE_LIVE=true`, an approved deployment and a Kite session;
+otherwise `execute()` runs the paper path. The live branch is built from
+`live_orders(plan)`: sells before buys, LIMIT + CNC at the plan's limit
+prices, one idempotent tag per order (`NE<yymmdd><B|S><symbol>`, skipped if
+already in the order book), and **variety `amo` whenever the market is
+closed** — the engine decides after the close, and a regular order placed
+then is refused by the market-hours guard in `order_service.place_order`.
+Under the kill switch only reduce-only SELLs go through; a rejection or a
+transient failure of one order never stops the others (three retries, then
+reported). `reconcile_stop_gtts` then arms one stop GTT per holding, deletes
+orphans and reports breached and missing stops. `live_order_outcomes` reads
+the next day's order book for the session's tags. `tests/test_live_path.py`
+runs all of it against a fake Kite; `python -m tools.live_dry_run
+[--source kite] [--as-of DATE]` prints what a session would send without
+sending it.
 
 
 Real orders require `CENTURION_PAPER_TRADE=false` and `CENTURION_NSE_ENGINE_LIVE=true`.
