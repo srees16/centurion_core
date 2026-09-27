@@ -79,6 +79,12 @@ def _records(df) -> List[dict]:
 SESSION_COLUMNS_ADDED = {"drawdown_state": "VARCHAR(12) DEFAULT 'normal'", "drawdown_pct": "FLOAT DEFAULT 0"}
 
 
+#: paper_cloud_state key holding the distribution-shift state (JSON).  The
+#: paper runner's disk is discarded after every GitHub Actions run, so the
+#: state must live here for the next session's plan to see yesterday's verdict.
+SHIFT_STATE_KEY = "distribution_shift_state"
+
+
 def add_missing_columns(engine, table: str, columns: Dict[str, str]) -> List[str]:
     """``ALTER TABLE table ADD COLUMN`` for each column not present; returns the ones added.
 
@@ -166,6 +172,7 @@ def restore_paper_state(cloud) -> Optional[dict]:
         "closed_positions": closed_pos,
         "snapshots": snapshots,
         "weekly": weekly,
+        "shift_state": state.get(SHIFT_STATE_KEY) or None,
     }
 
 

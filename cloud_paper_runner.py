@@ -586,6 +586,29 @@ def _missed_sessions(previous, current) -> int:
     return max(len(pd.bdate_range(a, b)) - 2, 0)
 
 
+def _drift_check_line(pt, shift: dict, plan) -> str:
+    """One line for the daily email: the drift check's verdict, or how long until it runs."""
+    from kite_connect.trading.paper_trader import SHIFT_MIN_LIVE_DAYS
+
+    applied = float(getattr(plan, "shift_multiplier", 1.0) or 1.0) if plan is not None else 1.0
+    if shift:
+        verdict = shift.get("position_verdict") or shift.get("effective_verdict") or shift.get("verdict") or "?"
+        parts = [f"{verdict}"]
+        te, gap = shift.get("tracking_error_annual"), shift.get("mean_daily_gap")
+        if te is not None:
+            parts.append(f"tracking error {float(te):.1%}/yr")
+        if gap is not None:
+            parts.append(f"gap {float(gap) * 1e4:+.1f} bp/day")
+        parts.append(f"{shift.get('n_live', '?')} days vs {shift.get('reference_mode', '?')}")
+        return " · ".join(parts) + f" · size today ×{applied:.2f}"
+    try:
+        n = max(int(pt.session_count()) - 1, 0)
+    except Exception:                                    # noqa: BLE001
+        n = 0
+    return (f"waiting: {n} of {SHIFT_MIN_LIVE_DAYS} daily returns "
+            f"(runs from session {SHIFT_MIN_LIVE_DAYS + 1}) · size today ×{applied:.2f}")
+
+
 def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict) -> None:
     """Daily email for a newly processed session (best-effort).
 
@@ -604,6 +627,7 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict) -
         verdict = shift.get("position_verdict") or shift.get("effective_verdict") or shift.get("verdict")
         if verdict in ("drifting", "regime_break"):
             alerts.append(f"Distribution shift: {verdict} (size multiplier {shift.get('position_size_multiplier', shift.get('multiplier', '—'))})")
+        drift_check = _drift_check_line(pt, shift, plan)
         dd_state = str(getattr(plan, "drawdown_state", "normal") or "normal") if plan is not None else "normal"
         dd_pct = float(getattr(plan, "drawdown_pct", 0.0) or 0.0) if plan is not None else 0.0
         dd_line = None
@@ -632,6 +656,7 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict) -
             "alerts": alerts,
             "drawdown_rule": dd_line,
             "drawdown_state": dd_state,
+            "drift_check": drift_check,
         })
         if not sent:
             logger.warning("Daily email returned False — check CENTURION_EMAIL_USER / CENTURION_EMAIL_PASS / "

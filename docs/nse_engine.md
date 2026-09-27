@@ -216,10 +216,10 @@ Under the kill switch only reduce-only SELLs go through; a rejection or a
 transient failure of one order never stops the others (three retries, then
 reported). `reconcile_stop_gtts` then arms one stop GTT per holding, deletes
 orphans and reports breached and missing stops. `live_order_outcomes` reads
-the next day's order book for the session's tags. `tests/test_live_path.py`
-runs all of it against a fake Kite; `python -m tools.live_dry_run
-[--source kite] [--as-of DATE]` prints what a session would send without
-sending it.
+the next day's order book for the session's tags. All of it was exercised
+against a fake Kite on 27 Sep 2026. `EngineExecutor(..., dry_run=True)`
+(or `.dry_run_live(plan)`) returns exactly what a live session would send,
+without sending it.
 
 
 Real orders require `CENTURION_PAPER_TRADE=false` and `CENTURION_NSE_ENGINE_LIVE=true`.

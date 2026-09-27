@@ -283,6 +283,7 @@ Daily monitoring (automatic):
 | Check | Alert / action |
 |---|---|
 | Distribution shift (≥ 30 live days) | drifting → size 0.75×; regime_break → 0.5× and alert |
+| (how, since 27 Sep 2026 — G2) | the verdict is saved in Neon (`paper_cloud_state` key `distribution_shift_state`) and restored before the next plan, so the size multiplier actually applies on GitHub Actions, whose disk is discarded after each run; reality-gap and regime-break alerts are emailed (`NotificationManager.send_alert`, missing before, so every alert had been dropped); the daily email has a "Drift check" line ("waiting: n of 30" until the check can run). |
 | Tracking error vs same-period backtest | > 8%/yr → drifting |
 | Mean daily gap vs backtest | < −3 bp/day → drifting |
 | Fill price vs model open + impact | investigate if median shortfall > 2× model |
@@ -302,10 +303,10 @@ test whether live behaves like the backtest, which is what can be measured.
 Real orders need `CENTURION_PAPER_TRADE=false` and `CENTURION_NSE_ENGINE_LIVE=true`
 and an approved deployment.
 
-Before month 1: run `python -m tools.live_dry_run --source kite` after every
-session for at least a week and compare its orders with the paper book's
-queued orders for the same day. The live path is exercised by
-`tests/test_live_path.py` against a fake broker (L3, 27 Sep 2026), which also
+Before month 1: run the executor's dry-run mode (`EngineExecutor(kite=...,
+dry_run=True)`) after every session for at least a week and compare its
+orders with the paper book's queued orders for the same day. The live path
+was exercised against a fake broker (L3, 27 Sep 2026), which also
 found that the order service's market-hours guard would have refused every
 end-of-day order; live orders now go as after-market orders (`amo`) when the
 market is closed. What live still lacks is a session driver: something that
@@ -422,6 +423,24 @@ every configuration recorded (so PBO/DSR count them):
    reached 30%, so `half` and `risk_off` are untested capital protection
    until the 2008 walk-forward (R4). B's thresholds are the live rule (G3);
    the deployed configuration itself is unchanged.
+
+7. **Fully invested — tested 27 Sep 2026 (E1), failed its rule.** The honest
+   baseline averages 12.4% cash: 44% of it in risk-off periods (the regime
+   gate, kept), the rest building between rebalances as ~2 names a week
+   exit (2.7% after a rebalance fills, 12% by the next). The mechanism
+   `portfolio.refill_exits` (hash-neutral, off by default) fills freed
+   slots between rebalances with the next-ranked names at their rebalance
+   weights. Pre-registered rule: CAGR ≥ 25%, MaxDD ≤ 30%, Sharpe ≥ 1.09 on
+   2013–2025, walk-forward only if that passes.
+
+   | Run | Sharpe | CAGR | MaxDD | Calmar | gross | turnover | verdict |
+   |---|---|---|---|---|---|---|---|
+   | Baseline `bd79bf28` | 1.140 | 22.75% | −24.69% | 0.922 | 0.876 | 7.0× | – |
+   | E1 `942760af` | 1.211 | 24.68% | −25.46% | 0.969 | 0.907 | 7.4× | FAIL (CAGR) |
+
+   The Sharpe gain (+0.07, one-sided p ≈ 0.08, positive in 2013–16,
+   2017–25 and 2021–25) is post-hoc and not established; testing it needs
+   its own pre-registered walk-forward and paper trading (tracker U20).
 
 Not on the list, on purpose: re-optimising signal weights (R21A's 247% data-
 mining bias estimate came from exactly that), leverage (MTF at ≈ 14.6%/yr
