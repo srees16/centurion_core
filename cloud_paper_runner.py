@@ -117,10 +117,21 @@ def _check_active() -> bool:
         return True
 
 
+def _book_label() -> str:
+    """Label of a second paper book (``CENTURION_PAPER_BOOK_LABEL``), '' for the deployed one."""
+    return (os.environ.get("CENTURION_PAPER_BOOK_LABEL") or "").strip()
+
+
 def _update_run_status(status: str, message: str):
     """Update the last run status in Neon."""
     from sqlalchemy import text
 
+    if os.environ.get("CENTURION_PAPER_SCHEMA"):
+        # The switch row is shared: a second book (tracker D1) must not overwrite
+        # the deployed book's run status on the trade monitor.
+        logger.info("Run status not written for book '%s' (the switch row belongs to the deployed book): [%s] %s",
+                    _book_label() or os.environ.get("CENTURION_PAPER_SCHEMA"), status, message[:200])
+        return
     try:
         engine = _get_neon_engine()
         with engine.connect() as conn:
@@ -639,7 +650,9 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict) -
                               else f"DRAWDOWN RULE re-armed: back to normal (new 60-session equity high)")
         sent = NotificationManager().email_engine_daily_report({
             "session": session.get("session"),
-            "deployment": f"{dep.status} · paper since {dep.paper_start_date}",
+            "deployment": (f"{dep.status} {dep.engine.config_hash()[:8]} · paper since {dep.paper_start_date}"
+                           if _book_label() else f"{dep.status} · paper since {dep.paper_start_date}"),
+            "book_label": _book_label(),
             "equity": dash.current_capital,
             "initial_capital": dash.initial_capital,
             "cash": pt.cash,
@@ -818,7 +831,8 @@ def _run_weekly_checkpoint():
   </div>
 </div></body></html>"""
 
-    subject = (f"[Centurion Paper] Week {wk} | {checkpoint['week_return_pct']:+.1f}% | "
+    label = f"[{_book_label()}] " if _book_label() else ""
+    subject = (f"[Centurion Paper] {label}Week {wk} | {checkpoint['week_return_pct']:+.1f}% | "
                f"{checkpoint['trades_opened']} opened, {checkpoint['trades_closed']} closed | "
                f"{sessions} of {min_sessions} sessions")
     sent = NotificationManager._send_html_email(

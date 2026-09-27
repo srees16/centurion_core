@@ -93,6 +93,24 @@ jobs:
             python cloud_paper_runner.py
           fi
 
+      - name: Candidate book - weekly checkpoint
+        if: vars.CENTURION_NSE_ENGINE == 'true' && hashFiles('config/nse_engine_candidate.json') != ''
+        continue-on-error: true
+        env:
+          CENTURION_PAPER_TRADE: "true"
+          CENTURION_NSE_ENGINE: "true"
+          CENTURION_PAPER_INITIAL_CAPITAL: ${{ vars.CENTURION_PAPER_INITIAL_CAPITAL || '100000' }}
+          CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
+          CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
+          CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
+          CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
+          CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+          CENTURION_NSE_DEPLOYMENT: config/nse_engine_candidate.json
+          CENTURION_PAPER_SCHEMA: candidate
+          CENTURION_PAPER_DB_PATH: ${{ runner.temp }}/candidate/paper_trades.sqlite3
+          CENTURION_PAPER_BOOK_LABEL: candidate 2d64ba4c
+        run: python cloud_paper_runner.py --engine
+
   # GitHub delivers scheduled runs 1-4 hours late (measured: a 22:05 IST cron
   # arrived at 01:20 IST). Snapshots are now dated by the trading session, not
   # the clock, so a late run is harmless - the window only stops a run so late
@@ -311,6 +329,56 @@ jobs:
           EXTRA=""
           if [ "$NEW_BOOK" = "true" ]; then EXTRA="--new-book"; fi
           python cloud_paper_runner.py --engine $EXTRA
+
+      # Second paper book (tracker D1, decision U21): the candidate configuration
+      # trades beside the deployed book on the same data, in its own Postgres
+      # schema ("candidate") and its own local file, so nothing is shared but
+      # the paper switch. Both steps are isolated: a candidate failure never
+      # fails or delays the deployed book, it only emails.
+      - name: Candidate book - same-period shift reference
+        if: hashFiles('config/nse_engine_candidate.json') != ''
+        continue-on-error: true
+        env:
+          TODAY: ${{ steps.window.outputs.today }}
+        run: |
+          CAND=config/nse_engine_candidate.json
+          CAND_START=$(python -m nse_engine.deployment --path $CAND get paper_start_date)
+          if [[ ! "$TODAY" > "$CAND_START" ]]; then
+            echo "candidate paper trading starts $CAND_START: no live window yet"
+            exit 0
+          fi
+          python -m nse_engine.deployment --path $CAND write-engine-config --out "$RUNNER_TEMP/candidate_engine.json"
+          python -m runners.run_nse_engine shift-reference --config "$RUNNER_TEMP/candidate_engine.json" \
+            --start "$CAND_START" --data-start "$(python -m nse_engine.deployment --path $CAND get data_start)" \
+            --set initial_capital="$CENTURION_PAPER_INITIAL_CAPITAL" --out data/shift_reference_candidate.csv
+
+      - name: Candidate book - paper session
+        id: candidate
+        if: hashFiles('config/nse_engine_candidate.json') != ''
+        continue-on-error: true
+        env:
+          CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
+          CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
+          CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
+          CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
+          CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+          CENTURION_NSE_DEPLOYMENT: config/nse_engine_candidate.json
+          CENTURION_PAPER_SCHEMA: candidate
+          CENTURION_PAPER_DB_PATH: ${{ runner.temp }}/candidate/paper_trades.sqlite3
+          CENTURION_PAPER_BOOK_LABEL: candidate 2d64ba4c
+          CENTURION_SHIFT_REFERENCE_CSV: data/shift_reference_candidate.csv
+          CENTURION_SHIFT_MAX_TRACKING_ERROR: ${{ vars.CENTURION_SHIFT_MAX_TRACKING_ERROR || '0.08' }}
+          CENTURION_SHIFT_MAX_DAILY_GAP_BPS: ${{ vars.CENTURION_SHIFT_MAX_DAILY_GAP_BPS || '3' }}
+        run: python cloud_paper_runner.py --engine
+
+      - name: Tell me when the candidate session fails
+        if: steps.candidate.outcome == 'failure'
+        env:
+          CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
+          CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
+          CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
+          CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+        run: python -m tools.session_failed "${{ github.run_id }} (candidate book)"
 
       - name: Tell me when a session fails
         if: failure()

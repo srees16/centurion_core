@@ -126,7 +126,18 @@ total-return by default: cash dividends from the corporate-actions file are
 back-adjusted (`DataConfig.adjust_dividends`; False gives price-only series).
 `index_close` has `NIFTY50`, `NIFTY50_TRI` (derived from NSE's dividend-points index), `NIFTY500` and
 `INDIAVIX` where available: VIX from NSE index files, back-filled from yfinance
-`^INDIAVIX` before NSE coverage starts.
+`^INDIAVIX` before NSE coverage starts. NSE's daily index files start in
+February 2012 and also miss NIFTY 50 on a dozen later sessions, so
+`load_market_data` fills `NIFTY50` gaps from `<store>/external/nifty50_history.parquet`
+when a store has one (gaps only; NSE's values win). The cache is built by
+`python -m nse_engine.data.external nifty50 --store <dir>` from Yahoo `^NSEI`
+(identical to NSE's closes from 17 Sep 2007), the BSE Sensex scaled to NIFTY
+before that (98.4% agreement on the 200-day trend state), and the previous
+close on the few special sessions neither covers; every row records its
+source. Both stores have it since 27 Sep 2026 (tracker K4, K5).
+`MarketData.compute_hash()`, the run manifests' `data_hash`, covers dates,
+symbols, closes, traded value and, since K5, the index closes: a change to
+an index cache moves the fingerprint, so run `refresh-registry` after it.
 
 ### Engine (`nse_engine.engine`)
 
@@ -232,6 +243,23 @@ one configuration that paper/live trades: engine config, `status`
 `paper_start_date` and `data_anchor_date`. It is written by
 `runners/run_nse_engine.py promote`, which checks PBO, deflated Sharpe, the
 benchmark gate and the holdout first. Live trading refuses placeholder files.
+
+**Second paper book (tracker D1, from 28 Sep 2026).** `config/nse_engine_candidate.json`
+(status `candidate`: paper only, `live_allowed()` refuses it) holds a
+configuration on trial under the forward gate - now the K5 walk-forward's
+choice `2d64ba4c`, the B1 baseline with `regime.scale_neutral = 0.6`, with the
+same drawdown overlay as the deployed book. The daily job runs it right after
+the deployed session on the same store, with four settings:
+`CENTURION_NSE_DEPLOYMENT` (the candidate file), `CENTURION_PAPER_SCHEMA=candidate`
+(every Neon table of the book - positions, snapshots, fills, sessions, weekly
+checkpoints, state - lives in that Postgres schema; `PaperCloudSync(schema=)`
+qualifies raw SQL and uses `schema_translate_map` for the ORM, never
+`search_path`, which Neon's pooler drops between transactions),
+`CENTURION_PAPER_DB_PATH` (its own local SQLite) and `CENTURION_PAPER_BOOK_LABEL`
+(its emails read `Centurion paper [candidate 2d64ba4c] ...`). It shares only
+the paper switch; it never writes the switch row's run status. Its steps
+are `continue-on-error`, so a candidate failure only emails. The trade
+monitor still shows the deployed book (a book selector is G12).
 
 Paper flow (`EngineExecutor.run_paper_session`, daily after the bhavcopy is
 published): GTT-style stop checks at the open → fill yesterday's pending

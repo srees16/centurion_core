@@ -1,7 +1,7 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 27 Sep 2026, 21:40 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 28 Sep 2026, 01:30 IST
 ================================================================================
-HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do L4".
+HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
             review, then logs it in section 8. Reorder with "make K4 #3".
 STATUS      [ ] pending   [~] in progress   [!] needs you   [x] done
@@ -16,27 +16,27 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
  EVIDENCE  deployed config 679cbd0c, honest data (B1), model costs, unlevered
                                      Sharpe   CAGR    MaxDD   Calmar
    Backtest 2013-25 (gross 0.88)      1.14   22.8%   -24.7%   0.92
-   Walk-forward OOS 2017-25           1.24   23.3%   -22.3%   1.05
+   Walk-forward OOS 2017-25 (K5)      1.19   22.0%   -22.5%   0.98
    Holdout 2026 (1 Jan-11 Sep)        1.04   26.9%*  -13.0%     -
    Stress: x2 costs + 1-day lag       0.97   20.4%   -22.6%   0.90
    Paper since 17 Sep (8 sessions)     -     +2.45%   -0.3%     -   too early
-   * 8 months annualised.  All CAGRs on calendar years (B2); the old n/252
-     convention read ~0.4 pt higher (backtest 23.2%, holdout 27.4%).
+   * 8 months annualised.  All CAGRs on calendar years (B2).  Walk-forward
+     re-run 27 Sep on complete NIFTY data (K5; was 1.24 / 23.3% / -22.3%).
 
  VERDICT   the five targets are NOT jointly reachable with what is implemented
    Sharpe 1.5   NO.  Needs 32% more edge; no queued item is worth > +0.1.
                 Backtest 1.14 +/- 0.57 (95% CI); P(true Sharpe >= 1.5) ~ 11%.
-   CAGR 25%     BORDERLINE.  22.8-23.3% unlevered; more spends the DD budget.
+   CAGR 25%     NO / BORDERLINE.  22.0-22.8% unlevered; more spends DD budget.
    MaxDD 30%    YES as deployed.  2008 never tested (no NIFTY 50 before 2012).
    Calmar 1.0   BORDERLINE.  0.92 backtest, 1.05 OOS; more CAGR lowers it.
-   PBO 30%      NO.  39-49% over the 43 same-window configs (24% when there
-                were 36); rises with every trial.  Deflated Sharpe 0.98 /
-                0.89 / 0.68 at N = 43 / 156 configs / 2,066 runs (gate 0.95).
+   PBO 30%      NO.  45-49% over the 46-47 same-window configs on complete
+                data (24% when there were 36); rises with every trial.
+                Deflated Sharpe 0.98-0.99 at N = 46-47 (gate 0.95).
 
  REALISTIC LIVE OUTCOME  (central, range)   Sharpe    CAGR     MaxDD    Calmar
-   A  as deployed, gross 0.88               1.0     20 (17-23) 27 (25-30)  0.75
-   B  refill exits (E1: failed 25% rule)    1.05    22 (19-25) 28 (26-31)  0.78
-   C  MTF margin 1.2x at ~14% funding       1.0     23 (20-26) 33 (30-36)  0.65
+   A  as deployed, gross 0.88               0.95    19 (16-22) 27 (25-30)  0.70
+   B  refill exits (E1: failed 25% rule)    1.0     21 (18-24) 28 (26-31)  0.75
+   C  MTF 1.2x at 14.6% (L4: not worth it)  0.85    20 (17-23) 33 (30-37)  0.60
    PBO stays 39-49% whatever is traded.  B measured (E1, 2013-25): 24.7% /
    -25.5% / Sharpe 1.21.  Leverage on A: 1.2x -> 25.6% / -29.9%; 1.5x ->
    29.9% / -37.1%.  A NIFTY
@@ -50,6 +50,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 
  THE BOOK  paper Rs 35L since 17 Sep: 22 positions, +2.45%, 8 sessions; next
    rebalance ~1 Oct; Week-3 report Sat 3 Oct.  Live capital will be Rs 30L.
+   Second book (D1): candidate 2d64ba4c (neutral 0.6) from Rs 35L, first
+   session after the merge; emails labelled [candidate 2d64ba4c].
    Session 19:00 IST Mon-Fri (HF dispatch; GitHub backups 19:05-22:05;
    heartbeat alarm 00:15).  Drawdown rule 20/30/35 (G3) runs from the first
    session after the merge; the book is ~0.3% below its peak, so: normal.
@@ -63,15 +65,14 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                R2, R3, R10); open items (R6, R7, R9) expected at +/-0.1.  The
                family (long-only trend + momentum, 20 names) is near its
                ceiling; the OOS 1.24 already sits in a friendly 2017-25.
-  2 Overfit    PBO 39-49% while promote refuses > 30%: nothing could ever
+  2 Overfit    PBO 45-49% while promote refuses > 30%: nothing could ever
                replace 679cbd0c.  Forward gate chosen (U19) -> V3.  Every
                trial must stay recorded and counted (V2).
   3 Drawdown   -24.7% leaves 5 points of budget; gross 1.0 spends 3.5, 1.2x
                all of it.  The drawdown rule (E2) trims 1.5 points at 20/30/35
                and its half / risk-off legs never fired in-sample.  2008
-               (NIFTY -60%) untested: prices exist from 2006 (1,340 names in
-               2008) but NIFTY 50 starts Feb 2012 and VIX May 2014, so the
-               regime gate would run blind (neutral) -> K4, R4.
+               (NIFTY -60%) untested; the extended store now has NIFTY from
+               2006 (K4), so the gate turns risk-off on 23 Jan 2008 -> R4.
   4 Cash drag  average gross 0.876: 44% of the cash is risk-off (the regime
                gate, by design); the rest builds up between rebalances as
                names exit.  Refilling exits (E1) recovers 1.9 CAGR points
@@ -86,7 +87,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                fixed (G2); per-position P&L blank (G10).
   7 Sample     8 of 60-90 paper sessions; G4 needs ~30 (late Oct).  A 60-day
                Sharpe has SE ~2: paper proves behaviour, not the Sharpe.
-  8 Measure    CAGR convention unified (B2 done: calendar years everywhere).
+  8 Measure    NIFTY 50 gaps fixed and put in the fingerprint (K5): on
+               complete data the walk-forward picks the deployed settings
+               in 1 of 9 folds, neutral 0.6 in 2021-25.  CAGR convention
+               unified (B2).
                Store rebuilds change the data hash (23 Sep); the registry is
                refreshed for it (V2 done) and build-store runs the dry-run
                check itself.  Library alignment (27 Sep) changed nothing.
@@ -94,9 +98,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
   9 Concentr.  2014 +76%, 2017 +52%, 2021 +87% carry the CAGR; 2013/15/16/19/
                22 were -4% to +6%; 86% of days below peak; worst recovery
                726 days (Aug 2018 -> Aug 2020).
- 10 Leverage   allowed by you (U5) but MTF terms unknown: eligible names,
-               ~14% funding, pledge per order, square-off, Kite support (L4).
-               Futures overlay closed on evidence (L2).
+ 10 Leverage   permitted and operable via MTF (L4: Group I stocks, auto-
+               pledge with DDPI, API product MTF), but at 14.6%/yr funding
+               each 0.1x adds 0.5-0.75 CAGR pts for ~3 pts MaxDD and -0.05
+               Sharpe.  NO-GO for now.  Futures overlay closed (L2).
 
 --------------------------------------------------------------------------------
  3. DECISIONS TAKEN (27 Sep)
@@ -107,7 +112,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
   U18  Second paper slot runs B (fully invested) once E1's backtest shows
        CAGR >= 25% at MaxDD <= 30%.                                 -> E1, D1
   U5   MaxDD 30% is soft; use leverage where it pays, after due diligence
-       on what Indian rules permit.                                 -> L4, E3
+       on what Indian rules permit.  L4: permitted, not worth it.   -> E3
   U6   Live capital Rs 30L.  Paper stays Rs 35L (resizing restarts the
        record; the cost gap is small).  Ladder Rs 6L / 12L / 21L / 30L. -> D3
 
@@ -146,51 +151,56 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  PHASE 0   protect the book, fix the measurement                 now -> mid Oct
 #1  [ ] P1  G4   Paper pass/fail gate                             Prompt: do G4
+        For both books (deployed, and candidate in schema "candidate").
         One command: tracking error vs same-period backtest, mean daily gap,
         realised/model cost ratio, DD vs 1.5x backtest -> PASS/WATCH/FAIL.
         Reads "not enough data" until ~30 sessions (late Oct).
  PHASE 1   decide the exposure: one pre-registered trial each               Oct
-#2  [ ] P1  L4   Leverage due diligence (India)                   Prompt: do L4
-        From SEBI/NSE/Zerodha: MTF eligibility vs the book's names, funding
-        rate, pledge per order (automation blocker), square-off rules, Kite
-        Connect MTF + GTT support, tax.  Done: GO/NO-GO note with sources.
-#3  [ ] P1  E3   MTF-levered variant                  after L4 GO  Prompt: do E3
-        ~+0.7 CAGR pts and +2.5 MaxDD pts per 0.1x at 14.6% funding.  Pass
-        (proposed): net CAGR >= 25%, MaxDD <= 35%, Sharpe within 0.05 of the
-        unlevered winner; margin calls modelled through 2018-20.
-#4  [ ] P1  K4   NIFTY 50 history 2007-2011                       Prompt: do K4
-        yfinance ^NSEI (from Sep 2007) or niftyindices.com; lets the regime
-        gate see 2008.
-#5  [ ] P1  R4   Walk-forward 2007-2025, 2008 crash   after K4  Prompt: start R4
-        Pass: 2008 fold MaxDD <= 35%.  Required before MaxDD <= 30% is
-        claimed for live money.
-#6  [ ] P1  D1   Second paper slot for E1         after E1 pass  Prompt: do D1
-        Separate Neon book beside 679cbd0c; same report, same G4 gate.
-        No candidate yet: E1 failed your 25% condition (U20 decides).
+#2  [~] P1  R4   Walk-forward 2007-2025, 2008 crash              Prompt: start R4
+        PRE-REGISTERED 28 Sep before any R4 run.  store_ext2006 (NIFTY
+        complete from 2006, K4) loaded from 2006-01-02; STT 0.125% per side
+        for Jun 2006 - Jun 2012 (0.1% after).  Data from 2006 means a 4-year
+        training window can never test 2008 out of sample, so two tests:
+        (1) Fixed configs chosen on 2013-25 only, run 2007-25: baseline
+        (B1), K5 candidate (2d64ba4c), and baseline + the live drawdown
+        rule 20/30/35 (the live book's proxy).  PASS: the live-book proxy's
+        2007-09 peak-to-trough <= 35%.
+        (2) Walk-forward, anchored, 1-year minimum training from 2007,
+        12-month tests 2008-25, same 32-point grid, B1 base.  PASS (as
+        registered): the 2008 test fold's MaxDD <= 35%.  Also reported:
+        full-period MaxDD 2007-25 and stitched OOS 2008-25.
+#3  [ ] P3  E3   MTF-levered variant (after U20 b)                Prompt: do E3
+        Only worth running if E1's refill is confirmed forward (U20).  At
+        L4's terms the one backtest candidate is E1 at 1.1x: 25.4% / -28.6%
+        / Sharpe 1.15 (scaled, no margin calls; below 25% after a live
+        haircut).  Must model docs/leverage_due_diligence.md section 6
+        (funding per calendar day, MTF fees, eligible names only, 80%-loss
+        square-off, T+5 shortfall).  Proposed pass rule (change first if
+        you like): net CAGR >= 25%, MaxDD <= 35%, Sharpe within 0.05.
  PHASE 2   costs                                                            Nov
-#7  [ ] P2  R7   Turnover 7x -> ~4x                               Prompt: do R7
+#4  [ ] P2  R7   Turnover 7x -> ~4x                               Prompt: do R7
         Expect +1-1.5 CAGR pts; each walk-forward pair adds ~600 trials.
-#8  [ ] P3  X1   Execution: limit-at-open / sliced fills after G4 Prompt: do X1
+#5  [ ] P3  X1   Execution: limit-at-open / sliced fills after G4 Prompt: do X1
         Needs >= 30 real fills first; worth <= +0.1 Sharpe.
  PHASE 3   paper -> live ladder                                       Nov -> Feb
-#9  [ ] P1  V3   Forward promotion gate (U19)                     Prompt: do V3
+#6  [ ] P1  V3   Forward promotion gate (U19)                     Prompt: do V3
         promote requires >= 60 paper sessions beside base, G4 PASS, WF OOS
         within 0.05; PBO/DSR printed with trial counts, not blocking; tests.
-#10 [ ] P1  L5   Live session driver                              Prompt: do L5
+#7  [ ] P1  L5   Live session driver                              Prompt: do L5
         run_live_session: read yesterday's order outcomes (live_order_outcomes)
         into paper_fills-style records, snapshot the live book to Neon under
         its own epoch (drawdown rule + monitor read it), then plan and
         execute; daily email as for paper.  Fake-Kite tests for each step.
         Done: one command runs a live session end to end against the fake.
-#11 [ ] P2  D3   Capital ladder Rs 6L / 12L / 21L / 30L as code   Prompt: do D3
+#8  [ ] P2  D3   Capital ladder Rs 6L / 12L / 21L / 30L as code   Prompt: do D3
         Monthly gates read G4 + the drawdown state -> GO / HOLD / STEP DOWN;
         kill criteria wired.  Go-live rule: G4 PASS at >= 60 sessions, R4
         done, L5 done and a week of matching dry runs, U2 rotated, L4 GO
         before any leverage.  Month 1 = Rs 6L.
-#12 [ ] P2  G10  Per-position P&L on the trade monitor            Prompt: do G10
+#9  [ ] P2  G10  Per-position P&L on the trade monitor            Prompt: do G10
  PHASE 4   research that might move Sharpe (each adds trials)          parallel
-#13 [ ] P3  R6   R21A rules as signal groups (+/-0.1)             Prompt: do R6
-#14 [ ] P3  R9   Universe size 150 / 300 / 500                    Prompt: do R9
+#10 [ ] P3  R6   R21A rules as signal groups (+/-0.1)             Prompt: do R6
+#11 [ ] P3  R9   Universe size 150 / 300 / 500                    Prompt: do R9
         Deploy a Phase-4 winner only on a pre-registered +0.15 OOS Sharpe,
         then >= 60 sessions in a paper slot.  Sharpe 1.5 needs a new return
         stream (short side, futures, options, intraday): data we do not have.
@@ -202,7 +212,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              finds MTF unusable and you accept MaxDD 40%+.        Prompt: do L2
 [ ] P3  D2   Show the OOS haircut beside validate results.        Prompt: do D2
 [ ] P3  R5   NIFTY time-series-momentum sleeve.                   Prompt: do R5
-[ ] P3  G12  Book selector for earlier paper books (in Neon).   Prompt: do G12
+[ ] P3  G12  Book selector on the monitor: earlier books, and the candidate
+             book (Neon schema "candidate", D1).             Prompt: do G12
 [ ] P3  C5   Streamlit removal (reverted; name the unused parts). Prompt: do C5
 [ ] P3  C9   Mark docs/realistic_performance_estimate.md (Apr, R21A)
              superseded by section 1.                             Prompt: do C9
@@ -210,6 +221,60 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+28 Sep  D1   Second paper book built.  config/nse_engine_candidate.json
+             (new status "candidate": paper only, live refused) holds
+             2d64ba4c with the deployed drawdown rule.  The daily job runs
+             it after the deployed session in Neon schema "candidate"
+             (PaperCloudSync(schema=): qualified SQL + schema_translate_map,
+             pooler-safe), own local file, own shift reference, labelled
+             emails; Saturday checkpoint too; continue-on-error + a failure
+             email.  Shares only the paper switch, never writes its status.
+             Verified locally (SQLite schemas): both books fully isolated;
+             one runner session end to end - Rs 35L book, 21 orders queued,
+             deployed book and switch row untouched.  Regime is neutral on
+             74% of 2026 (all of the last 20 sessions), so the books differ
+             from day one.  Suite 101 in both environments.
+28 Sep  U21  Your decision: approve U21 - the K5 walk-forward candidate
+             2d64ba4c (B1 + neutral 0.6) paper-trades in a second slot
+             beside the deployed book for 60 sessions under the forward
+             gate (D1 builds it).
+27 Sep  K5   Main-store NIFTY gaps fixed and re-validated.  Cache added
+             to the main store (45 Yahoo sessions, 1 carried); the data
+             fingerprint now covers index closes (5485474... -> 6c94f4f...);
+             registry refreshed, 46 configs, none reproduce (expected):
+             neutral-0.6 configs +0.019 Sharpe, full-exposure -0.011;
+             baseline 1.140 -> 1.144; deployed 1.219 -> 1.187; E1 still
+             fails (24.39%); E2's live rule still passes.  PBO 45.4% (46).
+             Walk-forward 2017-25 re-run (297 backtests, 29 min): OOS Sharpe
+             1.26 -> 1.19, CAGR ~23.4 -> 22.0%, MaxDD -22.5%; deployed
+             settings chosen in 1 of 9 folds (was 7), neutral 0.6 in every
+             fold 2021-25.  Candidate 2d64ba4c recorded and validated:
+             1.189 / 22.27% / -23.4% / Calmar 0.953, DSR 0.989, gate passed,
+             PBO 49.4% (47).  Decision U21 added.  Suite 101.
+27 Sep  K4   NIFTY 50 history for 2006-2012 in store_ext2006: new
+             nse_engine.data.external builds external/nifty50_history.parquet
+             (Yahoo ^NSEI from 17 Sep 2007 - identical to NSE's closes on 455
+             sessions; before that the Sensex scaled to NIFTY, 98.4% trend-
+             state agreement; 11 special sessions carried forward; every row
+             labelled with its source) and the loader fills NIFTY50 gaps from
+             it.  Result: the regime gate turns risk-off on 23 Jan 2008 and
+             holds 90% of 2008 (blind: 43%, from March).  FOUND: the main
+             store misses NIFTY on 47 sessions, so the trend leg was
+             undefined for all of 2014-16 in every validated run; baseline
+             barely moves when filled (Sharpe 1.140 -> 1.144), grid configs
+             with neutral scale 0.6 do.  K5 queued before R4.  Suite 101.
+27 Sep  L4   Leverage due diligence: docs/leverage_due_diligence.md.
+             Permitted: MTF for Group I stocks, pledged to the broker;
+             collateral margin cannot fund delivery, so MTF is the only
+             route.  Operable after 5 account checks: DDPI makes pledges
+             automatic (no OTP per buy, since Mar 2025); Kite Connect takes
+             product MTF (the Python client lacks the constant; untested);
+             GTT on MTF works on Kite web; AMO for MTF undocumented.  Terms:
+             0.04%/day calendar (14.6%/yr), Rs 20/order, Rs 17.70 per
+             pledge/unpledge, square-off at 80% loss of funded amount.
+             Economics (scaled backtest): deployed book 1.2x -> 23.9% /
+             -30.9% / Sharpe 1.03; 25% needs ~1.5x at -39%.  Verdict:
+             NO-GO for now; E3 only if U20 (b) confirms E1.
 27 Sep  G2   Drift alerts work.  Three faults: (1) the detector's alerts
              called NotificationManager.send_alert, which did not exist, and
              the error was logged at debug level - every reality-gap and
