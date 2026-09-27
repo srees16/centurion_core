@@ -342,6 +342,29 @@ def generate_targets(
             for s in cache.sleeve_syms:
                 if s in holdings and s not in exits and s in current_w:
                     weights[s] = current_w[s]
+            if pcfg.refill_exits and entries_ok and scale > 0 and equity is not None and equity > 0:
+                held_sleeves = [s for s in cache.sleeve_syms if s in weights]
+                selected, _ = select_names(kept + frozen, ranks, blocked | set(frozen), pcfg)
+                new = [s for s in selected if s not in kept and s not in frozen]
+                if new:
+                    core_t, sleeve_t = allocate_book(selected, held_sleeves)
+                    room = sum(core_t.values()) + sum(sleeve_t.values()) - sum(weights.values())
+                    want = {s: core_t.get(s, 0.0) for s in new if core_t.get(s, 0.0) > 0}
+                    total = sum(want.values())
+                    if room > 1e-9 and total > 0:
+                        k = min(1.0, room / total)
+                        added = []
+                        for s, w in want.items():
+                            if w * k * float(equity) >= pcfg.min_trade_value_inr:
+                                weights[s] = w * k
+                                added.append(s)
+                                j = cache.sym_index[s]
+                                st = _stop_for(cache, j, pos, None)
+                                if st is not None:
+                                    stops[s] = st
+                        if added:
+                            notes.append(f"refill: {len(added)} entr{'y' if len(added) == 1 else 'ies'} "
+                                         f"for freed slots ({', '.join(added)})")
         else:
             notes.append("no equity given on a non-rebalance day: model weights over current holdings")
             held_sleeves = [s for s in cache.sleeve_syms if s in holdings and s not in exits]

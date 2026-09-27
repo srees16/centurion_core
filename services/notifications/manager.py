@@ -586,6 +586,26 @@ class NotificationManager:
 
     # ── NSE Engine Daily Paper Email ─────────────────────────────────
 
+    def send_alert(self, subject: str, body: str) -> bool:
+        """Email an urgent plain-text alert (drift, regime break, reality gap).
+
+        Returns True when the email was sent.  Callers log a WARNING on False,
+        so a missing SMTP secret is visible instead of silently dropping it.
+        """
+        from html import escape
+
+        html = (
+            "<html><body style=\"font-family:Segoe UI,Arial,sans-serif;background:#f9fafb;padding:20px;\">"
+            "<div style=\"max-width:680px;margin:0 auto;background:#fff;border-radius:10px;"
+            "box-shadow:0 2px 8px rgba(0,0,0,0.08);overflow:hidden;\">"
+            f"<div style=\"background:#dc2626;padding:14px 24px;color:#fff;font-size:17px;font-weight:600;\">"
+            f"{escape(subject)}</div>"
+            f"<pre style=\"margin:0;padding:18px 24px;font-size:13px;white-space:pre-wrap;\">{escape(body)}</pre>"
+            "<div style=\"padding:10px 24px;background:#f3f4f6;font-size:12px;color:#6b7280;\">"
+            "Centurion paper book &mdash; automatic alert</div></div></body></html>"
+        )
+        return self._send_html_email(f"🔴 Centurion alert — {subject}", html)
+
     def email_engine_daily_report(self, report: dict) -> bool:
         """Send the NSE engine's EOD paper session: book, fills, stops, queued orders.
 
@@ -652,7 +672,7 @@ class NotificationManager:
             ("Cash", inr(report.get("cash"))),
             ("Open positions", str(report.get("open_positions", 0))),
             ("Max drawdown", f"{float(report.get('max_drawdown_pct') or 0):.1f}%"),
-        ] + ([("Drawdown rule", (f"<b style='color:#dc2626;'>{report['drawdown_rule']}</b>"
+        ] + ([("Drift check", str(report["drift_check"]))] if report.get("drift_check") else []) + ([("Drawdown rule", (f"<b style='color:#dc2626;'>{report['drawdown_rule']}</b>"
                                  if str(report.get("drawdown_state", "normal")) != "normal"
                                  else str(report["drawdown_rule"])))]
              if report.get("drawdown_rule") else []) + [

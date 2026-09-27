@@ -26,6 +26,7 @@ HASH_NEUTRAL_DEFAULTS: Dict[Tuple[str, str], Any] = {
     ("signals", "high_lookback"): 252,
     ("signals", "beta_lookback"): 252,
     ("portfolio", "calendar_schedule"): False,
+    ("portfolio", "refill_exits"): False,
     ("universe", "calendar_schedule"): False,
     ("universe", "history_window_days"): 0,
     ("universe", "price_filter_unadjusted"): False,
@@ -140,6 +141,10 @@ class PortfolioConfig:
     vol_lookback_days: int = 60
     # Anchor independence (legacy value keeps the legacy behaviour and hash):
     calendar_schedule: bool = False   # rebalance on calendar period starts, not row counts
+    # Between rebalances, fill core slots freed by exits with the next-ranked
+    # names at their rebalance weights, within the allocator's gross (E1).
+    # False = legacy: freed capital waits in cash for the next rebalance.
+    refill_exits: bool = False
 
 
 @dataclass(frozen=True)
