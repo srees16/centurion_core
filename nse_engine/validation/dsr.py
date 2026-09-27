@@ -5,6 +5,8 @@ Everything in this module works on per-period (daily) Sharpe ratios.  The
 classic misuse -- plugging an annualised Sharpe into a formula whose
 ``sqrt(T - 1)`` counts daily observations -- inflates the z-score by
 ``sqrt(252)``.  Annualised values are reported for readability only.
+CAGR (``performance_summary``) compounds over calendar years, as the engine
+and the paper book do.
 
 Effective number of trials
 --------------------------
@@ -95,22 +97,39 @@ def excess_sharpe(returns: Union[pd.Series, np.ndarray], rf_annual: float = 0.0,
 
 def performance_summary(returns: pd.Series, rf_annual: float = 0.0,
                         periods_per_year: int = PERIODS_PER_YEAR) -> Dict[str, float]:
-    """Small, dependency-free metrics dict for a daily return series."""
+    """Small metrics dict for a daily return series.
+
+    CAGR compounds over calendar years between the first and last date, the
+    same convention as ``nse_engine.metrics.compute_metrics`` (run manifests,
+    paper book).  A series without a datetime index has no calendar, so it
+    falls back to ``n / periods_per_year`` and reports ``cagr_convention``
+    = "sessions" so the difference is visible.
+    """
+    from nse_engine.metrics import CAGR_CONVENTION, cagr_from_growth, years_elapsed
+
     r = pd.Series(returns, dtype="float64").dropna()
     n = int(r.size)
     if n == 0:
         return {"n_obs": 0, "excess_sharpe": float("nan"), "cagr": float("nan"),
-                "vol_annual": float("nan"), "max_drawdown": float("nan"),
-                "total_return": float("nan")}
+                "cagr_convention": CAGR_CONVENTION, "vol_annual": float("nan"),
+                "max_drawdown": float("nan"), "total_return": float("nan")}
     equity = (1.0 + r).cumprod()
     total = float(equity.iloc[-1] - 1.0)
-    years = n / periods_per_year
-    cagr = float(equity.iloc[-1] ** (1.0 / years) - 1.0) if years > 0 and equity.iloc[-1] > 0 else float("nan")
+    dated = isinstance(r.index, pd.DatetimeIndex)
+    if not dated and not pd.api.types.is_numeric_dtype(r.index.dtype):   # date strings, never numbers
+        try:
+            r.index = pd.DatetimeIndex(pd.to_datetime(r.index))
+            dated = True
+        except (TypeError, ValueError):
+            dated = False
+    years = years_elapsed(r.index) if dated else n / periods_per_year
+    convention = CAGR_CONVENTION if dated else "sessions"
     dd = float((equity / equity.cummax() - 1.0).min())
     return {
         "n_obs": n,
         "excess_sharpe": excess_sharpe(r, rf_annual, periods_per_year),
-        "cagr": cagr,
+        "cagr": cagr_from_growth(float(equity.iloc[-1]), years),
+        "cagr_convention": convention,
         "vol_annual": float(r.std(ddof=1) * math.sqrt(periods_per_year)) if n > 1 else float("nan"),
         "max_drawdown": dd,
         "total_return": total,

@@ -136,6 +136,8 @@ class TargetPortfolio:
     regime_scale: float = 1.0
     universe_size: int = 0
     notes: List[str] = field(default_factory=list)
+    drawdown_state: str = "normal"   # nse_engine.drawdown state used for this decision
+    drawdown_scale: float = 1.0
 
     @property
     def gross(self) -> float:
@@ -167,6 +169,7 @@ class BacktestResult:
     run_id: str = ""
     run_dir: Optional[str] = None
     notes: List[str] = field(default_factory=list)
+    daily_state: Optional[pd.DataFrame] = None  # drawdown-rule state per session, when the rule is on
 
 
 def holdings_from_mapping(rows: Mapping[str, Mapping]) -> Dict[str, Holding]:

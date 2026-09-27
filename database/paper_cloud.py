@@ -74,6 +74,35 @@ def _records(df) -> List[dict]:
     return out
 
 
+#: Columns added to paper_sessions after the table first existed (create_all
+#: never alters a table, so a live book needs ALTER TABLE).  name -> DDL type.
+SESSION_COLUMNS_ADDED = {"drawdown_state": "VARCHAR(12) DEFAULT 'normal'", "drawdown_pct": "FLOAT DEFAULT 0"}
+
+
+def add_missing_columns(engine, table: str, columns: Dict[str, str]) -> List[str]:
+    """``ALTER TABLE table ADD COLUMN`` for each column not present; returns the ones added.
+
+    Idempotent and dialect-neutral (Postgres on Neon, SQLite in tests).
+    """
+    from sqlalchemy import inspect, text
+
+    try:
+        present = {c["name"] for c in inspect(engine).get_columns(table)}
+    except Exception as exc:                          # noqa: BLE001 - table may not exist yet
+        logger.debug("add_missing_columns: cannot inspect %s: %s", table, exc)
+        return []
+    added: List[str] = []
+    with engine.begin() as conn:
+        for name, ddl in columns.items():
+            if name in present:
+                continue
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+            added.append(name)
+    if added:
+        logger.info("%s: added column(s) %s", table, ", ".join(added))
+    return added
+
+
 def restore_paper_state(cloud) -> Optional[dict]:
     """Rebuild the paper book from the cloud store.
 
@@ -195,6 +224,7 @@ class PaperCloudSync:
                     Base.metadata.tables["paper_sessions"],
                 ],
             )
+            add_missing_columns(engine, "paper_sessions", SESSION_COLUMNS_ADDED)
             logger.info("Paper trading cloud tables ensured.")
         except Exception as exc:
             logger.warning("Could not create paper cloud tables: %s", exc)

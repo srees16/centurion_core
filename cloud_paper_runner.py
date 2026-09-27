@@ -487,8 +487,22 @@ def _week_session_count(pt, checkpoint: dict) -> int:
         return 0
 
 
+def _drawdown_prefix(plan) -> str:
+    """'DRAWDOWN RULE halt (21.3% below peak): no new entries; ' outside the normal state."""
+    state = str(getattr(plan, "drawdown_state", "normal") or "normal")
+    if plan is None or state == "normal":
+        return ""
+    effect = {"halt": "no new entries or adds", "half": "core exposure halved, no adds",
+              "risk_off": "core book to cash / metals"}.get(state, state)
+    return f"DRAWDOWN RULE {state} ({float(getattr(plan, 'drawdown_pct', 0.0)):.1f}% below peak): {effect}; "
+
+
 def _session_outcome(plan, queued: int, fills: dict, stops: int, rebalance: bool) -> str:
     """One sentence for the trade monitor: what this session did, or why it did nothing."""
+    return (_drawdown_prefix(plan) + _session_outcome_body(plan, queued, fills, stops, rebalance))[:200]
+
+
+def _session_outcome_body(plan, queued: int, fills: dict, stops: int, rebalance: bool) -> str:
     filled, cancelled = len(fills.get("filled", [])), len(fills.get("cancelled", []))
     parts = []
     if filled:
@@ -546,6 +560,8 @@ def _record_session_activity(pt, session: dict, snapshot: dict, plan, queued: in
             "shift_multiplier": float(plan.shift_multiplier) if plan is not None else 1.0,
             "outcome": _session_outcome(plan, queued, fills, stops, rebalance)[:200],
             "notes": "; ".join(notes)[:500],
+            "drawdown_state": str(getattr(plan, "drawdown_state", "normal") or "normal") if plan is not None else "normal",
+            "drawdown_pct": float(getattr(plan, "drawdown_pct", 0.0) or 0.0) if plan is not None else 0.0,
         })
     except Exception as exc:                              # noqa: BLE001 - reporting only
         logger.warning("Session activity not recorded: %s", exc)
@@ -588,6 +604,15 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict) -
         verdict = shift.get("position_verdict") or shift.get("effective_verdict") or shift.get("verdict")
         if verdict in ("drifting", "regime_break"):
             alerts.append(f"Distribution shift: {verdict} (size multiplier {shift.get('position_size_multiplier', shift.get('multiplier', '—'))})")
+        dd_state = str(getattr(plan, "drawdown_state", "normal") or "normal") if plan is not None else "normal"
+        dd_pct = float(getattr(plan, "drawdown_pct", 0.0) or 0.0) if plan is not None else 0.0
+        dd_line = None
+        if plan is not None and dep is not None and getattr(dep, "drawdown_rule", None) is not None:
+            dd_line = f"{dd_state} · {dd_pct:.1f}% below the episode peak"
+            if getattr(plan, "drawdown_changed", False):
+                alerts.append(f"DRAWDOWN RULE changed to {dd_state.upper()} at {dd_pct:.1f}% below the peak: "
+                              + _drawdown_prefix(plan).split(": ", 1)[-1].rstrip("; ") if dd_state != "normal"
+                              else f"DRAWDOWN RULE re-armed: back to normal (new 60-session equity high)")
         sent = NotificationManager().email_engine_daily_report({
             "session": session.get("session"),
             "deployment": f"{dep.status} · paper since {dep.paper_start_date}",
@@ -605,6 +630,8 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict) -
             "notes": list(session.get("notes", [])) + (
                 [f"shift multiplier {plan.shift_multiplier:.2f}"] if plan and plan.shift_multiplier != 1.0 else []),
             "alerts": alerts,
+            "drawdown_rule": dd_line,
+            "drawdown_state": dd_state,
         })
         if not sent:
             logger.warning("Daily email returned False — check CENTURION_EMAIL_USER / CENTURION_EMAIL_PASS / "

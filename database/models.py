@@ -895,6 +895,8 @@ class PaperSessionRecord(Base):
     shift_multiplier = Column(Float, default=1.0)
     outcome = Column(String(200), default='')     # a sentence: why nothing traded, or what did
     notes = Column(Text, default='')
+    drawdown_state = Column(String(12), default='normal')   # nse_engine.drawdown rule state at the decision
+    drawdown_pct = Column(Float, default=0.0)               # book drawdown from the episode peak, %
 
 
 class PaperWeeklyCheckpointRecord(Base):

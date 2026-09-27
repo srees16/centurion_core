@@ -20,10 +20,23 @@ Scope: NSE equities and NSE-listed metal ETFs only. No BTC, US stocks or options
   of median traded value. Per-side statutory costs follow the historical
   schedule. Gross exposure is at most 1 (CNC); idle cash earns a yield.
 - **Honest statistics.** Sharpe uses excess returns over the risk-free rate
-  and sqrt(252). Every run is recorded (config hash, git commit, data hash,
-  daily returns), so PBO and DSR cover every configuration ever evaluated.
+  and sqrt(252); CAGR compounds over calendar years (days / 365.25) in the
+  engine, the validation reports and the paper book alike — never sessions
+  / 252, which overstates NSE figures by about 0.4 points a year. Every run
+  is recorded (config hash, git commit, data hash, daily returns), so PBO
+  and DSR cover every configuration ever evaluated.
 - **No in-sample tuning tables.** Signal-group weights are fixed and
   hand-set. Parameter choice happens only inside walk-forward folds.
+- **Drawdown rule (opt-in).** `nse_engine.drawdown` reads the book's own
+  equity, not the market: beyond a drawdown from the episode peak it stops
+  new entries and adds (`halt`), then scales core exposure down (`half`),
+  then takes the core to zero (`risk_off`); it re-arms on a new
+  `rearm_sessions`-session equity high. It is a pure function of the equity
+  history, so live replays it from daily snapshots and cannot drift from the
+  backtest. Off by default (`DrawdownConfig.enabled`, hash-neutral). Measured
+  on the honest baseline (E2, 27 Sep 2026): at 20/30/35% it lifts Calmar
+  0.92 → 0.99 and trims MaxDD 24.7% → 23.2% with CAGR unchanged; at 15/25/30%
+  it whipsaws through 2015 and lowers Calmar to 0.86.
 - **Anchor independence (opt-in).** With the legacy settings a decision
   depends on where the data was loaded from: rebalance, universe-refresh and
   FDM-refresh days were counted from the first loaded row, forecast
@@ -64,6 +77,7 @@ nse_engine/
   universe.py          point-in-time liquidity universe
   signals.py           fast_trend, slow_trend, low_vol forecasts; FDM; combine
   regime.py            NIFTY trend + breadth + India VIX regime
+  drawdown.py          drawdown rule from the book's own equity (halt / half / risk_off)
   portfolio.py         core selection, weights, rank-drop exits, trailing stops
   sleeves.py           gold / silver ETF trend sleeves
   allocator.py         core vs metals risk budget, gross <= 1
@@ -119,7 +133,11 @@ back-adjusted (`DataConfig.adjust_dividends`; False gives price-only series).
 ```python
 generate_targets(data: MarketData, config: EngineConfig, as_of: pd.Timestamp,
                  holdings: Mapping[str, Holding] | None = None,
-                 cache: EngineCache | None = None) -> TargetPortfolio
+                 cache: EngineCache | None = None, *, equity: float | None = None,
+                 stopped_out: Mapping[str, pd.Timestamp] | None = None,
+                 drawdown: DrawdownDecision | None = None) -> TargetPortfolio
+DrawdownTracker(cfg.drawdown).update(equity) -> DrawdownDecision   # once per session close
+replay(equity: pd.Series, cfg.drawdown) -> pd.DataFrame            # the same, over a history
 
 run_backtest(data: MarketData, config: EngineConfig, *, record: bool = True,
              tag: str = "", lag_days: int = 0) -> BacktestResult
@@ -128,18 +146,26 @@ run_backtest(data: MarketData, config: EngineConfig, *, record: bool = True,
 `run_backtest` calls `generate_targets` on every decision day, so live and
 backtest share identical logic. `EngineCache` holds the causal indicator
 panels so that `generate_targets` is not recomputed from scratch each day.
-`lag_days` delays execution by N extra sessions (lag sensitivity).
+`lag_days` delays execution by N extra sessions (lag sensitivity). With
+`config.drawdown.enabled` the backtest runs the drawdown rule on its own
+equity and passes each day's `DrawdownDecision` to `generate_targets`, which
+blocks new names and adds outside `normal`, multiplies the regime scale by
+the rule's scale and forces a rebalance on a state change; the per-session
+states are kept in `BacktestResult.daily_state` and written to `drawdown.csv`.
 
 Run directory layout (`config.runs_dir/<run_id>/`):
 `config.json`, `manifest.json` (run_id, tag, config_hash, git_commit,
-git_dirty, data_hash, start, end, created_at, metrics), `returns.csv`
-(date, return), `equity.csv`, `trades.csv`, `weights.parquet`.
+git_dirty, data_hash, start, end, created_at, metrics, lag_days, and
+`refresh_of` when the run reproduces an earlier one after a store rebuild),
+`returns.csv` (date, return), `equity.csv`, `trades.csv`, `weights.parquet`.
+`run_backtest(..., manifest_extra={...})` adds fields to the manifest.
 
 ### Validation (`nse_engine.validation`)
 
 ```python
 TrialRegistry(runs_dir).list_trials() -> pd.DataFrame
 TrialRegistry(runs_dir).returns_matrix(start=None, end=None, dedupe_config=True) -> pd.DataFrame  # date x run_id
+refresh_registry(registry, data, from_hash, window, dry_run=False) -> dict  # re-run same-window configs on new data
 cscv_pbo(returns_matrix: pd.DataFrame, n_splits: int = 16) -> dict  # pbo, logits, n_combinations, ...
 deflated_sharpe(returns: pd.Series, trials_matrix: pd.DataFrame | None = None,
                 n_trials: float | None = None, rf_annual: float = 0.0) -> dict
@@ -155,10 +181,24 @@ benchmark_gate(returns: pd.Series, benchmarks: dict, margin: float = 0.3, rf_ann
 
 ```python
 EngineExecutor(kite=None, paper: bool = True, config: EngineConfig | None = None,
-               target_fn=generate_targets, data_loader=load_market_data)
+               target_fn=generate_targets, data_loader=load_market_data,
+               equity_history_fn=None, drawdown_rule=None)
     .plan(as_of=None) -> ExecutionPlan    # orders + GTT stop instructions, no side effects
+    .drawdown_decision(as_of, equity) -> (DrawdownDecision | None, replay frame | None)
     .execute(plan) -> list[dict]          # CNC orders via order_service; GTT stops
 ```
+The deployment file may carry a **risk overlay**: `risk_overlay.drawdown_rule`
+(a `DrawdownConfig`, adopted from E2 at halt 20% / half 30% / risk-off 35%,
+re-arm on a 60-session high). It is not part of `engine`, so the strategy keeps
+its config hash and its recorded trials. Every session `plan()` replays the
+rule over the book's equity history (paper: the daily snapshots restored from
+Neon; live: an injected `equity_history_fn`) plus today's mark, passes the
+decision to `generate_targets`, and records the state on the plan
+(`drawdown_state`, `drawdown_scale`, `drawdown_pct`, `drawdown_changed`),
+in `paper_sessions`, in the daily email (subject tag and a red alert on every
+change) and on the monitor's session card. `promote` carries the overlay over
+to the next deployment.
+
 
 Real orders require `CENTURION_PAPER_TRADE=false` and `CENTURION_NSE_ENGINE_LIVE=true`.
 

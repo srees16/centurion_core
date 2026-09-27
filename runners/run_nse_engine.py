@@ -8,6 +8,7 @@ Command-line entry point for the NSE engine.
     python -m runners.run_nse_engine validate --run-id <run_id>
     python -m runners.run_nse_engine walk-forward --grid '{"portfolio.target_positions": [15, 20, 30]}'
     python -m runners.run_nse_engine holdout --start 2026-01-01 --end 2026-09-11
+    python -m runners.run_nse_engine refresh-registry --dry-run   # after a store rebuild
 
 Every backtest is recorded under ``EngineConfig.runs_dir`` so that PBO and the
 deflated Sharpe ratio cover every configuration ever evaluated.
@@ -101,6 +102,47 @@ def cmd_build_store(args) -> None:
     _print_json(build_store(ARCHIVE_DIR, cfg.data.store_dir))
     sectors = build_sector_map(ARCHIVE_DIR)
     print(f"sector map: {len(sectors)} symbols")
+    if getattr(args, "skip_registry_check", False):
+        print("registry fingerprint check skipped (--skip-registry-check)")
+        return
+    registry_check_after_rebuild(cfg)
+
+
+def registry_check_after_rebuild(cfg: EngineConfig) -> dict:
+    """Did the rebuild change the data fingerprint the trial registry sits on?
+
+    Loads the validation window, compares its hash with the one the registry
+    was last extended on and, when they differ, prints the dry-run refresh
+    plan and the command to run.  Called by ``build-store``; safe to call by
+    hand.  Never raises: a rebuild must not fail because of the check.
+    """
+    from nse_engine.validation.trials import TrialRegistry, fingerprint_status, refresh_registry
+
+    registry = TrialRegistry(cfg.runs_dir)
+    window = (cfg.start, cfg.end)
+    try:
+        data = _load_data(cfg)
+        status = fingerprint_status(registry, window, data.data_hash)
+    except Exception as exc:  # noqa: BLE001 - report, do not fail the rebuild
+        print(f"registry fingerprint check could not run: {exc}")
+        return {"changed": None, "error": str(exc)}
+    if status["registry_hash"] is None:
+        print(f"registry fingerprint check: no recorded runs on {cfg.start}..{cfg.end}; nothing to compare")
+    elif not status["changed"]:
+        print(f"registry fingerprint check: unchanged ({status['current_hash']}); the registry is continuous")
+    else:
+        report = refresh_registry(registry, data, status["registry_hash"], window, dry_run=True)
+        print("=" * 72)
+        print(f"STORE FINGERPRINT CHANGED: {status['registry_hash']} -> {status['current_hash']}")
+        print(f"  {status['n_configurations_on_registry_hash']} configurations on {cfg.start}..{cfg.end} sit on the "
+              f"old hash, {status['n_configurations_on_current_hash']} on the new one; {report['n_planned']} to re-run.")
+        print("  Any run recorded now would meet no prior configurations (no PBO, DSR at N=1).")
+        print("  Before recording anything, run:")
+        print("      python -m runners.run_nse_engine refresh-registry --dry-run")
+        print("      python -m runners.run_nse_engine refresh-registry")
+        print("=" * 72)
+        status["dry_run"] = {k: v for k, v in report.items() if k != "rows"}
+    return status
 
 
 def cmd_backtest(args) -> None:
@@ -159,6 +201,66 @@ def cmd_validate(args) -> None:
     out = run_dir / "validation.json"
     out.write_text(json.dumps(report, indent=2, default=str))
     print(f"saved {out}")
+
+
+def cmd_refresh_registry(args) -> None:
+    """Re-run every same-window configuration on the current store after its
+    data fingerprint changed, check the returns reproduce, and compare PBO and
+    the deflated Sharpe before and after."""
+    from nse_engine.validation.dsr import deflated_sharpe
+    from nse_engine.validation.pbo import cscv_pbo
+    from nse_engine.validation.trials import (TrialRegistry, refresh_plan, refresh_registry, registry_hash,
+                                              to_jsonable)
+
+    cfg = _build_config(args)
+    registry = TrialRegistry(cfg.runs_dir)
+    window = (cfg.start, cfg.end)
+    from_hash = args.from_hash
+    if not from_hash:
+        from_hash = registry_hash(registry, window)
+        if not from_hash:
+            raise SystemExit(f"no recorded runs on {cfg.start}..{cfg.end}")
+        print(f"from-hash not given: using {from_hash}, the hash of the latest recorded run on this window")
+    data = _load_data(cfg, data_start=getattr(args, "data_start", None))
+    print(f"store fingerprint now {data.data_hash}; recorded runs carry {from_hash}")
+    if data.data_hash == from_hash:
+        print("the fingerprint has not changed; the registry is continuous, nothing to refresh")
+        return
+    print(f"configurations to refresh: {len(refresh_plan(registry, from_hash, window, skip_hash=data.data_hash))}"
+          f" of {len(refresh_plan(registry, from_hash, window))}")
+    report = refresh_registry(registry, data, from_hash, window, dry_run=args.dry_run,
+                              limit=args.limit, tolerance=args.tolerance, log=print)
+    if args.dry_run:
+        _print_json({k: v for k, v in report.items() if k != "rows"})
+        for row in report["rows"]:
+            print(f"  {row['config_hash'][:8]}  lag {row['lag_days']}  {row['tag']}  ({row['run_id']})")
+        return
+
+    # PBO and DSR on both fingerprints: the refresh must not move them.
+    checks = {}
+    for label, h in (("before", from_hash), ("after", data.data_hash)):
+        mat = registry.returns_matrix(data_hash=h, window=window)
+        out = {"n_configurations": int(mat.shape[1])}
+        if mat.shape[1] >= 2:
+            out["pbo"] = float(cscv_pbo(mat, n_splits=args.splits)["pbo"])
+            out["dsr"] = {col.split("_")[-1]: float(deflated_sharpe(mat[col], trials_matrix=mat,
+                                                                     rf_annual=cfg.risk_free_annual)["dsr"])
+                          for col in mat.columns}
+        checks[label] = out
+    before, after = checks["before"], checks["after"]
+    summary = {"pbo_before": before.get("pbo"), "pbo_after": after.get("pbo")}
+    common = set(before.get("dsr", {})) & set(after.get("dsr", {}))
+    if common:
+        summary["max_abs_dsr_change"] = max(abs(after["dsr"][k] - before["dsr"][k]) for k in common)
+        summary["dsr_configs_compared"] = len(common)
+    report["checks"] = checks
+    report["summary"] = summary
+    out = Path(cfg.runs_dir).parent / f"registry_refresh_{from_hash}_{data.data_hash}.json"
+    out.write_text(json.dumps(to_jsonable(report), indent=2))
+    _print_json({k: v for k, v in report.items() if k not in ("rows", "checks")})
+    print(f"saved {out}")
+    if not report.get("all_identical"):
+        raise SystemExit("some configurations did not reproduce; see the report")
 
 
 def cmd_walk_forward(args) -> None:
@@ -257,6 +359,14 @@ def cmd_promote(args) -> None:
     }
     out = resolve_path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
+    if out.exists():   # the risk overlay (drawdown rule) belongs to the deployment, not to the run
+        try:
+            previous = json.loads(out.read_text())
+            if previous.get("risk_overlay"):
+                deployment["risk_overlay"] = previous["risk_overlay"]
+                print("kept the risk overlay of the previous deployment")
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"previous deployment unreadable, no risk overlay carried over: {exc}")
     out.write_text(json.dumps(deployment, indent=2) + "\n")
     dep = load_deployment(out)  # validates the file we just wrote
     print(f"promoted {args.run_id} -> {out} (config {dep.engine.config_hash()}, paper from {dep.paper_start_date})")
@@ -354,7 +464,10 @@ def main(argv=None) -> None:
     p.add_argument("--rps", type=float, default=2.0)
     p.set_defaults(func=cmd_sync)
 
-    p = sub.add_parser("build-store", help="parse archives into parquet and build the sector map")
+    p = sub.add_parser("build-store", help="parse archives into parquet and build the sector map; "
+                                           "then check the trial registry's data fingerprint")
+    p.add_argument("--skip-registry-check", action="store_true",
+                   help="do not compare the rebuilt store's fingerprint with the trial registry")
     p.set_defaults(func=cmd_build_store)
 
     p = sub.add_parser("backtest", help="run and record a backtest")
@@ -368,6 +481,17 @@ def main(argv=None) -> None:
     p.add_argument("--splits", type=int, default=16)
     p.add_argument("--margin", type=float, default=0.3)
     p.set_defaults(func=cmd_validate)
+
+    p = sub.add_parser("refresh-registry",
+                       help="after a store rebuild changed the data fingerprint: re-run every "
+                            "same-window configuration, verify the returns reproduce, compare PBO/DSR")
+    add_config_args(p)
+    p.add_argument("--from-hash", help="data hash the runs were recorded on (default: the most common one)")
+    p.add_argument("--dry-run", action="store_true", help="list what would run; write nothing")
+    p.add_argument("--limit", type=int, help="refresh at most this many configurations (resumable)")
+    p.add_argument("--tolerance", type=float, default=1e-9, help="max daily return difference to call identical")
+    p.add_argument("--splits", type=int, default=16, help="CSCV blocks for the PBO comparison")
+    p.set_defaults(func=cmd_refresh_registry)
 
     p = sub.add_parser("walk-forward", help="anchored walk-forward re-fitting")
     add_config_args(p)
