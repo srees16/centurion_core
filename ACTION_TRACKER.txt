@@ -139,6 +139,21 @@ OWNER     YOU = your action or decision    CLAUDE = code/research via prompt
 --------------------------------------------------------------------------------
  6. DONE [x] — most recent first
 --------------------------------------------------------------------------------
+[x] 26 Sep  G15  Week-2 report analysis found three faults, all fixed:
+                 (1) late backup runs re-planned 25 Sep and overwrote its
+                 session record with zeros, so the day the book actually traded
+                 read "held" - a re-plan now leaves the record alone;
+                 (2) a partial sale stamped the sold shares with the time of the
+                 trim, giving "opened 21:50, closed 09:15" and an average
+                 holding period of -0.5 days - the trim now keeps the parent
+                 lot's entry time (plus 1 microsecond so the row stays a
+                 distinct key);
+                 (3) the report printed a 7-session Sharpe of 4.51 and a weekly
+                 Sharpe of 2.29 as if they meant something - ratios now read
+                 "n/a (7 sessions)" until 20 sessions, the weekly Sharpe says
+                 how many sessions it came from, and the subject line carries
+                 return, trades and session count instead of a Sharpe.
+                 3 new tests, suite 98.
 [x] 25 Sep  B5   Dependency risk fixed after it stopped the book. SQLAlchemy
                  2.1 changed which driver a bare postgresql:// URL resolves to
                  (psycopg v3, not installed), so every run died before reaching

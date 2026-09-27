@@ -82,6 +82,14 @@ def session_open_timestamp(session_date) -> str:
     return f"{pd.Timestamp(session_date).date().isoformat()}T{SESSION_OPEN_TIME}+05:30"
 
 
+def _microsecond_after(opened_at: str) -> str:
+    """``opened_at`` nudged by one microsecond: same entry time, distinct key."""
+    try:
+        return (pd.Timestamp(opened_at) + pd.Timedelta(microseconds=1)).isoformat()
+    except Exception:                                     # noqa: BLE001 - unparseable: fall back
+        return datetime.now(_IST).isoformat()
+
+
 def _opened_at_session_open(opened_at: str) -> bool:
     return str(opened_at)[10:19] == "T" + SESSION_OPEN_TIME
 
@@ -965,7 +973,13 @@ class PaperTrader:
         """Sell ``quantity`` (default: all) of ``symbol``, oldest lots first.
 
         A partial lot sale shrinks the open lot in place and books the sold
-        shares as a separate closed row (opened_at = time of the trim).
+        shares as a separate closed row, which keeps the parent lot's entry
+        time (plus a microsecond, so the row stays distinguishable from the
+        parent for the (symbol, opened_at) keys used locally and in Neon).
+        Stamping the trim with "now" made holding periods negative: the first
+        partial sale of the paper book, RBLBANK on 25 Sep 2026, was reported as
+        opened at 21:50 and closed at 09:15 the same day, and the weekly report
+        showed an average holding period of -0.5 days.
         Engine fills pass ``apply_slippage=False`` (impact already in
         ``price``), the fill time ``when`` and the order-level statutory cost
         ``total_sell_cost`` (pro-rated over lots, so the DP charge is paid once).
@@ -1001,7 +1015,8 @@ class PaperTrader:
             trim = PaperPosition(symbol=symbol, side=lot.side, quantity=remaining,
                                  entry_price=lot.entry_price, stop_loss=lot.stop_loss,
                                  target_price=lot.target_price,
-                                 opened_at=datetime.now(_IST).isoformat(), peak_price=lot.peak_price)
+                                 opened_at=_microsecond_after(lot.opened_at),
+                                 peak_price=lot.peak_price)
             lot.quantity -= remaining
             self._update_quantity_db(lot)
             self._save_position(trim)
