@@ -253,7 +253,9 @@ class TestSessionActivity:
             def sync_session(self, row): captured.update(row); return True
 
         pt = type("PT", (), {"_get_cloud": lambda self: Cloud(), "cash": 50_000.0})()
-        session = {"session": "2026-09-23", "notes": [], "stops": list(stops)}
+        # fills present = a freshly processed session (a re-plan has fills=None)
+        session = {"session": "2026-09-23", "notes": [], "stops": list(stops),
+                   "fills": fills or {}}
         snapshot = {"equity": 3_621_800.0, "open_positions": 21}
         runner._record_session_activity(pt, session, snapshot, plan, queued, fills or {})
         return captured
@@ -277,6 +279,22 @@ class TestSessionActivity:
         assert row["stops_triggered"] == 1
         assert "filled at the open" in row["outcome"]
 
+    def test_a_replan_does_not_overwrite_what_the_session_did(self, monkeypatch):
+        """25 Sep 2026: four late backups re-planned and zeroed the day's 2 fills."""
+        import cloud_paper_runner as runner
+
+        written = []
+
+        class Cloud:
+            def sync_session(self, row): written.append(row); return True
+
+        pt = type("PT", (), {"_get_cloud": lambda self: Cloud(), "cash": 0.0})()
+        replan = {"session": "2026-09-25", "notes": ["already processed"], "stops": [],
+                  "fills": None}
+        runner._record_session_activity(pt, replan, {"equity": 1.0, "open_positions": 22},
+                                        self._Plan(notes=[]), 0, {})
+        assert written == [], "a re-plan must leave the recorded session alone"
+
     def test_recording_never_breaks_a_session(self, monkeypatch):
         import cloud_paper_runner as runner
 
@@ -284,7 +302,8 @@ class TestSessionActivity:
             def sync_session(self, row): raise RuntimeError("neon down")
 
         pt = type("PT", (), {"_get_cloud": lambda self: Broken(), "cash": 0.0})()
-        runner._record_session_activity(pt, {"session": "2026-09-23", "notes": [], "stops": []},
+        runner._record_session_activity(pt, {"session": "2026-09-23", "notes": [], "stops": [],
+                                             "fills": {}},
                                         {"equity": 1.0, "open_positions": 0},
                                         self._Plan(notes=[]), 0, {})      # must not raise
 
@@ -381,3 +400,38 @@ class TestDeploymentContext:
                 continue
             for name in included:
                 assert name in text, f"{docker.name} installs requirements.txt but never copies {name}"
+
+
+class TestPartialClose:
+    """G16: selling part of a lot must keep the entry time of the shares sold.
+
+    The first partial sale in the paper book (RBLBANK, 25 Sep 2026) was stamped
+    with the time of the trim, so the closed trade read "opened 21:50, closed
+    09:15" and the weekly report showed an average holding period of -0.5 days.
+    """
+
+    def test_a_trimmed_lot_keeps_its_entry_time(self, tmp_path, monkeypatch):
+        import kite_connect.trading.paper_trader as ptmod
+        monkeypatch.setattr(ptmod, "_DB_PATH", tmp_path / "paper.sqlite3")
+
+        class Cloud:
+            def sync_position(self, pos): return True
+            def sync_state(self, values): return True
+            def read_state(self): return {}
+
+        pt = ptmod.PaperTrader(kite=None, initial_capital=1_000_000)
+        pt._get_cloud = lambda: Cloud()
+        entry = "2026-09-17T09:15:00+05:30"
+        pt._open_lot("AAA", 100, 1000.0, 900.0, 50.0, entry, "entry")
+        events = pt.close_position("AAA", quantity=40, price=1100.0,
+                                   when="2026-09-25T09:15:00+05:30", reason="REBALANCE")
+        assert events, "the partial sale booked nothing"
+        sold = next(p for p in pt._positions if not p.is_open)
+        assert sold.quantity == 40
+        assert sold.opened_at.startswith("2026-09-17T09:15:00"), sold.opened_at
+        assert sold.opened_at != entry, "the row must stay distinguishable from the parent lot"
+        # the microsecond offset makes this 7d 23:59:59.999999, so round it
+        held = round((pd.Timestamp(sold.closed_at) - pd.Timestamp(sold.opened_at)).total_seconds() / 86400)
+        assert held == 8, f"holding period should be 8 days, got {held}"
+        parent = next(p for p in pt._positions if p.is_open)
+        assert parent.quantity == 60 and parent.opened_at == entry
