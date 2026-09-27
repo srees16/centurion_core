@@ -125,6 +125,12 @@ Gates (Section 2) plus: at most 3 of 9 OOS years negative; OOS / IS Sharpe
 ratio ≥ 0.5. The configuration chosen by the most recent fold is the
 candidate.
 
+**Superseded 27 Sep 2026 (§5d, tracker K5).** Every walk-forward above ran
+without a NIFTY 50 trend reading for 2014–2016. On complete data the same
+grid picks the deployed settings in 1 of 9 folds, and the last five folds
+(2021–2025) pick a neutral scale of 0.6; stitched OOS 2017–2025 is Sharpe
+1.19, CAGR 22.0%, MaxDD −22.5% (local, B1 base).
+
 ## 5. Stage C — Holdout (2026-01-01 → last complete session)
 
 One evaluation only (enforced by `data/nse_engine/holdout.lock`).
@@ -225,6 +231,76 @@ when they differ prints the dry-run plan and the two commands above. Nothing
 is recorded until `refresh-registry` has run. `python -m nse_engine.data.store`
 prints the same reminder. `--skip-registry-check` turns the check off.
 
+## 5d. NIFTY 50 gaps: the regime gate's trend leg (found 27 Sep 2026)
+
+NSE's daily index files lack NIFTY 50 on 47 sessions in the main store's
+range: 2 Jan–20 Feb 2012 and 12 scattered days from 2013-10-09 to
+2016-06-20. The regime gate's trend test needs a 200-session mean with no
+gaps, so each missing day left the trend undefined for the next 200
+sessions: **for all of 2014, 2015 and 2016, 23% of 2013 and 27% of 2017,
+every validated backtest ran the regime gate without its trend leg** (the
+state then defaults to neutral). The live book is unaffected: its 200-day
+window has had no gaps since mid-2017.
+
+Measured on the honest baseline `bd79bf28` with the gaps filled in memory
+(unrecorded run):
+
+| | Sharpe | CAGR | MaxDD | 2014 / 2015 / 2016 regime states |
+|---|---|---|---|---|
+| As validated | 1.140 | 22.75% | −24.7% | 100% neutral each year |
+| Gaps filled | 1.144 | 22.79% | −24.7% | mostly risk-on; 2016: 14% risk-off |
+
+The deployed configuration barely moves because it holds full exposure in
+both risk-on and neutral. The grid configurations with a neutral scale of
+0.6 do move: they were held at 60% through the 2014 bull run, so the
+walk-forward's preference for a neutral scale of 1.0 was partly an artefact
+of the gap. The fix (tracker K5) fills the main store from the same cache,
+puts `index_close` in the data fingerprint so blind and complete runs can
+never share a hash, refreshes the registry and re-runs the walk-forward.
+The extended store (`store_ext2006`, K4) already carries the complete series:
+with it the gate turns risk-off on 23 Jan 2008, two weeks after NIFTY's
+peak, and stays risk-off for 90% of 2008; without it, 43%, from March.
+
+**Fixed 27 Sep 2026 (K5).** The main store has the same cache (45 sessions
+from Yahoo `^NSEI`, one Saturday session carried forward; 2 Jan 2012 has
+no source and only delays the first 200-day mean by a session), and
+`MarketData.compute_hash()` now covers the index closes, so the fingerprint
+moved from `5485474397ef3a5f` to `6c94f4f4cc54041b`. `refresh-registry`
+re-ran all 46 same-window configurations; none reproduced, as expected.
+
+| Configuration, 2013–2025 | Sharpe before → after | CAGR after | MaxDD after |
+|---|---|---|---|
+| Baseline `bd79bf28` (B1) | 1.140 → 1.144 | 22.79% | −24.7% |
+| Deployed `679cbd0c` (legacy filter) | 1.219 → 1.187 | 23.49% | −25.0% |
+| E1 refill `942760af` | 1.211 → 1.195 | 24.39% (still fails ≥ 25%) | −25.3% |
+| E2 B `893e041f` (the live rule) | 1.156 → 1.155 | 22.86% (still passes) | −23.3% |
+| E2 A `9824859d` | 1.147 → 1.086 | 21.39% (still fails) | −33.8% |
+
+Neutral-0.6 configurations gained 0.019 Sharpe on average, full-exposure ones
+lost 0.011. PBO over the 46 configurations: 41.0% → 45.4%.
+
+The walk-forward, re-run on this machine (same 32-point grid, anchored,
+B1 base, 297 backtests, 29 minutes):
+
+| | 18 Sep (gaps) | 27 Sep (complete) |
+|---|---|---|
+| OOS Sharpe / mean IS | 1.26 / 0.94 | 1.19 / 0.98 |
+| OOS CAGR (calendar) / MaxDD | ~23.4% / −23.7% | 22.0% / −22.5% |
+| Folds choosing the deployed settings | 7 of 9 | 1 of 9 (2018) |
+| Other choices | neutral 0.6 in 2022, 2024 | monthly rebalance 2017, 2019, 2020; neutral 0.6 in every fold 2021–2025 |
+
+OOS years: 2017 +40.3%, 2018 −11.0%, 2019 +5.5%, 2020 +23.6%, 2021 +81.5%,
+2022 −5.0%, 2023 +28.9%, 2024 +22.7%, 2025 +34.2% (3 of 9 at or below the
+risk-free rate). Files: `data/nse_engine/wf_stitched_k5.json`,
+`data/nse_engine/wf_oos_returns_k5.csv`.
+
+By the protocol (§4) the most recent fold's choice is the candidate: the B1
+baseline with `regime.scale_neutral = 0.6` (`2d64ba4c`). Full period
+2013–2025: Sharpe 1.189, CAGR 22.27%, MaxDD −23.4%, Calmar 0.953, average
+gross 0.81; validate: PBO 49.4% over 47 configurations, deflated Sharpe
+0.989, benchmark gate passed. Whether it takes the second paper slot is
+decision U21 in the tracker; the deployed configuration is unchanged.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast
@@ -270,6 +346,16 @@ Setup:
    engine marks `book_owner=nse_engine`, which switches off the legacy paper
    jobs in the Hugging Face scheduler that would otherwise overwrite the
    day's snapshot with a stale copy.
+
+**Second slot (D1, 28 Sep 2026).** The candidate from §5d (`2d64ba4c`, neutral
+scale 0.6) paper-trades beside the deployed book from the first session after
+the merge, from ₹35 lakh, in its own Neon schema, with the same drawdown rule,
+reports and gates. Under the forward gate (U19) it replaces the deployed
+configuration only after at least 60 sessions, a G4 PASS and a walk-forward
+OOS Sharpe within 0.05 of base (V3 automates the check). The trial is
+informative from the first day: the regime read neutral on 74% of 2026's
+sessions and on all of the last 20, and in neutral the candidate holds 60%
+of the core book where the deployed book holds 100%.
 
 Where to watch: https://centurion-core-fe.vercel.app/ind-stocks/trade-monitor —
 active positions and orders pending for the next open, closed trades with
@@ -443,8 +529,9 @@ every configuration recorded (so PBO/DSR count them):
    its own pre-registered walk-forward and paper trading (tracker U20).
 
 Not on the list, on purpose: re-optimising signal weights (R21A's 247% data-
-mining bias estimate came from exactly that), leverage (MTF at ≈ 14.6%/yr
-roughly doubles drawdown for the CAGR it adds), and anything tuned on 2026.
+mining bias estimate came from exactly that), leverage (MTF at 14.6%/yr adds
+0.5–0.75 CAGR points per 0.1× for about 3 points of MaxDD — see
+`docs/leverage_due_diligence.md`, 27 Sep 2026), and anything tuned on 2026.
 
 All research folds run on Kaggle (`docs/kaggle_research.md`): results do not
 reproduce across platforms, so a walk-forward is compared only with

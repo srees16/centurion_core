@@ -17,8 +17,10 @@ Pipeline (``load_market_data``):
    as well (total-return prices, volumes untouched) - see
    ``dividend_multipliers``;
 7. attach delivery %, ETF set, sectors and index closes (India VIX gaps
-   back-filled from yfinance ``^INDIAVIX``; ``NIFTY50_TRI`` derived from NSE's
-   Nifty 50 dividend-points index - NSE's daily files carry no TRI series).
+   back-filled from yfinance ``^INDIAVIX``; NIFTY 50 gaps before Feb 2012
+   from the cached external history, ``nse_engine.data.external``;
+   ``NIFTY50_TRI`` derived from NSE's Nifty 50 dividend-points index - NSE's
+   daily files carry no TRI series).
 """
 
 from __future__ import annotations
@@ -724,16 +726,21 @@ def fetch_yf_vix(start: pd.Timestamp, end: pd.Timestamp, cache_path: Optional[Pa
     return close
 
 
-def backfill_vix(index_close: pd.DataFrame, vix: pd.Series) -> Tuple[pd.DataFrame, int]:
-    """Fill missing INDIAVIX from ``vix`` aligned by date (no forward-filling)."""
-    if "INDIAVIX" not in index_close or vix is None or vix.empty:
+def backfill_column(index_close: pd.DataFrame, column: str, series: pd.Series) -> Tuple[pd.DataFrame, int]:
+    """Fill missing ``column`` values from ``series`` aligned by date (no forward-filling)."""
+    if column not in index_close or series is None or series.empty:
         return index_close, 0
     out = index_close.copy()
-    gap = out["INDIAVIX"].isna()
-    fill = vix.reindex(out.index)
+    gap = out[column].isna()
+    fill = series.reindex(out.index)
     n = int((gap & fill.notna()).sum())
-    out.loc[gap, "INDIAVIX"] = fill[gap]
+    out.loc[gap, column] = fill[gap]
     return out, n
+
+
+def backfill_vix(index_close: pd.DataFrame, vix: pd.Series) -> Tuple[pd.DataFrame, int]:
+    """Fill missing INDIAVIX from ``vix`` aligned by date (no forward-filling)."""
+    return backfill_column(index_close, "INDIAVIX", vix)
 
 
 def etf_symbols(store_dir: PathLike, rows: pd.DataFrame, symbols: Sequence[str]) -> frozenset:
@@ -830,6 +837,14 @@ def load_market_data(
         index_close, n_filled = backfill_vix(index_close, vix)
         logger.info("INDIAVIX: %d/%d sessions back-filled from yfinance ^INDIAVIX; %d still missing",
                     n_filled, len(dates), int(index_close["INDIAVIX"].isna().sum()))
+    # Sessions before NSE's daily index files (Feb 2012): cached external history, gaps only
+    from nse_engine.data.external import EXTERNAL_INDEX_FILES, read_index_history
+    for name, fname in EXTERNAL_INDEX_FILES.items():
+        if name in index_close and index_close[name].isna().any():
+            index_close, n_filled = backfill_column(index_close, name, read_index_history(store, name))
+            if n_filled:
+                logger.info("%s: %d sessions back-filled from external/%s; %d still missing", name, n_filled,
+                            fname, int(index_close[name].isna().sum()))
 
     sector_paths = [sector_map_path] if sector_map_path else [DEFAULT_SECTOR_MAP, store / "reference" / "nse_sector_map.json"]
     sector_map = reference.load_sector_map(sector_paths)

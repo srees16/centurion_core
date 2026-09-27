@@ -43,7 +43,11 @@ logger = logging.getLogger(__name__)
 _IST = timezone(timedelta(hours=5, minutes=30))
 SHIFT_MIN_LIVE_DAYS = 30                       # live daily returns before the drift check runs
 SHIFT_STATE_FILENAME = "distribution_shift_state.json"
-_DB_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "paper_trades.sqlite3"
+# CENTURION_PAPER_DB_PATH moves the local copy of the book (a second paper book,
+# tracker D1, runs in the same job and must not share the deployed book's file).
+_DB_PATH = (Path(os.environ["CENTURION_PAPER_DB_PATH"]).expanduser()
+            if os.environ.get("CENTURION_PAPER_DB_PATH")
+            else Path(__file__).resolve().parent.parent.parent / "data" / "paper_trades.sqlite3")
 
 # Fallback statutory cost model (used only if nse_engine.costs is unavailable):
 # per-side STT/exchange/SEBI/stamp/GST ≈ 11 bp, plus a DP charge per sell.
