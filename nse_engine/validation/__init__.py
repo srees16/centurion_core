@@ -3,7 +3,8 @@ Statistical validation for the NSE engine (Phase 2).
 
 Every function works on daily simple returns and daily Sharpe units
 internally; annualised figures use sqrt(252) and excess returns over the
-risk-free rate.  See docs/nse_engine.md for the contracts.
+risk-free rate, and CAGR compounds over calendar years (days / 365.25),
+the same convention as ``nse_engine.metrics``.  See docs/nse_engine.md.
 """
 
 from .benchmarks import benchmark_gate, run_benchmarks, simulate_weights

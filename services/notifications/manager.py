@@ -652,6 +652,10 @@ class NotificationManager:
             ("Cash", inr(report.get("cash"))),
             ("Open positions", str(report.get("open_positions", 0))),
             ("Max drawdown", f"{float(report.get('max_drawdown_pct') or 0):.1f}%"),
+        ] + ([("Drawdown rule", (f"<b style='color:#dc2626;'>{report['drawdown_rule']}</b>"
+                                 if str(report.get("drawdown_state", "normal")) != "normal"
+                                 else str(report["drawdown_rule"])))]
+             if report.get("drawdown_rule") else []) + [
             ("Deployment", str(report.get("deployment", ""))),
         ]
         summary = "".join(f"<tr><td style='{td}color:#666;width:38%;'>{k}</td><td style='{td}'>{v}</td></tr>"
@@ -676,7 +680,9 @@ class NotificationManager:
 </div></body></html>"""
 
         flag = "🔴" if alerts else ("🟢" if pnl >= 0 else "🟠")
-        subject = (f"{flag} Centurion paper {session} — equity {inr(report.get('equity'))[:-3]} "
+        dd_state = str(report.get("drawdown_state", "normal") or "normal")
+        dd_tag = f" [drawdown {dd_state}]" if dd_state != "normal" else ""
+        subject = (f"{flag} Centurion paper {session}{dd_tag} — equity {inr(report.get('equity'))[:-3]} "
                    f"({pnl_pct:+.2f}%) — {len(filled)} filled, {len(stops)} stops, {len(queued)} queued")
         return self._send_html_email(subject, html)
 

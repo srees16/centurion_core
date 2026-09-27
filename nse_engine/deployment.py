@@ -46,12 +46,12 @@ import argparse
 import json
 import os
 import sys
-from dataclasses import MISSING, dataclass, fields, is_dataclass
+from dataclasses import MISSING, asdict, dataclass, fields, is_dataclass
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from nse_engine.config import EngineConfig
+from nse_engine.config import DrawdownConfig, EngineConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PATH = "config/nse_engine_deployed.json"
@@ -62,7 +62,7 @@ STATUS_APPROVED = "approved"
 STATUSES = (STATUS_PLACEHOLDER, STATUS_APPROVED)
 
 REQUIRED_KEYS = ("engine", "paper_start_date", "status")
-OPTIONAL_KEYS = ("source_run_id", "approved_at", "notes", "data_anchor_date")
+OPTIONAL_KEYS = ("source_run_id", "approved_at", "notes", "data_anchor_date", "risk_overlay")
 ALLOWED_KEYS = frozenset(REQUIRED_KEYS + OPTIONAL_KEYS)
 
 #: Years of archive history synced before paper_start_date on a fresh runner
@@ -88,6 +88,11 @@ class Deployment:
     #: from the same anchor the validation runs used (a 2024 vs 2011 anchor gave
     #: 5.9%/yr tracking error for the same config over 2026).
     data_anchor_date: Optional[date] = None
+    #: Drawdown rule applied by the executor on top of the deployed strategy
+    #: (``risk_overlay.drawdown_rule`` in the file; ``nse_engine.drawdown``).  A
+    #: deployment-level overlay, not part of ``engine``: the strategy keeps its
+    #: config hash and its recorded trials.  None = no rule.
+    drawdown_rule: Optional[DrawdownConfig] = None
 
     @property
     def is_placeholder(self) -> bool:
@@ -125,7 +130,8 @@ class Deployment:
                 "paper_start_date": self.paper_start_date.isoformat(),
                 "source_run_id": self.source_run_id, "approved_at": self.approved_at,
                 "config_hash": self.engine.config_hash(), "notes": self.notes,
-                "data_start": self.data_start().isoformat()}
+                "data_start": self.data_start().isoformat(),
+                "drawdown_rule": (asdict(self.drawdown_rule) if self.drawdown_rule else None)}
 
 
 def resolve_path(path: Union[str, Path, None] = None) -> Path:
@@ -201,9 +207,41 @@ def parse_deployment(raw: Any, path: str = "") -> Deployment:
     notes = raw.get("notes") or ""
     if not isinstance(notes, str):
         raise DeploymentError(f"notes{where} must be a string")
+    rule = _parse_risk_overlay(raw.get("risk_overlay"), where)
     return Deployment(engine=engine, paper_start_date=paper_start, status=status,
                       source_run_id=run_id, approved_at=approved_at, notes=notes, path=path,
-                      data_anchor_date=anchor)
+                      data_anchor_date=anchor, drawdown_rule=rule)
+
+
+def _parse_risk_overlay(raw: Any, where: str) -> Optional[DrawdownConfig]:
+    """``risk_overlay.drawdown_rule`` -> DrawdownConfig, or None when absent / disabled."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise DeploymentError(f"risk_overlay{where} must be an object")
+    unknown = sorted(set(raw) - {"drawdown_rule", "adopted", "notes"})
+    if unknown:
+        raise DeploymentError(f"unknown risk_overlay key(s){where}: {unknown}")
+    rule_raw = raw.get("drawdown_rule")
+    if rule_raw is None:
+        return None
+    if not isinstance(rule_raw, dict):
+        raise DeploymentError(f"risk_overlay.drawdown_rule{where} must be an object")
+    bad = _unknown_keys(DrawdownConfig, rule_raw)
+    if bad:
+        raise DeploymentError(f"unknown drawdown_rule key(s){where}: {bad}")
+    try:
+        rule = DrawdownConfig(**rule_raw)
+    except TypeError as exc:
+        raise DeploymentError(f"invalid drawdown_rule{where}: {exc}") from exc
+    if not rule.enabled:
+        return None
+    try:
+        from nse_engine.drawdown import DrawdownTracker
+        DrawdownTracker(rule)                     # validates the thresholds
+    except ValueError as exc:
+        raise DeploymentError(f"invalid drawdown_rule{where}: {exc}") from exc
+    return rule
 
 
 def load_deployment(path: Union[str, Path, None] = DEFAULT_PATH) -> Deployment:

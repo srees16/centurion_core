@@ -1,8 +1,16 @@
 """
 Performance metrics for engine runs.
 
-Sharpe and Sortino use excess daily returns over ``rf_annual / 252`` and
-sqrt(252) annualisation; CAGR uses calendar days / 365.25.
+Conventions (the only ones used anywhere in the engine, its validation and
+the paper book):
+
+* Sharpe and Sortino: excess daily returns over ``rf_annual / 252``,
+  annualised by sqrt(252); volatility by sqrt(252).
+* CAGR: compounded over elapsed **calendar** time, ``days / 365.25`` between
+  the first and last date.  Not ``sessions / 252``: NSE trades about 248
+  sessions a year, so that convention understates elapsed time and
+  overstates CAGR by roughly 0.4 points a year.  Turnover and cost drag are
+  per calendar year too.
 """
 
 from __future__ import annotations
@@ -17,13 +25,25 @@ from scipy import stats
 logger = logging.getLogger(__name__)
 
 TRADING_DAYS = 252.0
+CAGR_CONVENTION = "calendar"   # reported by performance_summary so a reader knows which years were used
 
 
-def _years(index: pd.Index) -> float:
+def years_elapsed(index: pd.Index) -> float:
+    """Calendar years between the first and last date of ``index`` (nan if < 2 rows or no span)."""
     if len(index) < 2:
         return float("nan")
     days = (pd.Timestamp(index[-1]) - pd.Timestamp(index[0])).days
     return days / 365.25 if days > 0 else float("nan")
+
+
+def cagr_from_growth(growth: float, years: float) -> float:
+    """Compound annual growth rate of a total growth factor (end / start) over ``years``."""
+    if not (np.isfinite(growth) and growth > 0 and np.isfinite(years) and years > 0):
+        return float("nan")
+    return float(growth ** (1.0 / years) - 1.0)
+
+
+_years = years_elapsed   # backwards-compatible name
 
 
 def max_drawdown(equity: pd.Series) -> float:
@@ -80,10 +100,7 @@ def compute_metrics(
     years = _years(e.index if len(e) else r.index)
     start_val = float(initial_capital) if initial_capital else (float(e.iloc[0]) if len(e) else float("nan"))
     end_val = float(e.iloc[-1]) if len(e) else float("nan")
-    if len(e) and np.isfinite(years) and years > 0 and start_val > 0 and end_val > 0:
-        out["cagr"] = float((end_val / start_val) ** (1.0 / years) - 1.0)
-    else:
-        out["cagr"] = float("nan")
+    out["cagr"] = cagr_from_growth(end_val / start_val, years) if len(e) and start_val > 0 else float("nan")
     out["total_return"] = float(end_val / start_val - 1.0) if start_val and np.isfinite(end_val) else float("nan")
     rf_d = rf_annual / TRADING_DAYS
     ex = r - rf_d

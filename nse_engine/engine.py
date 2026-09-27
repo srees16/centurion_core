@@ -38,6 +38,7 @@ import pandas as pd
 from nse_engine.allocator import allocate, basket_vol
 from nse_engine.config import EngineConfig
 from nse_engine.costs import median_traded_value, simulate_fill
+from nse_engine.drawdown import NORMAL as DD_NORMAL, DrawdownDecision, DrawdownTracker, summarise as dd_summarise
 from nse_engine.metrics import compute_metrics
 from nse_engine.portfolio import (
     EXIT_RANK,
@@ -189,6 +190,7 @@ def generate_targets(
     *,
     equity: Optional[float] = None,
     stopped_out: Optional[Mapping[str, pd.Timestamp]] = None,
+    drawdown: Optional[DrawdownDecision] = None,
 ) -> TargetPortfolio:
     """Target portfolio after the close of ``as_of`` (uses rows <= as_of only).
 
@@ -199,6 +201,9 @@ def generate_targets(
         the minimum trade value and for keeping drifted weights on
         non-rebalance days; without it targets are pure model weights.
     stopped_out : symbol -> date of its last stop-out, for the stop cooldown.
+    drawdown : today's decision of the drawdown rule (``nse_engine.drawdown``),
+        when the caller runs it: scales core exposure, blocks new entries and
+        adds outside ``normal``, and forces a rebalance when the state changed.
     """
     cache = _ensure_cache(data, config, cache)
     pos = cache.position(as_of)
@@ -269,10 +274,17 @@ def generate_targets(
 
     core_holdings = [s for s in holdings if s not in sleeve_set]
     rebalance = bool(cache.rebalance_day[pos]) or not core_holdings or bool(cache.regime_switched[pos])
-    scale = float(cache.regime_scale[pos])
+    regime_scale = float(cache.regime_scale[pos])
     state = str(cache.regime_state[pos])
     if cache.regime_switched[pos]:
         notes.append(f"regime_switch:{state}")
+    dd_state, dd_scale, entries_ok = DD_NORMAL, 1.0, True
+    if drawdown is not None:
+        dd_state, dd_scale, entries_ok = drawdown.state, float(drawdown.scale), bool(drawdown.allow_entries)
+        if drawdown.changed:
+            rebalance = True
+            notes.append(f"drawdown_switch:{dd_state}")
+    scale = regime_scale * dd_scale
 
     def allocate_book(core_names: List[str], sleeve_names: List[str]) -> Tuple[Dict[str, float], Dict[str, float]]:
         idx = [cache.sym_index[s] for s in core_names]
@@ -299,8 +311,13 @@ def generate_targets(
         for s in dropped:
             exits[s] = EXIT_RANK
             stops.pop(s, None)
+        if not entries_ok:
+            selected = [s for s in selected if s in kept]     # no new core names
+            notes.append(f"drawdown:{dd_state}: no new entries")
         active_sleeves = [s for s in cache.sleeve_syms if in_trend[s]]
         core_t, sleeve_t = allocate_book(selected, active_sleeves)
+        if not entries_ok:                                     # never add to a core name either
+            core_t = {s: (min(w, current_w[s]) if s in current_w else w) for s, w in core_t.items()}
         target = {**core_t, **sleeve_t}
         for s in frozen:
             if s in current_w:
@@ -353,9 +370,11 @@ def generate_targets(
         sleeve_weights={s: w for s, w in weights.items() if s in sleeve_set},
         exits=exits,
         regime=state,
-        regime_scale=scale,
+        regime_scale=regime_scale,
         universe_size=int(len(uni)),
         notes=notes,
+        drawdown_state=dd_state,
+        drawdown_scale=dd_scale,
     )
 
 
@@ -520,12 +539,14 @@ def run_backtest(
     tag: str = "",
     lag_days: int = 0,
     cache: Optional[EngineCache] = None,
+    manifest_extra: Optional[Mapping[str, object]] = None,
 ) -> BacktestResult:
     """Simulate the engine between ``config.start`` and ``config.end``.
 
     Integer shares, INR accounting, fills at the open of ``t + 1 + lag_days``.
     Pass ``cache`` to reuse precomputed panels across runs with the same
-    data and config (e.g. lag sensitivity).
+    data and config (e.g. lag sensitivity).  ``manifest_extra`` adds fields to
+    the recorded manifest (e.g. ``refresh_of`` for a registry refresh).
     """
     t0 = time.perf_counter()
     cache = _ensure_cache(data, config, cache)
@@ -542,6 +563,8 @@ def run_backtest(
     eq_vals: List[float] = []
     w_rows: List[Dict[str, float]] = []
     cfg_costs = config.costs
+    tracker = DrawdownTracker(config.drawdown) if config.drawdown.enabled else None
+    dd_rows: List[Dict[str, object]] = []
 
     for u in range(s0, s1 + 1):
         date = dates[u]
@@ -594,6 +617,12 @@ def run_backtest(
         equity = book.cash + float(sum(pos_val.values()))
         eq_vals.append(equity)
         w_rows.append({s: v / equity for s, v in pos_val.items()} if equity > 0 else {})
+        dd_decision = tracker.update(equity) if tracker is not None else None
+        if dd_decision is not None:
+            dd_rows.append({"date": date, "equity": equity, "peak": dd_decision.peak,
+                            "drawdown": dd_decision.drawdown, "state": dd_decision.state,
+                            "scale": dd_decision.scale, "allow_entries": dd_decision.allow_entries,
+                            "changed": dd_decision.changed})
         # decide after the close
         exec_pos = u + 1 + lag
         if exec_pos > s1:
@@ -602,7 +631,8 @@ def run_backtest(
         recent_stops = {k: book.stopped_out[k] for k, p in book.stopped_pos.items() if u - p < cooldown}
         decision_holdings = _projected_holdings(book, pending, cache, close_row) if pending else book.positions
         tp = generate_targets(
-            data, config, date, decision_holdings, cache, equity=equity, stopped_out=recent_stops
+            data, config, date, decision_holdings, cache, equity=equity, stopped_out=recent_stops,
+            drawdown=dd_decision,
         )
         for s, h in book.positions.items():
             if s in tp.stops:
@@ -623,6 +653,8 @@ def run_backtest(
                 reasons[s] = tp.exits[s]
             elif s in sleeve_set:
                 reasons[s] = "sleeve"
+            elif s not in tq and tp.drawdown_scale <= 0:
+                reasons[s] = "drawdown"
             elif s not in tq and tp.regime_scale <= 0:
                 reasons[s] = "regime"
             else:
@@ -642,10 +674,15 @@ def run_backtest(
         returns_s, equity_s, trades_df, weights_df, config.risk_free_annual, config.initial_capital
     )
     metrics["lag_days"] = float(lag)
+    daily_state = None
+    if dd_rows:
+        daily_state = pd.DataFrame(dd_rows).set_index("date")
+        for k, v in dd_summarise(daily_state["state"]).items():
+            metrics[f"dd_rule_{k}"] = float(v)
     data_hash = data.data_hash or data.compute_hash()
     result = BacktestResult(
         equity=equity_s, returns=returns_s, weights=weights_df, trades=trades_df, metrics=metrics,
-        config=config, data_hash=data_hash, notes=book.notes,
+        config=config, data_hash=data_hash, notes=book.notes, daily_state=daily_state,
     )
     logger.info(
         "backtest %s..%s done in %.1fs (cache %.1fs): sharpe=%.2f cagr=%.3f",
@@ -653,7 +690,7 @@ def run_backtest(
         metrics.get("sharpe", float("nan")), metrics.get("cagr", float("nan")),
     )
     if record:
-        record_run(result, config, tag=tag, lag_days=lag)
+        record_run(result, config, tag=tag, lag_days=lag, extra=manifest_extra)
     return result
 
 
@@ -682,8 +719,13 @@ def _json_safe(obj):
     return obj
 
 
-def record_run(result: BacktestResult, config: EngineConfig, *, tag: str = "", lag_days: int = 0) -> Path:
-    """Write the run directory and set ``result.run_id`` / ``result.run_dir``."""
+def record_run(result: BacktestResult, config: EngineConfig, *, tag: str = "", lag_days: int = 0,
+               extra: Optional[Mapping[str, object]] = None) -> Path:
+    """Write the run directory and set ``result.run_id`` / ``result.run_dir``.
+
+    ``extra`` fields are added to the manifest; they cannot override the
+    standard ones.
+    """
     chash = config.config_hash()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     run_id = f"{stamp}_{chash[:8]}"
@@ -704,12 +746,16 @@ def record_run(result: BacktestResult, config: EngineConfig, *, tag: str = "", l
         "metrics": _json_safe(result.metrics),
         "lag_days": int(lag_days),
     }
+    for key, value in dict(extra or {}).items():
+        manifest.setdefault(str(key), _json_safe(value))
     (run_dir / "config.json").write_text(config.to_json())
     (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True))
     result.returns.rename("return").rename_axis("date").to_frame().to_csv(run_dir / "returns.csv")
     result.equity.rename("equity").rename_axis("date").to_frame().to_csv(run_dir / "equity.csv")
     result.trades.to_csv(run_dir / "trades.csv", index=False)
     result.weights.rename_axis("date").to_parquet(run_dir / "weights.parquet")
+    if getattr(result, "daily_state", None) is not None:
+        result.daily_state.rename_axis("date").to_csv(run_dir / "drawdown.csv")
     result.run_id = run_id
     result.run_dir = str(run_dir)
     logger.info("run recorded at %s", run_dir)

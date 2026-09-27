@@ -27,9 +27,29 @@ def test_excess_sharpe_matches_the_definition():
     assert abs(excess_sharpe(r, rf) - expected) < 1e-9
 
 
-def test_cagr_compounds_over_252_day_years():
-    r = _series(0.001, n=252)
+def test_cagr_compounds_over_calendar_years_everywhere():
+    """One convention (B2): validation's summary and the engine's metrics agree,
+    and both use elapsed calendar time, not sessions / 252."""
+    rng = np.random.default_rng(3)
+    # 248 sessions a year, as on the NSE: three calendar years of business days minus holidays
+    idx = pd.bdate_range("2021-01-01", "2023-12-31")
+    idx = idx[rng.random(len(idx)) > 0.05]
+    r = pd.Series(rng.normal(0.0006, 0.011, len(idx)), index=idx)
+    equity = 500_000 * (1 + r).cumprod()
+    p = performance_summary(r, 0.065)
+    m = compute_metrics(r, equity, rf_annual=0.065, initial_capital=500_000.0)
+    assert p["cagr_convention"] == "calendar"
+    assert abs(p["cagr"] - m["cagr"]) < 1e-12
+    years = (idx[-1] - idx[0]).days / 365.25
+    assert abs(p["cagr"] - (float(equity.iloc[-1]) / 500_000) ** (1 / years) + 1) < 1e-12
+    sessions_cagr = (float(equity.iloc[-1]) / 500_000) ** (252 / len(r)) - 1
+    assert p["cagr"] != sessions_cagr, "fewer than 252 sessions a year must give a different (lower) figure"
+
+
+def test_cagr_without_dates_falls_back_to_sessions_and_says_so():
+    r = pd.Series([0.001] * 252)          # a RangeIndex: no calendar to measure
     p = performance_summary(r, 0.0)
+    assert p["cagr_convention"] == "sessions"
     assert abs(p["cagr"] - ((1.001 ** 252) - 1)) < 1e-9
 
 
