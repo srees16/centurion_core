@@ -475,6 +475,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     print(json.dumps(build_store(args.archive, args.store, workers=args.workers), indent=2))
+    print("Rebuilt. If recorded backtests exist, check the trial registry's data fingerprint before "
+          "recording anything: python -m runners.run_nse_engine refresh-registry --dry-run "
+          "(`build-store` in runners does this automatically).")
     return 0
 
 

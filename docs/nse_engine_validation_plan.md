@@ -38,6 +38,26 @@ costs, holds gross ≤ 1, and records every run for PBO and DSR.
 Sharpe is excess over a 6.5% risk-free rate (add about 0.5 for the rf = 0
 convention used in the snapshot).
 
+**CAGR convention (unified 27 Sep 2026, tracker B2).** CAGR compounds over
+calendar years, `days / 365.25` between the first and last session — the
+engine's run manifests and the paper book always did this; the validation
+summaries (walk-forward, holdout, `validate`, lag tests) used
+`sessions / 252` until 27 Sep 2026. NSE trades about 248 sessions a year, so
+the old figures read roughly 0.4 points high. Figures quoted below from
+before that date are on the old convention; on calendar years they are:
+
+| Figure | Quoted (sessions / 252) | Calendar years |
+|---|---|---|
+| Deployed `679cbd0c`, 2013–2025 | 24.5% (24.1% in its manifest) | 24.1% |
+| Honest baseline `bd79bf28` (B1), 2013–2025 | 23.2% | 22.8% |
+| Walk-forward OOS 2017–2025 (Kaggle) | 23.7% | 23.3% |
+| Holdout 2026-01-01 → 09-11 | 27.4% annualised | 26.9% annualised |
+
+Sharpe, volatility, drawdown and every gate are unaffected. The stitched
+JSON files under `data/nse_engine/` keep the numbers they were written with;
+anything produced from now on is on calendar years and carries
+`cagr_convention: "calendar"`.
+
 | Metric | Minimum to proceed | Aim |
 |---|---|---|
 | Excess Sharpe (walk-forward OOS) | ≥ 0.8 | ≥ 1.1 |
@@ -178,6 +198,33 @@ where the selection happens, not the out-of-sample record.
 the deployed `679cbd0c` keeps its identity and its recorded trials; adopting
 the fix means promoting a new configuration through the usual gates.
 
+## 5c. Data fingerprint changes (registry continuity, fixed 27 Sep 2026)
+
+Every run's manifest carries the `data_hash` of the panel it was computed
+on, and `validate` builds the PBO/DSR matrix only from runs that share it.
+A store rebuild can change the hash without changing a single return: the
+23 Sep 2026 rebuild renamed symbols to their current tickers (HEG → HEGAM),
+so a fresh 2013–2025 load fingerprints `5485474397ef3a5f` while all
+recorded runs carry `172913b826f0ffa4`. Left alone, the next recorded run
+would meet no prior configurations — no PBO, deflated Sharpe at N = 1.
+
+`refresh-registry` re-runs every same-window configuration on the current
+store, records each run with `refresh_of` = the run it reproduces, checks
+that the daily returns agree to 1e-9, and compares PBO and every
+configuration's deflated Sharpe before and after. The config hashes are
+unchanged, so for `returns_matrix` the re-runs are duplicates of the old
+ones (dedupe keeps the latest), not new trials; the raw run count grows,
+the configuration count does not. Run it with `--dry-run` first, and after
+every store rebuild that changes the fingerprint. Walk-forward fold runs
+stay on the old hash: they count as trials but never share a window with
+the full-period matrix.
+
+`build-store` now ends with this check: it loads the validation window,
+compares the fingerprint with the one the registry was last extended on, and
+when they differ prints the dry-run plan and the two commands above. Nothing
+is recorded until `refresh-registry` has run. `python -m nse_engine.data.store`
+prints the same reminder. `--skip-registry-check` turns the check off.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast
@@ -239,7 +286,7 @@ Daily monitoring (automatic):
 | Tracking error vs same-period backtest | > 8%/yr → drifting |
 | Mean daily gap vs backtest | < −3 bp/day → drifting |
 | Fill price vs model open + impact | investigate if median shortfall > 2× model |
-| Drawdown | > 1.5× backtest MaxDD for that horizon → halt new entries, review |
+| Drawdown | the deployed drawdown rule (section 8, item 6): > 20% from the episode peak → no new entries or adds; > 30% → core exposure halved; > 35% → core to cash / metals; re-arm on a 60-session equity high. Automatic, replayed from the book's snapshots every session, state in the daily email and on the monitor. Anything beyond that is the kill criterion below. |
 
 Pass criteria after 60 trading days (extend to 90 if borderline):
 - tracking error ≤ 8%/yr and mean daily gap ≥ −3 bp/day;
@@ -262,7 +309,8 @@ and an approved deployment.
 | 3 | 70% | cumulative drawdown within backtest expectations |
 | 4+ | 100% | quarterly re-validation passes |
 
-Kill criteria at any time: drawdown > 1.5× backtest MaxDD, two consecutive
+Kill criteria at any time (a human decision, above the automatic rule):
+drawdown > 1.5× backtest MaxDD, two consecutive
 regime_break verdicts, or realised costs > 2× model for a month.
 
 ## 8. Stage F — Research loop (runs in parallel with paper trading)
@@ -342,6 +390,27 @@ every configuration recorded (so PBO/DSR count them):
    walk-forward. The information is real (it predicts next-month returns) but
    it overlaps the trend forecast and dilutes it in a 20-name book.
 
+6. **Drawdown rule — tested 27 Sep 2026 (E2), adopted at 20/30/35%.**
+   Exposure control from the book's own equity (`nse_engine.drawdown`,
+   section "Design rules" of `docs/nse_engine.md`), pre-registered on the
+   honest baseline `bd79bf28`, 2013–2025, two recorded runs, pass rule
+   "Calmar above the baseline's 0.92 and CAGR ≥ 22%":
+
+   | Run | Sharpe | CAGR | MaxDD | Calmar | halt sessions | verdict |
+   |---|---|---|---|---|---|---|
+   | Baseline, no rule | 1.140 | 22.75% | −24.69% | 0.922 | – | – |
+   | A: halt 15% / half 25% / risk-off 30%, re-arm 60 | 1.147 | 22.22% | −25.90% | 0.858 | 10.8% | FAIL |
+   | B: halt 20% / half 30% / risk-off 35%, re-arm 60 | 1.156 | 22.85% | −23.21% | 0.985 | 5.8% | PASS |
+
+   A halted four times and whipsawed through 2015 (halt in May, re-arm in
+   July, halt again in September), which deepened the 2015–16 episode to
+   −25.9%; B halted twice (January 2016, December 2018) and improved every
+   sub-period: 2013–16 Calmar 0.78 → 0.80, 2017–25 1.01 → 1.08, 2021–25
+   unchanged. Only the `halt` leg has evidence: no drawdown in 2013–2025
+   reached 30%, so `half` and `risk_off` are untested capital protection
+   until the 2008 walk-forward (R4). B's thresholds are the live rule (G3);
+   the deployed configuration itself is unchanged.
+
 Not on the list, on purpose: re-optimising signal weights (R21A's 247% data-
 mining bias estimate came from exactly that), leverage (MTF at ≈ 14.6%/yr
 roughly doubles drawdown for the CAGR it adds), and anything tuned on 2026.
@@ -364,6 +433,7 @@ because the 2026 holdout will already have been used.
 | Walk-forward | `python -m runners.run_nse_engine walk-forward --grid '<json>'` |
 | Walk-forward on Kaggle (4 cores, resumable) | `python -m cloud.kaggle_local run --task walk-forward --args "..."` — see `docs/kaggle_research.md` |
 | Validate | `python -m runners.run_nse_engine validate --run-id <id>` |
+| Refresh the registry after a store rebuild | `python -m runners.run_nse_engine refresh-registry [--dry-run] [--from-hash <old>]` — see section 5c |
 | Holdout | `python -m runners.run_nse_engine holdout --config <json> --data-start 2012-01-02 --start <date> --end <date>` |
 | Promote | `python -m runners.run_nse_engine promote --run-id <id> --paper-start <date> --data-anchor 2012-01-02` |
 | Shift reference | `python -m runners.run_nse_engine shift-reference --run-id <id> --start <paper start> --data-start 2012-01-02` |

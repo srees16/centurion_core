@@ -1688,6 +1688,23 @@ class PaperTrader:
             conn.close()
         return int(row[0]) if row else 0
 
+    def equity_history(self) -> pd.Series:
+        """End-of-session equity per date from ``daily_snapshots`` (restored from Neon).
+
+        The drawdown rule (``nse_engine.drawdown``) is replayed over this every
+        session, so the book's risk state is a pure function of its record.
+        """
+        conn = sqlite3.connect(str(_DB_PATH))
+        try:
+            rows = conn.execute("SELECT date, equity FROM daily_snapshots ORDER BY date").fetchall()
+        finally:
+            conn.close()
+        if not rows:
+            return pd.Series(dtype="float64")
+        s = pd.Series([float(r[1]) for r in rows],
+                      index=pd.DatetimeIndex(pd.to_datetime([str(r[0])[:10] for r in rows])))
+        return s[~s.index.duplicated(keep="last")].sort_index()
+
     def _live_daily_returns(self, conn) -> pd.Series:
         """Dated daily returns of the paper book from ``daily_snapshots``."""
         rows = conn.execute(

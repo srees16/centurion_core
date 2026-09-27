@@ -203,6 +203,11 @@ class ExecutionPlan:
     notes: List[str] = field(default_factory=list)
     shift_multiplier: float = 1.0
     shift_reason: str = ""
+    drawdown_state: str = "normal"      # nse_engine.drawdown rule state used for this plan
+    drawdown_scale: float = 1.0
+    drawdown_pct: float = 0.0           # book drawdown from the episode peak, in %
+    drawdown_changed: bool = False      # state differs from the previous session's
+    drawdown_peak: float = 0.0
 
     @property
     def sells(self) -> List[PlannedOrder]:
@@ -219,6 +224,9 @@ class ExecutionPlan:
             "stop_instructions": [asdict(s) for s in self.stop_instructions],
             "skipped": list(self.skipped), "notes": list(self.notes),
             "shift_multiplier": self.shift_multiplier, "shift_reason": self.shift_reason,
+            "drawdown_state": self.drawdown_state, "drawdown_scale": self.drawdown_scale,
+            "drawdown_pct": self.drawdown_pct, "drawdown_changed": self.drawdown_changed,
+            "drawdown_peak": self.drawdown_peak,
         }
 
 
@@ -270,7 +278,8 @@ class EngineExecutor:
                  holdings_fn: Optional[Callable] = None, paper_trader=None,
                  stopped_out_fn: Optional[Callable] = None, apply_buffer: bool = False,
                  deployment=None, deployment_path: Optional[str] = None,
-                 shift_state_path: Optional[str] = None, paper_fill: str = PAPER_FILL_NEXT_OPEN):
+                 shift_state_path: Optional[str] = None, paper_fill: str = PAPER_FILL_NEXT_OPEN,
+                 equity_history_fn: Optional[Callable] = None, drawdown_rule=None):
         self.kite = kite
         self.config = config
         self._deployment = deployment
@@ -285,6 +294,8 @@ class EngineExecutor:
         self._data_loader = data_loader
         self._holdings_fn = holdings_fn
         self._paper_trader = paper_trader
+        self._equity_history_fn = equity_history_fn
+        self._drawdown_rule_override = drawdown_rule
         allowed, reason = live_orders_allowed()
         if not paper and not allowed:
             logger.warning("EngineExecutor: live requested but forcing PAPER — %s", reason)
@@ -400,6 +411,70 @@ class EngineExecutor:
 
     # ── planning ───────────────────────────────────────────────
 
+    def drawdown_rule(self):
+        """The drawdown rule to enforce: an explicit override, else the deployment's overlay."""
+        if self._drawdown_rule_override is not None:
+            return self._drawdown_rule_override if getattr(self._drawdown_rule_override, "enabled", False) else None
+        dep = self._deployment
+        return getattr(dep, "drawdown_rule", None) if dep is not None else None
+
+    def equity_history(self) -> pd.Series:
+        """Dated end-of-session equity of the book before today (empty when unknown).
+
+        Paper: the PaperTrader's daily snapshots, restored from Neon at the start
+        of every session.  Live: an injected ``equity_history_fn`` (the live book
+        must supply its own record); without one the rule sees today only.
+        """
+        empty = pd.Series(dtype="float64", index=pd.DatetimeIndex([]))
+        fn = self._equity_history_fn
+        if fn is None and self.paper:
+            pt = self._pt()
+            fn = getattr(pt, "equity_history", None)
+        if fn is None:
+            return empty
+        try:
+            hist = pd.Series(fn(), dtype="float64")
+        except Exception as exc:                          # noqa: BLE001 - the rule must not kill a session
+            logger.warning("equity history unavailable for the drawdown rule: %s", exc)
+            return empty
+        if hist.empty:
+            return empty
+        hist.index = pd.DatetimeIndex(pd.to_datetime(hist.index)).normalize()
+        hist = hist[~hist.index.duplicated(keep="last")].sort_index()
+        return hist[hist > 0]
+
+    def drawdown_decision(self, as_of: pd.Timestamp, equity: float):
+        """Replay the deployment's drawdown rule over the book's history plus today's mark.
+
+        Returns ``(decision, frame)`` or ``(None, None)`` when no rule is set.
+        The state machine is replayed from the first snapshot every session, so
+        nothing is stored and the live state cannot drift from what a backtest
+        of the same equity path would produce.
+        """
+        rule = self.drawdown_rule()
+        if rule is None:
+            return None, None
+        from nse_engine.drawdown import DrawdownDecision, replay, scale_for
+
+        day = pd.Timestamp(as_of).normalize()
+        hist = self.equity_history()
+        if len(hist):
+            hist = hist[hist.index < day]
+        series = pd.concat([hist, pd.Series([float(equity)], index=pd.DatetimeIndex([day]))])
+        frame = replay(series, rule)
+        row = frame.iloc[-1]
+        states = frame["state"].to_numpy()
+        run = 0
+        for s in states[::-1]:
+            if s != row["state"]:
+                break
+            run += 1
+        decision = DrawdownDecision(state=str(row["state"]), scale=float(scale_for(str(row["state"]), rule)),
+                                    allow_entries=bool(row["allow_entries"]), drawdown=float(row["drawdown"]),
+                                    peak=float(row["peak"]), changed=bool(row["changed"]),
+                                    sessions_in_state=run)
+        return decision, frame
+
     def plan(self, as_of=None, data=None) -> ExecutionPlan:
         cfg = self._cfg()
         pcfg = cfg.portfolio
@@ -449,8 +524,22 @@ class EngineExecutor:
         equity = float(cash) + sum(h.quantity * prices.get(s, h.avg_price) for s, h in holdings.items())
         plan.equity = equity
 
-        target = self._targets()(view, cfg, as_of, holdings=holdings,
-                                 equity=equity, stopped_out=self._stopped_out(as_of))
+        target_kwargs = dict(holdings=holdings, equity=equity, stopped_out=self._stopped_out(as_of))
+        decision, dd_frame = self.drawdown_decision(as_of, equity)
+        if decision is not None:
+            target_kwargs["drawdown"] = decision
+            plan.drawdown_state = decision.state
+            plan.drawdown_scale = decision.scale
+            plan.drawdown_pct = round(decision.drawdown * 100.0, 3)
+            plan.drawdown_changed = decision.changed
+            plan.drawdown_peak = decision.peak
+            plan.notes.append(f"drawdown rule: {decision.state} ({decision.drawdown:.1%} below the peak "
+                              f"{decision.peak:,.0f}; {len(dd_frame)} sessions of history)")
+            if decision.changed:
+                plan.notes.append(f"DRAWDOWN RULE -> {decision.state.upper()}")
+                logger.warning("EngineExecutor: drawdown rule changed to %s at %.1f%% below peak",
+                               decision.state, decision.drawdown * 100)
+        target = self._targets()(view, cfg, as_of, **target_kwargs)
         plan.target = target
         plan.notes.extend(str(n) for n in (target.notes or []))
         weights = self._apply_shift_multiplier(plan, target, holdings, prices, equity, view)
@@ -519,9 +608,9 @@ class EngineExecutor:
             if q > 0 and trig and trig > 0:
                 plan.stop_instructions.append(StopInstruction(sym, q, round(float(trig), 2)))
         logger.info("EngineExecutor plan %s: equity=%.0f cash=%.0f sells=%d buys=%d stops=%d skipped=%d "
-                    "shift_multiplier=%.2f",
+                    "shift_multiplier=%.2f drawdown=%s",
                     as_of.date(), equity, cash, len(sells), len(kept),
-                    len(plan.stop_instructions), len(plan.skipped), plan.shift_multiplier)
+                    len(plan.stop_instructions), len(plan.skipped), plan.shift_multiplier, plan.drawdown_state)
         return plan
 
     def _apply_shift_multiplier(self, plan: ExecutionPlan, target, holdings, prices, equity, view) -> Dict[str, float]:

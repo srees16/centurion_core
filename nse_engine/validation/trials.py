@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+import time
 import uuid
 import warnings
 from datetime import datetime, timezone
@@ -29,7 +30,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 MANIFEST_FIELDS = ("run_id", "tag", "config_hash", "git_commit", "git_dirty",
-                   "data_hash", "start", "end", "created_at")
+                   "data_hash", "start", "end", "created_at", "refresh_of")
 
 
 _GIT_CACHE: Dict[str, Any] = {}
@@ -92,12 +93,13 @@ def to_jsonable(obj: Any) -> Any:
 
 
 def record_result(result: Any, tag: str, runs_dir: Optional[Union[str, Path]] = None,
-                  window: Optional[tuple] = None) -> str:
+                  window: Optional[tuple] = None, extra: Optional[Dict[str, Any]] = None) -> str:
     """Write ``manifest.json`` + ``returns.csv`` for ``result``; return run_dir.
 
     ``result`` is a ``BacktestResult``; its ``config`` must provide
     ``config_hash()`` and ``runs_dir``.  Sets ``result.run_id`` /
-    ``result.run_dir`` when they are empty.
+    ``result.run_dir`` when they are empty.  ``extra`` fields are added to
+    the manifest without overriding the standard ones.
     """
     config = result.config
     root = Path(runs_dir or getattr(config, "runs_dir", "data/nse_engine/runs"))
@@ -119,6 +121,8 @@ def record_result(result: Any, tag: str, runs_dir: Optional[Union[str, Path]] = 
         "metrics": to_jsonable(getattr(result, "metrics", {}) or {}),
         "recorded_by": "nse_engine.validation.trials.record_result",
     }
+    for key, value in dict(extra or {}).items():
+        manifest.setdefault(str(key), to_jsonable(value))
     if hasattr(config, "to_json"):
         (run_dir / "config.json").write_text(config.to_json())
     (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True))
@@ -243,3 +247,157 @@ class TrialRegistry:
         mat = mat.dropna(axis=0, how="any")
         mat.index.name = "date"
         return mat
+
+
+# ----------------------------------------------------------------------------
+# registry refresh after a data-fingerprint change
+# ----------------------------------------------------------------------------
+
+PLAN_COLUMNS = ("run_id", "config_hash", "tag", "lag_days", "created_at", "run_dir")
+
+
+def refresh_plan(registry: "TrialRegistry", from_hash: str, window: tuple,
+                 skip_hash: Optional[str] = None) -> pd.DataFrame:
+    """Configurations recorded on ``from_hash`` over ``window``, one row each.
+
+    The row is the configuration's latest run (the one ``returns_matrix``
+    keeps).  Configurations already recorded on ``skip_hash`` over the same
+    window are left out, so a refresh can be resumed.
+    """
+    trials = registry.list_trials()
+    empty = pd.DataFrame(columns=list(PLAN_COLUMNS))
+    if trials.empty:
+        return empty
+    lo, hi = (pd.Timestamp(w) for w in window)
+    starts = pd.to_datetime(trials["start"], errors="coerce")
+    ends = pd.to_datetime(trials["end"], errors="coerce")
+    same_window = (starts == lo) & (ends == hi)
+    hashes = trials["config_hash"].fillna("").astype(str)
+    on_from = same_window & (trials["data_hash"].astype(str) == str(from_hash)) & (hashes != "")
+    sub = trials[on_from].sort_values(["created_at", "run_id"], na_position="first")
+    sub = sub.groupby(sub["config_hash"].astype(str), sort=False).tail(1)
+    if skip_hash is not None:
+        done = set(hashes[same_window & (trials["data_hash"].astype(str) == str(skip_hash))])
+        sub = sub[~sub["config_hash"].astype(str).isin(done)]
+    rows = []
+    for rec in sub.itertuples(index=False):
+        try:
+            man = json.loads((Path(rec.run_dir) / "manifest.json").read_text())
+        except (OSError, json.JSONDecodeError):
+            man = {}
+        rows.append({"run_id": rec.run_id, "config_hash": str(rec.config_hash),
+                     "tag": str(man.get("tag") or ""), "lag_days": int(man.get("lag_days") or 0),
+                     "created_at": rec.created_at, "run_dir": rec.run_dir})
+    if not rows:
+        return empty
+    return pd.DataFrame(rows, columns=list(PLAN_COLUMNS)).sort_values(
+        ["created_at", "run_id"], na_position="first").reset_index(drop=True)
+
+
+def compare_returns(old: pd.Series, new: pd.Series, tolerance: float = 1e-9) -> Dict[str, Any]:
+    """Do two daily return series agree day by day (within ``tolerance``)?"""
+    o = pd.Series(old, dtype="float64").dropna()
+    n = pd.Series(new, dtype="float64").dropna()
+    o.index = pd.DatetimeIndex(o.index)
+    n.index = pd.DatetimeIndex(n.index)
+    joined = pd.concat([o.rename("old"), n.rename("new")], axis=1, join="inner")
+    diff = (joined["new"] - joined["old"]).abs()
+    same_dates = len(joined) == len(o) == len(n)
+    return {
+        "n_old": int(len(o)), "n_new": int(len(n)), "n_common": int(len(joined)),
+        "max_abs_diff": float(diff.max()) if len(diff) else float("nan"),
+        "n_differing": int((diff > tolerance).sum()) + (0 if same_dates else abs(len(o) - len(n))),
+        "identical": bool(len(joined) > 0 and same_dates and bool((diff <= tolerance).all())),
+    }
+
+
+def refresh_registry(registry: "TrialRegistry", data: Any, from_hash: str, window: tuple, *,
+                     backtest_fn: Optional[Any] = None, config_loader: Optional[Any] = None,
+                     dry_run: bool = False, limit: Optional[int] = None, tolerance: float = 1e-9,
+                     log: Optional[Any] = None) -> Dict[str, Any]:
+    """Re-run every configuration recorded on ``from_hash`` over ``window`` on
+    ``data``, whose fingerprint differs, and check that the returns reproduce.
+
+    Why: ``returns_matrix`` compares only runs that share a data hash, so
+    after a store rebuild (a symbol rename is enough) a new run would meet no
+    prior configurations - no PBO, a deflated Sharpe at N = 1.  Re-running
+    the same configurations keeps the same config hashes, so for the matrix
+    they are duplicates (dedupe keeps the latest), not new trials.  Each new
+    manifest carries ``refresh_of`` = the run it reproduces.
+
+    ``backtest_fn(data, config, record=True, tag=, lag_days=, manifest_extra=)``
+    defaults to the engine; ``config_loader(run_dir) -> config`` defaults to
+    reading ``config.json``.  ``dry_run`` only reports the plan.
+    """
+    to_hash = getattr(data, "data_hash", "") or data.compute_hash()
+    full_plan = refresh_plan(registry, from_hash, window)
+    plan = refresh_plan(registry, from_hash, window, skip_hash=to_hash)
+    if limit:
+        plan = plan.head(int(limit))
+    report: Dict[str, Any] = {
+        "from_hash": str(from_hash), "to_hash": str(to_hash),
+        "window": [str(pd.Timestamp(w).date()) for w in window],
+        "n_configurations": int(len(full_plan)), "n_planned": int(len(plan)),
+        "dry_run": bool(dry_run), "tolerance": float(tolerance), "rows": [],
+    }
+    if to_hash == str(from_hash):
+        report["note"] = "data hash unchanged; nothing to refresh"
+        return report
+    if dry_run or plan.empty:
+        report["rows"] = [dict(r) for r in plan.to_dict(orient="records")]
+        report["complete"] = bool(len(full_plan)) and plan.empty
+        return report
+    if backtest_fn is None:
+        from nse_engine.engine import run_backtest as backtest_fn  # lazy: heavy import
+    if config_loader is None:
+        from nse_engine.config import EngineConfig
+
+        def config_loader(run_dir):  # noqa: E306
+            return EngineConfig.from_dict(json.loads((Path(run_dir) / "config.json").read_text()))
+    for i, rec in enumerate(plan.itertuples(index=False), 1):
+        cfg = config_loader(rec.run_dir)
+        t0 = time.perf_counter()
+        res = backtest_fn(data, cfg, record=True, tag=rec.tag, lag_days=int(rec.lag_days),
+                          manifest_extra={"refresh_of": rec.run_id})
+        cmp = compare_returns(registry.load_returns(rec.run_id), pd.Series(res.returns), tolerance)
+        row = {"run_id": rec.run_id, "new_run_id": str(getattr(res, "run_id", "") or ""),
+               "config_hash": rec.config_hash, "tag": rec.tag, "lag_days": int(rec.lag_days),
+               "seconds": round(time.perf_counter() - t0, 1), **cmp}
+        report["rows"].append(row)
+        if log is not None:
+            verdict = ("identical" if cmp["identical"] else
+                       f"DIFFERS: max {cmp['max_abs_diff']:.2e} on {cmp['n_differing']} days")
+            log(f"[{i}/{len(plan)}] {rec.config_hash[:8]} {rec.tag[:44]:<44} {verdict} ({row['seconds']}s)")
+    on_new = registry.returns_matrix(data_hash=to_hash, window=window)
+    report["n_on_new_hash"] = int(on_new.shape[1])
+    report["all_identical"] = bool(report["rows"]) and all(r["identical"] for r in report["rows"])
+    report["complete"] = report["n_on_new_hash"] >= report["n_configurations"]
+    return report
+
+
+def registry_hash(registry: "TrialRegistry", window: tuple) -> Optional[str]:
+    """Data hash of the most recently recorded run over ``window``, i.e. the
+    fingerprint the registry was last extended on (None when no run exists)."""
+    trials = registry.list_trials()
+    if trials.empty:
+        return None
+    lo, hi = (pd.Timestamp(w) for w in window)
+    same = ((pd.to_datetime(trials["start"], errors="coerce") == lo)
+            & (pd.to_datetime(trials["end"], errors="coerce") == hi)
+            & trials["data_hash"].fillna("").astype(str).ne(""))
+    sub = trials[same].sort_values(["created_at", "run_id"], na_position="first")
+    return str(sub["data_hash"].iloc[-1]) if len(sub) else None
+
+
+def fingerprint_status(registry: "TrialRegistry", window: tuple, current_hash: str) -> Dict[str, Any]:
+    """Is the store's fingerprint the one the registry was last extended on?
+
+    Returns ``changed`` plus the counts needed to act: how many configurations
+    sit on the registry's hash and how many already on the current one.
+    """
+    ref = registry_hash(registry, window)
+    on_ref = len(refresh_plan(registry, ref, window)) if ref else 0
+    on_cur = len(refresh_plan(registry, current_hash, window))
+    return {"window": [str(pd.Timestamp(w).date()) for w in window], "current_hash": str(current_hash),
+            "registry_hash": ref, "changed": bool(ref) and ref != str(current_hash),
+            "n_configurations_on_registry_hash": int(on_ref), "n_configurations_on_current_hash": int(on_cur)}

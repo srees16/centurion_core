@@ -31,6 +31,12 @@ HASH_NEUTRAL_DEFAULTS: Dict[Tuple[str, str], Any] = {
     ("universe", "price_filter_unadjusted"): False,
     ("allocator", "target_vol_annual"): 0.0,
     ("allocator", "vol_target_min_scale"): 0.3,
+    ("drawdown", "enabled"): False,
+    ("drawdown", "halt_dd"): 0.15,
+    ("drawdown", "half_dd"): 0.25,
+    ("drawdown", "risk_off_dd"): 0.30,
+    ("drawdown", "half_scale"): 0.5,
+    ("drawdown", "rearm_sessions"): 60,
 }
 
 
@@ -184,6 +190,24 @@ class AllocatorConfig:
 
 
 @dataclass(frozen=True)
+class DrawdownConfig:
+    """Exposure control from the book's OWN drawdown (``nse_engine.drawdown``).
+
+    The regime gate reads the market; this reads the account.  Off by default
+    (the legacy behaviour and hash).  Thresholds are drawdowns from the peak of
+    the current episode; the rule re-arms on a new ``rearm_sessions``-session
+    equity high.
+    """
+
+    enabled: bool = False
+    halt_dd: float = 0.15        # beyond this: no new entries, no adds
+    half_dd: float = 0.25        # beyond this: core exposure scaled to half_scale
+    risk_off_dd: float = 0.30    # beyond this: core to zero (cash / metals per the allocator)
+    half_scale: float = 0.5
+    rearm_sessions: int = 60
+
+
+@dataclass(frozen=True)
 class CostConfig:
     """Execution costs: statutory schedule lives in nse_engine.costs."""
 
@@ -210,6 +234,7 @@ class EngineConfig:
     sleeves: SleeveConfig = field(default_factory=SleeveConfig)
     allocator: AllocatorConfig = field(default_factory=AllocatorConfig)
     costs: CostConfig = field(default_factory=CostConfig)
+    drawdown: DrawdownConfig = field(default_factory=DrawdownConfig)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -233,6 +258,10 @@ class EngineConfig:
         for (group, key), legacy in HASH_NEUTRAL_DEFAULTS.items():
             if d.get(group, {}).get(key, legacy) == legacy:
                 d[group].pop(key, None)
+        # A group whose every field is hash-neutral at its legacy value did not
+        # exist when the registry started; an empty dict would still change the digest.
+        for group in [g for g, v in d.items() if isinstance(v, dict) and not v]:
+            d.pop(group)
         blob = json.dumps(d, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
