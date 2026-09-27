@@ -469,6 +469,24 @@ def _run_engine_paper():
     return "success", msg
 
 
+def _week_session_count(pt, checkpoint: dict) -> int:
+    """Sessions inside this checkpoint's window - the sample its ratios rest on."""
+    import sqlite3
+    from kite_connect.trading.paper_trader import _DB_PATH
+
+    try:
+        conn = sqlite3.connect(str(_DB_PATH))
+        try:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM daily_snapshots WHERE date >= ? AND date <= ?",
+                (checkpoint["week_start"], checkpoint["week_end"])).fetchone()
+        finally:
+            conn.close()
+        return int(row[0]) if row else 0
+    except Exception:                                     # noqa: BLE001 - reporting only
+        return 0
+
+
 def _session_outcome(plan, queued: int, fills: dict, stops: int, rebalance: bool) -> str:
     """One sentence for the trade monitor: what this session did, or why it did nothing."""
     filled, cancelled = len(fills.get("filled", [])), len(fills.get("cancelled", []))
@@ -492,7 +510,17 @@ def _session_outcome(plan, queued: int, fills: dict, stops: int, rebalance: bool
 
 
 def _record_session_activity(pt, session: dict, snapshot: dict, plan, queued: int, fills: dict) -> None:
-    """Persist what the engine decided, so a quiet day is visible as a decision."""
+    """Persist what the engine decided, so a quiet day is visible as a decision.
+
+    Skipped when the session was already processed: a re-plan (a backup cron or
+    a manual re-dispatch) knows nothing about the fills and would overwrite them
+    with zeros. On 25 Sep 2026 four late backups did exactly that, and the day
+    the book actually traded ended up reading "held: not a rebalance day".
+    """
+    if session.get("fills") is None:
+        logger.info("Session activity kept as recorded: %s was already processed",
+                    session.get("session"))
+        return
     try:
         cloud = pt._get_cloud()
         if not cloud or not hasattr(cloud, "sync_session"):
@@ -612,6 +640,7 @@ def _run_weekly_checkpoint():
 
     # ── Build weekly email HTML ───────────────────────────────────
     dash = pt.dashboard()
+    week_days = max(_week_session_count(pt, checkpoint), 1)
     pnl_color = "#15803d" if dash.total_pnl >= 0 else "#dc2626"
     wk_color = "#15803d" if checkpoint["week_return_pct"] >= 0 else "#dc2626"
 
@@ -640,11 +669,17 @@ def _run_weekly_checkpoint():
     except Exception:
         pass
 
+    sessions = pt.session_count()
+    min_sessions = int(os.environ.get("CENTURION_PAPER_MIN_SESSIONS", "20"))
+
+    # Ratios need a sample. Below `min_sessions` they are printed as "n/a" with
+    # the session count, so nobody reads a 7-day Sharpe of 4.5 as information.
+    def ratio(value: float, fmt: str = "{:.3f}") -> str:
+        return fmt.format(value) if sessions >= min_sessions else f"n/a ({sessions} sessions)"
+
     # Verdict. A Sharpe over a handful of sessions is noise, and win rate is
     # undefined until something closes, so the gates only apply once the book
     # has a sample: below that the honest answer is "too early", not FAIL.
-    sessions = pt.session_count()
-    min_sessions = int(os.environ.get("CENTURION_PAPER_MIN_SESSIONS", "20"))
     if sessions < min_sessions:
         verdict = (f"TOO EARLY — {sessions} of {min_sessions} sessions; "
                    f"{dash.closed_trades} trades closed so far")
@@ -693,7 +728,8 @@ def _run_weekly_checkpoint():
       <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">Trades</td>
           <td style="padding:6px 12px;border:1px solid #e5e7eb;">{checkpoint['trades_opened']} opened, {checkpoint['trades_closed']} closed</td></tr>
       <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">Sharpe (weekly)</td>
-          <td style="padding:6px 12px;border:1px solid #e5e7eb;">{checkpoint['sharpe_ratio']:.2f}</td></tr>
+          <td style="padding:6px 12px;border:1px solid #e5e7eb;">{checkpoint['sharpe_ratio']:.2f}
+            <span style="color:#9ca3af;font-size:12px;">&mdash; from {week_days} session(s), not yet meaningful</span></td></tr>
       <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">Max Drawdown</td>
           <td style="padding:6px 12px;border:1px solid #e5e7eb;">{checkpoint['max_dd_pct']:.1f}%</td></tr>
       <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">Win Rate</td>
@@ -715,9 +751,9 @@ def _run_weekly_checkpoint():
             ₹{dash.current_capital - dash.initial_capital - dash.total_pnl:,.0f} unrealised
             on {dash.open_positions} open</td></tr>
       <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">Sharpe / Sortino</td>
-          <td style="padding:6px 12px;border:1px solid #e5e7eb;">{dash.sharpe_ratio:.3f} / {dash.sortino_ratio:.3f}</td></tr>
+          <td style="padding:6px 12px;border:1px solid #e5e7eb;">{ratio(dash.sharpe_ratio)} / {ratio(dash.sortino_ratio)}</td></tr>
       <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">Profit Factor</td>
-          <td style="padding:6px 12px;border:1px solid #e5e7eb;">{dash.profit_factor:.2f}</td></tr>
+          <td style="padding:6px 12px;border:1px solid #e5e7eb;">{ratio(dash.profit_factor, "{:.2f}")}</td></tr>
       <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">Max Drawdown</td>
           <td style="padding:6px 12px;border:1px solid #e5e7eb;">{dash.max_drawdown_pct:.1f}%</td></tr>
     </table>
@@ -730,7 +766,9 @@ def _run_weekly_checkpoint():
   </div>
 </div></body></html>"""
 
-    subject = f"[Centurion Paper] Week {wk} Report | {checkpoint['week_return_pct']:+.1f}% | Sharpe {checkpoint['sharpe_ratio']:.2f}"
+    subject = (f"[Centurion Paper] Week {wk} | {checkpoint['week_return_pct']:+.1f}% | "
+               f"{checkpoint['trades_opened']} opened, {checkpoint['trades_closed']} closed | "
+               f"{sessions} of {min_sessions} sessions")
     sent = NotificationManager._send_html_email(
         subject=subject,
         html_body=html,
