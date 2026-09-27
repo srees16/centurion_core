@@ -12,9 +12,12 @@ from __future__ import annotations
 import os
 from types import SimpleNamespace
 
+import subprocess
+import sys
+from pathlib import Path
+
 import pandas as pd
 import pytest
-from kiteconnect import exceptions as kx
 
 import kite_connect.trading.order_service as osvc
 from kite_connect.trading.gtt_stops import stop_limit_price
@@ -23,6 +26,10 @@ from kite_connect.trading.nse_engine_executor import (EngineExecutor, ExecutionP
                                                       live_order_outcomes)
 from nse_engine.config import EngineConfig
 from nse_engine.deployment import parse_deployment
+
+# kiteconnect's exceptions when installed (the app), stand-ins otherwise (CI and the
+# paper runner install only requirements-core.txt): the tests run in both.
+kx = osvc.kite_exceptions
 
 AS_OF = pd.Timestamp("2026-09-28")
 
@@ -353,3 +360,23 @@ def test_live_executor_defaults_to_the_cloud_history(live_env, monkeypatch):
         [1.0, 2.0], index=pd.DatetimeIndex(["2026-09-17", "2026-09-18"])))
     ex = EngineExecutor(kite=FakeKite(), paper=False, deployment=_deployment())
     assert list(ex.equity_history()) == [1.0, 2.0]
+
+
+def test_the_order_service_imports_and_classifies_without_kiteconnect():
+    """CI installs only requirements-core.txt; 27 Sep 2026 this suite died at collection
+    because the order service imported kiteconnect at the top.  Block the package in a
+    fresh interpreter and check the module still loads with the same exception names."""
+    code = (
+        "import sys; sys.modules['kiteconnect'] = None\n"
+        "import kite_connect.trading.order_service as o\n"
+        "e = o.kite_exceptions\n"
+        "assert all(issubclass(getattr(e, n), e.KiteException) for n in "
+        "('InputException', 'TokenException', 'OrderException', 'NetworkException'))\n"
+        "assert e.OrderException('x', 400).code == 400\n"
+        "from tools.live_dry_run import gates\n"
+        "assert gates()['variety_now'] in ('amo', 'regular')\n"
+        "print('ok')\n"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                         cwd=str(Path(__file__).resolve().parent.parent), timeout=120)
+    assert out.returncode == 0 and out.stdout.strip().endswith("ok"), out.stderr[-2000:]

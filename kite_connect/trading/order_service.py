@@ -15,10 +15,34 @@ import hashlib
 import logging
 import os
 import time
-
-from kiteconnect import exceptions as kite_exceptions
+import types
 
 logger = logging.getLogger(__name__)
+
+
+def _fallback_kite_exceptions() -> types.SimpleNamespace:
+    """Stand-ins with kiteconnect's exception names, for environments without it.
+
+    The paper runner and CI install only requirements-core.txt, which has no
+    broker client.  Without kiteconnect there is no Kite session, so no real
+    order can be sent; the stand-ins keep this module importable (the live-path
+    tests, tools.live_dry_run) and keep the error classification identical.
+    """
+    class KiteException(Exception):
+        def __init__(self, message="", code=500):
+            super().__init__(message)
+            self.code = code
+
+    names = ("GeneralException", "TokenException", "PermissionException", "OrderException",
+             "InputException", "DataException", "NetworkException")
+    classes = {n: type(n, (KiteException,), {"__module__": __name__}) for n in names}
+    return types.SimpleNamespace(KiteException=KiteException, **classes)
+
+
+try:
+    from kiteconnect import exceptions as kite_exceptions
+except ImportError:  # core-only environment: see _fallback_kite_exceptions
+    kite_exceptions = _fallback_kite_exceptions()
 
 # Retry configuration
 _MAX_RETRIES = 3

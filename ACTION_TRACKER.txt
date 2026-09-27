@@ -216,6 +216,12 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              cloud_equity_history, tools/live_dry_run (ran on the real
              store: refused a stale date, listed AMO orders for 23 Sep).
              Suite 158.  Gap left: no live session driver (L5, queued).
+             CI fix (same day): the PR's Tests run died at collection -
+             order_service imported kiteconnect, which CI (core packages
+             only) does not install.  order_service now falls back to
+             stand-in exception classes; the live-path tests run in CI;
+             a subprocess test blocks kiteconnect to keep it so.  Verified
+             in a core-only venv: 159 passed.
 27 Sep  G3   Drawdown halt in the live book.  The deployment file carries a
              risk overlay (drawdown_rule 20/30/35, half 0.5, re-arm 60 - E2's
              winner); the engine config hash is unchanged (679cbd0c).  Every
