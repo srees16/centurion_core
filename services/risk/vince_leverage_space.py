@@ -296,6 +296,9 @@ def monte_carlo_simulation(
     daily_returns: np.ndarray,
     n_simulations: int = 5000,
     horizon_days: int = 252,
+    *,
+    f: Optional[float] = None,
+    seed: int = 42,
 ) -> MonteCarloResult:
     """
     Monte Carlo simulation of future equity paths.
@@ -306,9 +309,19 @@ def monte_carlo_simulation(
     Resamples historical daily returns with replacement to simulate
     N possible equity paths over the given horizon.
 
+    Args:
+        daily_returns: historical per-period returns to resample.
+        f: Vince fraction.  When given, each resampled return r becomes the
+           holding-period return ``1 + f * r / |worst loss|`` (floored at
+           0.001), the same mapping ``compute_optimal_f`` maximises TWR
+           over, so paths are simulated at that leverage.  None = the raw
+           returns, unlevered.
+        seed: random seed (reproducible paths).
+
     Returns:
-        MonteCarloResult with profit probability, median return,
-        confidence intervals, and expected CAGR.
+        MonteCarloResult with profit probability (a fraction), and median
+        return, 5th / 95th percentiles, median max drawdown and expected
+        CAGR in percent.
     """
     if len(daily_returns) < 10:
         return MonteCarloResult(
@@ -317,14 +330,18 @@ def monte_carlo_simulation(
             median_max_dd=0.0, expected_cagr=0.0,
         )
 
-    rng = np.random.default_rng(42)
+    rng = np.random.default_rng(seed)
     terminal_returns = np.empty(n_simulations)
     max_drawdowns = np.empty(n_simulations)
+    if f is not None:
+        worst = abs(float(np.min(daily_returns))) or 0.01
+        growth = np.maximum(1.0 + float(f) * np.asarray(daily_returns, dtype=float) / worst, 0.001)
+    else:
+        growth = 1.0 + np.asarray(daily_returns, dtype=float)
 
     for sim in range(n_simulations):
         # Resample returns with replacement
-        sampled = rng.choice(daily_returns, size=horizon_days, replace=True)
-        equity = np.cumprod(1.0 + sampled)
+        equity = np.cumprod(rng.choice(growth, size=horizon_days, replace=True))
 
         terminal_returns[sim] = float(equity[-1] - 1.0) * 100.0  # %
 
