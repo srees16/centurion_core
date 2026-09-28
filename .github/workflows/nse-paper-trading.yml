@@ -400,13 +400,28 @@ jobs:
           ZERODHA_API_KEY: ${{ secrets.ZERODHA_API_KEY }}
           CENTURION_KITE_TOKEN_KEY: ${{ secrets.CENTURION_KITE_TOKEN_KEY }}
           CENTURION_KITE_PROXY: ${{ secrets.CENTURION_KITE_PROXY }}
+          # Oracle Cloud static IP via an SSH tunnel (deployment/oracle-proxy/README.md)
+          CENTURION_PROXY_SSH_KEY: ${{ secrets.CENTURION_PROXY_SSH_KEY }}
+          CENTURION_PROXY_HOST: ${{ secrets.CENTURION_PROXY_HOST }}
+          CENTURION_PROXY_HOST_KEY: ${{ secrets.CENTURION_PROXY_HOST_KEY }}
+          CENTURION_KITE_STATIC_IP: ${{ vars.CENTURION_KITE_STATIC_IP }}
           CENTURION_LIVE_CAPITAL: ${{ vars.CENTURION_LIVE_CAPITAL }}
           CENTURION_KILL_SWITCH: ${{ vars.CENTURION_KILL_SWITCH || 'false' }}
           CENTURION_PAPER_TRADE: ${{ vars.CENTURION_LIVE_MODE == 'live' && 'false' || 'true' }}
           CENTURION_NSE_ENGINE_LIVE: ${{ vars.CENTURION_LIVE_MODE == 'live' && 'true' || 'false' }}
           LIVE_MODE: ${{ vars.CENTURION_LIVE_MODE }}
         run: |
-          pip install "kiteconnect==5.1.0"
+          pip install "kiteconnect==5.1.0" "PySocks==1.7.1"
+          if [ -n "$CENTURION_PROXY_HOST" ]; then
+            # Kite calls leave from the Oracle VM's reserved IP (the one Zerodha has).
+            install -d -m 700 ~/.ssh
+            printf '%s\n' "$CENTURION_PROXY_SSH_KEY" > ~/.ssh/kite_tunnel && chmod 600 ~/.ssh/kite_tunnel
+            printf '%s\n' "$CENTURION_PROXY_HOST_KEY" > ~/.ssh/known_hosts_kite
+            ssh -i ~/.ssh/kite_tunnel -o UserKnownHostsFile="$HOME/.ssh/known_hosts_kite" \
+                -o StrictHostKeyChecking=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
+                -o BatchMode=yes -f -N -D 127.0.0.1:1080 "$CENTURION_PROXY_HOST"
+            export CENTURION_KITE_PROXY="socks5h://127.0.0.1:1080"
+          fi
           if [ "$LIVE_MODE" = "live" ]; then
             python -m kite_connect.trading.live_session --stored-token
           else
