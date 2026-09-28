@@ -698,12 +698,26 @@ def build_index_close(indices: pd.DataFrame, dates: pd.DatetimeIndex,
     return wide.reindex(index=dates, columns=list(names)).astype("float64")
 
 
+#: First date of Yahoo's ^INDIAVIX series: a cache reaching back to it is complete on the left.
+YF_VIX_FIRST_DATE = pd.Timestamp("2008-03-31")
+
+
 def fetch_yf_vix(start: pd.Timestamp, end: pd.Timestamp, cache_path: Optional[Path] = None) -> pd.Series:
-    """India VIX closes from yfinance (cached to parquet). Empty on failure."""
+    """India VIX closes from yfinance (cached to parquet).
+
+    The cache is used when it covers the request; Yahoo's series starts in
+    March 2008, so an earlier ``start`` cannot be covered by any download and
+    only needs the cache to reach back to then.  A failed or empty download
+    falls back to the cache: loading must not depend on the network (28 Sep
+    2026: a failed download silently dropped VIX from one R11 run on the 2006
+    store, changing its data hash).  Empty only when there is neither.
+    """
+    cached = None
     if cache_path is not None and cache_path.exists():
         cached = pd.read_parquet(cache_path)["close"]
         cached.index = pd.DatetimeIndex(cached.index)
-        if len(cached) and cached.index.min() <= start + pd.Timedelta(days=7) and cached.index.max() >= min(
+        left = max(start, YF_VIX_FIRST_DATE)
+        if len(cached) and cached.index.min() <= left + pd.Timedelta(days=7) and cached.index.max() >= min(
                 end, pd.Timestamp.today().normalize() - pd.Timedelta(days=5)):
             return cached
     try:
@@ -711,9 +725,12 @@ def fetch_yf_vix(start: pd.Timestamp, end: pd.Timestamp, cache_path: Optional[Pa
 
         raw = yf.download("^INDIAVIX", start="2008-01-01", progress=False, auto_adjust=False)
     except Exception as exc:  # network / API failure must not break loading
-        logger.warning("yfinance ^INDIAVIX download failed: %s", exc)
-        return pd.Series(dtype="float64")
+        logger.warning("yfinance ^INDIAVIX download failed: %s%s", exc, "; using the cache" if cached is not None else "")
+        return cached if cached is not None else pd.Series(dtype="float64")
     if raw is None or raw.empty:
+        if cached is not None:
+            logger.warning("yfinance ^INDIAVIX returned nothing; using the cache (last %s)", cached.index.max().date())
+            return cached
         return pd.Series(dtype="float64")
     close = raw["Close"]
     if isinstance(close, pd.DataFrame):

@@ -20,6 +20,7 @@ import sys
 import logging
 from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
+from typing import Optional
 
 # Ensure centurion_core is on the path
 _ROOT = Path(__file__).resolve().parent
@@ -476,8 +477,42 @@ def _run_engine_paper():
         msg += f" | {note}"
     logger.info("NSE engine paper run: %s", msg)
     _record_session_activity(pt, session, snapshot, plan, queued, fills)
-    _email_engine_session(pt, dep, session, snapshot, shift)
+    gate = _paper_gate(pt)
+    if gate:
+        msg += f" | gate {gate.get('verdict')}"
+    _email_engine_session(pt, dep, session, snapshot, shift, gate)
     return "success", msg
+
+
+def _paper_gate(pt) -> Optional[dict]:
+    """Paper pass/fail gate (G4) for this book, best-effort.
+
+    Compares the book's equity with the same-period reference backtest the
+    job wrote before the session (CENTURION_SHIFT_REFERENCE_CSV, else
+    data/shift_reference_returns.csv, with its _trades.csv) and its fills in
+    Neon.  The report is kept in the book's Neon state for the weekly email.
+    """
+    try:
+        from nse_engine import paper_gate
+        from services.research.distribution_shift import DEFAULT_REFERENCE_CSV
+        ref_csv = Path(os.environ.get("CENTURION_SHIFT_REFERENCE_CSV") or DEFAULT_REFERENCE_CSV)
+        if not ref_csv.exists():
+            logger.info("Paper gate: no same-period reference at %s yet", ref_csv)
+            return None
+        ref, trades = paper_gate.read_reference(ref_csv)
+        cloud = pt._get_cloud()
+        fills = cloud.read_fills() if cloud is not None and hasattr(cloud, "read_fills") else None
+        sessions = cloud.read_sessions() if cloud is not None and hasattr(cloud, "read_sessions") else None
+        report = paper_gate.evaluate(pt.equity_history(), ref, fills=fills, reference_trades=trades,
+                                     sessions=sessions)
+        logger.info("Paper gate (G4): %s", paper_gate.one_line(report))
+        if cloud is not None and hasattr(cloud, "sync_state"):
+            cloud.sync_state({paper_gate.STATE_KEY: paper_gate.summary_json(
+                report, updated_at=datetime.now(timezone.utc).isoformat())})
+        return report
+    except Exception as exc:                              # noqa: BLE001 - never block a session
+        logger.warning("Paper gate failed: %s", exc)
+        return None
 
 
 def _week_session_count(pt, checkpoint: dict) -> int:
@@ -620,7 +655,7 @@ def _drift_check_line(pt, shift: dict, plan) -> str:
             f"(runs from session {SHIFT_MIN_LIVE_DAYS + 1}) · size today ×{applied:.2f}")
 
 
-def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict) -> None:
+def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict, gate: Optional[dict] = None) -> None:
     """Daily email for a newly processed session (best-effort).
 
     A re-run of a session already processed (a backup cron or a manual
@@ -639,6 +674,13 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict) -
         if verdict in ("drifting", "regime_break"):
             alerts.append(f"Distribution shift: {verdict} (size multiplier {shift.get('position_size_multiplier', shift.get('multiplier', '—'))})")
         drift_check = _drift_check_line(pt, shift, plan)
+        gate_line = None
+        if gate:
+            from nse_engine import paper_gate
+            gate_line = paper_gate.one_line(gate)
+            if gate.get("verdict") == paper_gate.FAIL:
+                alerts.append("PAPER GATE (G4) FAIL: " + "; ".join(
+                    f"{c['name']} {c['display']}" for c in gate.get("checks", []) if c["status"] == paper_gate.FAIL))
         dd_state = str(getattr(plan, "drawdown_state", "normal") or "normal") if plan is not None else "normal"
         dd_pct = float(getattr(plan, "drawdown_pct", 0.0) or 0.0) if plan is not None else 0.0
         dd_line = None
@@ -670,6 +712,7 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict) -
             "drawdown_rule": dd_line,
             "drawdown_state": dd_state,
             "drift_check": drift_check,
+            "paper_gate": gate_line,
         })
         if not sent:
             logger.warning("Daily email returned False — check CENTURION_EMAIL_USER / CENTURION_EMAIL_PASS / "
@@ -679,6 +722,37 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict) -
 
 
 # ── Weekly checkpoint (Saturday) ──────────────────────────────────────
+
+def _weekly_gate_verdict(pt) -> tuple:
+    """(verdict, colour, detail) for the weekly email from the stored paper gate (G4)."""
+    import json as _json
+    from nse_engine import paper_gate
+    gate = None
+    try:
+        cloud = pt._get_cloud()
+        raw = (cloud.read_state() or {}).get(paper_gate.STATE_KEY) if cloud is not None else None
+        gate = _json.loads(raw) if raw else None
+    except Exception as exc:                              # noqa: BLE001 - reading only
+        logger.warning("Paper gate state unavailable: %s", exc)
+    if not gate:
+        return ("NOT ENOUGH DATA — the paper gate (G4) has not run yet", "#6b7280",
+                "It runs in each daily session once the same-period reference exists.")
+    v = gate.get("verdict") or paper_gate.NOT_ENOUGH
+    checks = " · ".join(f"{c['name']} {c['display']}" + ("" if v == paper_gate.NOT_ENOUGH else f" ({c['status']})")
+                        for c in gate.get("checks", []))
+    as_of = f"as of {gate.get('book_last')}" if gate.get("book_last") else ""
+    if v == paper_gate.NOT_ENOUGH:
+        return (f"NOT ENOUGH DATA — {gate.get('sessions', 0)} of {gate.get('min_sessions', 30)} sessions (G4)",
+                "#6b7280", f"For information only, {as_of}: {checks}" if checks else as_of)
+    text = {paper_gate.PASS: "PASS — behaves like its backtest (G4)",
+            paper_gate.WATCH: "WATCH — a check is between its limits or not measurable yet (G4)",
+            paper_gate.FAIL: "FAIL — does not behave like its backtest (G4): investigate before any promotion"}[v]
+    colour = {paper_gate.PASS: "#15803d", paper_gate.WATCH: "#d97706", paper_gate.FAIL: "#dc2626"}[v]
+    detail = f"{gate.get('sessions')} sessions {as_of}: {checks}."
+    if v == paper_gate.PASS:
+        detail += " Promotion still needs 60 sessions and the forward gate (V3)."
+    return text, colour, detail
+
 
 def _run_weekly_checkpoint():
     """Run weekly checkpoint + send weekly performance email.
@@ -742,28 +816,10 @@ def _run_weekly_checkpoint():
     def ratio(value: float, fmt: str = "{:.3f}") -> str:
         return fmt.format(value) if sessions >= min_sessions else f"n/a ({sessions} sessions)"
 
-    # Verdict. A Sharpe over a handful of sessions is noise, and win rate is
-    # undefined until something closes, so the gates only apply once the book
-    # has a sample: below that the honest answer is "too early", not FAIL.
-    if sessions < min_sessions:
-        verdict = (f"TOO EARLY — {sessions} of {min_sessions} sessions; "
-                   f"{dash.closed_trades} trades closed so far")
-        verdict_color = "#6b7280"
-        verdict_detail = (f"Ratios need closed trades and a few weeks of returns. "
-                          f"Equity {dash.initial_capital:,.0f} → {dash.current_capital:,.0f} "
-                          f"({dash.total_pnl_pct:+.1f}%).")
-    elif dash.sharpe_ratio >= 0.5 and dash.max_drawdown_pct < 30:
-        verdict = "PASS — Ready for live trading"
-        verdict_color = "#15803d"
-        verdict_detail = ""
-    elif dash.sharpe_ratio >= 0.2:
-        verdict = "MARGINAL — Consider extending paper period"
-        verdict_color = "#d97706"
-        verdict_detail = ""
-    else:
-        verdict = "FAIL — Do not go live, needs investigation"
-        verdict_color = "#dc2626"
-        verdict_detail = ""
+    # Verdict: the paper gate (G4), computed by the latest daily session and kept
+    # in Neon.  It judges behaviour against the same-period backtest; a Sharpe
+    # over a few weeks is noise, so returns are shown but never gate.
+    verdict, verdict_color, verdict_detail = _weekly_gate_verdict(pt)
 
     html = f"""\
 <html><body style="font-family:Segoe UI,Arial,sans-serif;background:#f9fafb;padding:20px;">
@@ -834,7 +890,7 @@ def _run_weekly_checkpoint():
     label = f"[{_book_label()}] " if _book_label() else ""
     subject = (f"[Centurion Paper] {label}Week {wk} | {checkpoint['week_return_pct']:+.1f}% | "
                f"{checkpoint['trades_opened']} opened, {checkpoint['trades_closed']} closed | "
-               f"{sessions} of {min_sessions} sessions")
+               f"gate {verdict.split(' — ')[0]}")
     sent = NotificationManager._send_html_email(
         subject=subject,
         html_body=html,

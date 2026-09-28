@@ -380,6 +380,48 @@ jobs:
           CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
         run: python -m tools.session_failed "${{ github.run_id }} (candidate book)"
 
+      # Live book (tracker L5, decision U23): off until the repository variable
+      # CENTURION_LIVE_MODE is 'dry_run' (orders built from the real account,
+      # none sent) or 'live' (real orders).  It needs today's Kite login - the
+      # link in the reminder email (kite-login-reminder.yml) - and, for real
+      # orders, the static-IP proxy whose IP is registered with Zerodha.  Runs
+      # once per session across the backup crons.  Isolated like the candidate:
+      # a failure emails and never touches the paper books.
+      - name: Live book - session
+        id: live
+        if: vars.CENTURION_LIVE_MODE == 'dry_run' || vars.CENTURION_LIVE_MODE == 'live'
+        continue-on-error: true
+        env:
+          CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
+          CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
+          CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
+          CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
+          CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+          ZERODHA_API_KEY: ${{ secrets.ZERODHA_API_KEY }}
+          CENTURION_KITE_TOKEN_KEY: ${{ secrets.CENTURION_KITE_TOKEN_KEY }}
+          CENTURION_KITE_PROXY: ${{ secrets.CENTURION_KITE_PROXY }}
+          CENTURION_LIVE_CAPITAL: ${{ vars.CENTURION_LIVE_CAPITAL }}
+          CENTURION_KILL_SWITCH: ${{ vars.CENTURION_KILL_SWITCH || 'false' }}
+          CENTURION_PAPER_TRADE: ${{ vars.CENTURION_LIVE_MODE == 'live' && 'false' || 'true' }}
+          CENTURION_NSE_ENGINE_LIVE: ${{ vars.CENTURION_LIVE_MODE == 'live' && 'true' || 'false' }}
+          LIVE_MODE: ${{ vars.CENTURION_LIVE_MODE }}
+        run: |
+          pip install "kiteconnect==5.1.0"
+          if [ "$LIVE_MODE" = "live" ]; then
+            python -m kite_connect.trading.live_session --stored-token
+          else
+            python -m kite_connect.trading.live_session --stored-token --dry-run
+          fi
+
+      - name: Tell me when the live session fails
+        if: steps.live.outcome == 'failure'
+        env:
+          CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
+          CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
+          CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
+          CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+        run: python -m tools.session_failed "${{ github.run_id }} (live book)"
+
       - name: Tell me when a session fails
         if: failure()
         env:
