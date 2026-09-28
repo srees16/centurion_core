@@ -3,6 +3,8 @@ Goal is to have the best possible Sharpe and CAGR, lowest possible maxDD
 
 *success criterion should be highest Sharpe + lowest max DD, not a CAGR number. A config with 45%+ CAGR and 0.90 Sharpe is far better than 60% CAGR and 0.50 Sharpe, because the former will survive in live trading while the latter will blow up.*
 
+1. elaborate on U24 and any pending action items from me
+
 ┌──────────────────────────────────────────────────────────────────────┐
 │  PERFORMANCE SUMMARY — ALL CONFIGURATIONS                           │
 ├──────────────┬────────┬────────┬────────┬────────┬─────────┬────────┤
