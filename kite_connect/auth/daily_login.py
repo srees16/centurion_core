@@ -42,6 +42,7 @@ IST = timezone(timedelta(hours=5, minutes=30))
 TOKEN_EXPIRY = time(6, 0)                         # 06:00 IST, Kite Connect
 KEY_TOKEN, KEY_LOGIN_AT, KEY_USER = "kite_access_token", "kite_login_at", "kite_user_id"
 ENV_TOKEN_KEY, ENV_PROXY, ENV_USER = "CENTURION_KITE_TOKEN_KEY", "CENTURION_KITE_PROXY", "CENTURION_KITE_USER_ID"
+ENV_STATIC_IP = "CENTURION_KITE_STATIC_IP"        # the IP registered with Zerodha (Oracle reserved IP)
 ENV_LIVE_MODE = "CENTURION_LIVE_MODE"             # off | dry_run | live
 LOGIN_URL = "https://kite.zerodha.com/connect/login?v=3&api_key={api_key}"
 
@@ -149,6 +150,13 @@ def egress_ip(proxy_url: Optional[str] = None) -> Optional[str]:
     except Exception as exc:                          # noqa: BLE001 - diagnostic only
         logger.warning("could not read the egress IP: %s", exc)
         return None
+
+
+def check_egress(proxy_url: Optional[str] = None, expected: Optional[str] = None) -> Tuple[Optional[str], bool]:
+    """(egress IP, matches) against the registered static IP; True when none is configured."""
+    expected = (expected if expected is not None else os.environ.get(ENV_STATIC_IP, "")).strip()
+    ip = egress_ip(proxy_url)
+    return ip, (not expected) or ip == expected
 
 
 def kite_from_stored_token(book=None, now: Optional[datetime] = None, proxy_url: Optional[str] = None,

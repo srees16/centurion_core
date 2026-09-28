@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 28 Sep 2026, 16:00 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 28 Sep 2026, 23:05 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -144,23 +144,35 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              GitHub/HF secret uses it.  kaggle.com/settings/api: revoke,
              "Generate New Token", save over the file, chmod 600.  Test:
              myenv/bin/kaggle kernels list --mine
-[!] P1  U24  One-time setup for the live login (U23), after merging:
-             1. Static-IP proxy: subscribe (e.g. QuotaGuard Static); note
-                its proxy URL and fixed IP(s).
-             2. developers.kite.trade: register that IP (primary; a second
-                as backup); set the app's Redirect URL to
-                https://srees16-centurion-core.hf.space/ind-stocks/auth/callback
-             3. Make a token key on your machine, never in chat:
-                python -c "from cryptography.fernet import Fernet;
-                print(Fernet.generate_key().decode())"
-             4. HF Space secrets: CENTURION_KITE_TOKEN_KEY, CENTURION_KITE_
-                USER_ID (your Zerodha client ID); check ZERODHA_API_KEY,
-                ZERODHA_API_SECRET, CENTURION_DATABASE_URL are there.
-             5. GitHub secrets: ZERODHA_API_KEY, CENTURION_KITE_TOKEN_KEY,
-                CENTURION_KITE_PROXY.  Variables: CENTURION_LIVE_CAPITAL=
-                600000, then CENTURION_LIVE_MODE=dry_run for the dry runs.
-             6. Test: run "Kite login reminder" by hand (force), click the
-                link, log in: the page should say "Logged in to Kite".
+[!] P1  U24  One-time setup for the live login (U23) and the Oracle static
+             IP; full guide: deployment/oracle-proxy/README.md.
+             1. Oracle Cloud: account in Mumbai, convert to Pay As You Go
+                (still $0; stops idle reclamation), Ubuntu VM on an Always
+                Free shape, reserved public IP attached.
+             2. Tunnel key on your machine (never in chat):
+                ssh-keygen -t ed25519 -N "" -C centurion-kite-tunnel -f kite_tunnel
+                then on the VM: sudo bash setup_tunnel_user.sh "<kite_tunnel.pub>"
+                (it prints the three values for step 4).
+             3. developers.kite.trade: IP Whitelist = the reserved IP;
+                Redirect URL = https://srees16-centurion-core.hf.space/
+                ind-stocks/auth/callback
+             4. GitHub secrets: CENTURION_PROXY_SSH_KEY (private key file),
+                CENTURION_PROXY_HOST, CENTURION_PROXY_HOST_KEY (printed),
+                ZERODHA_API_KEY, CENTURION_KITE_TOKEN_KEY.  Variables:
+                CENTURION_KITE_STATIC_IP (printed), CENTURION_LIVE_CAPITAL=
+                600000, then CENTURION_LIVE_MODE=dry_run.
+             5. Token key (never in chat): python -c "from cryptography.
+                fernet import Fernet; print(Fernet.generate_key().decode())"
+                -> CENTURION_KITE_TOKEN_KEY in GitHub AND the HF Space; also
+                HF: CENTURION_KITE_USER_ID (your client ID); check
+                ZERODHA_API_KEY/SECRET and CENTURION_DATABASE_URL exist.
+             6. Test: run "Kite login reminder" by hand (force) and log in.
+[!] P2  U25  Cost model overcharges the metal sleeve: it applies equity
+             delivery STT (0.1% each way) to GOLDBEES (and SILVERBEES),
+             which Zerodha lists as STT-exempt (gold, liquid, gilt ETFs;
+             silver per NSE's non-applicability report).  ~0.3%/yr of costs
+             in every backtest with sleeves.  Fixing it changes every
+             config's results (a registry refresh, V2).  Approve the fix?
 [!] P1  U12  Close the Sentry issue "Kite session not active".  Fix live since
              17 Sep 21:58 IST (409, not 503).  Search with ALL environments
              (events are tagged "development").  Last seen before 17 Sep
@@ -184,12 +196,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
  PHASE 0   protect the book, fix the measurement            DONE 28 Sep (G4)
  PHASE 1   decide the exposure: one pre-registered trial each     DONE 28 Sep (R4)
  PHASE 2   costs                                                            Nov
-#1  [ ] P2  R7   Turnover 7x -> ~4x                               Prompt: do R7
-        Expect +1-1.5 CAGR pts; each walk-forward pair adds ~600 trials.
-#2  [ ] P3  X1   Execution: limit-at-open / sliced fills after G4 Prompt: do X1
+#1  [ ] P3  X1   Execution: limit-at-open / sliced fills after G4 Prompt: do X1
         Needs >= 30 real fills first; worth <= +0.1 Sharpe.
  PHASE 3   paper -> live ladder                                       Nov -> Feb
-#3  [ ] P2  D3   Capital ladder Rs 6L / 12L / 21L / 30L as code   Prompt: do D3
+#2  [ ] P2  D3   Capital ladder Rs 6L / 12L / 21L / 30L as code   Prompt: do D3
         Monthly gates read G4 + the drawdown state -> GO / HOLD / STEP DOWN;
         kill criteria wired, reading drawdown against NIFTY in a market-
         wide crash (U22): the plan's "drawdown > 1.5x backtest MaxDD" kill
@@ -200,8 +210,14 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
         live session's --capital; a step changes the ledger's capital and
         cash (live_session).  Login and scheduling are built (U23); the
         live step runs in the paper job once CENTURION_LIVE_MODE is set.
-#4  [ ] P2  G10  Per-position P&L on the trade monitor            Prompt: do G10
+#3  [ ] P2  G10  Per-position P&L on the trade monitor            Prompt: do G10
  PHASE 4   research that might move Sharpe (each adds trials)          parallel
+#4  [ ] P3  R12  Exit rank 60 alone (seen in R7, not tested)      Prompt: do R12
+        In R7 the exit-rank change alone did better than the pre-registered
+        combination in both books (CAGR +0.9 pt, Sharpe 2017-25 +0.09 /
+        +0.11, turnover -17%, MaxDD up to 1.6 pts deeper).  Found in R7's
+        own data, so it needs evidence R7 did not see: a walk-forward with
+        exit_rank {40, 60} in the grid, or paper.  Pre-register first.
 #5  [ ] P3  R6   R21A rules as signal groups (+/-0.1)             Prompt: do R6
 #6  [ ] P3  R9   Universe size 150 / 300 / 500                    Prompt: do R9
         Deploy a Phase-4 winner only on a pre-registered +0.15 OOS Sharpe,
@@ -241,6 +257,31 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+28 Sep  R7   Turnover, pre-registered 21:30 IST, run on Kaggle (your call;
+             same data fingerprint 6c94f4f4 as local): FAIL, 3 of 4.
+             T3 (no-trade buffer 0.50 + exit rank 60) vs B1: turnover 6.87x
+             -> 5.33x, -23% (needed -25%: FAIL); CAGR 22.83% -> 23.38%
+             (+0.54, PASS); Sharpe 2017-25 1.323 -> 1.405 (PASS); MaxDD
+             -23.8% -> -24.8% (PASS).  Costs 3.08% -> 2.48%/yr.  Reported:
+             T1 buffer alone -5% turnover, CAGR flat; T2 exit rank alone
+             -17%, CAGR +0.87, Sharpe +0.09; on the candidate T3 gives
+             CAGR +0.11 only, T2 +0.94.  Not adopted; T2 logged as R12
+             (needs out-of-sample evidence).  6 variant runs imported to the
+             registry; the 2 base re-runs were not (other platform).  Store
+             re-uploaded to Kaggle (was 16 Sep).
+28 Sep  U24a Static IP on Oracle Cloud Always Free (your choice, $0): the
+             live step opens an SSH tunnel (ssh -D) to an Oracle VM whose
+             reserved IP is registered with Zerodha, and Kite calls go
+             through it (socks5h).  Not a web proxy: only SSH listens, the
+             key can reach only api.kite.trade:443 and api.ipify.org:443
+             (setup_tunnel_user.sh: restrict + permitopen, no shell), the
+             host key is pinned.  Before any order the session checks its
+             egress IP against CENTURION_KITE_STATIC_IP: a mismatch refuses
+             real orders (dry run warns).  QuotaGuard dropped: shared IPs
+             below $219/mo, and Zerodha allows each IP on one account only.
+             Verified: egress check and refusal; Kite + the IP check routed
+             through a local SOCKS5 relay with hostnames resolved remotely.
+             The VM script is syntax-checked, not yet run on a real VM.
 28 Sep  U23  Daily Kite login + static IP, built.  kite_connect/auth/
              daily_login.py: reminder email with the Kite login link at
              09:03 IST and 17:33 if still missing, trading days only, while

@@ -513,7 +513,14 @@ def main(argv=None) -> int:
             raise SystemExit(f"real orders need {dl.ENV_PROXY}: Zerodha accepts API orders only from the "
                              "registered static IP")
         if proxy:
-            notes.append(f"Kite calls through the static-IP proxy, egress IP {dl.egress_ip(proxy) or 'unknown'}")
+            ip, ok = dl.check_egress(proxy)
+            notes.append(f"Kite calls through the static-IP proxy, egress IP {ip or 'unknown'}")
+            if not ok:
+                msg = (f"egress IP {ip or 'unknown'} is not the IP registered with Zerodha "
+                       f"({os.environ.get(dl.ENV_STATIC_IP)}): orders would be rejected")
+                if not args.dry_run:
+                    raise SystemExit(f"real orders refused: {msg}")
+                notes.append("WARNING: " + msg)
     else:
         from kite_connect.auth.kite_session import create_kite_session
         kite = create_kite_session()
