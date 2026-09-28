@@ -358,9 +358,11 @@ class EngineExecutor:
                  deployment=None, deployment_path: Optional[str] = None,
                  shift_state_path: Optional[str] = None, paper_fill: str = PAPER_FILL_NEXT_OPEN,
                  equity_history_fn: Optional[Callable] = None, drawdown_rule=None,
-                 dry_run: bool = False):
+                 dry_run: bool = False, stop_scope_fn: Optional[Callable] = None):
         self.kite = kite
         self.dry_run = bool(dry_run)      # live mode: build every order, send none
+        # live book sharing the account: () -> ({symbol: qty to protect}, symbols it manages)
+        self._stop_scope_fn = stop_scope_fn
         self.config = config
         self._deployment = deployment
         self._deployment_path = deployment_path
@@ -963,7 +965,11 @@ class EngineExecutor:
         # GTT stops at the quantity actually held now; the reconciliation job
         # re-syncs quantities after pending orders fill.
         stops = {s.symbol: s.trigger for s in plan.stop_instructions}
-        report = gtt_stops.reconcile_stop_gtts(self.kite, stops=stops)
+        if self._stop_scope_fn is not None:
+            quantities, scope = self._stop_scope_fn()
+            report = gtt_stops.reconcile_stop_gtts(self.kite, stops=stops, quantities=quantities, scope=scope)
+        else:
+            report = gtt_stops.reconcile_stop_gtts(self.kite, stops=stops)
         results.append({"mode": "live", "type": "gtt_reconcile", "success": not report.get("errors"),
                         "report": report})
         return results

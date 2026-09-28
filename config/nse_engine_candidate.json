@@ -2,7 +2,7 @@
   "status": "candidate",
   "paper_start_date": "2026-09-28",
   "source_run_id": "20260927T161509697939Z_2d64ba4c",
-  "approved_at": "2026-09-28T00:30:00+05:30",
+  "approved_at": "2026-09-27T22:38:23+05:30",
   "notes": "Paper trial beside the deployed book (tracker D1, decision U21, forward gate U19). The K5 walk-forward's current choice on complete NIFTY data (every fold 2021-25): the B1 baseline with regime.scale_neutral 0.6. Full period 2013-25 Sharpe 1.189, CAGR 22.27%, MaxDD -23.4%, Calmar 0.953; validate PBO 49.4% (47 configs), DSR 0.989, benchmark gate passed; R4 2008 crash -26.9%. Paper only: never places live orders.",
   "data_anchor_date": "2012-01-02",
   "risk_overlay": {

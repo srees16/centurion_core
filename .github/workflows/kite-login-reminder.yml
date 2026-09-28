@@ -1,0 +1,51 @@
+name: Kite login reminder
+
+# Decision U23: the live book needs one Kite login per trading day (tokens
+# expire at 06:00 IST; a scripted login breaks Kite Connect's terms).  This
+# emails the login link at 09:00 IST, and again at 17:30 IST if nobody has
+# logged in, on NSE trading days while CENTURION_LIVE_MODE is 'dry_run' or
+# 'live'.  The link opens Zerodha's own login page; Zerodha then redirects to
+# the HF Space (/ind-stocks/auth/callback), which stores the day's token.
+
+on:
+  schedule:
+    - cron: "33 3 * * 1-5"    # 09:03 IST
+    - cron: "3 12 * * 1-5"    # 17:33 IST, only when still not logged in
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Send the email even when not needed (test it)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  remind:
+    if: github.event_name == 'workflow_dispatch' || vars.CENTURION_LIVE_MODE == 'dry_run' || vars.CENTURION_LIVE_MODE == 'live'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - run: pip install -r requirements-core.txt
+      - name: Email the Kite login link if today's login is missing
+        env:
+          CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
+          CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
+          CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
+          CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
+          CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+          ZERODHA_API_KEY: ${{ secrets.ZERODHA_API_KEY }}
+          CENTURION_LIVE_MODE: ${{ vars.CENTURION_LIVE_MODE }}
+        run: |
+          if [ "${{ inputs.force }}" = "true" ]; then
+            python -m kite_connect.auth.daily_login remind --force
+          else
+            python -m kite_connect.auth.daily_login remind
+          fi

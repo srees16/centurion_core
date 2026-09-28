@@ -11,13 +11,20 @@ Raw state per day
 
 A new raw state has to persist ``confirm_days`` consecutive days before the
 confirmed state switches (hysteresis).
+
+Crash re-entry (``cfg.crash_reentry``, tracker R11): after a crash the gate's
+legs (200-day trend, breadth, VIX) stay off for months into the rebound.  A
+crash episode starts on the first close ``crash_drawdown`` or more below the
+index's ``crash_high_days`` high and ends at a new high of that length.  Inside
+an episode, while the index is above its ``reentry_ma_days`` mean (confirmed
+over ``confirm_days`` like the gate), the confirmed state is risk_on.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import List, Sequence
+from typing import List, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -41,6 +48,7 @@ class RegimePanel:
     breadth: pd.Series
     vix: pd.Series
     vix_is_fallback: pd.Series
+    reentry: Optional[pd.Series] = None  # True where the crash re-entry rule forced risk_on
 
     def switched(self) -> pd.Series:
         """True on the dates where the confirmed state changed."""
@@ -114,8 +122,39 @@ def compute_regime(
 
     raw = raw_regime_state(trend, breadth, vix, cfg)
     state = pd.Series(apply_hysteresis(raw.tolist(), cfg.confirm_days), index=idx, dtype=object)
+    reentry = None
+    if getattr(cfg, "crash_reentry", False) and col is not None:
+        reentry = crash_reentry_mask(index_close[col].astype("float64").reindex(idx), cfg)
+        state = state.where(~reentry, RISK_ON)
     scale_map = {RISK_ON: cfg.scale_risk_on, NEUTRAL: cfg.scale_neutral, RISK_OFF: cfg.scale_risk_off}
     scale = state.map(scale_map).astype("float64")
     return RegimePanel(
-        state=state, raw_state=raw, scale=scale, trend_up=trend, breadth=breadth, vix=vix, vix_is_fallback=is_fb
+        state=state, raw_state=raw, scale=scale, trend_up=trend, breadth=breadth, vix=vix, vix_is_fallback=is_fb,
+        reentry=reentry,
     )
+
+
+def crash_reentry_mask(index: pd.Series, cfg: RegimeConfig) -> pd.Series:
+    """True on dates inside a crash episode with the index confirmed above its fast mean.
+
+    Causal: every quantity on ``t`` uses closes ``<= t``.
+    """
+    x = index.to_numpy(dtype="float64")
+    high = index.rolling(int(cfg.crash_high_days), min_periods=1).max().to_numpy(dtype="float64")
+    ma = index.rolling(int(cfg.reentry_ma_days), min_periods=int(cfg.reentry_ma_days)).mean().to_numpy(dtype="float64")
+    in_episode = np.zeros(len(x), dtype=bool)
+    active = False
+    for i in range(len(x)):
+        if not np.isfinite(x[i]) or not np.isfinite(high[i]):
+            in_episode[i] = active
+            continue
+        if active and x[i] >= high[i]:
+            active = False                      # a new high ends the episode
+        elif not active and x[i] <= high[i] * (1.0 - float(cfg.crash_drawdown)):
+            active = True
+        in_episode[i] = active
+    with np.errstate(invalid="ignore"):
+        above = np.isfinite(ma) & (x > ma)
+    confirmed = apply_hysteresis(["up" if a else "down" for a in above], cfg.confirm_days, initial="down")
+    fast_up = np.array([c == "up" for c in confirmed])
+    return pd.Series(in_episode & fast_up, index=index.index)

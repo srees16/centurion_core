@@ -115,6 +115,20 @@ class Deployment:
         """Engine config used for trading: ``start`` = ``paper_start_date``."""
         return self.engine.replace(start=self.paper_start_date.isoformat())
 
+    def reference_config(self) -> EngineConfig:
+        """What the book trades as one backtestable config: ``live_config()``
+        with the deployment's drawdown overlay folded into ``drawdown``.
+
+        The executor applies the overlay itself, so trading keeps using
+        ``live_config()``.  The same-period reference backtest (drift check,
+        paper gate G4) uses this, so a halt in the book is a halt in its
+        reference too, not tracking error.
+        """
+        cfg = self.live_config()
+        if self.drawdown_rule is not None:
+            cfg = cfg.replace(**{f"drawdown.{k}": v for k, v in asdict(self.drawdown_rule).items()})
+        return cfg
+
     def data_start(self) -> date:
         """First market-data date to load (the validated anchor when pinned)."""
         if self.data_anchor_date is not None:
@@ -276,9 +290,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     g = sub.add_parser("get", help="print one field")
     g.add_argument("field", choices=["paper_start_date", "bootstrap_start", "data_start", "status", "source_run_id",
                                      "config_hash", "store_dir"])
-    w = sub.add_parser("write-engine-config", help="write the trading EngineConfig as plain JSON "
-                                                   "(accepted by runners/run_nse_engine.py --config)")
+    w = sub.add_parser("write-engine-config", help="write what the book trades as plain EngineConfig JSON "
+                                                   "(accepted by runners/run_nse_engine.py --config): the "
+                                                   "engine config plus the drawdown overlay")
     w.add_argument("--out", required=True)
+    w.add_argument("--strategy-only", action="store_true",
+                   help="leave out the deployment's drawdown overlay (the engine config alone)")
     args = parser.parse_args(argv)
     try:
         dep = load_deployment(args.path)
@@ -298,7 +315,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     else:
         out = Path(args.out)
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(dep.live_config().to_json())
+        out.write_text((dep.live_config() if args.strategy_only else dep.reference_config()).to_json())
         print(f"wrote {out}")
     return 0
 

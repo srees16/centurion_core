@@ -282,94 +282,111 @@ def cmd_holdout(args) -> None:
     _print_json(run_holdout(data, cfg, args.start, args.end, force=args.force))
 
 
-PROMOTION_GATES = {
-    "pbo_max": 0.30,                  # CSCV PBO over every same-window configuration
-    "dsr_min": 0.95,                  # deflated Sharpe, N = raw configuration count
-    "benchmark_gate": True,           # beats EW hold and naive momentum by the margin
-    "holdout_excess_sharpe_min": 0.0,
-    "holdout_maxdd_ratio_max": 1.5,   # holdout MaxDD <= 1.5x full-period backtest MaxDD
-}
-
-
-def promotion_checks(run_cfg: EngineConfig, manifest: dict, validation: dict, holdout_lock: dict) -> list:
-    """(name, passed, detail) for each promotion gate."""
-    g = PROMOTION_GATES
-    checks = []
-    pbo = validation.get("pbo")
-    pbo_val = pbo.get("pbo") if isinstance(pbo, dict) else None
-    checks.append(("pbo", pbo_val is not None and pbo_val < g["pbo_max"],
-                   f"PBO={pbo_val} (< {g['pbo_max']}, n={validation.get('n_configurations')})"))
-    dsr = (validation.get("dsr") or validation.get("dsr_raw_count") or {}).get("dsr")
-    checks.append(("dsr", dsr is not None and dsr >= g["dsr_min"], f"DSR={dsr} (>= {g['dsr_min']})"))
-    gate = (validation.get("benchmark_gate") or {}).get("passed")
-    checks.append(("benchmark_gate", bool(gate) == g["benchmark_gate"], f"passed={gate}"))
-
-    evals = [e for e in holdout_lock.get("evaluations", [])
-             if e.get("config_hash") == run_cfg.config_hash() and e.get("status") == "completed"]
-    if not evals:
-        checks.append(("holdout", False, "no completed holdout evaluation for this config"))
-        return checks
-    hm = evals[-1].get("metrics", {})
-    hs = hm.get("excess_sharpe")
-    checks.append(("holdout_sharpe", hs is not None and hs > g["holdout_excess_sharpe_min"],
-                   f"holdout excess Sharpe={hs} ({evals[-1]['window']['start']}..{evals[-1]['window']['end']})"))
-    bt_dd = abs((manifest.get("metrics") or {}).get("max_drawdown") or 0.0)
-    h_dd = abs(hm.get("max_drawdown") or 0.0)
-    checks.append(("holdout_maxdd", bt_dd > 0 and h_dd <= g["holdout_maxdd_ratio_max"] * bt_dd,
-                   f"holdout MaxDD={h_dd:.3f} vs backtest {bt_dd:.3f} (<= {g['holdout_maxdd_ratio_max']}x)"))
-    return checks
-
-
 def cmd_promote(args) -> None:
-    """Write config/nse_engine_deployed.json for a run that passed validation and the holdout."""
+    """Forward gate (V3, decision U19): replace the deployed config with the
+    paper candidate once it has traded >= 60 sessions beside it, its G4 paper
+    gate is PASS and its walk-forward OOS Sharpe is within 0.05 of the
+    deployed config's.  PBO / deflated Sharpe / benchmark / holdout are
+    printed with their counts, not gating (``nse_engine.forward_gate``)."""
     from datetime import datetime, timedelta, timezone
 
+    from nse_engine import forward_gate as fg
     from nse_engine.deployment import load_deployment, resolve_path
+    from nse_engine.engine import run_backtest
 
-    runs_dir = Path(EngineConfig().runs_dir)
-    run_dir = runs_dir / args.run_id
-    for name in ("config.json", "manifest.json", "validation.json"):
-        if not (run_dir / name).exists():
-            raise SystemExit(f"{run_dir / name} missing (run `validate --run-id {args.run_id}` first)")
-    run_cfg = EngineConfig.from_dict(json.loads((run_dir / "config.json").read_text()))
-    manifest = json.loads((run_dir / "manifest.json").read_text())
-    validation = json.loads((run_dir / "validation.json").read_text())
+    cand = load_deployment(args.candidate)
+    if cand.status != "candidate":
+        raise SystemExit(f"{args.candidate} has status {cand.status!r}: only a paper candidate can be promoted")
+    if args.run_id and args.run_id != cand.source_run_id:
+        raise SystemExit(f"--run-id {args.run_id} is not the candidate's source run ({cand.source_run_id})")
+    base = load_deployment(args.out)
+    if cand.engine.config_hash() == base.engine.config_hash():
+        raise SystemExit("the candidate's engine config is already the deployed one")
+    if not (os.getenv("CENTURION_DATABASE_URL") or os.getenv("DATABASE_URL")):
+        raise SystemExit("CENTURION_DATABASE_URL is not set: both paper books live in Neon")
+
+    from database.connection import get_db_manager
+    from database.paper_cloud import PaperCloudSync
+    mgr = get_db_manager()
+    cand_book = PaperCloudSync(mgr, schema=args.schema)       # reads only, never creates
+    base_book = PaperCloudSync(mgr, schema=None)
+    cand_days = fg.session_dates(cand_book.read_sessions())
+    base_days = fg.session_dates(base_book.read_sessions())
+
+    window = (args.oos_start, args.oos_end)
+    sharpes = {}
+    for name, dep in (("candidate", cand), ("deployed", base)):
+        cfg = dep.engine.replace(start=fg.VALIDATION_WINDOW[0], end=fg.VALIDATION_WINDOW[1])
+        data = _load_data(cfg, data_start=dep.data_start().isoformat())
+        res = run_backtest(data, cfg, record=False, tag="forward-gate-oos")
+        sharpes[name] = fg.oos_sharpe(res.returns, window, rf_annual=cfg.risk_free_annual)
+
+    checks = [
+        fg.sessions_check(cand_days, base_days),
+        fg.gate_check(fg.stored_gate(cand_book.read_state()), cand_days[-1] if len(cand_days) else None),
+        fg.wf_check(sharpes["candidate"], sharpes["deployed"], window),
+    ]
+    run_dir = Path(EngineConfig().runs_dir) / str(cand.source_run_id or "")
+    validation = json.loads((run_dir / "validation.json").read_text()) if (run_dir / "validation.json").exists() else None
+    info = fg.validation_report(validation)
     lock_path = Path(args.holdout_lock)
-    holdout_lock = json.loads(lock_path.read_text()) if lock_path.exists() else {}
+    lock = json.loads(lock_path.read_text()) if lock_path.exists() else {}
+    evals = [e for e in lock.get("evaluations", [])
+             if e.get("config_hash") == cand.engine.config_hash() and e.get("status") == "completed"]
+    info.append(f"holdout: {len(evals)} completed evaluation(s) of this config"
+                + (f", last excess Sharpe {evals[-1].get('metrics', {}).get('excess_sharpe')}" if evals else ""))
 
-    checks = promotion_checks(run_cfg, manifest, validation, holdout_lock)
-    failed = [c for c in checks if not c[1]]
+    def equity(book):
+        s = book.read_snapshots()
+        if s is None or s.empty:
+            return pd.Series(dtype="float64")
+        return pd.Series(s["equity"].astype(float).to_numpy(), index=pd.to_datetime(s["date"].astype(str)))
+    info.append(fg.paper_comparison(equity(cand_book), equity(base_book)))
+
+    print(f"Forward gate: candidate {cand.engine.config_hash()[:8]} ({args.candidate}, schema {args.schema}) "
+          f"vs deployed {base.engine.config_hash()[:8]}")
     for name, ok, detail in checks:
         print(f"  [{'PASS' if ok else 'FAIL'}] {name}: {detail}")
-    if failed and not args.force:
-        raise SystemExit(f"not promoted: {len(failed)} gate(s) failed (use --force to override and record it)")
+    print("  Reported, not gating:")
+    for line in info:
+        print(f"    - {line}")
+    passed = fg.decide(checks)
+    if args.check:
+        print("check only: nothing written" + ("" if passed else " (the gate would refuse)"))
+        return
+    if not passed and not args.force:
+        raise SystemExit("not promoted: the forward gate failed (use --force to override and record it)")
 
     ist = timezone(timedelta(hours=5, minutes=30))
-    notes = "; ".join(detail for _, _, detail in checks)
-    if failed:
-        notes = f"FORCED despite failed gates: {[c[0] for c in failed]}; " + notes
+    notes = ("Promoted by the forward gate (V3, U19) from " + str(args.candidate) + ": "
+             + "; ".join(f"{n} {'PASS' if ok else 'FAIL'}: {d}" for n, ok, d in checks)
+             + ". Reported: " + "; ".join(info))
+    if not passed:
+        notes = "FORCED despite the forward gate failing. " + notes
+    raw_cand = json.loads(resolve_path(args.candidate).read_text())
     deployment = {
         "status": "approved",
         "paper_start_date": args.paper_start or date.today().isoformat(),
-        "source_run_id": args.run_id,
+        "source_run_id": cand.source_run_id,
         "approved_at": datetime.now(ist).isoformat(timespec="seconds"),
         "notes": notes,
-        "data_anchor_date": args.data_anchor,
-        "engine": run_cfg.to_dict(),
+        "data_anchor_date": cand.data_anchor_date.isoformat() if cand.data_anchor_date else None,
+        "engine": cand.engine.to_dict(),
     }
-    out = resolve_path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    if out.exists():   # the risk overlay (drawdown rule) belongs to the deployment, not to the run
+    overlay = raw_cand.get("risk_overlay")
+    if not overlay:
         try:
-            previous = json.loads(out.read_text())
-            if previous.get("risk_overlay"):
-                deployment["risk_overlay"] = previous["risk_overlay"]
-                print("kept the risk overlay of the previous deployment")
-        except (OSError, json.JSONDecodeError) as exc:
-            print(f"previous deployment unreadable, no risk overlay carried over: {exc}")
-    out.write_text(json.dumps(deployment, indent=2) + "\n")
+            overlay = json.loads(resolve_path(args.out).read_text()).get("risk_overlay")
+        except (OSError, json.JSONDecodeError):
+            overlay = None
+    if overlay:
+        deployment["risk_overlay"] = overlay
+    out = resolve_path(args.out)
+    out.write_text(json.dumps({k: v for k, v in deployment.items() if v is not None}, indent=2) + "\n")
     dep = load_deployment(out)  # validates the file we just wrote
-    print(f"promoted {args.run_id} -> {out} (config {dep.engine.config_hash()}, paper from {dep.paper_start_date})")
+    print(f"promoted {cand.engine.config_hash()[:8]} -> {out} (paper from {dep.paper_start_date}). "
+          f"The candidate book still trades it in schema {args.schema!r}: retire or replace "
+          f"{args.candidate} before the next session.")
 
 
 def cmd_shift_reference(args) -> None:
@@ -389,7 +406,44 @@ def cmd_shift_reference(args) -> None:
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     result.returns.rename("return").rename_axis("date").to_csv(out)
-    print(f"wrote {len(result.returns)} daily returns {cfg.start}..{cfg.end} -> {out}")
+    from nse_engine.paper_gate import reference_trades_path
+    trades_out = reference_trades_path(out)   # the paper gate's cost check (G4)
+    result.trades.to_csv(trades_out, index=False)
+    print(f"wrote {len(result.returns)} daily returns {cfg.start}..{cfg.end} -> {out} "
+          f"(+ {len(result.trades)} trades -> {trades_out})")
+
+
+def cmd_paper_gate(args) -> None:
+    """Paper pass/fail gate (G4) for one book: paper record from Neon vs a
+    same-period backtest (run here from the local store, or ``--reference``)."""
+    from nse_engine import paper_gate
+    from nse_engine.deployment import load_deployment
+
+    dep = load_deployment(args.deployment)
+    if args.reference:
+        ref, trades = paper_gate.read_reference(args.reference)
+    else:
+        from nse_engine.engine import run_backtest
+        cfg = dep.reference_config().replace(end=date.today().isoformat())
+        data = _load_data(cfg, data_start=dep.data_start().isoformat())
+        res = run_backtest(data, cfg, record=False, tag="paper-gate-reference")
+        ref, trades = res.returns, res.trades
+    if not (os.getenv("CENTURION_DATABASE_URL") or os.getenv("DATABASE_URL")):
+        raise SystemExit("CENTURION_DATABASE_URL is not set: the paper record lives in Neon")
+    from database.connection import get_db_manager
+    from database.paper_cloud import PaperCloudSync
+    cloud = PaperCloudSync(get_db_manager(), schema=args.schema)   # reads only, never creates
+    snaps = cloud.read_snapshots()
+    if snaps is None or snaps.empty:
+        raise SystemExit(f"no paper snapshots in schema {args.schema or 'public'}")
+    equity = pd.Series(snaps["equity"].astype(float).to_numpy(), index=pd.to_datetime(snaps["date"].astype(str)))
+    report = paper_gate.evaluate(equity, ref, fills=cloud.read_fills(), reference_trades=trades,
+                                 sessions=cloud.read_sessions())
+    if args.json:
+        print(json.dumps(report, indent=2, default=str))
+    else:
+        label = f"{dep.status} {dep.engine.config_hash()[:8]}" + (f", schema {args.schema}" if args.schema else "")
+        print(paper_gate.format_report(report, title=f"Paper gate (G4) - {label}"))
 
 
 def cmd_anchor_check(args) -> None:
@@ -506,15 +560,19 @@ def main(argv=None) -> None:
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=cmd_holdout)
 
-    p = sub.add_parser("promote", help="approve a validated, holdout-tested run for paper/live trading")
-    p.add_argument("--run-id", required=True)
-    p.add_argument("--paper-start", help="first paper decision date (default today)")
+    p = sub.add_parser("promote", help="forward gate (U19): replace the deployed config with the paper "
+                                       "candidate after >= 60 sessions beside it, G4 PASS and WF OOS Sharpe "
+                                       "within 0.05")
+    p.add_argument("--candidate", default="config/nse_engine_candidate.json", help="the paper candidate's file")
+    p.add_argument("--schema", default="candidate", help="Postgres schema of the candidate book")
+    p.add_argument("--run-id", default=None, help="optional: must equal the candidate's source_run_id")
+    p.add_argument("--paper-start", help="first session the deployed book trades the new config (default today)")
+    p.add_argument("--oos-start", default="2017-01-01", help="walk-forward OOS years start (K5: 2017)")
+    p.add_argument("--oos-end", default="2025-12-31")
     p.add_argument("--holdout-lock", default="data/nse_engine/holdout.lock")
     p.add_argument("--out", default=None, help="deployment file (default config/nse_engine_deployed.json)")
-    p.add_argument("--data-anchor", default="2012-01-02",
-                   help="data anchor the validation runs used (pinned for paper/live); "
-                        "the first session actually loaded, not the requested load start")
-    p.add_argument("--force", action="store_true", help="promote despite failed gates (recorded in notes)")
+    p.add_argument("--check", action="store_true", help="print the gate, write nothing")
+    p.add_argument("--force", action="store_true", help="promote despite a failed gate (recorded in notes)")
     p.set_defaults(func=cmd_promote)
 
     p = sub.add_parser("shift-reference",
@@ -523,6 +581,14 @@ def main(argv=None) -> None:
     p.add_argument("--run-id", help="take the EngineConfig from this recorded run")
     p.add_argument("--out", default="data/shift_reference_returns.csv")
     p.set_defaults(func=cmd_shift_reference)
+
+    p = sub.add_parser("paper-gate", help="paper pass/fail gate (G4): a paper book vs its same-period backtest")
+    p.add_argument("--deployment", default=None, help="deployment file (default: the deployed book)")
+    p.add_argument("--schema", default=None, help="Postgres schema of the book, e.g. candidate (default: public)")
+    p.add_argument("--reference", default=None,
+                   help="same-period reference returns CSV (with its _trades.csv) instead of a backtest here")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_paper_gate)
 
     p = sub.add_parser("anchor-check", help="same window from two load starts: identical results?")
     add_config_args(p)
