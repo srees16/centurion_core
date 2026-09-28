@@ -944,6 +944,22 @@ async def screener_monitor():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _kite_ltp_or_none():
+    """Live last prices through the API's Kite session (set by the daily login), or None."""
+    try:
+        from api.dependencies import get_kite_session
+        kite = get_kite_session()
+    except Exception:                                     # noqa: BLE001 - no session: the close is used
+        return None
+    if kite is None:
+        return None
+
+    def ltp(symbols):
+        data = kite.ltp([f"NSE:{s}" for s in symbols]) or {}
+        return {k.split(":", 1)[1]: (v or {}).get("last_price") for k, v in data.items()}
+    return ltp
+
+
 @router.get("/screener/monitor/trades")
 async def screener_monitor_trades():
     """Active and closed paper trades — from the cloud book the Actions job writes.
@@ -955,7 +971,7 @@ async def screener_monitor_trades():
         cloud = _cloud_or_none()
         if cloud:
             from kite_connect.trading.paper_book_view import trades_view
-            return trades_view(cloud)
+            return trades_view(cloud, live_prices=_kite_ltp_or_none())
 
         import sqlite3 as _sql
         from pathlib import Path as _Path

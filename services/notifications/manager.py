@@ -673,7 +673,8 @@ class NotificationManager:
             ("Open positions", str(report.get("open_positions", 0))),
             ("Max drawdown", f"{float(report.get('max_drawdown_pct') or 0):.1f}%"),
         ] + ([("Drift check", str(report["drift_check"]))] if report.get("drift_check") else []) + (
-            [("Paper gate (G4)", str(report["paper_gate"]))] if report.get("paper_gate") else []) + ([("Drawdown rule", (f"<b style='color:#dc2626;'>{report['drawdown_rule']}</b>"
+            [("Paper gate (G4)", str(report["paper_gate"]))] if report.get("paper_gate") else []) + (
+            [("Capital ladder (D3)", str(report["ladder"]))] if report.get("ladder") else []) + ([("Drawdown rule", (f"<b style='color:#dc2626;'>{report['drawdown_rule']}</b>"
                                  if str(report.get("drawdown_state", "normal")) != "normal"
                                  else str(report["drawdown_rule"])))]
              if report.get("drawdown_rule") else []) + [

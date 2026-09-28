@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -85,8 +85,50 @@ def _position_row(p: dict, is_active: bool) -> dict:
         "direction": "LONG" if side == "BUY" else "SHORT",
         "product": "PAPER",
         "is_active": is_active,
+        # numeric for the frontend already deployed; unknown = current_price None (G10)
         "unrealised_pnl_pct": 0.0 if is_active else _f(p.get("pnl_pct")),
+        "pnl_pct": None if is_active else _f(p.get("pnl_pct")),
     }
+
+
+def latest_marks(cloud) -> Tuple[Dict[str, float], Optional[str]]:
+    """({symbol: price}, date) from the latest snapshot: the prices the book was marked at."""
+    try:
+        snaps = _records(cloud.read_snapshots())
+    except Exception as exc:                              # noqa: BLE001 - marks are optional
+        logger.warning("snapshots unreadable: %s", exc)
+        return {}, None
+    for snap in sorted(snaps, key=lambda s: str(s.get("date") or ""), reverse=True):
+        try:
+            positions = (json.loads(snap.get("snapshot_json") or "{}") or {}).get("positions") or []
+        except ValueError:
+            continue
+        marks = {str(q.get("symbol")): _f(q.get("last_price")) for q in positions if _f(q.get("last_price")) > 0}
+        if marks or not positions:
+            return marks, str(snap.get("date") or "")[:10] or None
+    return {}, None
+
+
+def _mark_rows(rows: List[dict], marks: Dict[str, float], source: str, as_of: Optional[str]) -> Dict[str, Any]:
+    """Per-position price, value and unrealised P&L (before exit costs), and the totals (G10)."""
+    cost = value = pnl = 0.0
+    marked = 0
+    for r in rows:
+        px = marks.get(str(r["symbol"]))
+        qty, entry = r["quantity"], r["entry_price"]
+        sign = 1.0 if r["direction"] == "LONG" else -1.0
+        if px is None or px <= 0 or entry <= 0:
+            r.update(current_price=None, market_value=None, unrealised_pnl=None, unrealised_pnl_pct=0.0,
+                     mark_source=None, mark_date=None)
+            continue
+        upnl = sign * (px - entry) * qty
+        r.update(current_price=round(px, 2), market_value=round(px * qty, 2), unrealised_pnl=round(upnl, 2),
+                 unrealised_pnl_pct=round(sign * (px / entry - 1.0) * 100.0, 2), pnl=round(upnl, 2),
+                 mark_source=source, mark_date=as_of)
+        cost += entry * qty; value += px * qty; pnl += upnl; marked += 1
+    return {"unrealised_pnl": round(pnl, 2), "unrealised_pnl_pct": round(pnl / cost * 100.0, 2) if cost else None,
+            "invested_value": round(cost, 2), "market_value": round(value, 2), "marked_positions": marked,
+            "marks_source": source if marked else None, "marks_as_of": as_of if marked else None}
 
 
 def _pending_row(o: dict) -> dict:
@@ -116,11 +158,17 @@ def _pending_row(o: dict) -> dict:
         "product": "PAPER",
         "is_active": True,
         "unrealised_pnl_pct": 0.0,
+        "current_price": None,
     }
 
 
-def trades_view(cloud) -> Dict[str, Any]:
-    """Active positions (plus orders pending for the next open) and closed trades."""
+def trades_view(cloud, live_prices: Optional[Callable[[List[str]], Dict[str, float]]] = None) -> Dict[str, Any]:
+    """Active positions (plus orders pending for the next open) and closed trades.
+
+    Open positions carry their price, value and unrealised P&L (G10): live
+    prices when ``live_prices`` (the API's Kite session) returns them, else
+    the close the book was last marked at (the latest snapshot).
+    """
     positions = _records(cloud.read_positions())
     try:
         state = cloud.read_state() or {}
@@ -139,12 +187,28 @@ def trades_view(cloud) -> Dict[str, Any]:
     pending_rows = [_pending_row(o) for o in pending]
     closed = [_position_row(p, False) for p in positions if not _is_open(p.get("is_open"))]
     closed.sort(key=lambda r: str(r.get("closed_at") or ""), reverse=True)
+
+    marks, as_of = latest_marks(cloud)
+    source = "close"
+    if live_prices is not None and active:
+        try:
+            live = {k: _f(v) for k, v in (live_prices(sorted({r["symbol"] for r in active})) or {}).items() if _f(v) > 0}
+        except Exception as exc:                          # noqa: BLE001 - fall back to the close
+            logger.info("live prices unavailable, using the last close: %s", exc)
+            live = {}
+        if live:
+            marks, source, as_of = {**marks, **live}, "live", None
+    totals = _mark_rows(active, marks, source, as_of)
+    realised = [r["pnl"] for r in closed]
     return {
         "active_trades": pending_rows + active,
         "closed_trades": closed[:200],
         "total_active": len(active),
         "total_pending": len(pending_rows),
         "total_closed": len(closed),
+        **totals,
+        "realised_pnl": round(sum(realised), 2),
+        "realised_wins": sum(1 for x in realised if x > 0),
         "book_owner": state.get("book_owner", ""),
         "epoch": state.get("epoch", ""),
         "source": "cloud",

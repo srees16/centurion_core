@@ -623,18 +623,39 @@ mismatch. The step is off until the repository variable
 placed that evening and the GTT stops keep protecting the book. The one-time
 setup is tracker item U24.
 
-| Month | Capital | Condition to continue |
-|---|---|---|
-| 1 | 20% | Stage D gates still hold live |
-| 2 | 40% | tracking error ≤ 8%, no regime_break |
-| 3 | 70% | cumulative drawdown within backtest expectations |
-| 4+ | 100% | quarterly re-validation passes |
+**Capital ladder (D3, 28 Sep 2026; `nse_engine/capital_ladder.py`).** Live
+capital grows in four rungs of the ₹30 lakh decided in U6, evaluated in
+every live session and written in the daily email:
 
-Kill criteria at any time (a human decision, above the automatic rule;
-under U22 a drawdown in a market-wide crash is judged against NIFTY, so
-these must not stop the book at a crash bottom, before the rebound):
-drawdown > 1.5× backtest MaxDD, two consecutive
-regime_break verdicts, or realised costs > 2× model for a month.
+| Rung | Capital | Share |
+|---|---|---|
+| 1 | ₹6,00,000 | 20% |
+| 2 | ₹12,00,000 | 40% |
+| 3 | ₹21,00,000 | 70% |
+| 4 | ₹30,00,000 | 100% |
+
+- **Step up** one rung only when you ask, by setting `CENTURION_LIVE_CAPITAL`
+  to the next rung after the money is in the account, and only if the book
+  has spent 20 sessions at its rung, its own G4 checks (tracking error, daily
+  gap, drawdown, regime break) pass, the drawdown rule is normal and no kill
+  criterion holds. The email says when it is allowed.
+- **Step down** one rung automatically after 20 sessions at the rung if any
+  G4 check fails. G4 compares the book with a backtest of the same days, so a
+  market-wide crash that the backtest also suffers is no reason (U22).
+  Lowering `CENTURION_LIVE_CAPITAL` steps down at once. The same evening the
+  engine sells down to the new capital.
+- **Kill criteria** are alerted, never automatic: drawdown above 1.5× the
+  backtest MaxDD *and* worse than NIFTY's over the same days (U22: in a
+  crash the book is judged against the market); regime_break in two
+  consecutive sessions; costs above 2× the model. The response is
+  `CENTURION_KILL_SWITCH=true`, which refuses new buys.
+- **Flows are not returns.** A step records its deposit or withdrawal on that
+  day's snapshot, and the equity history the drawdown rule and G4 read has
+  them removed.
+- **Go-live.** The first real session is refused unless the deployed paper
+  book's G4 is PASS with at least 60 sessions and five scheduled dry runs
+  finished clean; `CENTURION_GO_LIVE_OVERRIDE=true` overrides and the email
+  says so. The Kaggle token (U2) and leverage (L4, NO-GO) stay manual checks.
 
 ## 8. Stage F — Research loop (runs in parallel with paper trading)
 
