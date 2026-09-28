@@ -407,6 +407,32 @@ download silently left VIX out. One R11 run got a different data hash and
 was re-run on the right data; R4's runs were unaffected. The loader now
 falls back to its cache.
 
+## 5g. Turnover (R7, 28 Sep 2026): FAIL
+
+The book trades 7.0× its equity a year one way and pays 3.2% a year in
+costs: rebalance trims 3.3× (1.2%), rank exits 1.85× (0.7%), the metal sleeve
+1.5× (1.1%). The rebalance cadence is already in the walk-forward grid, so R7
+tested the two brakes outside it, written down at 21:30 IST before any run:
+T1 doubles the no-trade buffer (0.25 → 0.50), T2 lowers the exit rank from
+40 to 60 names, T3 does both. The eight backtests ran on Kaggle, bases
+included, on the same data fingerprint as the local store.
+
+Primary, T3 against B1, 2013–25:
+
+| Check | B1 | T3 | Rule | Verdict |
+|---|---|---|---|---|
+| One-way turnover | 6.87× | 5.33× | at least 25% lower | FAIL (−23%) |
+| Net CAGR | 22.83% | 23.38% | +0.5 pt or more | PASS |
+| Excess Sharpe 2017–25 | 1.323 | 1.405 | at least −0.05 | PASS |
+| MaxDD | −23.8% | −24.8% | at most 2 pts deeper | PASS |
+
+Costs fell from 3.08% to 2.48% a year. Reported only: the buffer alone cut
+turnover 5% and left CAGR flat; the exit rank alone cut it 17% and added
+0.87 pt of CAGR and 0.09 of Sharpe. On the candidate book T3 added only 0.11
+pt of CAGR, the exit rank alone 0.94. Not adopted. The exit-rank result was
+found in R7's own data, so it is logged as R12 for evidence R7 did not see
+(a walk-forward with the exit rank in the grid, or paper), not promoted.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast
@@ -587,9 +613,12 @@ in once per trading day. On trading days an email brings the Kite login link
 login page; Zerodha then redirects to `/ind-stocks/auth/callback` on the HF
 Space, which stores the day's token in Neon, encrypted. The paper job's
 "Live book - session" step then runs the session with that token, once per
-session, sending Kite calls through a static-IP proxy whose IP is registered
-with Zerodha: since April 2026 Zerodha accepts API orders only from a
-registered static IP. The step is off until the repository variable
+session, sending Kite calls through an SSH tunnel to an Oracle Cloud Always
+Free VM whose reserved IP is registered with Zerodha: since April 2026
+Zerodha accepts API orders only from a registered static IP, one account per
+IP (`deployment/oracle-proxy/README.md`). The session checks its egress IP
+against the registered one before any order and refuses real orders on a
+mismatch. The step is off until the repository variable
 `CENTURION_LIVE_MODE` is `dry_run` or `live`. Without a login, nothing is
 placed that evening and the GTT stops keep protecting the book. The one-time
 setup is tracker item U24.
