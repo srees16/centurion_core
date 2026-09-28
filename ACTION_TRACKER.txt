@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 28 Sep 2026, 23:05 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 29 Sep 2026, 00:30 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -91,8 +91,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                (after-market orders).  The live session driver exists
                (L5): ledger-scoped, so the rest of the account is never
                traded.  Not scheduled: Kite needs a fresh login token each
-               day (D3).  Drift alerts fixed (G2); per-position P&L blank
-               (G10).
+               day (D3).  Drift alerts fixed (G2); per-position P&L on the
+               monitor (G10).
   7 Sample     8 of 60-90 paper sessions; G4 needs ~30 (late Oct).  A 60-day
                Sharpe has SE ~2: paper proves behaviour, not the Sharpe.
   8 Measure    NIFTY 50 gaps fixed and put in the fingerprint (K5): on
@@ -143,7 +143,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              chat).  The token lives only in ~/.kaggle/access_token; no
              GitHub/HF secret uses it.  kaggle.com/settings/api: revoke,
              "Generate New Token", save over the file, chmod 600.  Test:
-             myenv/bin/kaggle kernels list --mine
+             myenv/bin/python -m cloud.kaggle_local check  (shows
+             "authenticated_as": "srees16" when the new token works)
 [!] P1  U24  One-time setup for the live login (U23) and the Oracle static
              IP; full guide: deployment/oracle-proxy/README.md.
              1. Oracle Cloud: account in Mumbai, convert to Pay As You Go
@@ -199,27 +200,15 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 #1  [ ] P3  X1   Execution: limit-at-open / sliced fills after G4 Prompt: do X1
         Needs >= 30 real fills first; worth <= +0.1 Sharpe.
  PHASE 3   paper -> live ladder                                       Nov -> Feb
-#2  [ ] P2  D3   Capital ladder Rs 6L / 12L / 21L / 30L as code   Prompt: do D3
-        Monthly gates read G4 + the drawdown state -> GO / HOLD / STEP DOWN;
-        kill criteria wired, reading drawdown against NIFTY in a market-
-        wide crash (U22): the plan's "drawdown > 1.5x backtest MaxDD" kill
-        (~37%) would stop the book near a 2008 bottom, before the rebound.
-        Go-live rule: G4 PASS at >= 60 sessions, a
-        week of live dry runs matching the paper orders (R4 and L5 done),
-        U2 rotated, L4 GO before any leverage.  Month 1 = Rs 6L: the first
-        live session's --capital; a step changes the ledger's capital and
-        cash (live_session).  Login and scheduling are built (U23); the
-        live step runs in the paper job once CENTURION_LIVE_MODE is set.
-#3  [ ] P2  G10  Per-position P&L on the trade monitor            Prompt: do G10
  PHASE 4   research that might move Sharpe (each adds trials)          parallel
-#4  [ ] P3  R12  Exit rank 60 alone (seen in R7, not tested)      Prompt: do R12
+#2  [ ] P3  R12  Exit rank 60 alone (seen in R7, not tested)      Prompt: do R12
         In R7 the exit-rank change alone did better than the pre-registered
         combination in both books (CAGR +0.9 pt, Sharpe 2017-25 +0.09 /
         +0.11, turnover -17%, MaxDD up to 1.6 pts deeper).  Found in R7's
         own data, so it needs evidence R7 did not see: a walk-forward with
         exit_rank {40, 60} in the grid, or paper.  Pre-register first.
-#5  [ ] P3  R6   R21A rules as signal groups (+/-0.1)             Prompt: do R6
-#6  [ ] P3  R9   Universe size 150 / 300 / 500                    Prompt: do R9
+#3  [ ] P3  R6   R21A rules as signal groups (+/-0.1)             Prompt: do R6
+#4  [ ] P3  R9   Universe size 150 / 300 / 500                    Prompt: do R9
         Deploy a Phase-4 winner only on a pre-registered +0.15 OOS Sharpe,
         then >= 60 sessions in a paper slot.  Sharpe 1.5 needs a new return
         stream (short side, futures, options, intraday): data we do not have.
@@ -257,6 +246,40 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+29 Sep  G10  Per-position P&L on the trade monitor (both repos).  The paper
+             book now stores each open position's mark (the session close)
+             in the daily snapshot; the trades API adds price, value and
+             unrealised P&L (Rs and %, before exit costs) per open position,
+             plus totals, using live prices when the Space has a Kite
+             session (the daily login) and the last close otherwise.  The
+             page gets Last / P&L Rs / P&L % on Active, Exit / P&L Rs / P&L %
+             / Closed on Closed (which showed no P&L at all), and a summary
+             line on each.  Old snapshots without marks show "no prices
+             yet" until tonight's session.  The percentage stays numeric,
+             so the backend is safe to deploy before the frontend.
+             Verified: view cases (close, no marks, live, live failing),
+             stored marks; frontend tsc clean (no ESLint config in that
+             repo); suite 105 both envs.
+28 Sep  D3   Capital ladder as code (nse_engine/capital_ladder.py), run by
+             every live session and shown in its email.  Rungs Rs 6L /
+             12L / 21L / 30L.  GO only when you set CENTURION_LIVE_CAPITAL
+             to the next rung and: 20 sessions at the rung, the live book's
+             own G4 checks PASS, drawdown rule normal, no kill criterion.
+             STEP DOWN automatic on a G4 FAIL after 20 sessions (G4 judges
+             against a same-days backtest, so a market crash alone is no
+             reason: U22), or at once when you lower the capital; the book
+             sells down that evening.  KILL alerted, never automatic: DD >
+             1.5x backtest MaxDD AND worse than NIFTY; 2 consecutive
+             regime_breaks; costs > 2x model.  Deposits/withdrawals are
+             flows, removed from the equity history (a withdrawal is not a
+             drawdown).  Go-live: the first real session is refused unless
+             the paper book's G4 is PASS at >= 60 sessions and 5 scheduled
+             dry runs ran clean (order matching dropped: a dry run always
+             starts from a fresh book); CENTURION_GO_LIVE_OVERRIDE=true
+             overrides.  Verified: 13 rule cases; end to end on 21-23 Sep
+             with a fake Kite (refusal, override, live G4, a Rs 6L
+             withdrawal: flow recorded, day P&L +4,016, DD 0%, 19 sells
+             that night; dry-run log).  Suite 105 in both environments.
 28 Sep  R7   Turnover, pre-registered 21:30 IST, run on Kaggle (your call;
              same data fingerprint 6c94f4f4 as local): FAIL, 3 of 4.
              T3 (no-trade buffer 0.50 + exit rank 60) vs B1: turnover 6.87x

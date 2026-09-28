@@ -260,7 +260,7 @@ def _series(df: Optional[pd.DataFrame], col: str) -> pd.Series:
 def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = None, as_of=None,
                      book=None, deployment=None, record: Optional[bool] = None, email: bool = True,
                      executor_factory: Optional[Callable] = None, extra_notes: Optional[List[str]] = None,
-                     once_per_session: bool = False) -> dict:
+                     once_per_session: bool = False, paper_book=None) -> dict:
     """One live session end to end (see the module docstring).  Returns a report dict."""
     from kite_connect.trading.nse_engine_executor import (EngineExecutor, kite_book, live_order_outcomes,
                                                           live_orders_allowed)
@@ -280,7 +280,26 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
     book = book if book is not None else live_book()
     state = book.read_state()
     capital = capital if capital is not None else (float(os.environ[ENV_LIVE_CAPITAL]) if os.environ.get(ENV_LIVE_CAPITAL) else None)
+    first_real = not dry_run and not state.get(LIVE_LEDGER_KEY)
     ledger = load_ledger(state, capital)
+    go_live_notes: List[str] = []
+    if first_real:                                        # D3 go-live rule
+        from nse_engine import capital_ladder as cl
+        pstate = _paper_state(paper_book)
+        try:
+            pgate = json.loads(pstate.get("paper_gate") or "null")
+        except ValueError:
+            pgate = None
+        checks = cl.readiness(pgate, json.loads(state.get(cl.DRY_RUNS_KEY) or "[]"))
+        missing = [f"{n}: {d}" for n, ok, d in checks if not ok]
+        if cl.rung_of(ledger["capital"]) is None:
+            raise RuntimeError(f"live capital {ledger['capital']:,.0f} is not a ladder rung "
+                               f"{[f'{c:,.0f}' for c in cl.RUNGS]}")
+        if missing and os.environ.get("CENTURION_GO_LIVE_OVERRIDE", "").lower() != "true":
+            raise RuntimeError("go-live refused: " + "; ".join(missing)
+                               + " (CENTURION_GO_LIVE_OVERRIDE=true overrides)")
+        go_live_notes = ["GO-LIVE " + ("OVERRIDDEN: " + "; ".join(missing) if missing else "checks passed: "
+                                       + "; ".join(d for _, _, d in checks))]
 
     # the live book's own drift state (never the paper book's file)
     from database.paper_cloud import SHIFT_STATE_KEY
@@ -290,7 +309,9 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
     elif shift_path.exists():
         shift_path.unlink()
 
-    history = _series(book.read_snapshots(), "equity")
+    raw_equity, flows = _equity_and_flows(book.read_snapshots())
+    from nse_engine.capital_ladder import flow_adjusted
+    history = flow_adjusted(raw_equity, flows)
     cooldown: Dict[str, pd.Timestamp] = {}
     scope: Dict[str, object] = {"holdings": {}, "cash": 0.0}
     factory = executor_factory or EngineExecutor
@@ -316,8 +337,8 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
         logger.info("LIVE session %s (%s) already ran: nothing to do", session.date(), "dry run" if dry_run else "live")
         return {"session": session.date().isoformat(), "skipped": "already ran", "alerts": [], "notes": []}
     report: dict = {"session": session.date().isoformat(), "mode": "live dry run" if dry_run else "live",
-                    "fills": [], "external": [], "alerts": [], "notes": list(extra_notes or []), "results": [],
-                    "plan": None}
+                    "fills": [], "external": [], "alerts": [], "notes": list(extra_notes or []) + go_live_notes,
+                    "results": [], "plan": None}
 
     # 2. outcomes of the previous live session's orders, then the ledger
     placed_doc = json.loads(state.get(LIVE_ORDERS_KEY) or "{}")
@@ -361,9 +382,34 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
     outside = sorted(set(broker_holdings) - set(ledger.get("positions") or {}))
     if outside:
         report["notes"].append(f"{len(outside)} holding(s) outside the book, left alone: {', '.join(outside[:10])}")
-    marked = mark_book(holdings, float(ledger["cash"]), view.close.ffill().iloc[-1])
+    closes = view.close.ffill().iloc[-1]
+    marked = mark_book(holdings, float(ledger["cash"]), closes)
     closed_today = sum(1 for f in report["fills"] + report["external"] if f["side"] == "SELL" and f["status"] == "FILLED")
+    prior, prior_flows = raw_equity[raw_equity.index < session], flows[flows.index < session]
+    history = flow_adjusted(pd.concat([prior, pd.Series([marked["equity"]], index=pd.DatetimeIndex([session]))]),
+                            prior_flows)                  # today's equity before any ladder flow
+    today_flow = 0.0
+    if record and not dry_run and session.date() >= dep.paper_start_date:
+        decision, gate = _ladder_step(ex, data, view, dep, ledger, state, book, session, history, marked)
+        report["ladder"] = decision.line()
+        report["alerts"].extend(decision.alerts)
+        if gate is not None:
+            from nse_engine import paper_gate as pg
+            report["gate"] = pg.one_line(gate)
+            book.sync_state({pg.STATE_KEY: pg.summary_json(gate, updated_at=datetime.now(timezone.utc).isoformat())})
+        if decision.flow:
+            today_flow = float(decision.flow)
+            ledger["capital"] = float(decision.capital)
+            ledger["cash"] = float(ledger["cash"]) + today_flow
+            holdings, cash, _ = scoped_book(ledger, broker_holdings, broker_cash)
+            scope["holdings"], scope["cash"] = holdings, cash
+            marked = mark_book(holdings, float(ledger["cash"]), closes)
+    all_flows = pd.concat([prior_flows, pd.Series([today_flow], index=pd.DatetimeIndex([session]))])
+    history = flow_adjusted(pd.concat([prior, pd.Series([marked["equity"]], index=pd.DatetimeIndex([session]))]),
+                            all_flows)                    # in tonight's capital base, flows removed
     snap = snapshot_row(session, marked, history, float(ledger["capital"]), closed_today)
+    if today_flow:
+        js = json.loads(snap["snapshot_json"]); js["flow"] = today_flow; snap["snapshot_json"] = json.dumps(js, default=str)
     report["snapshot"], report["ledger"] = snap, ledger
     if record:
         if not state.get("epoch"):                       # the book begins at this session
@@ -373,7 +419,6 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
         book.sync_fills(report["fills"] + report["external"])
         book.sync_snapshot(snap)
         book.sync_state({LIVE_LEDGER_KEY: json.dumps(ledger)})
-    history = pd.concat([history[history.index < session], pd.Series([snap["equity"]], index=pd.DatetimeIndex([session]))])
 
     # 4-5. plan and execute
     plan = None
@@ -408,8 +453,12 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
                  "status": "PLACED" if r.get("status") == "DUPLICATE" else r.get("status")} for r in orders]})
         book.sync_state(values)
         book.sync_session(_session_row(report, plan, marked, snap, orders))
-    if once_per_session and dry_run:                     # the marker only; a dry run records no book
-        book.sync_state({LIVE_DRY_LAST_SESSION_KEY: session.date().isoformat()})
+    if once_per_session and dry_run:                     # the marker and the log only; a dry run records no book
+        from nse_engine.capital_ladder import DRY_RUNS_KEY
+        log = [r for r in json.loads(state.get(DRY_RUNS_KEY) or "[]") if r.get("session") != session.date().isoformat()]
+        log.append({"session": session.date().isoformat(), "orders": len(orders), "alerts": len(report["alerts"]),
+                    "clean": not report["alerts"]})
+        book.sync_state({LIVE_DRY_LAST_SESSION_KEY: session.date().isoformat(), DRY_RUNS_KEY: json.dumps(log[-30:])})
     if shift_path.exists():
         shift_path.unlink()
     if email:
@@ -418,6 +467,68 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
                 report["session"], report["mode"], len(report["fills"]), len(report["external"]), len(orders),
                 "built" if dry_run else "sent", snap["equity"], "; ".join(report["alerts"]) or "none")
     return report
+
+
+def _equity_and_flows(snaps: Optional[pd.DataFrame]) -> Tuple[pd.Series, pd.Series]:
+    """Snapshot equity and the ladder's flows (``snapshot_json.flow``) by date."""
+    eq = _series(snaps, "equity")
+    flows = pd.Series(0.0, index=eq.index)
+    if snaps is not None and not snaps.empty and "snapshot_json" in snaps.columns:
+        for d, raw in zip(pd.to_datetime(snaps["date"].astype(str).str[:10]), snaps["snapshot_json"]):
+            try:
+                f = float(json.loads(raw or "{}").get("flow") or 0.0)
+            except (TypeError, ValueError):
+                f = 0.0
+            if f and d in flows.index:
+                flows.loc[d] = f
+    return eq, flows
+
+
+def _paper_state(paper_book=None) -> Dict[str, str]:
+    """State of the deployed paper book (default schema): its G4 report."""
+    if paper_book is None:
+        from database.connection import get_db_manager
+        from database.paper_cloud import PaperCloudSync
+        paper_book = PaperCloudSync(get_db_manager(), schema=None)
+    try:
+        return paper_book.read_state()
+    except Exception as exc:                              # noqa: BLE001
+        logger.warning("paper book state unavailable: %s", exc)
+        return {}
+
+
+def _ladder_step(ex, data, view, dep, ledger: dict, state: Dict[str, str], book, session, history: pd.Series,
+                 marked: dict):
+    """G4 on the live book, then tonight's capital-ladder decision (``nse_engine.capital_ladder``)."""
+    from nse_engine import capital_ladder as cl
+    from nse_engine import paper_gate as pg
+    from nse_engine.engine import run_backtest
+
+    gate = None
+    if len(history) >= 3:
+        try:
+            cfg = dep.reference_config().replace(start=history.index[0].date().isoformat(),
+                                                 end=session.date().isoformat(),
+                                                 initial_capital=float(ledger["capital"]))
+            ref = run_backtest(data, cfg, record=False, tag="live-reference")
+            gate = pg.evaluate(history, ref.returns, fills=book.read_fills(), reference_trades=ref.trades,
+                               sessions=book.read_sessions())
+        except Exception as exc:                          # noqa: BLE001 - the ladder then holds
+            logger.warning("live G4 unavailable: %s", exc)
+    dd, _ = ex.drawdown_decision(session, marked["equity"])
+    nifty = view.index_close["NIFTY50"] if "NIFTY50" in view.index_close.columns else pd.Series(dtype="float64")
+    nifty = nifty[(nifty.index >= history.index[0]) & (nifty.index <= session)] if len(history) else nifty
+    sessions = book.read_sessions()
+    mults = (pd.to_numeric(sessions.sort_values("session_date")["shift_multiplier"], errors="coerce").fillna(1.0).tolist()
+             if sessions is not None and not sessions.empty and "shift_multiplier" in sessions.columns else [])
+    lstate = cl.LadderState.load(state.get(cl.STATE_KEY), float(ledger["capital"]), session.date().isoformat())
+    req = os.environ.get(ENV_LIVE_CAPITAL)
+    decision = cl.evaluate(lstate, session.date().isoformat(), gate=gate,
+                           drawdown_state=getattr(dd, "state", "normal") if dd is not None else "normal",
+                           book_dd=cl.current_drawdown(history), nifty_dd=cl.current_drawdown(nifty),
+                           shift_multipliers=mults, requested_capital=float(req) if req else None)
+    book.sync_state({cl.STATE_KEY: lstate.dump()})
+    return decision, gate
 
 
 def _session_row(report: dict, plan, marked: dict, snap: dict, orders: List[dict]) -> dict:
@@ -465,6 +576,8 @@ def _email(report: dict, dep, snap: dict, capital: float) -> None:
             "drawdown_rule": (f"{plan.drawdown_state} · {plan.drawdown_pct:.1f}% below the episode peak"
                               if plan is not None and dep.drawdown_rule is not None else None),
             "drawdown_state": getattr(plan, "drawdown_state", "normal") if plan is not None else "normal",
+            "paper_gate": report.get("gate"),
+            "ladder": report.get("ladder"),
         })
     except Exception as exc:                             # noqa: BLE001 - reporting only
         logger.warning("Live daily email failed: %s", exc)

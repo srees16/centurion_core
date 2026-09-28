@@ -1487,10 +1487,13 @@ class PaperTrader:
         )
 
         current_capital = self.cash
-        # Mark-to-market open positions
+        # Mark-to-market open positions (the marks also go into the snapshot, so
+        # the trade monitor can show per-position P&L: tracker G10)
+        marks: Dict[str, float] = {}
         for pos_dict in open_positions:
             ltp = self._get_ltp(pos_dict["symbol"])
             if ltp:
+                marks[pos_dict["symbol"]] = float(ltp)
                 current_capital += ltp * pos_dict["quantity"]
             else:
                 current_capital += pos_dict["entry_price"] * pos_dict["quantity"]
@@ -1556,7 +1559,7 @@ class PaperTrader:
             omega_ratio=round(omega, 3),
             cvar_95=round(cvar95, 4),
             profit_factor=round(pf, 3),
-            positions=[p.to_dict() for p in self._positions if p.is_open],
+            positions=[{**p.to_dict(), "last_price": marks.get(p.symbol)} for p in self._positions if p.is_open],
         )
 
     def reset(self):
