@@ -138,8 +138,10 @@ One evaluation only (enforced by `data/nse_engine/holdout.lock`).
 ```
 python -m runners.run_nse_engine holdout --config <candidate config.json> \
     --start 2026-01-01 --end <last session>
-python -m runners.run_nse_engine promote --run-id <candidate run> --paper-start <date>
 ```
+
+(The 15 Sep 2026 promotion used `promote --run-id`; since 28 Sep `promote` is
+the forward gate of section 6 and takes a paper candidate, not a run.)
 
 **Result (run once, 2026-01-01 → 2026-09-11, 172 sessions):** +18.0%
 (27.4% annualised), excess Sharpe 1.04, vol 18.7%, MaxDD 13.0%, turnover
@@ -149,8 +151,11 @@ momentum +46.5% (excess Sharpe 2.01). Passed both holdout gates; promoted to
 see the correction below).
 Note that naive momentum beat the strategy in 2026.
 
-`promote` refuses unless PBO < 30%, DSR ≥ 0.95, the benchmark gate passed,
-holdout excess Sharpe > 0 and holdout MaxDD ≤ 1.5× the backtest MaxDD.
+Until 28 Sep 2026 `promote` refused unless PBO < 30%, DSR ≥ 0.95, the
+benchmark gate passed, holdout excess Sharpe > 0 and holdout MaxDD ≤ 1.5× the
+backtest MaxDD. PBO over the same-window registry reached 45–49%, so nothing
+could pass it; decision U19 replaced these gates with the forward gate
+(section 6), which reports all of them without gating.
 Eight months cannot confirm a Sharpe (standard error ≈ 1.2); the holdout
 exists to catch a broken strategy, not to tune one. If it fails, do not
 re-tune on 2026 data: return to Stage B with a new hypothesis, and treat
@@ -301,6 +306,107 @@ gross 0.81; validate: PBO 49.4% over 47 configurations, deflated Sharpe
 0.989, benchmark gate passed. Whether it takes the second paper slot is
 decision U21 in the tracker; the deployed configuration is unchanged.
 
+## 5e. The 2008 crash (R4, 27–28 Sep 2026)
+
+The validation window starts in 2013, so no recorded run had seen a crash
+like 2008 (NIFTY −60%). K4 extended NIFTY 50 back to 2006, and R4 ran two
+tests on `store_ext2006`, loaded from 2006-01-02 with delivery STT at 0.125%
+per side until June 2012. Both rules were written down before any run: the
+2008 loss must stay within 35%, the level at which the drawdown rule moves
+the core book to cash.
+
+**Test 1, fixed configurations chosen on 2013–25, run over 2007–25.** PASS.
+
+| Configuration | 2007–09 peak to trough | 2008 | Sharpe 2007–25 | CAGR 2007–25 |
+|---|---|---|---|---|
+| Live-book proxy: B1 + drawdown rule 20/30/35 | −32.9% | −29.1% | 1.03 | 21.1% |
+| B1 baseline, no rule | −38.0% | −34.6% | 0.94 | 20.0% |
+| Candidate 2d64ba4c (neutral 0.6) | −26.9% | −23.5% | 1.03 | 20.1% |
+
+All three troughs run from 4 Jan to 5 Dec 2008. The regime gate was risk-off
+for 90% of 2008. The rule spent 26% of 2008 at half size and 17% halted, and
+cut the loss by about 5 points.
+
+**Test 2, walk-forward.** PASS. Anchored from 2007 with one year of minimum
+training, 12-month tests 2008–25, the K5 grid of 32 points on the B1 base:
+18 folds, 594 backtests, 93 minutes. The 2008 fold, trained on 2007 alone,
+chose neutral scale 1.0 and lost 32.9% (the year −29.7%). From 2009 on,
+every fold chose neutral 0.6, with a 21-day rebalance until 2023 and 5-day
+in 2024–25.
+
+| Stitched OOS | Sharpe | CAGR | MaxDD |
+|---|---|---|---|
+| 2008–25 | 0.87 | 16.4% | −32.9% |
+| 2017–25 subset | 1.17 | 20.2% | −16.8% |
+| K5, main store, 2017–25 | 1.19 | 22.0% | −22.5% |
+
+What it means:
+- The deployed style needs about 33% of drawdown budget for a 2008-type year
+  even with the rule. Decision U22 (28 Sep 2026): no hard 30% in such a
+  crisis, because capturing the rebound matters more.
+- 2013–25 is a friendly window. Including 2008 lowers Sharpe by 0.1–0.3.
+- The walk-forward's preference for neutral 0.6 holds on 17 more years of
+  data, which supports the candidate now on paper (U21).
+
+**The rebounds (28 Sep 2026, for U22).** Returns from the NIFTY trough, with
+the average gross exposure in brackets:
+
+| | 12 months after 27 Oct 2008 | 3 months after 23 Mar 2020 | 12 months after 23 Mar 2020 |
+|---|---|---|---|
+| NIFTY 50 | +92.0% | +34.2% | +89.9% |
+| B1, no rule | +17.1% (0.46) | +9.6% (0.51) | +73.9% (0.81) |
+| B1 + drawdown rule | +17.1% (0.46) | +9.6% (0.51) | +73.8% (0.81) |
+| Candidate, neutral 0.6 | +15.8% (0.45) | +8.5% (0.47) | +69.9% (0.78) |
+| Regime gate off (2020 only) | | +20.4% (0.89) | +57.6% (0.88) |
+
+The drawdown rule was back to normal before both troughs and stayed normal
+for the next 12 months, so it never held back a rebound; it cut 2008's loss
+from −35.5% to −30.1%. What holds the book back is the regime gate: gross
+exposure took 309 days after the 2008 low to reach 0.8 (79 days in 2020,
+106 for the candidate). Switching the gate off wins the first months but
+loses the year and the crash. A faster re-entry after a crash is research
+item R11, to be pre-registered: with 3–4 episodes it is easy to overfit.
+
+## 5f. Crash re-entry (R11, 28 Sep 2026): FAIL
+
+Decision U22 asks that a crisis not keep the book out of the rebound. The
+regime gate is what does that (section 5e). R11 tested one fixed rule,
+written down at 14:11 IST before any run, with no fitted value:
+
+- a crash episode starts when NIFTY closes 25% or more below its 252-session
+  high and ends at a new 252-session high;
+- inside an episode, while NIFTY is above its 50-day mean (confirmed over 3
+  days, as the gate), the regime is forced to risk_on, over the trend,
+  breadth and VIX legs.
+
+Primary comparison: the live-book proxy, B1 with the drawdown rule, with
+and without the re-entry rule. It had to pass all four checks.
+
+| Check | Without | With | Rule | Verdict |
+|---|---|---|---|---|
+| 12 months after the 27 Oct 2008 low | +17.1% | +32.6% | +10 pts or more | PASS |
+| 12 months after the 23 Mar 2020 low | +76.6% | +84.2% | +10 pts or more | FAIL (+7.6) |
+| Excess Sharpe 2017–25 | 1.352 | 1.393 | at least −0.05 | PASS |
+| 2007–09 peak to trough | −32.9% | −39.4% | at most 5 pts deeper | FAIL (6.5) |
+
+The rule was active for 372 sessions on the 2006 store. In 2008 it bought
+the April–May and August–September bear-market rallies, which deepened the
+crash; a 50-day signal cannot tell a bear rally from a bottom. In 2020,
+NIFTY confirmed above its 50-day mean only on 28 May, two months into the
+rebound. B1 without the rule and the candidate showed the same pattern.
+Sharpe rose by 0.02–0.05 over 2017–25 in all three.
+
+Not adopted, and not re-tuned: 2008, 2011–12 and 2020 are every crash the
+data holds, so a second rule would be fitted to the same episodes. The flag
+`regime.crash_reentry` stays in the code, off and hash-neutral, so the
+recorded runs can be reproduced.
+
+Found on the way: a load starting before 2008 never counted the India VIX
+cache as complete, so it re-downloaded from Yahoo every time, and a failed
+download silently left VIX out. One R11 run got a different data hash and
+was re-run on the right data; R4's runs were unaffected. The loader now
+falls back to its cache.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast
@@ -327,7 +433,8 @@ requested load start. Making the engine
 anchor-independent is the first research item (Section 8).
 
 Setup:
-1. `promote` writes `config/nse_engine_deployed.json` (status `approved`); commit it.
+1. The deployed file `config/nse_engine_deployed.json` (status `approved`) changes
+   only through the forward gate below; commit it after `promote` writes it.
 2. GitHub: repository variable `CENTURION_NSE_ENGINE=true`; secrets as for the
    legacy cron. First run with the `full_bootstrap` dispatch input: syncing from
    the 2011 anchor is ≈ 3,650 sessions × 4 files at 2 req/s (≈ 2 h), so it may
@@ -375,31 +482,105 @@ Daily monitoring (automatic):
 | Fill price vs model open + impact | investigate if median shortfall > 2× model |
 | Drawdown | the deployed drawdown rule (section 8, item 6): > 20% from the episode peak → no new entries or adds; > 30% → core exposure halved; > 35% → core to cash / metals; re-arm on a 60-session equity high. Automatic, replayed from the book's snapshots every session, state in the daily email and on the monitor. Anything beyond that is the kill criterion below. |
 
-Pass criteria after 60 trading days (extend to 90 if borderline):
-- tracking error ≤ 8%/yr and mean daily gap ≥ −3 bp/day;
-- no `regime_break` in the last 20 sessions;
-- realised costs within 1.5× the model;
-- paper drawdown within the backtest's worst drawdown of the same length.
+Pass criteria after 60 trading days (extend to 90 if borderline): the paper
+gate (G4, `nse_engine/paper_gate.py`), fixed on 28 Sep 2026 before either
+book reached its sample. Each book is compared with the same-period backtest
+of what it trades: the engine config plus the deployment's drawdown overlay,
+so a halt in the book is a halt in its reference too.
+
+| Check | Measure | PASS | FAIL |
+|---|---|---|---|
+| Tracking error | annualised sd of (paper − backtest) daily returns | ≤ 8%/yr | > 12%/yr |
+| Daily gap | mean of (paper − backtest), with its t-statistic | ≥ −3 bp/day | < −3 bp/day and t ≤ −2 |
+| Costs | paper cost per rupee traded ÷ the backtest's, same days, ≥ 20 fills | ≤ 1.5× | > 2.0× |
+| Drawdown | paper MaxDD vs the backtest's MaxDD over the same days | ≤ max(1.5×, +2 pts) | > max(2×, +4 pts) |
+| Regime break | sessions sized down by a drift `regime_break` among the last 20 | none | any |
+
+Between the limits a check is WATCH. The gate reads NOT ENOUGH DATA below 30
+aligned sessions; after that, FAIL if any check fails, PASS only if all five
+pass, else WATCH. It runs in every daily session of both books (a line in the
+daily email, a FAIL also as an alert), the latest result is kept in Neon
+(`paper_cloud_state` key `paper_gate`) and is the weekly email's verdict, and
+one command recomputes it (section 9). Two changes from the criteria first
+written here: the drawdown is compared with the backtest over the same days
+rather than "the backtest's worst drawdown of the same length", which tests
+behaviour instead of plausibility; and WATCH bands were added so a borderline
+book is extended to 90 sessions rather than failed. In paper the cost check
+confirms the fill simulator matches the cost model; with live fills (L5) it
+measures real slippage.
+
+Found while building it: the drift detector's default reference path pointed
+at `services/data/`, while the job writes `data/shift_reference_returns.csv`,
+so the deployed book (which sets no `CENTURION_SHIFT_REFERENCE_CSV`) would
+never have had a same-period comparison once its drift check started at
+session 31. Fixed on 28 Sep 2026, before it mattered.
 
 A 60-day paper Sharpe says little about skill (standard error ≈ 2); the gates
 test whether live behaves like the backtest, which is what can be measured.
+
+**Forward promotion gate (V3, decision U19, 28 Sep 2026).** A configuration
+replaces the deployed one only by `promote`, and only from the candidate
+paper slot (`config/nse_engine_candidate.json`). It passes when all three hold
+(`nse_engine/forward_gate.py`):
+
+| Check | Rule |
+|---|---|
+| Paper sessions | ≥ 60 candidate sessions, and the deployed book ran ≥ 60 of those same sessions |
+| Paper gate | the candidate book's latest G4 report (Neon state) is PASS and covers its latest session |
+| Walk-forward OOS Sharpe | candidate excess Sharpe over the walk-forward test years 2017–2025 ≥ the deployed config's − 0.05 |
+
+A fixed configuration has no parameters left to choose, so its walk-forward
+out-of-sample returns are its returns in the walk-forward's test years; both
+configurations are backtested fresh on the current store and compared on the
+same years. That check is weak evidence, since both were validated on those
+years: it only stops a candidate that is clearly worse in history. The paper
+sessions are the out-of-sample test. Printed, not gating: PBO and deflated
+Sharpe with their configuration counts, the benchmark gate, holdout
+evaluations, and both books' paper returns over the common sessions. On 28
+Sep the candidate `2d64ba4c` scored 1.389 against 1.348 for the deployed
+`679cbd0c` over 2017–2025, so only the paper checks stand between it and
+promotion (earliest ~24 Dec).
+
+`promote` writes the candidate's engine, anchor and drawdown overlay into the
+deployed file with `paper_start_date` = `--paper-start` (default today) and the
+gate's results in `notes`. The candidate book keeps trading in its schema
+until its file is retired or replaced, which is a separate decision.
 
 ## 7. Stage E — Live capital (after paper passes)
 
 Real orders need `CENTURION_PAPER_TRADE=false` and `CENTURION_NSE_ENGINE_LIVE=true`
 and an approved deployment.
 
-Before month 1: run the executor's dry-run mode (`EngineExecutor(kite=...,
-dry_run=True)`) after every session for at least a week and compare its
-orders with the paper book's queued orders for the same day. The live path
-was exercised against a fake broker (L3, 27 Sep 2026), which also
-found that the order service's market-hours guard would have refused every
-end-of-day order; live orders now go as after-market orders (`amo`) when the
-market is closed. What live still lacks is a session driver: something that
-reads the previous session's order outcomes, snapshots the live book to Neon
-(the drawdown rule and the monitor read from there) and then plans and
-executes - the paper book has `run_paper_session`, the live book does not yet
-(tracker L5).
+The live path was exercised against a fake broker (L3, 27 Sep 2026), which
+also found that the order service's market-hours guard would have refused
+every end-of-day order; live orders now go as after-market orders (`amo`)
+when the market is closed.
+
+**Live session driver (L5, 28 Sep 2026).** `python -m
+kite_connect.trading.live_session` runs one session of the live book after
+the bhavcopy, as the paper job does: it reads what became of the previous
+session's orders from the broker's order book (fills with slippage against
+the open and statutory costs, partial fills, rejections, orders missing from
+the book, sells made outside the engine), snapshots the book at the close
+into its own Neon schema (`live`), plans with the drawdown rule replayed on
+those snapshots, places the orders and reconciles the stops, records the
+session and emails a report titled LIVE.
+
+The live book is a ledger, not the account. Zerodha accounts hold other
+investments, and the planner sells every holding it has no target for, so
+the engine only ever sees the ledger: the capital given on the first
+session (`--capital`, month 1 = ₹6 lakh), the cash its own fills leave, and
+the quantities it bought. Stops are reconciled only for those symbols.
+Holding an engine symbol personally as well is not supported.
+
+Before month 1: `live_session --dry-run --capital 600000` after every paper
+session for at least a week, comparing its orders with the paper book's
+queued orders for the same day. A dry run reads the broker and writes
+nothing; real orders need `CENTURION_PAPER_TRADE=false`,
+`CENTURION_NSE_ENGINE_LIVE=true`, an approved deployment and a Kite session,
+or the session refuses to start. It is not scheduled yet: the Kite login
+needs a fresh token each day, which the capital ladder (D3) must settle
+before go-live.
 
 | Month | Capital | Condition to continue |
 |---|---|---|
@@ -408,7 +589,9 @@ executes - the paper book has `run_paper_session`, the live book does not yet
 | 3 | 70% | cumulative drawdown within backtest expectations |
 | 4+ | 100% | quarterly re-validation passes |
 
-Kill criteria at any time (a human decision, above the automatic rule):
+Kill criteria at any time (a human decision, above the automatic rule;
+under U22 a drawdown in a market-wide crash is judged against NIFTY, so
+these must not stop the book at a crash bottom, before the rebound):
 drawdown > 1.5× backtest MaxDD, two consecutive
 regime_break verdicts, or realised costs > 2× model for a month.
 
@@ -553,6 +736,7 @@ because the 2026 holdout will already have been used.
 | Validate | `python -m runners.run_nse_engine validate --run-id <id>` |
 | Refresh the registry after a store rebuild | `python -m runners.run_nse_engine refresh-registry [--dry-run] [--from-hash <old>]` — see section 5c |
 | Holdout | `python -m runners.run_nse_engine holdout --config <json> --data-start 2012-01-02 --start <date> --end <date>` |
-| Promote | `python -m runners.run_nse_engine promote --run-id <id> --paper-start <date> --data-anchor 2012-01-02` |
-| Shift reference | `python -m runners.run_nse_engine shift-reference --run-id <id> --start <paper start> --data-start 2012-01-02` |
+| Promote (forward gate) | `python -m runners.run_nse_engine promote --check` prints the gate; without `--check` it writes the deployed file when the gate passes. Needs `CENTURION_DATABASE_URL` and the local store |
+| Shift reference | `python -m runners.run_nse_engine shift-reference --run-id <id> --start <paper start> --data-start 2012-01-02` (also writes `<out>_trades.csv` for the gate's cost check) |
+| Paper gate (G4) | `python -m runners.run_nse_engine paper-gate` for the deployed book; add `--deployment config/nse_engine_candidate.json --schema candidate` for the candidate. Needs `CENTURION_DATABASE_URL` and a store covering the paper sessions, or `--reference <returns csv>` |
 | Inspect deployment | `python -m nse_engine.deployment show` |

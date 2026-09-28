@@ -232,6 +232,14 @@ against a fake Kite on 27 Sep 2026. `EngineExecutor(..., dry_run=True)`
 (or `.dry_run_live(plan)`) returns exactly what a live session would send,
 without sending it.
 
+`kite_connect/trading/live_session.py` (tracker L5) drives one live session
+end to end: previous orders' outcomes into `paper_fills`, the book's
+snapshot at the close, plan, orders, stops, session record and a LIVE email,
+all in the Neon schema `live`. The book is a ledger of its own capital,
+cash and quantities, so holdings outside it are never sold and their stops
+are never touched (`reconcile_stop_gtts(quantities=, scope=)`). `--dry-run`
+rehearses it against the real broker and writes nothing.
+
 
 Real orders require `CENTURION_PAPER_TRADE=false` and `CENTURION_NSE_ENGINE_LIVE=true`.
 
@@ -241,8 +249,11 @@ Real orders require `CENTURION_PAPER_TRADE=false` and `CENTURION_NSE_ENGINE_LIVE
 one configuration that paper/live trades: engine config, `status`
 (`placeholder` or `approved`), `source_run_id`, `approved_at`,
 `paper_start_date` and `data_anchor_date`. It is written by
-`runners/run_nse_engine.py promote`, which checks PBO, deflated Sharpe, the
-benchmark gate and the holdout first. Live trading refuses placeholder files.
+`runners/run_nse_engine.py promote`, the forward gate (V3, decision U19): a
+paper candidate replaces it only after >= 60 sessions beside the deployed
+book, a G4 PASS and a walk-forward OOS Sharpe within 0.05 of the deployed
+config's; PBO, deflated Sharpe, the benchmark gate and the holdout are printed
+but no longer gate. Live trading refuses placeholder and candidate files.
 
 **Second paper book (tracker D1, from 28 Sep 2026).** `config/nse_engine_candidate.json`
 (status `candidate`: paper only, `live_allowed()` refuses it) holds a

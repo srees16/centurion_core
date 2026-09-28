@@ -38,6 +38,10 @@ HASH_NEUTRAL_DEFAULTS: Dict[Tuple[str, str], Any] = {
     ("drawdown", "risk_off_dd"): 0.30,
     ("drawdown", "half_scale"): 0.5,
     ("drawdown", "rearm_sessions"): 60,
+    ("regime", "crash_reentry"): False,
+    ("regime", "crash_drawdown"): 0.25,
+    ("regime", "crash_high_days"): 252,
+    ("regime", "reentry_ma_days"): 50,
 }
 
 
@@ -163,6 +167,14 @@ class RegimeConfig:
     scale_risk_on: float = 1.0
     scale_neutral: float = 0.6
     scale_risk_off: float = 0.0
+    # Crash re-entry (tracker R11, decision U22): inside a crash episode (NIFTY
+    # >= crash_drawdown below its crash_high_days high, until a new high), force
+    # risk_on while NIFTY is above its reentry_ma_days mean (confirm_days
+    # confirmation), over the trend, breadth and VIX legs.  Off = the gate as before.
+    crash_reentry: bool = False
+    crash_drawdown: float = 0.25
+    crash_high_days: int = 252
+    reentry_ma_days: int = 50
 
 
 @dataclass(frozen=True)

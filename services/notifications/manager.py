@@ -672,7 +672,8 @@ class NotificationManager:
             ("Cash", inr(report.get("cash"))),
             ("Open positions", str(report.get("open_positions", 0))),
             ("Max drawdown", f"{float(report.get('max_drawdown_pct') or 0):.1f}%"),
-        ] + ([("Drift check", str(report["drift_check"]))] if report.get("drift_check") else []) + ([("Drawdown rule", (f"<b style='color:#dc2626;'>{report['drawdown_rule']}</b>"
+        ] + ([("Drift check", str(report["drift_check"]))] if report.get("drift_check") else []) + (
+            [("Paper gate (G4)", str(report["paper_gate"]))] if report.get("paper_gate") else []) + ([("Drawdown rule", (f"<b style='color:#dc2626;'>{report['drawdown_rule']}</b>"
                                  if str(report.get("drawdown_state", "normal")) != "normal"
                                  else str(report["drawdown_rule"])))]
              if report.get("drawdown_rule") else []) + [
@@ -681,12 +682,21 @@ class NotificationManager:
         summary = "".join(f"<tr><td style='{td}color:#666;width:38%;'>{k}</td><td style='{td}'>{v}</td></tr>"
                           for k, v in rows)
         session = report.get("session", "")
+        # paper (default) | live | live dry run - never let a live session read as paper
+        mode = str(report.get("mode") or "paper")
+        mode_title = {"paper": "Paper", "live": "LIVE", "live dry run": "Live Dry-Run"}.get(mode, mode.title())
+        footer = {"paper": "Paper trading &mdash; no real orders placed",
+                  "live": "LIVE &mdash; real orders sent to Zerodha",
+                  "live dry run": "Live dry run &mdash; orders built from the broker book, none sent"}.get(
+                      mode, "Paper trading &mdash; no real orders placed")
+        mode = {"live": "LIVE", "live dry run": "live dry run"}.get(mode, "paper")
+        session = report.get("session", "")
         html = f"""\
 <html><body style="font-family:Segoe UI,Arial,sans-serif;background:#f9fafb;padding:20px;">
 <div style="max-width:680px;margin:0 auto;background:#fff;border-radius:10px;
             box-shadow:0 2px 8px rgba(0,0,0,0.08);overflow:hidden;">
   <div style="background:#1a1a2e;padding:16px 24px;">
-    <h2 style="margin:0;color:#fff;font-size:18px;">Centurion &mdash; NSE Engine Paper Session</h2>
+    <h2 style="margin:0;color:#fff;font-size:18px;">Centurion &mdash; NSE Engine {mode_title} Session</h2>
     <p style="margin:4px 0 0;color:#9ca3af;font-size:13px;">Session {session}</p>
   </div>
   <div style="padding:20px 24px;">
@@ -695,7 +705,7 @@ class NotificationManager:
     {fills_html}{stops_html}{queued_html}{cancelled_html}{activity}{notes_html}
   </div>
   <div style="padding:12px 24px;background:#f3f4f6;font-size:12px;color:#9ca3af;text-align:center;">
-    Paper trading &mdash; no real orders placed
+    {footer}
   </div>
 </div></body></html>"""
 
@@ -703,7 +713,7 @@ class NotificationManager:
         dd_state = str(report.get("drawdown_state", "normal") or "normal")
         dd_tag = f" [drawdown {dd_state}]" if dd_state != "normal" else ""
         book = f" [{report['book_label']}]" if report.get("book_label") else ""
-        subject = (f"{flag} Centurion paper{book} {session}{dd_tag} — equity {inr(report.get('equity'))[:-3]} "
+        subject = (f"{flag} Centurion {mode}{book} {session}{dd_tag} — equity {inr(report.get('equity'))[:-3]} "
                    f"({pnl_pct:+.2f}%) — {len(filled)} filled, {len(stops)} stops, {len(queued)} queued")
         return self._send_html_email(subject, html)
 

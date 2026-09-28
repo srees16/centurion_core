@@ -55,7 +55,10 @@ P_VALUE_THRESHOLDS = (0.05, 0.01)       # family-wise (drifting, regime_break)
 MIN_SAMPLES = 30
 DEFAULT_WINDOW = 60
 
-_ROOT = Path(__file__).resolve().parent.parent
+# Repository root: the job writes data/shift_reference_returns.csv there.  (This was
+# services/, so the deployed book, which sets no CENTURION_SHIFT_REFERENCE_CSV,
+# could never find its same-period reference; fixed 28 Sep 2026 with G4.)
+_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_REFERENCE_CSV = _ROOT / "data" / "shift_reference_returns.csv"
 DEFAULT_RUNS_DIR = _ROOT / "data" / "nse_engine" / "runs"
 _LEGACY_PICKLES = ("r21a_optimization_results.pkl", "r21a_oos_evaluation.pkl")

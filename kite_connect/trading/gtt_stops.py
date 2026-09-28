@@ -30,7 +30,7 @@ from __future__ import annotations
 import logging
 import math
 import os
-from typing import Dict, List, Mapping, Optional
+from typing import Dict, List, Mapping, Optional, Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -347,6 +347,8 @@ def reconcile_stop_gtts(
     default_stop_pct: Optional[float] = None,
     limit_buffer_pct: Optional[float] = None,
     delete_orphans: bool = True,
+    quantities: Optional[Mapping[str, int]] = None,
+    scope: Optional[Iterable[str]] = None,
 ) -> dict:
     """Make every CNC holding carry exactly one stop GTT at the held quantity.
 
@@ -358,6 +360,13 @@ def reconcile_stop_gtts(
         below LTP) is used, otherwise they are reported in ``missing_stop``.
     delete_orphans : bool
         Delete active stop GTTs for symbols that are no longer held.
+    quantities : {symbol: quantity}
+        Reconcile only these symbols, each at this quantity (capped at what
+        the broker holds), instead of every holding.  For a book that shares
+        the account with other holdings (the live engine book, tracker L5).
+    scope : symbols
+        Delete orphans only among these symbols (default: any symbol), so
+        stops the caller does not manage are never touched.
 
     Returns a report dict with lists: placed, modified, unchanged, deleted,
     missing_stop, breached, errors.
@@ -368,6 +377,8 @@ def reconcile_stop_gtts(
     try:
         held = get_held_quantities(kite, exchange)
         gtts = list_stop_gtts(kite, exchange=exchange)
+        if quantities is not None:
+            held = {s: min(int(q), held[s]) for s, q in quantities.items() if int(q) > 0 and held.get(s, 0) > 0}
     except Exception as exc:
         report["errors"].append({"symbol": "*", "error": f"broker fetch failed: {exc}"})
         return report
@@ -410,9 +421,10 @@ def reconcile_stop_gtts(
         else:
             report["errors"].append({"symbol": sym, "error": res.get("error")})
 
+    managed = set(scope) if scope is not None else None
     if delete_orphans:
         for sym, glist in by_symbol.items():
-            if sym in held:
+            if sym in held or (managed is not None and sym not in managed):
                 continue
             for g in glist:
                 if delete_stop_gtt(kite, g["id"], sym, exchange, g["quantity"], "orphan")["success"]:
