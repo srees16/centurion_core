@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 28 Sep 2026, 15:05 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 28 Sep 2026, 16:00 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -129,6 +129,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
        "normal" for the 12 months after both troughs (2008, 2020) and cut
        2008 from -35.5% to -30.1%, so it stays; what curtails rebounds is
        the regime gate.  R11's faster re-entry FAILED its test.  -> D3
+  U23  (28 Sep) Daily Kite login: an email with the Kite login link on
+       every trading day; the login itself happens on Zerodha's page.
+       Orders go through a static-IP proxy from the existing Actions job
+       (option 1).  Built the same day.                        -> U24, D3
   U6   Live capital Rs 30L.  Paper stays Rs 35L (resizing restarts the
        record; the cost gap is small).  Ladder Rs 6L / 12L / 21L / 30L. -> D3
 
@@ -140,6 +144,23 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              GitHub/HF secret uses it.  kaggle.com/settings/api: revoke,
              "Generate New Token", save over the file, chmod 600.  Test:
              myenv/bin/kaggle kernels list --mine
+[!] P1  U24  One-time setup for the live login (U23), after merging:
+             1. Static-IP proxy: subscribe (e.g. QuotaGuard Static); note
+                its proxy URL and fixed IP(s).
+             2. developers.kite.trade: register that IP (primary; a second
+                as backup); set the app's Redirect URL to
+                https://srees16-centurion-core.hf.space/ind-stocks/auth/callback
+             3. Make a token key on your machine, never in chat:
+                python -c "from cryptography.fernet import Fernet;
+                print(Fernet.generate_key().decode())"
+             4. HF Space secrets: CENTURION_KITE_TOKEN_KEY, CENTURION_KITE_
+                USER_ID (your Zerodha client ID); check ZERODHA_API_KEY,
+                ZERODHA_API_SECRET, CENTURION_DATABASE_URL are there.
+             5. GitHub secrets: ZERODHA_API_KEY, CENTURION_KITE_TOKEN_KEY,
+                CENTURION_KITE_PROXY.  Variables: CENTURION_LIVE_CAPITAL=
+                600000, then CENTURION_LIVE_MODE=dry_run for the dry runs.
+             6. Test: run "Kite login reminder" by hand (force), click the
+                link, log in: the page should say "Logged in to Kite".
 [!] P1  U12  Close the Sentry issue "Kite session not active".  Fix live since
              17 Sep 21:58 IST (409, not 503).  Search with ALL environments
              (events are tagged "development").  Last seen before 17 Sep
@@ -177,9 +198,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
         week of live dry runs matching the paper orders (R4 and L5 done),
         U2 rotated, L4 GO before any leverage.  Month 1 = Rs 6L: the first
         live session's --capital; a step changes the ledger's capital and
-        cash (live_session).  Also settle how the daily run gets a Kite
-        token (Zerodha tokens expire every morning; today's login flow is
-        interactive), and schedule the session after the paper job.
+        cash (live_session).  Login and scheduling are built (U23); the
+        live step runs in the paper job once CENTURION_LIVE_MODE is set.
 #4  [ ] P2  G10  Per-position P&L on the trade monitor            Prompt: do G10
  PHASE 4   research that might move Sharpe (each adds trials)          parallel
 #5  [ ] P3  R6   R21A rules as signal groups (+/-0.1)             Prompt: do R6
@@ -221,6 +241,21 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+28 Sep  U23  Daily Kite login + static IP, built.  kite_connect/auth/
+             daily_login.py: reminder email with the Kite login link at
+             09:03 IST and 17:33 if still missing, trading days only, while
+             CENTURION_LIVE_MODE is dry_run/live (kite-login-reminder.yml;
+             manual run to test).  Zerodha redirects to /ind-stocks/auth/
+             callback on the Space: request token -> access token, checked
+             against CENTURION_KITE_USER_ID, stored in Neon encrypted
+             (Fernet), valid 06:00-06:00.  The paste flow stores it too.
+             Paper job gains a "Live book - session" step: stored token,
+             Kite calls through CENTURION_KITE_PROXY, once per session over
+             the backup crons, one "no login today" email per day, real
+             orders refused without the proxy; off until the variable is
+             set.  Verified with SQLite + a fake Kite: expiry at 06:00,
+             encryption, wrong-user refusal, 4 callback outcomes, holiday
+             skip, the guards.  Suite 105 both envs.  Setup: U24.
 28 Sep  R11  Crash re-entry (U22), pre-registered 14:11 IST: FAIL, 2 of 4.
              Rule: in a crash episode (NIFTY >= 25% below its 252-day high,
              until a new high), force risk_on while NIFTY is above its 50-day

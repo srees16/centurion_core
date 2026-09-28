@@ -578,9 +578,21 @@ session for at least a week, comparing its orders with the paper book's
 queued orders for the same day. A dry run reads the broker and writes
 nothing; real orders need `CENTURION_PAPER_TRADE=false`,
 `CENTURION_NSE_ENGINE_LIVE=true`, an approved deployment and a Kite session,
-or the session refuses to start. It is not scheduled yet: the Kite login
-needs a fresh token each day, which the capital ladder (D3) must settle
-before go-live.
+or the session refuses to start.
+
+**Daily login and static IP (U23, 28 Sep 2026).** Kite tokens expire at
+06:00 IST and a scripted login breaks Kite Connect's terms, so a person logs
+in once per trading day. On trading days an email brings the Kite login link
+(09:03 IST, again at 17:33 if still missing). The link opens Zerodha's own
+login page; Zerodha then redirects to `/ind-stocks/auth/callback` on the HF
+Space, which stores the day's token in Neon, encrypted. The paper job's
+"Live book - session" step then runs the session with that token, once per
+session, sending Kite calls through a static-IP proxy whose IP is registered
+with Zerodha: since April 2026 Zerodha accepts API orders only from a
+registered static IP. The step is off until the repository variable
+`CENTURION_LIVE_MODE` is `dry_run` or `live`. Without a login, nothing is
+placed that evening and the GTT stops keep protecting the book. The one-time
+setup is tracker item U24.
 
 | Month | Capital | Condition to continue |
 |---|---|---|

@@ -74,6 +74,8 @@ DEFAULT_LIVE_SCHEMA = "live"
 LIVE_LEDGER_KEY = "live_ledger"            # {"capital", "cash", "positions": {sym: qty}, "symbols", "session"}
 LIVE_ORDERS_KEY = "live_orders"            # orders placed at the last live session (JSON)
 LIVE_LAST_SESSION_KEY = "live_last_session"
+LIVE_DRY_LAST_SESSION_KEY = "live_dry_run_last_session"   # the scheduled dry run's once-per-session marker
+LIVE_SKIP_NOTIFIED_KEY = "live_skip_notified"            # date of the last "no login today" email
 SOURCE_ENGINE, SOURCE_EXTERNAL = "live_open", "external"
 
 
@@ -257,7 +259,8 @@ def _series(df: Optional[pd.DataFrame], col: str) -> pd.Series:
 
 def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = None, as_of=None,
                      book=None, deployment=None, record: Optional[bool] = None, email: bool = True,
-                     executor_factory: Optional[Callable] = None) -> dict:
+                     executor_factory: Optional[Callable] = None, extra_notes: Optional[List[str]] = None,
+                     once_per_session: bool = False) -> dict:
     """One live session end to end (see the module docstring).  Returns a report dict."""
     from kite_connect.trading.nse_engine_executor import (EngineExecutor, kite_book, live_order_outcomes,
                                                           live_orders_allowed)
@@ -308,8 +311,13 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
     if not len(view.dates):
         raise RuntimeError(f"no market data up to {end.date()} in {cfg.data.store_dir}")
     session = pd.Timestamp(view.dates[-1]).normalize()
+    marker = LIVE_DRY_LAST_SESSION_KEY if dry_run else LIVE_LAST_SESSION_KEY
+    if once_per_session and state.get(marker) == session.date().isoformat():
+        logger.info("LIVE session %s (%s) already ran: nothing to do", session.date(), "dry run" if dry_run else "live")
+        return {"session": session.date().isoformat(), "skipped": "already ran", "alerts": [], "notes": []}
     report: dict = {"session": session.date().isoformat(), "mode": "live dry run" if dry_run else "live",
-                    "fills": [], "external": [], "alerts": [], "notes": [], "results": [], "plan": None}
+                    "fills": [], "external": [], "alerts": [], "notes": list(extra_notes or []), "results": [],
+                    "plan": None}
 
     # 2. outcomes of the previous live session's orders, then the ledger
     placed_doc = json.loads(state.get(LIVE_ORDERS_KEY) or "{}")
@@ -400,6 +408,8 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
                  "status": "PLACED" if r.get("status") == "DUPLICATE" else r.get("status")} for r in orders]})
         book.sync_state(values)
         book.sync_session(_session_row(report, plan, marked, snap, orders))
+    if once_per_session and dry_run:                     # the marker only; a dry run records no book
+        book.sync_state({LIVE_DRY_LAST_SESSION_KEY: session.date().isoformat()})
     if shift_path.exists():
         shift_path.unlink()
     if email:
@@ -460,6 +470,16 @@ def _email(report: dict, dep, snap: dict, capital: float) -> None:
         logger.warning("Live daily email failed: %s", exc)
 
 
+def _email_skip(message: str) -> None:
+    try:
+        from services.notifications.manager import NotificationManager
+        NotificationManager._send_html_email(
+            "Centurion live: no Kite login today, session skipped",
+            f"<html><body style='font-family:Segoe UI,Arial,sans-serif;padding:20px;'><p>{message}</p></body></html>")
+    except Exception as exc:                              # noqa: BLE001
+        logger.warning("skip email failed: %s", exc)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Run one live session of the NSE engine book (tracker L5)")
     ap.add_argument("--dry-run", action="store_true", help="build every order, send none")
@@ -468,13 +488,40 @@ def main(argv=None) -> int:
     ap.add_argument("--as-of", default=None, help="session date (default: the latest store session)")
     ap.add_argument("--record", action="store_true", help="dry run: keep the rehearsal book in Neon")
     ap.add_argument("--no-email", action="store_true")
+    ap.add_argument("--stored-token", action="store_true",
+                    help="the scheduled run: today's token from the Kite login callback, calls through "
+                         "CENTURION_KITE_PROXY (U23)")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    from kite_connect.auth.kite_session import create_kite_session
-    report = run_live_session(create_kite_session(), dry_run=args.dry_run, capital=args.capital, as_of=args.as_of,
-                              record=True if args.record else None, email=not args.no_email)
+    notes: List[str] = []
+    if args.stored_token:
+        from kite_connect.auth import daily_login as dl
+        book = live_book()
+        kite = dl.kite_from_stored_token(book)
+        if kite is None:
+            msg = ("No Kite login today, so the live session was skipped: no orders were placed. "
+                   "GTT stops stay active at Zerodha. Log in tomorrow from the reminder email.")
+            logger.warning(msg)
+            today = datetime.now(dl.IST).date().isoformat()
+            if not args.no_email and book.read_state().get(LIVE_SKIP_NOTIFIED_KEY) != today:
+                _email_skip(msg)                         # once a day, not once per backup run
+                book.sync_state({LIVE_SKIP_NOTIFIED_KEY: today})
+            print(msg)
+            return 0
+        proxy = os.environ.get(dl.ENV_PROXY, "")
+        if not args.dry_run and not proxy:
+            raise SystemExit(f"real orders need {dl.ENV_PROXY}: Zerodha accepts API orders only from the "
+                             "registered static IP")
+        if proxy:
+            notes.append(f"Kite calls through the static-IP proxy, egress IP {dl.egress_ip(proxy) or 'unknown'}")
+    else:
+        from kite_connect.auth.kite_session import create_kite_session
+        kite = create_kite_session()
+    report = run_live_session(kite, dry_run=args.dry_run, capital=args.capital, as_of=args.as_of,
+                              record=True if args.record else None, email=not args.no_email, extra_notes=notes,
+                              once_per_session=args.stored_token)
     print(json.dumps({k: v for k, v in report.items() if k != "plan"}, default=str, indent=2)[:6000])
-    return 0 if not report["alerts"] else 1
+    return 0          # alerts are in the email; only an exception fails the run
 
 
 if __name__ == "__main__":
