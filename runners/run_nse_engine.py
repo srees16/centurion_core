@@ -171,13 +171,15 @@ def cmd_validate(args) -> None:
     manifest = json.loads((run_dir / "manifest.json").read_text())
 
     window = (manifest.get("start"), manifest.get("end"))
-    matrix = registry.returns_matrix(data_hash=manifest.get("data_hash"), window=window)
+    from nse_engine.validation.trials import LEGACY_COST_MODEL
+    cost_model = int(manifest.get("cost_model") or LEGACY_COST_MODEL)
+    matrix = registry.returns_matrix(data_hash=manifest.get("data_hash"), window=window, cost_model=cost_model)
     returns = matrix[run_id] if run_id in matrix.columns else None
     if returns is None:
         raise SystemExit(f"run {run_id} not found in the returns matrix")
 
     n_configs = int(matrix.shape[1])
-    report = {"run_id": run_id, "window": window, "n_configurations": n_configs,
+    report = {"run_id": run_id, "window": window, "n_configurations": n_configs, "cost_model": cost_model,
               "metrics": manifest.get("metrics")}
     trials = matrix if n_configs > 1 else None
     # N = every recorded configuration (parameter variants are too correlated
@@ -193,6 +195,11 @@ def cmd_validate(args) -> None:
     else:
         report["pbo"] = "needs at least 2 recorded configurations"
 
+    if not Path(run_cfg.data.store_dir).exists():      # a run imported from Kaggle records /kaggle/... paths
+        local_store = EngineConfig().data.store_dir
+        logger.info("store %s not found here; using %s (store_dir is not part of the config hash)",
+                    run_cfg.data.store_dir, local_store)
+        run_cfg = run_cfg.replace(**{"data.store_dir": local_store})
     data = _load_data(run_cfg)
     benchmarks = run_benchmarks(data, run_cfg)
     report["benchmark_gate"] = benchmark_gate(returns, benchmarks, margin=args.margin,

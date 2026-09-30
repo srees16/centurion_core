@@ -337,7 +337,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                             ("push-code", "upload code + job spec"),
                             ("run", "push code, then the kernel")):
         p = sub.add_parser(name, help=help_text)
-        p.add_argument("--task", default="walk-forward", choices=["walk-forward", "grid"])
+        p.add_argument("--task", default="walk-forward", choices=["walk-forward", "grid", "configs"])
         p.add_argument("--args", default="", help="arguments for cloud.kaggle_runner, one string")
         p.add_argument("--heartbeat-url", default=None)
         p.add_argument("--pin", action="store_true",

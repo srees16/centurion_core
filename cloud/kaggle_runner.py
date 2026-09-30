@@ -450,6 +450,70 @@ def run_grid(args) -> Dict[str, Any]:
     return state
 
 
+# ── configs: a registry refresh ──────────────────────────────────
+
+_RUN_SPECIFIC = ("start", "end", "runs_dir")
+
+
+def flatten_config(d: Dict[str, Any]) -> Dict[str, Any]:
+    """An EngineConfig dict as dotted overrides for ``EngineConfig().replace``.
+
+    Run-specific fields (window, runs_dir, store_dir) are dropped, so the
+    result reproduces the configuration and its ``config_hash``.
+    """
+    out: Dict[str, Any] = {}
+    for key, value in d.items():
+        if key in _RUN_SPECIFIC:
+            continue
+        if isinstance(value, dict):
+            for sub_key, sub_value in value.items():
+                if (key, sub_key) != ("data", "store_dir"):
+                    out[f"{key}.{sub_key}"] = sub_value
+        else:
+            out[key] = value
+    return out
+
+
+def run_configs(args) -> Dict[str, Any]:
+    """Full-window backtest of each configuration in a JSON list.
+
+    For a registry refresh: after a change that alters results without
+    changing a config or the data (the cost model, tracker U25), every
+    same-window configuration is re-run so PBO and the deflated Sharpe compare
+    like with like.  The file holds ``[{"config": {...}, "tag": "..."}, ...]``;
+    the configurations must share their data settings (one data load).
+    """
+    from nse_engine.config import EngineConfig
+
+    from cloud.heartbeat import Heartbeat
+
+    global _DATA, _BASE
+
+    specs = json.loads(Path(args.configs).read_text())
+    if not specs:
+        raise SystemExit("no configurations in " + args.configs)
+    first = flatten_config(specs[0]["config"])
+    cfg = EngineConfig().replace(**first, start=args.start, end=args.end,
+                                 **{"data.store_dir": find_store_dir(args.store_dir),
+                                    "runs_dir": args.runs_dir or default_runs_dir()})
+    out_dir = Path(args.out_dir or default_out_dir())
+    out_dir.mkdir(parents=True, exist_ok=True)
+    hb = Heartbeat(name=f"configs:{len(specs)}", state_path=out_dir / "heartbeat.json")
+    _BASE = cfg
+    _DATA = load_data(cfg, args.data_start)
+    rf = float(getattr(cfg, "risk_free_annual", 0.0))
+    jobs = [{"params": flatten_config(s["config"]), "start": cfg.start, "end": cfg.end,
+             "tag": s.get("tag") or args.tag, "rf": rf} for s in specs]
+    hb.start(f"{len(jobs)} backtests")
+    logger.info("Configs: %d to run", len(jobs))
+    results = _run_jobs(jobs, args.workers)
+    state = {"task": "configs", "n_run": len(results), "results": results, "out_dir": str(out_dir),
+             "provenance": provenance()}
+    (out_dir / "configs_results.json").write_text(json.dumps(state, indent=2, default=str))
+    hb.done(f"{len(results)} backtests")
+    return state
+
+
 def _recorded_hashes(runs_dir: str) -> set:
     """Config hashes already in the run registry, so a resumed sweep skips them."""
     out = set()
@@ -496,6 +560,18 @@ def main(argv: Optional[List[str]] = None) -> None:
     common(p)
     p.add_argument("--tag", default="grid")
     p.set_defaults(func=run_grid)
+
+    p = sub.add_parser("configs", help="full-window backtest of each config in a JSON list (registry refresh)")
+    p.add_argument("--configs", required=True, help='JSON file: [{"config": {...}, "tag": "..."}, ...]')
+    p.add_argument("--start", required=True)
+    p.add_argument("--end", required=True)
+    p.add_argument("--data-start", help="anchor date, e.g. 2012-01-02")
+    p.add_argument("--store-dir")
+    p.add_argument("--runs-dir")
+    p.add_argument("--out-dir")
+    p.add_argument("--workers", type=int, default=min(4, os.cpu_count() or 1))
+    p.add_argument("--tag", default="refresh")
+    p.set_defaults(func=run_configs)
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,

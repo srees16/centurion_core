@@ -1,9 +1,8 @@
-Realistically achievable target: Sharpe >= 1.5, CAGR >=25%, MaxDD<=30%, Calmar >= 1%, PBO <= 30%
+Realistically achievable target: Sharpe >= 1.5, CAGR >=30%, MaxDD<=35%, Calmar >= 1%, PBO <= 30%
 Goal is to have the best possible Sharpe and CAGR, lowest possible maxDD
 
 *success criterion should be highest Sharpe + lowest max DD, not a CAGR number. A config with 45%+ CAGR and 0.90 Sharpe is far better than 60% CAGR and 0.50 Sharpe, because the former will survive in live trading while the latter will blow up.*
 
-1. elaborate on U24 and any pending action items from me
 
 ┌──────────────────────────────────────────────────────────────────────┐
 │  PERFORMANCE SUMMARY — ALL CONFIGURATIONS                           │
@@ -11,7 +10,6 @@ Goal is to have the best possible Sharpe and CAGR, lowest possible maxDD
 │ Config       │ Sharpe │ CAGR   │ MaxDD  │ Calmar │ PBO     │ Status │
 ├──────────────┼────────┼────────┼────────┼────────┼─────────┼────────┤
 │ R21A-GM2     │  1.571 │ 61.0%  │ 31.6%  │ 1.932  │ N/A*    │★CHAMP  │
-│ R21A base    │  1.127 │ 30.4%  │ 29.6%  │ 1.026  │ 27.1%** │ base   │
 ├──────────────┼────────┼────────┼────────┼────────┼─────────┼────────┤
 
 ┌──────────────────────────────────────────────────────────────────────┐

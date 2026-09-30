@@ -433,6 +433,33 @@ pt of CAGR, the exit rank alone 0.94. Not adopted. The exit-rank result was
 found in R7's own data, so it is logged as R12 for evidence R7 did not see
 (a walk-forward with the exit rank in the grid, or paper), not promoted.
 
+## 5h. Cost model 2: ETF STT (U25, 30 Sep 2026)
+
+The cost model charged the metal-sleeve ETFs the equity delivery STT, 0.1% a
+side. Zerodha lists gold ETFs as exempt and charges other ETFs 0.001% on the
+sell side only; silver ETFs are reported exempt but not named by Zerodha, so
+they pay the other-ETF rate (₹1 per lakh sold). `nse_engine.costs` now takes
+the symbol; the engine, the paper books and the live session pass it. Every
+run records `cost_model` (1 before this change, 2 after), and `validate`
+compares runs of one version only.
+
+The 56 same-window configurations (2013–25, the data fingerprint 6c94f4f4)
+were re-run on Kaggle under model 2 (no new trials). Same-platform effect,
+Kaggle model 1 → model 2:
+
+| | CAGR | Excess Sharpe | MaxDD | Cost drag |
+|---|---|---|---|---|
+| B1 baseline | 22.83% → 23.07% | 1.147 → 1.163 | −23.8% → −23.5% | 3.08% → 2.79% |
+| Candidate 2d64ba4c | 22.03% → 22.42% | 1.174 → 1.201 | −23.4% → −23.0% | 3.01% → 2.72% |
+
+Under model 2 on Kaggle, the deployed 679cbd0c reads Sharpe 1.197, CAGR
+23.6%, MaxDD −23.1%, Calmar 1.02; PBO 46.4% over the 56 configurations,
+deflated Sharpe 0.987, benchmark gate passed (candidate: DSR 0.988, gate
+passed). The walk-forwards (K5, R4) and the 2006-store studies were measured
+under model 1 and are not re-run: every configuration carries the same sleeve,
+so choices between them do not change, and their levels are about 0.3 points
+of CAGR conservative.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast

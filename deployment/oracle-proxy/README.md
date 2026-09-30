@@ -24,9 +24,15 @@ use the tunnel: only the evening session's calls do.
    resources stay free; without it Oracle may reclaim an instance that stays
    idle for 7 days (under 20% CPU, network and memory), and a tunnel is idle
    almost all day.
-3. Compute → Instances → Create: image **Ubuntu 24.04**, shape
-   **VM.Standard.E2.1.Micro** (Always Free; A1.Flex also works), a public
-   subnet, and your own SSH key for administration.
+3. Compute → Instances → Create. Choose the shape **first**:
+   **VM.Standard.E2.1.Micro** (Specialty and previous generation; Always
+   Free, AMD x86). Then the image: **Canonical Ubuntu 24.04 Minimal** whose
+   build name has **no** `aarch64` (ARM images fail on this shape with "Shape
+   ... is not valid for image"; Ubuntu 22.04 Minimal also works). Or use
+   **VM.Standard.A1.Flex** (Ampere, also Always Free, capacity permitting)
+   with an `aarch64` image. A public subnet, and your own SSH key for
+   administration (Networking step → Add SSH keys → paste your `.pub`).
+   Minimal images may lack curl: `sudo apt-get install -y curl` before step 2.
 4. Networking → Reserved public IPs → Reserve, then on the instance's VNIC
    replace the ephemeral public IP with the reserved one. A reserved IP
    survives the instance: if the VM is ever rebuilt, reattach it and nothing
@@ -37,24 +43,24 @@ use the tunnel: only the evening session's calls do.
 On your own machine, never in chat:
 
 ```bash
-ssh-keygen -t ed25519 -N "" -C centurion-kite-tunnel -f kite_tunnel
-cat kite_tunnel.pub            # one line, used below
+ssh-keygen -t ed25519 -N "" -C centurion-kite-tunnel -f ~/.ssh/kite_tunnel
+cat ~/.ssh/kite_tunnel.pub     # one line, used below
 ```
 
 Copy `setup_tunnel_user.sh` to the VM and run it with the public key:
 
 ```bash
-scp deployment/oracle-proxy/setup_tunnel_user.sh ubuntu@<reserved-ip>:
-ssh ubuntu@<reserved-ip> "sudo bash setup_tunnel_user.sh '$(cat kite_tunnel.pub)'"
+scp -i ~/.ssh/oracle_admin deployment/oracle-proxy/setup_tunnel_user.sh ubuntu@<reserved-ip>:
+ssh -i ~/.ssh/oracle_admin ubuntu@<reserved-ip> "sudo bash setup_tunnel_user.sh '$(cat ~/.ssh/kite_tunnel.pub)'"
 ```
 
-It prints the values for step 3.
+It prints the values for step 3. (Oracle Linux image: the admin user is `opc`, not `ubuntu`.)
 
 ## 3. GitHub and Zerodha (once)
 
 | Where | Name | Value |
 |---|---|---|
-| GitHub secret | `CENTURION_PROXY_SSH_KEY` | contents of the private key file `kite_tunnel` |
+| GitHub secret | `CENTURION_PROXY_SSH_KEY` | contents of the private key file `~/.ssh/kite_tunnel` |
 | GitHub secret | `CENTURION_PROXY_HOST` | `kitetunnel@<reserved-ip>` (printed) |
 | GitHub secret | `CENTURION_PROXY_HOST_KEY` | `<reserved-ip> ssh-ed25519 AAAA...` (printed) |
 | GitHub variable | `CENTURION_KITE_STATIC_IP` | `<reserved-ip>` |
@@ -76,7 +82,7 @@ the pinned one stops the connection.
 ## Checking it by hand
 
 ```bash
-ssh -i kite_tunnel -N -D 127.0.0.1:1080 kitetunnel@<reserved-ip> &
+ssh -i ~/.ssh/kite_tunnel -N -D 127.0.0.1:1080 kitetunnel@<reserved-ip> &
 curl --socks5-hostname 127.0.0.1:1080 https://api.ipify.org   # prints <reserved-ip>
 curl --socks5-hostname 127.0.0.1:1080 https://example.com     # refused: not permitted
 kill %1

@@ -30,7 +30,9 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 MANIFEST_FIELDS = ("run_id", "tag", "config_hash", "git_commit", "git_dirty",
-                   "data_hash", "start", "end", "created_at", "refresh_of")
+                   "data_hash", "start", "end", "created_at", "refresh_of", "cost_model")
+#: Runs recorded before the cost model was versioned (U25, 30 Sep 2026).
+LEGACY_COST_MODEL = 1
 
 
 _GIT_CACHE: Dict[str, Any] = {}
@@ -120,6 +122,7 @@ def record_result(result: Any, tag: str, runs_dir: Optional[Union[str, Path]] = 
         "created_at": created.isoformat(),
         "metrics": to_jsonable(getattr(result, "metrics", {}) or {}),
         "recorded_by": "nse_engine.validation.trials.record_result",
+        "cost_model": _cost_model_version(),
     }
     for key, value in dict(extra or {}).items():
         manifest.setdefault(str(key), to_jsonable(value))
@@ -137,6 +140,11 @@ def record_result(result: Any, tag: str, runs_dir: Optional[Union[str, Path]] = 
     except Exception:  # frozen / foreign objects
         pass
     return str(run_dir)
+
+
+def _cost_model_version() -> int:
+    from nse_engine.costs import COST_MODEL_VERSION
+    return int(COST_MODEL_VERSION)
 
 
 class TrialRegistry:
@@ -179,6 +187,7 @@ class TrialRegistry:
         df = pd.DataFrame(rows)
         if df.empty:
             return pd.DataFrame(columns=cols + ["run_dir"])
+        df["cost_model"] = pd.to_numeric(df["cost_model"], errors="coerce").fillna(LEGACY_COST_MODEL).astype(int)
         return df.sort_values(["created_at", "run_id"], na_position="first").reset_index(drop=True)
 
     def load_returns(self, run_id: str) -> pd.Series:
@@ -197,12 +206,13 @@ class TrialRegistry:
     def returns_matrix(self, start: Optional[str] = None, end: Optional[str] = None,
                        dedupe_config: bool = True, data_hash: Optional[str] = None,
                        tags: Optional[List[str]] = None,
-                       window: Optional[tuple] = None) -> pd.DataFrame:
+                       window: Optional[tuple] = None, cost_model: Optional[int] = None) -> pd.DataFrame:
         """date x run_id daily returns restricted to dates common to all runs.
 
         ``dedupe_config`` keeps only the latest run (by created_at) per
         (config_hash, start, end) -- re-runs of one config on one window.
-        ``data_hash`` / ``tags`` filter runs.  ``window=(start, end)`` keeps only
+        ``data_hash`` / ``tags`` / ``cost_model`` filter runs (results from two
+        cost models are not comparable: U25).  ``window=(start, end)`` keeps only
         runs recorded on exactly that trading window, so walk-forward fold runs
         do not shrink the common-date intersection.  Warns when the selected
         runs were computed on different data hashes.
@@ -212,6 +222,8 @@ class TrialRegistry:
             return pd.DataFrame()
         if data_hash is not None:
             trials = trials[trials["data_hash"] == data_hash]
+        if cost_model is not None:
+            trials = trials[trials["cost_model"] == int(cost_model)]
         if tags is not None:
             trials = trials[trials["tag"].isin(tags)]
         if window is not None:
