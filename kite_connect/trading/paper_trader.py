@@ -181,6 +181,7 @@ class PaperDashboard:
     cvar_95: float = 0.0
     profit_factor: float = 0.0
     positions: List[dict] = field(default_factory=list)
+    realised_pnl: float = 0.0          # closed trades only; total_pnl is equity - initial capital
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -1473,7 +1474,7 @@ class PaperTrader:
             else:
                 closed_trades.append(dict(r))
 
-        total_pnl = sum(t["pnl"] for t in closed_trades)
+        realised_pnl = sum(t["pnl"] for t in closed_trades)
         wins = [t for t in closed_trades if t["pnl"] > 0]
         losses = [t for t in closed_trades if t["pnl"] <= 0]
 
@@ -1499,6 +1500,9 @@ class PaperTrader:
             else:
                 current_capital += pos_dict["entry_price"] * pos_dict["quantity"]
 
+        # P&L of the book is the equity change: closed trades alone leave out the
+        # open positions and read as a loss while the book is up.
+        total_pnl = current_capital - self.initial_capital
         total_pnl_pct = (
             (current_capital / self.initial_capital - 1) * 100
             if self.initial_capital > 0 else 0.0
@@ -1523,7 +1527,7 @@ class PaperTrader:
         sr = sortino = calmar = omega = cvar95 = pf = 0.0
         daily = {}
         try:
-            daily = self.daily_metrics(conn)
+            daily = self.daily_metrics()
         except Exception as exc:
             logger.debug("Daily risk metrics unavailable: %s", exc)
         if daily:
@@ -1550,6 +1554,7 @@ class PaperTrader:
             closed_trades=len(closed_trades),
             total_pnl=round(total_pnl, 2),
             total_pnl_pct=round(total_pnl_pct, 2),
+            realised_pnl=round(realised_pnl, 2),
             win_rate=round(win_rate, 4),
             avg_win_pct=round(avg_win, 2),
             avg_loss_pct=round(avg_loss, 2),
@@ -1599,11 +1604,16 @@ class PaperTrader:
             (today + "%",),
         ).fetchall()
         closed_today = len(rows)
-        day_pnl = sum(r["pnl"] for r in rows)
+        # Day P&L is the equity change since the previous session (as the live
+        # book records it), not the P&L of the trades closed today.
+        prev = conn.execute(
+            "SELECT equity FROM daily_snapshots WHERE date < ? ORDER BY date DESC LIMIT 1", (today,)
+        ).fetchone()
+        day_pnl = dashboard.current_capital - (float(prev["equity"]) if prev else self.initial_capital)
 
         # Compute running max drawdown from daily_snapshots history
         prev_snapshots = conn.execute(
-            "SELECT equity FROM daily_snapshots ORDER BY date"
+            "SELECT equity FROM daily_snapshots WHERE date < ? ORDER BY date", (today,)
         ).fetchall()
         equities = [r["equity"] for r in prev_snapshots] + [dashboard.current_capital]
         peak = equities[0] if equities else self.initial_capital

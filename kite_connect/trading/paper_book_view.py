@@ -215,6 +215,30 @@ def trades_view(cloud, live_prices: Optional[Callable[[List[str]], Dict[str, flo
     }
 
 
+# ── daily snapshots ──────────────────────────────────────────────
+
+def snapshots_view(cloud) -> List[dict]:
+    """Daily snapshots, oldest first, with ``day_pnl`` / ``cumulative_pnl`` taken from equity.
+
+    Paper rows written before 1 Oct 2026 hold the P&L of the trades closed that
+    day and in total, which reads as a loss while the book is up (29 Sep:
+    -49,839 against equity +0.59%).  Deriving both from the stored equity
+    makes those rows agree with the new ones and with the live book.
+    """
+    snapshots = sorted(_records(cloud.read_snapshots()), key=lambda s: str(s.get("date")))
+    if not snapshots:
+        return []
+    state = cloud.read_state() or {}
+    initial = _f(state.get("initial_capital")) or _f(snapshots[0].get("equity"))
+    prev = initial
+    for s in snapshots:
+        equity = _f(s.get("equity"))
+        s["day_pnl"] = round(equity - prev, 2)
+        s["cumulative_pnl"] = round(equity - initial, 2)
+        prev = equity
+    return snapshots
+
+
 # ── metrics grid ─────────────────────────────────────────────────
 
 def _equity_metrics(snapshots: List[dict], initial: float, rf: float) -> Dict[str, float]:
