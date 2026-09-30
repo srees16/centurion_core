@@ -1084,9 +1084,9 @@ async def screener_daily_snapshots():
     try:
         cloud = _cloud_or_none()
         if cloud:
-            df = cloud.read_snapshots()
-            if not df.empty:
-                snapshots = df.to_dict(orient="records")
+            from kite_connect.trading.paper_book_view import snapshots_view
+            snapshots = snapshots_view(cloud)          # day / cumulative P&L from equity
+            if snapshots:
                 return {"snapshots": snapshots, "count": len(snapshots)}
 
         snapshots = _sqlite_rows("daily_snapshots", "SELECT * FROM daily_snapshots ORDER BY date")
@@ -1205,11 +1205,8 @@ async def screener_daily_detail(date: str):
         snapshot = None
         snapshot_detail = {}
         if cloud:
-            df = cloud.read_snapshots()
-            if not df.empty:
-                row = df[df["date"] == date]
-                if not row.empty:
-                    snapshot = row.iloc[0].to_dict()
+            from kite_connect.trading.paper_book_view import snapshots_view
+            snapshot = next((s for s in snapshots_view(cloud) if str(s.get("date")) == date), None)
         if snapshot is None:
             rows = _sqlite_rows("daily_snapshots", f"SELECT * FROM daily_snapshots WHERE date='{date}'")
             snapshot = rows[0] if rows else None

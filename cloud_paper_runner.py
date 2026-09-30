@@ -700,6 +700,8 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict, g
             "cash": pt.cash,
             "pnl": dash.total_pnl,
             "pnl_pct": dash.total_pnl_pct,
+            "realised_pnl": dash.realised_pnl,
+            "closed_trades": dash.closed_trades,
             "max_drawdown_pct": snapshot.get("max_drawdown_pct", dash.max_drawdown_pct),
             "open_positions": dash.open_positions,
             "filled": fills.get("filled", []),
@@ -786,7 +788,8 @@ def _run_weekly_checkpoint():
     # Historical weeks table
     weeks_rows = ""
     try:
-        _db = _sq3.connect(str(_ROOT / "data" / "paper_trades.sqlite3"))
+        from kite_connect.trading.paper_trader import _DB_PATH   # this book's file (the candidate has its own)
+        _db = _sq3.connect(str(_DB_PATH))
         _db.row_factory = _sq3.Row
         all_weeks = _db.execute(
             "SELECT * FROM weekly_checkpoints ORDER BY week_number"
@@ -865,11 +868,11 @@ def _run_weekly_checkpoint():
           <td style="padding:6px 12px;border:1px solid #e5e7eb;">₹{dash.initial_capital:,.0f} → ₹{dash.current_capital:,.0f}</td></tr>
       <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">Total P&amp;L</td>
           <td style="padding:6px 12px;border:1px solid #e5e7eb;font-weight:bold;color:{pnl_color};">
-            ₹{dash.current_capital - dash.initial_capital:,.0f} ({dash.total_pnl_pct:+.1f}%)</td></tr>
+            ₹{dash.total_pnl:,.0f} ({dash.total_pnl_pct:+.1f}%)</td></tr>
       <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">of which realised</td>
           <td style="padding:6px 12px;border:1px solid #e5e7eb;">
-            ₹{dash.total_pnl:,.0f} from {dash.closed_trades} closed trades;
-            ₹{dash.current_capital - dash.initial_capital - dash.total_pnl:,.0f} unrealised
+            ₹{dash.realised_pnl:,.0f} from {dash.closed_trades} closed trades;
+            ₹{dash.total_pnl - dash.realised_pnl:,.0f} unrealised
             on {dash.open_positions} open</td></tr>
       <tr><td style="padding:6px 12px;border:1px solid #e5e7eb;color:#666;">Sharpe / Sortino</td>
           <td style="padding:6px 12px;border:1px solid #e5e7eb;">{ratio(dash.sharpe_ratio)} / {ratio(dash.sortino_ratio)}</td></tr>

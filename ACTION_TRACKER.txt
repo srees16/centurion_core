@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 30 Sep 2026, 23:30 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 30 Sep 2026, 23:46 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -23,7 +23,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
    2007-25 with 2008 (R4), B1 + rule  1.03   21.1%   -32.9%   0.64
    Deployed, cost model 2 (U25, Kaggle) 1.20   23.6%   -23.1%   1.02
    Walk-forward OOS 2008-25 (R4)      0.87   16.4%   -32.9%   0.50
-   Paper since 17 Sep (8 sessions)     -     +2.45%   -0.3%     -   too early
+   Paper since 17 Sep (10 sessions)    -     +0.59%   -3.5%     -   too early
+     (same days: NIFTY 500 -2.0%, NIFTY 50 -2.6%; backtest replay +0.8%)
    * 8 months annualised.  All CAGRs on calendar years (B2).  Walk-forward
      re-run 27 Sep on complete NIFTY data (K5; was 1.24 / 23.3% / -22.3%).
 
@@ -53,11 +54,13 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
  HOLD THE LIVE BOOK TO   tracking error <= 8%/yr | Sharpe >= 1.0 | CAGR >= 20%
    | MaxDD <= 30% (soft, U5) | Calmar >= 0.7 | realised costs <= 1.5x model.
 
- THE BOOK  paper Rs 35L since 17 Sep: 22 positions, +2.45%, 8 sessions; next
-   rebalance ~1 Oct; Week-3 report Sat 3 Oct.  Live capital will be Rs 30L.
+ THE BOOK  paper Rs 35L since 17 Sep: 19 positions + 32% cash (gold sleeve
+   trend exit 29 Sep), +0.59%, 10 sessions; next rebalance 1 Oct; Week-3
+   report Sat 3 Oct.  Live capital will be Rs 30L.
    Second book (D1, on main 27 Sep 23:06): candidate 2d64ba4c (neutral
-   0.6) from Rs 35L, first session Mon 28 Sep; emails labelled [candidate
-   2d64ba4c]; not on the monitor until G12.  Session 30 ~11 Nov, 60 ~24 Dec.
+   0.6) from Rs 35L, first session Mon 28 Sep, bought 29 Sep (backtest
+   replay +0.97% to 30 Sep); emails labelled [candidate 2d64ba4c]; not on
+   the monitor until G12.  Session 30 ~11 Nov, 60 ~24 Dec.
    Session 19:00 IST Mon-Fri (HF dispatch; GitHub backups 19:05-22:05;
    heartbeat alarm 00:15).  Drawdown rule 20/30/35 (G3) is on main and runs
    from Mon 28 Sep; the book is ~0.3% below its peak, so: normal.
@@ -180,7 +183,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  5. IN PROGRESS [~]
 --------------------------------------------------------------------------------
-[~] P1  P3   Paper trading to 60-90 sessions (8 done; ~Jan 2027).  Judged on
+[~] P1  P3   Paper trading to 60-90 sessions (10 done; ~Jan 2027).  Judged on
              behaviour: tracking error <= 8%/yr, costs <= 1.5x model, MaxDD
              vs backtest: the G4 gate, in every daily email.  Mon 28 Sep is the first session
              with the weekly-report fixes (G15).
@@ -196,14 +199,24 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
         Needs >= 30 real fills first; worth <= +0.1 Sharpe.
  PHASE 3   paper -> live ladder                                       Nov -> Feb
  PHASE 4   research that might move Sharpe (each adds trials)          parallel
-#2  [ ] P3  R12  Exit rank 60 alone (seen in R7, not tested)      Prompt: do R12
+#2  [ ] P2  R13  Metal sleeve: confirm the trend exit (G16)       Prompt: do R13
+        Gold round trips of <= 20 sessions cost ~1.0% of book a year in
+        2013-25 (21 whipsaws, excluding one bad-print trade, D4); longer
+        gold trends made +18.9%.  Paper hit one on 29 Sep (-Rs 29,662).
+        Proposed rule (change first if you like): the sleeve enters /
+        exits only after 3 closes in a row above / below its 200-day
+        average (the regime's own confirm_days; one value, no grid).
+        Pass: Kaggle, cost model 2, 2013-25 Sharpe >= base + 0.02 and
+        CAGR >= base; MaxDD no more than 1 pt deeper in 2013-25 and
+        2007-25 (store_ext2006).  Off by default, hash-neutral.
+#3  [ ] P3  R12  Exit rank 60 alone (seen in R7, not tested)      Prompt: do R12
         In R7 the exit-rank change alone did better than the pre-registered
         combination in both books (CAGR +0.9 pt, Sharpe 2017-25 +0.09 /
         +0.11, turnover -17%, MaxDD up to 1.6 pts deeper).  Found in R7's
         own data, so it needs evidence R7 did not see: a walk-forward with
         exit_rank {40, 60} in the grid, or paper.  Pre-register first.
-#3  [ ] P3  R6   R21A rules as signal groups (+/-0.1)             Prompt: do R6
-#4  [ ] P3  R9   Universe size 150 / 300 / 500                    Prompt: do R9
+#4  [ ] P3  R6   R21A rules as signal groups (+/-0.1)             Prompt: do R6
+#5  [ ] P3  R9   Universe size 150 / 300 / 500                    Prompt: do R9
         Deploy a Phase-4 winner only on a pre-registered +0.15 OOS Sharpe,
         then >= 60 sessions in a paper slot.  Sharpe 1.5 needs a new return
         stream (short side, futures, options, intraday): data we do not have.
@@ -231,6 +244,16 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 [ ] P3  L2   NIFTY futures overlay: CLOSED on evidence.  Reopen only if L4
              finds MTF unusable and you accept MaxDD 40%+.        Prompt: do L2
 [ ] P3  D2   Show the OOS haircut beside validate results.        Prompt: do D2
+[ ] P3  D4   Stray opening prints in backtest and paper fills.   Prompt: do D4
+             Both fill at the bhavcopy open, which for thin ETFs is often
+             a stray first trade: GOLDBEES 137 sessions since 2012 with
+             the open > 3% off the previous close while the close moved
+             < 1.5% (SILVERBEES 9).  18 Oct 2021: open 44.00, close 40.98;
+             the backtest bought the sleeve there (-3.2% of book).  Live
+             orders are LIMIT around the reference, so live is not
+             exposed.  Fix idea: cap the modelled fill at the day's
+             close +/- a band when the open is an outlier; changes every
+             run's numbers, so it re-runs the registry on Kaggle.
 [ ] P3  R5   NIFTY time-series-momentum sleeve.                   Prompt: do R5
 [ ] P3  G12  Book selector on the monitor: earlier books, and the candidate
              book (Neon schema "candidate", D1).             Prompt: do G12
@@ -241,6 +264,27 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+30 Sep  G16  Paper books checked; the "fast loss" was the P&L display.
+             The daily email and the monitor's day P&L bars showed only
+             closed trades: -Rs 20,178 on 28 Sep and -Rs 49,839 on 29 Sep,
+             in red, while equity was +Rs 172 and +Rs 20,792 (+0.59%) on
+             30 Sep.  Now: the dashboard's total_pnl is equity - start
+             (as the web dashboard and the live book already had it);
+             realised_pnl is new; snapshots store day P&L as the equity
+             change; the API derives day and cumulative P&L from equity
+             for old rows too; the email adds "closed trades / open
+             positions".  Also fixed: dashboard() passed a closed database
+             to daily_metrics, so paper Sharpe/Sortino/Calmar read 0 and
+             MaxDD came from closed trades (1.45% vs 3.54%); the candidate's
+             weekly email read the deployed book's week table.
+             Deployed book, 23 -> 28 Sep -Rs 1.27L: 19 stocks -Rs 70K
+             (about the NIFTY 500's -3.1%), PAISALO 6-ATR stop hit
+             intraday -Rs 29K (incl. the 25 Sep top-up), gold -Rs 28K then
+             the 200-day trend exit.  Every control worked as designed;
+             drawdown rule normal (3.5% < 20%).  Candidate: its backtest
+             replay made +0.97% over 29-30 Sep (its Neon rows are not on
+             the API until G12).  Trade-off: see R13 (gold whipsaws) and
+             D4 (stray opens).  Suite 107 both envs.
 30 Sep  U25  ETF STT fixed (cost model 2).  The metal sleeve paid equity
              delivery STT (0.1% a side); now gold 0 and silver 0.001% on
              sells (Zerodha: gold/liquid/gilt ETFs exempt, other ETFs 0.001%
