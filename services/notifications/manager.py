@@ -611,7 +611,8 @@ class NotificationManager:
 
         ``report`` keys: session, deployment, equity, initial_capital, cash,
         pnl, pnl_pct, max_drawdown_pct, open_positions, filled, cancelled,
-        stops, queued, notes, alerts.
+        stops, queued, notes, alerts.  ``pnl`` is the equity change since the
+        start; optional ``realised_pnl`` / ``closed_trades`` split it.
         """
         td = "padding:5px 10px;border:1px solid #e5e7eb;"
         th = "padding:6px 10px;text-align:left;background:#f3f4f6;"
@@ -668,7 +669,10 @@ class NotificationManager:
         rows = [
             ("Equity", f"{inr(report.get('equity'))} <span style='color:#9ca3af;'>(start "
                        f"{inr(report.get('initial_capital'))})</span>"),
-            ("Total P&amp;L", f"<b style='color:{pnl_color};'>{inr(pnl)} ({pnl_pct:+.2f}%)</b>"),
+            ("Total P&amp;L", f"<b style='color:{pnl_color};'>{inr(pnl)} ({pnl_pct:+.2f}%)</b>" + (
+                f" <span style='color:#9ca3af;'>· closed trades {inr(report['realised_pnl'])} "
+                f"({report.get('closed_trades', 0)}), open positions {inr(pnl - float(report['realised_pnl']))}</span>"
+                if report.get("realised_pnl") is not None else "")),
             ("Cash", inr(report.get("cash"))),
             ("Open positions", str(report.get("open_positions", 0))),
             ("Max drawdown", f"{float(report.get('max_drawdown_pct') or 0):.1f}%"),
