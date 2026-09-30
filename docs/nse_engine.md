@@ -18,7 +18,10 @@ Scope: NSE equities and NSE-listed metal ETFs only. No BTC, US stocks or options
 - **Realistic execution.** Decide after close `t`; fill at open `t+1` plus
   impact; stops fill at `min(open, stop)`. Participation is capped at a share
   of median traded value. Per-side statutory costs follow the historical
-  schedule. Gross exposure is at most 1 (CNC); idle cash earns a yield.
+  schedule; the metal-sleeve ETFs pay ETF STT (none on gold, 0.001% on the
+  sell side for silver) rather than the 0.1% a side on shares (cost model 2,
+  U25; every run records `cost_model`, and runs are compared only within one
+  version). Gross exposure is at most 1 (CNC); idle cash earns a yield.
 - **Honest statistics.** Sharpe uses excess returns over the risk-free rate
   and sqrt(252); CAGR compounds over calendar years (days / 365.25) in the
   engine, the validation reports and the paper book alike — never sessions

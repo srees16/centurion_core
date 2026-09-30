@@ -126,10 +126,10 @@ def apply_fills(ledger: dict, fills: List[dict], session, dp_charge_inr: float) 
             if qty <= 0:
                 continue
             led["positions"][sym] = have - qty
-            led["cash"] += qty * px - statutory_cost(qty * px, "SELL", pd.Timestamp(session), dp_charge_inr)
+            led["cash"] += qty * px - statutory_cost(qty * px, "SELL", pd.Timestamp(session), dp_charge_inr, symbol=sym)
         else:
             led["positions"][sym] = have + qty
-            led["cash"] -= qty * px + statutory_cost(qty * px, "BUY", pd.Timestamp(session), dp_charge_inr)
+            led["cash"] -= qty * px + statutory_cost(qty * px, "BUY", pd.Timestamp(session), dp_charge_inr, symbol=sym)
             if sym not in led["symbols"]:
                 led["symbols"].append(sym)
     led["positions"] = {s: q for s, q in led["positions"].items() if q > 0}
@@ -174,7 +174,8 @@ def fills_from_outcomes(outcomes: List[dict], placed: Dict[str, dict], session, 
         if filled > 0 and px > 0 and open_px > 0:
             impact = (1.0 if side == "BUY" else -1.0) * (px - open_px) / open_px * 1e4
         value = filled * px
-        cost = (statutory_cost(value, side, pd.Timestamp(session), dp_charge_inr) + value * impact / 1e4) if filled else 0.0
+        cost = (statutory_cost(value, side, pd.Timestamp(session), dp_charge_inr, symbol=sym)
+                + value * impact / 1e4) if filled else 0.0
         outcome = str(o.get("outcome") or "")
         status = "FILLED" if filled > 0 else ("REJECTED" if outcome == "rejected" else "CANCELLED")
         note = outcome + (f" {filled}/{o.get('quantity')}" if outcome == "partial" else "")
@@ -210,7 +211,8 @@ def external_sells(order_book: List[dict], symbols, session, dp_charge_inr: floa
                      "source": SOURCE_EXTERNAL, "symbol": sym, "side": "SELL", "status": "FILLED",
                      "requested_qty": int(o.get("quantity") or filled), "quantity": filled,
                      "ref_price": float(o.get("trigger_price") or 0.0), "fill_price": px, "impact_bps": 0.0,
-                     "costs_inr": round(statutory_cost(filled * px, "SELL", pd.Timestamp(session), dp_charge_inr), 2),
+                     "costs_inr": round(statutory_cost(filled * px, "SELL", pd.Timestamp(session), dp_charge_inr,
+                                                       symbol=sym), 2),
                      "note": f"not placed by the engine (tag {o.get('tag') or '-'}): GTT stop or manual",
                      "occurred_at": f"{day}T09:15:00+05:30"})
     return rows

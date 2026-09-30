@@ -196,11 +196,11 @@ def remind(book=None, now: Optional[datetime] = None, force: bool = False,
         f"<p>Tonight's live session ({label}) needs today's Kite login.</p>"
         f"<p style=\"margin:22px 0;\"><a href=\"{url}\" style=\"background:#387ed1;color:#fff;padding:10px 18px;"
         "border-radius:6px;text-decoration:none;font-weight:600;\">Log in to Kite</a></p>"
-        "<p style=\"color:#555;\">The button opens Zerodha's own login page: the password and authenticator code "
-        "are typed there. Zerodha then returns you to the Centurion server, which keeps the session until "
+        "<p style=\"color:#555;\">Launches Zerodha login page: the password and authenticator code "
+        "are typed there. Zerodha connects you to the Centurion server, which keeps the session until "
         "06:00 tomorrow.</p><p style=\"color:#555;\">No login, no orders tonight. Your GTT stops stay active "
         "at Zerodha either way.</p></div></div></body></html>")
-    subject = f"Kite login needed for {now:%a %d %b} ({label})"
+    subject = f"Kite Login Request {now:%a %d %b} ({label})"
     if send is None:
         from services.notifications.manager import NotificationManager
         send = lambda s, h: NotificationManager._send_html_email(s, h)   # noqa: E731
