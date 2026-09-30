@@ -47,6 +47,19 @@ SERVICE_TAX_RATE = 0.15
 GST_START = pd.Timestamp("2017-07-01")
 IMPACT_REFERENCE_PARTICIPATION = 0.01
 
+# ETFs the engine trades (the metal sleeves), tracker U25, 30 Sep 2026.  Delivery
+# STT on equity shares is 0.1% a side, but ETFs differ (Zerodha, "Is STT levied
+# on ETFs?"): none on gold, liquid and gilt ETFs; 0.001% on the sell side only
+# for other ETFs.  Silver ETFs are non-equity funds and reported exempt, but
+# Zerodha's page does not name them, so they are charged the other-ETF rate
+# (Rs 1 per lakh sold): within a rupee of exempt either way.
+STT_EXEMPT_ETFS = frozenset({"GOLDBEES"})
+STT_OTHER_ETFS = frozenset({"SILVERBEES"})
+STT_OTHER_ETF_SELL = 0.00001
+#: Recorded in every run's manifest; runs are compared only within one version.
+#: 1 = until 30 Sep 2026 (equity delivery STT on the metal ETFs too); 2 = the ETF rates above.
+COST_MODEL_VERSION = 2
+
 
 @dataclass(frozen=True)
 class StatutoryCharges:
@@ -110,17 +123,31 @@ def indirect_tax_rate(date: DateLike) -> float:
     return GST_RATE if _ts(date) >= GST_START else SERVICE_TAX_RATE
 
 
+def stt_for(symbol: Optional[str], side: str, date: DateLike) -> float:
+    """Delivery STT rate for one side: the equity schedule, or the ETF rate for the sleeves."""
+    if symbol is not None:
+        if symbol in STT_EXEMPT_ETFS:
+            return 0.0
+        if symbol in STT_OTHER_ETFS:
+            return STT_OTHER_ETF_SELL if side == "SELL" else 0.0
+    return stt_rate(date)
+
+
 def statutory_charges(
-    value_inr: float, side: str, date: DateLike, dp_charge_inr: float = CostConfig.dp_charge_inr
+    value_inr: float, side: str, date: DateLike, dp_charge_inr: float = CostConfig.dp_charge_inr,
+    symbol: Optional[str] = None,
 ) -> StatutoryCharges:
-    """Statutory charges for one side of a delivery trade of ``value_inr``."""
+    """Statutory charges for one side of a delivery trade of ``value_inr``.
+
+    ``symbol`` selects the ETF STT rates (``stt_for``); None = equity shares.
+    """
     side = side.upper()
     if side not in ("BUY", "SELL"):
         raise ValueError(f"side must be BUY or SELL, got {side!r}")
     value = abs(float(value_inr))
     if value <= 0:
         return StatutoryCharges(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-    stt = stt_rate(date) * value
+    stt = stt_for(symbol, side, date) * value
     stamp = stamp_duty_rate(date) * value if side == "BUY" else 0.0
     exch = exchange_rate(date) * value
     sebi = SEBI_FEE_RATE * value
@@ -130,10 +157,11 @@ def statutory_charges(
 
 
 def statutory_cost(
-    value_inr: float, side: str, date: DateLike, dp_charge_inr: float = CostConfig.dp_charge_inr
+    value_inr: float, side: str, date: DateLike, dp_charge_inr: float = CostConfig.dp_charge_inr,
+    symbol: Optional[str] = None,
 ) -> float:
     """Total statutory charges in INR (see :func:`statutory_charges`)."""
-    return statutory_charges(value_inr, side, date, dp_charge_inr).total
+    return statutory_charges(value_inr, side, date, dp_charge_inr, symbol=symbol).total
 
 
 def participation_rate(order_value_inr: float, adv_value_inr: float) -> float:
@@ -173,6 +201,7 @@ def simulate_fill(
     cfg: CostConfig,
     *,
     apply_cap: bool = True,
+    symbol: Optional[str] = None,
 ) -> Fill:
     """Simulate a fill: participation cap, impact cost and statutory charges.
 
@@ -185,7 +214,7 @@ def simulate_fill(
     value = qty * float(price) if qty > 0 else 0.0
     part = participation_rate(value, adv_value_inr) if qty > 0 else 0.0
     bps = impact_bps(value, adv_value_inr, cfg) if qty > 0 else 0.0
-    stat = statutory_cost(value, side, date, cfg.dp_charge_inr) if qty > 0 else 0.0
+    stat = statutory_cost(value, side, date, cfg.dp_charge_inr, symbol=symbol) if qty > 0 else 0.0
     return Fill(
         side=side,
         requested_quantity=req,
@@ -199,12 +228,13 @@ def simulate_fill(
     )
 
 
-def buy_cash_needed(value_inr: float, adv_value_inr: float, date: DateLike, cfg: CostConfig) -> float:
+def buy_cash_needed(value_inr: float, adv_value_inr: float, date: DateLike, cfg: CostConfig,
+                    symbol: Optional[str] = None) -> float:
     """Cash needed for a buy of ``value_inr`` including impact and charges."""
     if value_inr <= 0:
         return 0.0
     return value_inr * (1 + impact_bps(value_inr, adv_value_inr, cfg) / 1e4) + statutory_cost(
-        value_inr, "BUY", date, cfg.dp_charge_inr
+        value_inr, "BUY", date, cfg.dp_charge_inr, symbol=symbol
     )
 
 

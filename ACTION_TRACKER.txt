@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 29 Sep 2026, 00:30 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 30 Sep 2026, 23:30 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -21,6 +21,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
    Holdout 2026 (1 Jan-11 Sep)        1.04   26.9%*  -13.0%     -
    Stress: x2 costs + 1-day lag       0.97   20.4%   -22.6%   0.90
    2007-25 with 2008 (R4), B1 + rule  1.03   21.1%   -32.9%   0.64
+   Deployed, cost model 2 (U25, Kaggle) 1.20   23.6%   -23.1%   1.02
    Walk-forward OOS 2008-25 (R4)      0.87   16.4%   -32.9%   0.50
    Paper since 17 Sep (8 sessions)     -     +2.45%   -0.3%     -   too early
    * 8 months annualised.  All CAGRs on calendar years (B2).  Walk-forward
@@ -33,9 +34,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
    MaxDD 30%    YES outside crises (-24.7% in 2013-25).  A 2008-type crash
                 costs ~33% even with the drawdown rule (R4); accepted (U22).
    Calmar 1.0   BORDERLINE.  0.92 backtest, 1.05 OOS; more CAGR lowers it.
-   PBO 30%      NO.  45-49% over the 46-47 same-window configs on complete
-                data (24% when there were 36); rises with every trial.
-                Deflated Sharpe 0.98-0.99 at N = 46-47 (gate 0.95).
+   PBO 30%      NO.  46.4% over the 56 same-window configs (cost model 2,
+                30 Sep); rises with every trial.  Deflated Sharpe 0.987-
+                0.988 at N = 56 (gate 0.95).
 
  REALISTIC LIVE OUTCOME  (central, range)   Sharpe    CAGR     MaxDD    Calmar
    A  as deployed, gross 0.88               0.95    19 (16-22) 27 (25-33)  0.70
@@ -168,19 +169,13 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                 HF: CENTURION_KITE_USER_ID (your client ID); check
                 ZERODHA_API_KEY/SECRET and CENTURION_DATABASE_URL exist.
              6. Test: run "Kite login reminder" by hand (force) and log in.
-[!] P2  U25  Cost model overcharges the metal sleeve: it applies equity
-             delivery STT (0.1% each way) to GOLDBEES (and SILVERBEES),
-             which Zerodha lists as STT-exempt (gold, liquid, gilt ETFs;
-             silver per NSE's non-applicability report).  ~0.3%/yr of costs
-             in every backtest with sleeves.  Fixing it changes every
-             config's results (a registry refresh, V2).  Approve the fix?
-[!] P1  U12  Close the Sentry issue "Kite session not active".  Fix live since
-             17 Sep 21:58 IST (409, not 503).  Search with ALL environments
-             (events are tagged "development").  Last seen before 17 Sep
-             22:00 IST -> Resolve; later -> send Claude the event URL.
-             Also CENTURION-CORE-3Z (Vince chapter 3): B6 is on main and
-             the Space deploy passed 27 Sep 23:22 IST.  Run chapter 3 once
-             on the Vince page, then Resolve.
+[!] P1  U12  Click Resolve on two Sentry issues (All Environments; events
+             are tagged "development").  Both fixes verified 30 Sep:
+             CENTURION-CORE-3Y "Kite session not active": last event 17 Sep
+             20:47 IST, before its fix (21:58 IST), none since.
+             CENTURION-CORE-3Z Vince chapter 3: last event 27 Sep 23:23 IST
+             (old container during the deploy); chapter 3 re-run on the
+             live Space 30 Sep 22:40 IST: done, 4 charts, no new event.
 
 --------------------------------------------------------------------------------
  5. IN PROGRESS [~]
@@ -246,6 +241,21 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+30 Sep  U25  ETF STT fixed (cost model 2).  The metal sleeve paid equity
+             delivery STT (0.1% a side); now gold 0 and silver 0.001% on
+             sells (Zerodha: gold/liquid/gilt ETFs exempt, other ETFs 0.001%
+             sell side; silver not named, so the conservative other-ETF
+             rate).  The cost functions take the symbol; engine, paper books
+             and live session pass it.  Runs record cost_model (1 old, 2
+             new); validate compares one version only.  New Kaggle task
+             "configs" re-ran the 56 same-window configs (no new trials).
+             Same-platform effect: B1 CAGR +0.24, Sharpe +0.016, costs 3.08%
+             -> 2.79%/yr; candidate +0.38 / +0.027.  Deployed under model 2:
+             1.197 / 23.6% / -23.1% / Calmar 1.02; PBO 46.4% (56), DSR 0.987,
+             gate passed.  Walk-forwards and 2006-store studies stay on
+             model 1 (~0.3 pt conservative; rankings unchanged).  Also fixed:
+             validate failed on Kaggle-imported runs (/kaggle store path).
+             Plan section 5h.  Suite 105 both envs.
 29 Sep  G10  Per-position P&L on the trade monitor (both repos).  The paper
              book now stores each open position's mark (the session close)
              in the daily snapshot; the trades API adds price, value and

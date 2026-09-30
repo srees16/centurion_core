@@ -37,7 +37,7 @@ import pandas as pd
 
 from nse_engine.allocator import allocate, basket_vol
 from nse_engine.config import EngineConfig
-from nse_engine.costs import median_traded_value, simulate_fill
+from nse_engine.costs import median_traded_value, simulate_fill, COST_MODEL_VERSION
 from nse_engine.drawdown import NORMAL as DD_NORMAL, DrawdownDecision, DrawdownTracker, summarise as dd_summarise
 from nse_engine.metrics import compute_metrics
 from nse_engine.portfolio import (
@@ -435,7 +435,7 @@ def _record_trade(book: _Book, date, sym, side, fill, reason) -> None:
 
 
 def _sell(book: _Book, cache: EngineCache, sym: str, qty: int, price: float, adv: float, date, reason: str, cap: bool) -> int:
-    fill = simulate_fill("SELL", qty, price, adv, date, cache.config.costs, apply_cap=cap)
+    fill = simulate_fill("SELL", qty, price, adv, date, cache.config.costs, apply_cap=cap, symbol=sym)
     if fill.quantity <= 0:
         return 0
     book.cash += fill.value_inr - fill.cost_inr
@@ -488,7 +488,7 @@ def _execute_order(book: _Book, cache: EngineCache, order: _Order, u: int, skip:
         if st is not None and o <= st:
             book.notes.append(f"{date.date()} {sym}: open at/below stop, buy skipped")
             continue
-        fill = simulate_fill("BUY", diff, o, cache.adv[dpos, j], date, cfg.costs)
+        fill = simulate_fill("BUY", diff, o, cache.adv[dpos, j], date, cfg.costs, symbol=sym)
         if fill.quantity > 0:
             wanted.append([sym, j, fill])
     need = sum(f.value_inr + f.cost_inr for _, _, f in wanted)
@@ -498,7 +498,7 @@ def _execute_order(book: _Book, cache: EngineCache, order: _Order, u: int, skip:
         for item in wanted:
             sym, j, f = item
             q = int(math.floor(f.quantity * factor))
-            item[2] = simulate_fill("BUY", q, f.price, cache.adv[dpos, j], date, cfg.costs, apply_cap=False)
+            item[2] = simulate_fill("BUY", q, f.price, cache.adv[dpos, j], date, cfg.costs, apply_cap=False, symbol=sym)
             item[2] = dataclasses.replace(item[2], requested_quantity=f.requested_quantity)
         # integer rounding plus concave impact can still overshoot by pennies
         wanted.sort(key=lambda it: -it[2].value_inr)
@@ -506,7 +506,7 @@ def _execute_order(book: _Book, cache: EngineCache, order: _Order, u: int, skip:
             sym, j, f = wanted[0]
             q = f.quantity - 1
             wanted[0][2] = dataclasses.replace(
-                simulate_fill("BUY", q, f.price, cache.adv[dpos, j], date, cfg.costs, apply_cap=False),
+                simulate_fill("BUY", q, f.price, cache.adv[dpos, j], date, cfg.costs, apply_cap=False, symbol=sym),
                 requested_quantity=f.requested_quantity,
             )
             if q <= 0:
@@ -600,7 +600,8 @@ def run_backtest(
             if lv < u:
                 h = book.positions[sym]
                 px = cache.close[lv, j] if lv >= 0 else np.nan
-                fill = simulate_fill("SELL", h.quantity, px, cache.adv[max(lv, 0), j], date, cfg_costs, apply_cap=False)
+                fill = simulate_fill("SELL", h.quantity, px, cache.adv[max(lv, 0), j], date, cfg_costs, apply_cap=False,
+                                     symbol=sym)
                 book.cash += fill.value_inr - fill.cost_inr
                 del book.positions[sym]
                 _record_trade(book, date, sym, "SELL", fill, "delisted")
@@ -768,6 +769,7 @@ def record_run(result: BacktestResult, config: EngineConfig, *, tag: str = "", l
         "created_at": datetime.now(timezone.utc).isoformat(),
         "metrics": _json_safe(result.metrics),
         "lag_days": int(lag_days),
+        "cost_model": COST_MODEL_VERSION,
     }
     for key, value in dict(extra or {}).items():
         manifest.setdefault(str(key), _json_safe(value))

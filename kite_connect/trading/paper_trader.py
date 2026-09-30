@@ -56,8 +56,8 @@ _FALLBACK_SELL_COST_BPS = 11.0
 _FALLBACK_DP_CHARGE_INR = 15.93
 
 
-def statutory_cost_inr(side: str, value_inr: float, as_of=None) -> float:
-    """Per-side statutory cost for a CNC equity trade of ``value_inr``.
+def statutory_cost_inr(side: str, value_inr: float, as_of=None, symbol: Optional[str] = None) -> float:
+    """Per-side statutory cost for a CNC trade of ``value_inr`` (``symbol``: ETF STT rates, U25).
 
     Uses ``nse_engine.costs.statutory_cost`` (historical schedule, DP charge on
     sells) when importable, else 11 bp per side + DP charge on sells.
@@ -69,7 +69,7 @@ def statutory_cost_inr(side: str, value_inr: float, as_of=None) -> float:
     try:
         from nse_engine.costs import statutory_cost  # (value_inr, side, date, dp_charge_inr)
         when = pd.Timestamp(as_of) if as_of is not None else pd.Timestamp(datetime.now(_IST).date())
-        return round(float(statutory_cost(value_inr, side, when)), 2)
+        return round(float(statutory_cost(value_inr, side, when, symbol=symbol)), 2)
     except Exception:
         pass
     bps = _FALLBACK_BUY_COST_BPS if side == "BUY" else _FALLBACK_SELL_COST_BPS
@@ -681,7 +681,7 @@ class PaperTrader:
                 continue
 
             fill_price = self._apply_slippage(ltp, plan.side, order_qty=plan.quantity, symbol=symbol)
-            charges = statutory_cost_inr("BUY", fill_price * plan.quantity)
+            charges = statutory_cost_inr("BUY", fill_price * plan.quantity, symbol=symbol)
             cost = fill_price * plan.quantity + charges
 
             if plan.side == "BUY":
@@ -861,8 +861,8 @@ class PaperTrader:
         """
         sell_value = exit_price * pos.quantity
         if sell_cost is None:
-            sell_cost = statutory_cost_inr("SELL", sell_value)
-        buy_cost = statutory_cost_inr("BUY", pos.entry_price * pos.quantity)
+            sell_cost = statutory_cost_inr("SELL", sell_value, symbol=pos.symbol)
+        buy_cost = statutory_cost_inr("BUY", pos.entry_price * pos.quantity, symbol=pos.symbol)
         pos.is_open = False
         pos.exit_price = exit_price
         pos.exit_reason = reason
@@ -933,7 +933,7 @@ class PaperTrader:
                 from nse_engine.costs import impact_bps
                 bps = impact_bps(raw_fill * pos.quantity, float(bar.get("adv") or float("nan")), cost_config)
                 exit_price = round(raw_fill * (1 - bps / 1e4), 4)
-                sell_cost = statutory_cost_inr("SELL", exit_price * pos.quantity, as_of=bar_date)
+                sell_cost = statutory_cost_inr("SELL", exit_price * pos.quantity, as_of=bar_date, symbol=pos.symbol)
                 if pos.symbol in dp_charged:
                     sell_cost = max(sell_cost - float(cost_config.dp_charge_inr), 0.0)
                 dp_charged.add(pos.symbol)
@@ -980,7 +980,7 @@ class PaperTrader:
         if not ref:
             return {"symbol": symbol, "success": False, "error": "No price available"}
         fill = self._apply_slippage(float(ref), "BUY", order_qty=quantity, symbol=symbol)
-        charges = statutory_cost_inr("BUY", fill * quantity)
+        charges = statutory_cost_inr("BUY", fill * quantity, symbol=symbol)
         total = fill * quantity + charges
         if total > self.cash + 1e-6:
             return {"symbol": symbol, "success": False,
@@ -1363,7 +1363,7 @@ class PaperTrader:
             if tgt > 0 and diff * px < min_trade_value_inr:
                 cancel(o, "below min trade value at the open")
                 continue
-            fill = simulate_fill("SELL", diff, px, adv, session, cfg, apply_cap=True)
+            fill = simulate_fill("SELL", diff, px, adv, session, cfg, apply_cap=True, symbol=sym)
             if fill.quantity <= 0:
                 cancel(o, "participation cap: no liquidity")
                 continue
@@ -1405,7 +1405,7 @@ class PaperTrader:
             if stop and px <= stop:
                 cancel(o, f"open {px:.2f} at/below stop {stop:.2f}")
                 continue
-            fill = simulate_fill("BUY", diff, px, adv, session, cfg)
+            fill = simulate_fill("BUY", diff, px, adv, session, cfg, symbol=sym)
             if fill.quantity <= 0:
                 cancel(o, "participation cap: no liquidity")
                 continue
@@ -1419,12 +1419,13 @@ class PaperTrader:
                 o, f, adv = item[0], item[1], item[2]
                 item[1] = dataclasses.replace(
                     simulate_fill("BUY", int(math.floor(f.quantity * factor)), f.price, adv, session, cfg,
-                                  apply_cap=False), requested_quantity=f.requested_quantity)
+                                  apply_cap=False, symbol=o["symbol"]), requested_quantity=f.requested_quantity)
             wanted.sort(key=lambda it: -it[1].value_inr)
             while wanted and sum(f.value_inr + f.cost_inr for _, f, *_ in wanted) > avail:
                 o, f, adv = wanted[0][0], wanted[0][1], wanted[0][2]
                 wanted[0][1] = dataclasses.replace(
-                    simulate_fill("BUY", max(f.quantity - 1, 0), f.price, adv, session, cfg, apply_cap=False),
+                    simulate_fill("BUY", max(f.quantity - 1, 0), f.price, adv, session, cfg, apply_cap=False,
+                                  symbol=o["symbol"]),
                     requested_quantity=f.requested_quantity)
                 if wanted[0][1].quantity <= 0:
                     cancel(o, "insufficient cash at the open")

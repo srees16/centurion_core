@@ -105,6 +105,23 @@ Verified parity: the same toy job through `cloud.kaggle_runner` and through
 `nse_engine.validation.walk_forward.run_walk_forward` gives the same stitched
 OOS Sharpe to 13 decimal places, and picks the same parameters per fold.
 
+## Re-running a list of configurations
+
+After a change that alters results without changing a config or the data
+(the cost model, tracker U25), every same-window configuration is re-run so
+PBO and the deflated Sharpe compare like with like:
+
+```bash
+python -m cloud.kaggle_local run --task configs --kernel-suffix refresh --args \
+  "--configs config/refresh_configs.json --start 2013-01-01 --end 2025-12-31 \
+   --data-start 2012-01-02 --workers 4"
+```
+
+The file holds `[{"config": {...}, "tag": "..."}, ...]` (each run's
+`config.json`); the configurations must share their data settings. Import the
+pulled runs with `wf_stitch import-runs`. `validate` falls back to the local
+store for runs that recorded a `/kaggle/...` store path.
+
 ## Stage-A sweep
 
 ```bash
