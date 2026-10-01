@@ -596,6 +596,88 @@ Reported, not gating: OOS CAGR, MaxDD and turnover of both arms, each fold's
 choice. A pass sends exit rank 60 to E4 (one combined configuration with
 refill exits); a fail closes R12 and E4 tests refill exits alone.
 
+**Result: PASS.** Both arms ran on Kaggle (the U25 image, 297 and 585
+backtests, 48 and 93 minutes), every run on fingerprint 6c94f4f4 under cost
+model 3.
+
+| Stitched OOS 2017–25 | Arm A (K5 grid) | Arm B (+ exit rank) | Rule | Verdict |
+|---|---|---|---|---|
+| Folds choosing exit rank 60 | | 9 of 9 | at least 5 | PASS |
+| Excess Sharpe | 1.150 | 1.273 | B at least A − 0.05 | PASS (+0.12) |
+| CAGR (calendar) | 20.87% | 21.93% | | |
+| MaxDD | −20.9% | −17.2% | | |
+| Test-year turnover | 5.92× | 4.90× | | |
+
+In every fold's training grid, exit rank 60 beat 40 on 25–30 of the 32
+otherwise identical settings, rising from 26 in 2017 to 30 in 2024–25. OOS
+years, arm A / arm B: 2017 +39.8% / +29.5%, 2018 −11.6% / −4.3%, 2019 +5.4% /
++6.5%, 2020 +27.3% / +24.3%, 2021 +77.2% / +71.7%, 2022 −4.7% / −5.1%, 2023
++21.1% / +32.7%, 2024 +22.5% / +26.0%, 2025 +32.5% / +33.3%: exit rank 60
+gives up some of the strongest years and loses less in the bad one. Arm B
+chose the low-vol group with 30 names for 2017–20 and the deployed-style
+fast/slow trend with 20 names from 2021; the most recent fold's choice is the
+B1 base with neutral 0.6, 5-day rebalance and exit rank 60. Arm A reproduced
+K5's choices (monthly rebalance early, neutral 0.6 from 2022), at 1.150
+against K5's 1.187 measured locally under cost model 1. The 882 runs are in
+the registry. Next: E4 (exit rank 60 with refill exits, one configuration).
+Files: `data/nse_engine/wf_stitched_r12a.json`, `wf_stitched_r12b.json` and
+their `wf_oos_returns_*.csv`.
+
+## 5l. Exit rank 60 with refill exits (E4, 1 Oct 2026)
+
+Your target from 1 Oct is CAGR above 25% with Sharpe above 1.2. Two changes
+each moved the B1 base toward it under cost model 3 (2013–25, Kaggle): exit
+rank 60 (R12 passed it out of sample) and refilling exits between rebalances
+(E1):
+
+| B1 base, 2013–25 | Sharpe | CAGR | MaxDD | Turnover |
+|---|---|---|---|---|
+| B1 `bd79bf28` | 1.172 | 23.19% | −23.5% | 6.88× |
+| + exit rank 60 `8cc54eda` | 1.215 | 24.23% | −25.2% | 5.70× |
+| + refill exits `942760af` | 1.210 | 24.65% | −23.7% | 7.32× |
+
+**Pre-registered 1 Oct 2026, 12:34 IST, before any run.** One configuration,
+no grid: B1 with `portfolio.exit_rank = 60` and `portfolio.refill_exits =
+true` (`93cf6c4d`), run on Kaggle under cost model 3 beside B1 in the same
+job, 2013–25 from the 2012-01-02 anchor. It passes only if all four hold
+against that B1 run:
+
+| Check | Rule |
+|---|---|
+| CAGR (calendar) | at least 25.0% |
+| Excess Sharpe | at least B1's |
+| MaxDD | at most 2 points deeper than B1's |
+| Annual turnover | not higher than B1's |
+
+Reported, not gating: the same two configurations over 2007–25 on
+`store_ext2006`; excess Sharpe 2017–25; PBO and deflated Sharpe with E4
+counted. A pass sends E4 to a third paper slot (D5) under the forward gate;
+a fail ends half 1 of the plan, and the target then needs a new return
+stream (R5).
+
+**Result: FAIL, on CAGR alone.** One Kaggle job per window (the U25 image),
+B1 and E4 side by side; B1 reproduced its D4 run.
+
+| 2013–25 | B1 | E4 | Rule | Verdict |
+|---|---|---|---|---|
+| CAGR | 23.19% | 24.64% | at least 25.0% | FAIL (0.36 pt short) |
+| Excess Sharpe | 1.172 | 1.205 | at least B1's | PASS |
+| MaxDD | −23.5% | −24.6% | at most 2 pts deeper | PASS |
+| Annual turnover | 6.88× | 5.79× | not higher | PASS |
+
+The two changes do not add up: each alone reached 24.2–24.7%, together
+24.6%. Reported: excess Sharpe 2017–25 1.370 → 1.493, costs 2.79% → 2.38% a
+year, average gross 0.87 → 0.90; over 2007–25 on `store_ext2006`, Sharpe
+0.945 → 0.973, CAGR 19.94% → 21.11%, MaxDD −37.7% → −39.1%. With E4 counted,
+PBO over the 59 same-window configurations is 50.5%, deflated Sharpe 0.988,
+benchmark gate passed. Not re-tuned: the margin is small, but moving the
+threshold or adding a third change after seeing this result is the fitting
+the rule exists to prevent. Half 1 of the plan ends here; 25% needs a new
+return stream (R5). E4 remains a better-quality book than B1 (higher
+Sharpe, lower turnover and costs); whether to paper-trade it on those
+grounds is decision U26. U26 (1 Oct): yes; E4 paper-trades from Mon 5 Oct
+2026 as the `e4` book (D5, `config/nse_engine_e4.json`).
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast
@@ -708,8 +790,9 @@ A 60-day paper Sharpe says little about skill (standard error ≈ 2); the gates
 test whether live behaves like the backtest, which is what can be measured.
 
 **Forward promotion gate (V3, decision U19, 28 Sep 2026).** A configuration
-replaces the deployed one only by `promote`, and only from the candidate
-paper slot (`config/nse_engine_candidate.json`). It passes when all three hold
+replaces the deployed one only by `promote`, and only from a paper slot
+(`--candidate config/nse_engine_<book>.json --schema <book>`; default the
+`candidate` book). It passes when all three hold
 (`nse_engine/forward_gate.py`):
 
 | Check | Rule |
@@ -963,5 +1046,5 @@ because the 2026 holdout will already have been used.
 | Holdout | `python -m runners.run_nse_engine holdout --config <json> --data-start 2012-01-02 --start <date> --end <date>` |
 | Promote (forward gate) | `python -m runners.run_nse_engine promote --check` prints the gate; without `--check` it writes the deployed file when the gate passes. Needs `CENTURION_DATABASE_URL` and the local store |
 | Shift reference | `python -m runners.run_nse_engine shift-reference --run-id <id> --start <paper start> --data-start 2012-01-02` (also writes `<out>_trades.csv` for the gate's cost check) |
-| Paper gate (G4) | `python -m runners.run_nse_engine paper-gate` for the deployed book; add `--deployment config/nse_engine_candidate.json --schema candidate` for the candidate. Needs `CENTURION_DATABASE_URL` and a store covering the paper sessions, or `--reference <returns csv>` |
+| Paper gate (G4) | `python -m runners.run_nse_engine paper-gate` for the deployed book; add `--deployment config/nse_engine_<book>.json --schema <book>` for another paper book, e.g. `candidate` or `e4`. Needs `CENTURION_DATABASE_URL` and a store covering the paper sessions, or `--reference <returns csv>` |
 | Inspect deployment | `python -m nse_engine.deployment show` |

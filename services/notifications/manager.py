@@ -612,7 +612,8 @@ class NotificationManager:
         ``report`` keys: session, deployment, equity, initial_capital, cash,
         pnl, pnl_pct, max_drawdown_pct, open_positions, filled, cancelled,
         stops, queued, notes, alerts.  ``pnl`` is the equity change since the
-        start; optional ``realised_pnl`` / ``closed_trades`` split it.
+        start; optional ``realised_pnl`` / ``closed_trades`` split it.  Optional
+        ``book_label`` tags the subject; ``objective`` is a note at the foot.
         """
         td = "padding:5px 10px;border:1px solid #e5e7eb;"
         th = "padding:6px 10px;text-align:left;background:#f3f4f6;"
@@ -696,6 +697,9 @@ class NotificationManager:
                       mode, "Paper trading &mdash; no real orders placed")
         mode = {"live": "LIVE", "live dry run": "live dry run"}.get(mode, "paper")
         session = report.get("session", "")
+        objective_html = (f"<p style='margin-top:18px;padding:10px 12px;background:#f9fafb;border-left:3px solid "
+                          f"#387ed1;font-size:13px;color:#374151;'>{report['objective']}</p>"
+                          if report.get("objective") else "")
         html = f"""\
 <html><body style="font-family:Segoe UI,Arial,sans-serif;background:#f9fafb;padding:20px;">
 <div style="max-width:680px;margin:0 auto;background:#fff;border-radius:10px;
@@ -707,7 +711,7 @@ class NotificationManager:
   <div style="padding:20px 24px;">
     {alerts_html}
     <table style="border-collapse:collapse;width:100%;font-size:14px;">{summary}</table>
-    {fills_html}{stops_html}{queued_html}{cancelled_html}{activity}{notes_html}
+    {fills_html}{stops_html}{queued_html}{cancelled_html}{activity}{notes_html}{objective_html}
   </div>
   <div style="padding:12px 24px;background:#f3f4f6;font-size:12px;color:#9ca3af;text-align:center;">
     {footer}

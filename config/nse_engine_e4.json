@@ -1,0 +1,163 @@
+{
+  "status": "candidate",
+  "paper_start_date": "2026-10-05",
+  "source_run_id": "20261001T070708574377Z_93cf6c4d",
+  "approved_at": "2026-10-01T13:15:11+05:30",
+  "notes": "Third paper book (tracker D5, decision U26): E4 = B1 with exit rank 60 and refill exits. Cost model 3, 2013-25: Sharpe 1.205, CAGR 24.64%, MaxDD -24.6%, turnover 5.79x (B1: 1.172 / 23.19% / -23.5% / 6.88x); missed its pre-registered 25% CAGR (validation plan 5l) and is paper traded for the forward evidence it lacks (refill exits are tested in-sample only; exit rank 60 passed out of sample, R12). PBO 50.5% (59 configs), DSR 0.988. Paper only: never places live orders.",
+  "data_anchor_date": "2012-01-02",
+  "risk_overlay": {
+    "drawdown_rule": {
+      "enabled": true,
+      "halt_dd": 0.2,
+      "half_dd": 0.3,
+      "risk_off_dd": 0.35,
+      "half_scale": 0.5,
+      "rearm_sessions": 60
+    },
+    "adopted": "2026-09-27 (tracker E2): on the honest baseline 2013-25, Calmar 0.92 -> 0.99, MaxDD -24.7% -> -23.2%, CAGR unchanged; 15/25/30 whipsawed 2015 and failed. Overlay only: the engine config hash is unchanged."
+  },
+  "engine": {
+    "start": "2013-01-01",
+    "end": "2025-12-31",
+    "initial_capital": 500000.0,
+    "cash_yield_annual": 0.06,
+    "risk_free_annual": 0.065,
+    "runs_dir": "data/nse_engine/runs",
+    "data": {
+      "store_dir": "data/nse_engine/store",
+      "series": [
+        "EQ",
+        "BE"
+      ],
+      "load_min_median_value_inr": 2500000.0,
+      "float_dtype": "float32",
+      "adjust_dividends": true
+    },
+    "universe": {
+      "top_n_liquid": 300,
+      "min_history_days": 252,
+      "min_price_inr": 20.0,
+      "min_median_value_inr": 10000000.0,
+      "liquidity_lookback_days": 126,
+      "refresh_every_n_days": 21,
+      "exclude_etfs": true,
+      "calendar_schedule": false,
+      "history_window_days": 0,
+      "price_filter_unadjusted": true
+    },
+    "signals": {
+      "group_weights": [
+        [
+          "fast_trend",
+          0.5
+        ],
+        [
+          "slow_trend",
+          0.5
+        ]
+      ],
+      "fast_ewmac": [
+        [
+          8,
+          32
+        ],
+        [
+          16,
+          64
+        ]
+      ],
+      "slow_ewmac": [
+        [
+          64,
+          256
+        ]
+      ],
+      "momentum_lookback": 252,
+      "momentum_skip": 21,
+      "low_vol_lookback": 252,
+      "vol_span": 35,
+      "forecast_cap": 20.0,
+      "target_abs_forecast": 10.0,
+      "normalizer_min_obs": 60,
+      "fdm_cap": 2.0,
+      "fdm_lookback_days": 504,
+      "fdm_refresh_every_n_days": 21,
+      "normalizer_window_days": 0,
+      "ewm_memory_spans": 0,
+      "calendar_schedule": false,
+      "delivery_lookback": 63,
+      "residual_momentum_months": 36,
+      "residual_momentum_window": 11,
+      "high_lookback": 252,
+      "beta_lookback": 252
+    },
+    "portfolio": {
+      "target_positions": 20,
+      "max_positions": 30,
+      "exit_rank": 60,
+      "max_weight": 0.08,
+      "rebalance_every_n_days": 5,
+      "no_trade_buffer": 0.25,
+      "min_trade_value_inr": 5000.0,
+      "sector_cap": 0.25,
+      "stop_atr_multiple": 6.0,
+      "atr_lookback": 20,
+      "stop_cooldown_days": 5,
+      "vol_lookback_days": 60,
+      "calendar_schedule": false,
+      "refill_exits": true
+    },
+    "regime": {
+      "index_symbol": "NIFTY50",
+      "trend_ma_days": 200,
+      "breadth_ma_days": 200,
+      "breadth_risk_on": 0.5,
+      "breadth_risk_off": 0.35,
+      "vix_symbol": "INDIAVIX",
+      "vix_elevated": 25.0,
+      "vix_extreme": 35.0,
+      "confirm_days": 3,
+      "scale_risk_on": 1.0,
+      "scale_neutral": 1.0,
+      "scale_risk_off": 0.0,
+      "crash_reentry": false,
+      "crash_drawdown": 0.25,
+      "crash_high_days": 252,
+      "reentry_ma_days": 50
+    },
+    "sleeves": {
+      "gold_symbol": "GOLDBEES",
+      "silver_symbol": "SILVERBEES",
+      "gold_enabled": true,
+      "silver_enabled": true,
+      "trend_ma_days": 200,
+      "min_history_days": 252,
+      "trend_confirm_days": 1
+    },
+    "allocator": {
+      "core_risk_share": 0.65,
+      "core_risk_share_min": 0.6,
+      "core_risk_share_max": 0.7,
+      "max_gross": 1.0,
+      "vol_lookback_days": 60,
+      "risk_off_to_metals": true,
+      "target_vol_annual": 0.0,
+      "vol_target_min_scale": 0.3
+    },
+    "costs": {
+      "max_participation": 0.05,
+      "spread_floor_bps": 3.0,
+      "impact_coefficient_bps": 25.0,
+      "adv_lookback_days": 20,
+      "dp_charge_inr": 15.93
+    },
+    "drawdown": {
+      "enabled": false,
+      "halt_dd": 0.15,
+      "half_dd": 0.25,
+      "risk_off_dd": 0.3,
+      "half_scale": 0.5,
+      "rearm_sessions": 60
+    }
+  }
+}

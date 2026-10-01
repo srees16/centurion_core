@@ -268,21 +268,26 @@ book, a G4 PASS and a walk-forward OOS Sharpe within 0.05 of the deployed
 config's; PBO, deflated Sharpe, the benchmark gate and the holdout are printed
 but no longer gate. Live trading refuses placeholder and candidate files.
 
-**Second paper book (tracker D1, from 28 Sep 2026).** `config/nse_engine_candidate.json`
-(status `candidate`: paper only, `live_allowed()` refuses it) holds a
-configuration on trial under the forward gate - now the K5 walk-forward's
-choice `2d64ba4c`, the B1 baseline with `regime.scale_neutral = 0.6`, with the
-same drawdown overlay as the deployed book. The daily job runs it right after
-the deployed session on the same store, with four settings:
-`CENTURION_NSE_DEPLOYMENT` (the candidate file), `CENTURION_PAPER_SCHEMA=candidate`
-(every Neon table of the book - positions, snapshots, fills, sessions, weekly
-checkpoints, state - lives in that Postgres schema; `PaperCloudSync(schema=)`
-qualifies raw SQL and uses `schema_translate_map` for the ORM, never
-`search_path`, which Neon's pooler drops between transactions),
-`CENTURION_PAPER_DB_PATH` (its own local SQLite) and `CENTURION_PAPER_BOOK_LABEL`
-(its emails read `Centurion paper [candidate 2d64ba4c] ...`). It shares only
-the paper switch; it never writes the switch row's run status. Its steps
-are `continue-on-error`, so a candidate failure only emails. The trade
+**Extra paper books (trackers D1, D5).** Every `config/nse_engine_<book>.json`
+other than the deployed file is a paper book (status `candidate`: paper only,
+`live_allowed()` refuses it) holding a configuration on trial under the
+forward gate, with the same drawdown overlay as the deployed book. Today:
+`candidate` = `2d64ba4c`, the B1 baseline with `regime.scale_neutral = 0.6`
+(from 28 Sep 2026), and `e4` = `93cf6c4d`, B1 with exit rank 60 and refill
+exits (from 5 Oct 2026). The daily job runs them in one loop after the
+deployed and live sessions, on the same store; each book's settings come
+from its file name: `CENTURION_NSE_DEPLOYMENT` (the file),
+`CENTURION_PAPER_SCHEMA=<book>` (every Neon table of the book - positions,
+snapshots, fills, sessions, weekly checkpoints, state - lives in that
+Postgres schema; `PaperCloudSync(schema=)` qualifies raw SQL and uses
+`schema_translate_map` for the ORM, never `search_path`, which Neon's pooler
+drops between transactions; the live book's schema is refused),
+`CENTURION_PAPER_DB_PATH` (its own local SQLite), its own same-period shift
+reference `data/shift_reference_<book>.csv`, and `CENTURION_PAPER_BOOK_LABEL`
+(its emails read `Centurion paper [<book> <fingerprint>] ...`). A book is
+skipped before its `paper_start_date`. Adding a book is adding its file. The
+books share only the paper switch and never write the switch row's run
+status; a failing book emails and the next one still runs. The trade
 monitor still shows the deployed book (a book selector is G12).
 
 Paper flow (`EngineExecutor.run_paper_session`, daily after the bhavcopy is
