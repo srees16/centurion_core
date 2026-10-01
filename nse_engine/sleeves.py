@@ -31,6 +31,7 @@ def sleeve_symbols(cfg: SleeveConfig, available: List[str] | pd.Index | None = N
         syms.append(cfg.gold_symbol)
     if cfg.silver_enabled:
         syms.append(cfg.silver_symbol)
+    syms.extend(cfg.extra_symbols)
     if available is not None:
         avail = set(available)
         syms = [s for s in syms if s in avail]

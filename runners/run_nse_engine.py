@@ -76,7 +76,7 @@ def _load_data(cfg: EngineConfig, warmup_years: int = 2, data_start: str = None)
         series=cfg.data.series,
         min_median_value_inr=cfg.data.load_min_median_value_inr,
         float_dtype=cfg.data.float_dtype,
-        include_symbols=(cfg.sleeves.gold_symbol, cfg.sleeves.silver_symbol),
+        include_symbols=cfg.sleeves.symbols,
         adjust_dividends=cfg.data.adjust_dividends,
     )
 
@@ -204,6 +204,13 @@ def cmd_validate(args) -> None:
     benchmarks = run_benchmarks(data, run_cfg)
     report["benchmark_gate"] = benchmark_gate(returns, benchmarks, margin=args.margin,
                                               rf_annual=run_cfg.risk_free_annual)
+    # D2: the haircut, from two unrecorded re-simulations on this machine (as recorded, and stressed)
+    from nse_engine.engine import run_backtest
+    from nse_engine.validation.diagnostics import haircut_report, stress_config, STRESS_LAG_DAYS
+    base = run_backtest(data, run_cfg, record=False)
+    stressed = run_backtest(data, stress_config(run_cfg), record=False, lag_days=STRESS_LAG_DAYS)
+    report["haircut"] = haircut_report(manifest["metrics"], base.metrics, stressed.metrics,
+                                       report["pbo"] if isinstance(report["pbo"], dict) else None)
     _print_json(report)
     out = run_dir / "validation.json"
     out.write_text(json.dumps(report, indent=2, default=str))

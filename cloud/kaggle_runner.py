@@ -155,7 +155,7 @@ def load_data(cfg, data_start: Optional[str], warmup_years: int = 2):
         series=cfg.data.series,
         min_median_value_inr=cfg.data.load_min_median_value_inr,
         float_dtype=cfg.data.float_dtype,
-        include_symbols=(cfg.sleeves.gold_symbol, cfg.sleeves.silver_symbol),
+        include_symbols=cfg.sleeves.symbols,
         adjust_dividends=cfg.data.adjust_dividends,
     )
 
