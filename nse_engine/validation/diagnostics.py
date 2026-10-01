@@ -140,6 +140,46 @@ def lag_sensitivity(data: Any, config: Any, lags: Iterable[int] = (0, 1, 2, 3),
     return {"lags": rows, "sharpe_ratio_to_lag0": decay}
 
 
+STRESS_LAG_DAYS = 1          # every fill one session late
+STRESS_IMPACT_MULTIPLE = 2.0  # market-impact coefficient and spread floor doubled (R8, 18 Sep 2026)
+
+
+def stress_config(config: Any) -> Any:
+    """The same configuration with the market-impact model doubled (lag is passed to the backtest)."""
+    return config.replace(**{"costs.impact_coefficient_bps": STRESS_IMPACT_MULTIPLE * config.costs.impact_coefficient_bps,
+                             "costs.spread_floor_bps": STRESS_IMPACT_MULTIPLE * config.costs.spread_floor_bps})
+
+
+def haircut_report(recorded: Dict[str, float], base: Dict[str, float], stressed: Dict[str, float],
+                   pbo: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """The backtest-to-live haircut beside a run's recorded metrics (tracker D2).
+
+    ``base`` and ``stressed`` are the run re-simulated here as recorded and under
+    :func:`stress_config` + ``STRESS_LAG_DAYS``; both on one platform, so their
+    difference is the execution haircut even when ``recorded`` came from Kaggle.
+    ``pbo`` (from :func:`nse_engine.validation.pbo.cscv_pbo`) gives the selection
+    haircut: the in-sample pick's mean OOS Sharpe over its mean IS Sharpe.
+    """
+    keys = ("sharpe", "cagr", "max_drawdown", "calmar")
+    delta = {k: float(stressed[k]) - float(base[k]) for k in keys}
+    expected = {k: float(recorded[k]) + delta[k] for k in keys}
+    out: Dict[str, Any] = {
+        "stress": {"lag_days": STRESS_LAG_DAYS, "impact_multiple": STRESS_IMPACT_MULTIPLE},
+        "local_base": {k: float(base[k]) for k in keys}, "local_stressed": {k: float(stressed[k]) for k in keys},
+        "execution_delta": delta, "recorded": {k: float(recorded[k]) for k in keys}, "expected_after_execution": expected,
+    }
+    if isinstance(pbo, dict) and pbo.get("mean_is_metric"):
+        ratio = float(pbo["mean_oos_metric"]) / float(pbo["mean_is_metric"])
+        out["selection"] = {"cscv_oos_over_is": ratio, "expected_sharpe_after_both": expected["sharpe"] * ratio}
+    sel = out.get("selection")
+    out["line"] = (f"haircut: recorded Sharpe {recorded['sharpe']:.3f} / CAGR {recorded['cagr']:.1%} / MaxDD "
+                   f"{recorded['max_drawdown']:.1%} -> with {STRESS_LAG_DAYS}-day lag and {STRESS_IMPACT_MULTIPLE:g}x impact "
+                   f"{expected['sharpe']:.3f} / {expected['cagr']:.1%} / {expected['max_drawdown']:.1%}"
+                   + (f"; CSCV selection x{sel['cscv_oos_over_is']:.2f} -> expected OOS Sharpe "
+                      f"{sel['expected_sharpe_after_both']:.2f}" if sel else ""))
+    return out
+
+
 def full_report(result: Any, data: Any, benchmarks: Optional[Dict[str, pd.Series]] = None,
                 trials_matrix: Optional[pd.DataFrame] = None, n_trials: Optional[float] = None,
                 rf_annual: Optional[float] = None, margin: float = 0.3,

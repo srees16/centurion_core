@@ -118,6 +118,8 @@ def validation_report(validation: Optional[Dict[str, Any]]) -> List[str]:
                else f"PBO n/a ({n} configurations)")
     out.append(f"deflated Sharpe {dsr:.3f} at N = {n}" if dsr is not None else "deflated Sharpe n/a")
     out.append(f"benchmark gate passed = {bench}")
+    if (validation.get("haircut") or {}).get("line"):
+        out.append(validation["haircut"]["line"])
     return out
 
 

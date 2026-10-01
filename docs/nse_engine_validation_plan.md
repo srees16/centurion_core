@@ -676,7 +676,111 @@ the rule exists to prevent. Half 1 of the plan ends here; 25% needs a new
 return stream (R5). E4 remains a better-quality book than B1 (higher
 Sharpe, lower turnover and costs); whether to paper-trade it on those
 grounds is decision U26. U26 (1 Oct): yes; E4 paper-trades from Mon 5 Oct
-2026 as the `e4` book (D5, `config/nse_engine_e4.json`).
+2026 as the `e4` book (D5, `config/nse_engine_e4.json`). R5, the new return
+stream named above, was closed without a trial (5m).
+
+## 5m. NIFTY trend sleeve (R5, 1 Oct 2026): closed without a trial
+
+A NIFTY sleeve can only use capital the book leaves idle, so its room was
+measured first, on E4's recorded 2013–25 run (no new run): mean gross 0.903.
+
+| Regime | Share of days | Mean idle capital |
+|---|---|---|
+| risk_on | 66% | 3.8% |
+| neutral | 23% | 5.0% |
+| risk_off | 11% | 56% |
+
+Holding NIFTYBEES with the idle cash only while NIFTY is above its 200-day
+mean (consistent with the regime gate) deploys 3.6% of the book on average:
+at most +0.50 point of CAGR a year before costs, against the +0.36 E4 needs
+for 25%. A 12-month momentum rule deploys 6.8% and bounds +1.0 point, but
+almost all of it by buying NIFTY while the gate is risk_off, the pattern
+that deepened 2008 in R11. Net of trading costs (and the 0.1% delivery STT
+the cost model would charge NIFTYBEES until ETF rates cover it) the gate-
+consistent version would land near 25%, a coin flip on the rule. Your
+decision, 1 Oct: close R5 without spending a trial; PBO stays 50.5% over 59.
+
+## 5n. A second uncorrelated sleeve: MON100 (R14, 1 Oct 2026)
+
+The metal sleeve is what lifts the book's Sharpe: on E4's recorded run its
+daily contribution has correlation −0.02 with the core's, and without it
+(capital idle) the book reads Sharpe 1.12 and MaxDD −26.4% against 1.22 and
+−24.6%; moving its capital into the core instead gives CAGR +0.4 point with
+Sharpe 1.03 and MaxDD −33.7%. An uncorrelated sleeve is therefore the one
+lever that raises CAGR, Sharpe and Calmar together. Of the ETFs in the
+store with history from 2012 and real liquidity, one qualifies: MON100 (the
+Nasdaq-100 ETF), 24.6% CAGR in rupees 2013–25, 17.2% inside its 200-day
+trend, volatility 22%, correlation 0.18 with the core, ₹7.6 crore traded a
+day in 2021–25 (5% participation is ₹38 lakh). Caveat written down now:
+from early 2022 the ETF has traded above its net asset value because of
+SEBI's cap on overseas investment; the store's traded prices include that
+premium on both entry and exit.
+
+**Pre-registered 01 Oct 2026, 16:13 IST, before any run.** One configuration, no grid: E4
+with `sleeves.extra_symbols = ("MON100",)` (`042a5b69`), the third trend
+sleeve on the same 200-day rule, sharing the sleeve capital by inverse
+volatility (about a third of it, ~9% of the book). MON100 pays the
+other-ETF STT; no recorded run ever traded it, so cost model 3 is
+unchanged. Run on Kaggle beside E4 in one job, 2013–25 from the 2012-01-02
+anchor. It passes only if all three hold against that E4 run:
+
+| Check | Rule |
+|---|---|
+| CAGR (calendar) | at least 25.0% |
+| Excess Sharpe | at least E4's (1.205) |
+| MaxDD | at most 2 points deeper than E4's |
+
+Reported, not gating: excess Sharpe 2017–25, Calmar, turnover, the sleeve's
+own round trips, and 2022–25 alone (the premium episode). A pass sends the
+configuration to a fourth paper book (a config file, D5); a fail closes
+R14 without re-tuning. The trial budget before the January forward-gate
+decisions is two configurations; this is the first.
+
+**Result: FAIL.** One Kaggle job (the U25 image), E4 and the variant side by
+side, both on fingerprint 6c94f4f4 under cost model 3; E4 reproduced its
+recorded run.
+
+| 2013–25 | E4 | + MON100 | Rule | Verdict |
+|---|---|---|---|---|
+| CAGR | 24.64% | 22.76% | at least 25.0% | FAIL (−1.9 pts) |
+| Excess Sharpe | 1.205 | 1.203 | at least E4's | FAIL (−0.002) |
+| MaxDD | −24.6% | −23.8% | at most 2 pts deeper | PASS |
+
+The sleeve took 15.6% of the book on average, from the core (64% → 53%)
+and from silver (10% → 2%, the inverse-vol split), and its own trend return
+(14–17% a year, 19 round trips, +28.8% of the book net) does not replace the
+core's ~34% per unit of capital. The diversification it added (correlation
+0.18) showed up as 0.8 point less drawdown and nothing else: Sharpe 2017–25
+fell from 1.49 to 1.36, Calmar from 1.00 to 0.96, and the premium episode
+2022–25 was a wash (Sharpe 1.19 → 1.18). The mechanism assumed from the
+metal sleeve does not transfer: gold's return is uncorrelated *and* cheap
+in capital (it was taken from cash the regime gate had already freed),
+while a second sleeve of equity-like volatility is funded from the core.
+With the variant counted, PBO over the 60 same-window configurations is
+56.1%, deflated Sharpe 0.988, benchmark gate passed. Not adopted, not
+re-tuned (a smaller sleeve share would be fitted to this result). The
+flag `sleeves.extra_symbols` stays in the code, empty and hash-neutral.
+One configuration of the two-trial budget remains before January.
+
+## 5o. The haircut beside every validation (D2, 1 Oct 2026)
+
+A backtest is the best case. `validate` now re-simulates the run twice on
+this machine, unrecorded: as recorded, and with every fill one session late
+and the market-impact model doubled (R8's stress). The difference is the
+execution haircut, platform-free because both legs run here; it is applied
+to the recorded metrics. The CSCV selection haircut, the in-sample pick's
+mean OOS Sharpe over its mean IS Sharpe, is applied on top. The result is
+in `validation.json` under `haircut` and on one line of the forward gate's
+summary.
+
+| 1 Oct 2026 | Recorded | After 1-day lag + 2× impact | Selection ×0.85 → expected OOS Sharpe |
+|---|---|---|---|
+| Deployed 679cbd0c | 1.197 / 23.6% / −23.1% | 1.00 / 20.2% / −22.8% | 0.85 |
+| E4 93cf6c4d | 1.205 / 24.6% / −24.6% | 1.08 / 22.2% / −26.5% | 0.91 |
+
+Those are the numbers to hold the live book to, not the recorded ones. The
+realised haircut replaces them once the live book has fills: G4's cost
+ratio and tracking error are its first two components.
 
 ## 6. Stage D — Paper trading (60–90 trading days)
 
@@ -1047,4 +1151,5 @@ because the 2026 holdout will already have been used.
 | Promote (forward gate) | `python -m runners.run_nse_engine promote --check` prints the gate; without `--check` it writes the deployed file when the gate passes. Needs `CENTURION_DATABASE_URL` and the local store |
 | Shift reference | `python -m runners.run_nse_engine shift-reference --run-id <id> --start <paper start> --data-start 2012-01-02` (also writes `<out>_trades.csv` for the gate's cost check) |
 | Paper gate (G4) | `python -m runners.run_nse_engine paper-gate` for the deployed book; add `--deployment config/nse_engine_<book>.json --schema <book>` for another paper book, e.g. `candidate` or `e4`. Needs `CENTURION_DATABASE_URL` and a store covering the paper sessions, or `--reference <returns csv>` |
+| Haircut (D2) | part of `validate`: two unrecorded re-simulations (as recorded; 1-day lag + 2× impact), the difference applied to the recorded metrics, plus the CSCV selection ratio; `validation.json` → `haircut` |
 | Inspect deployment | `python -m nse_engine.deployment show` |

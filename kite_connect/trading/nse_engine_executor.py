@@ -474,7 +474,7 @@ class EngineExecutor:
             cfg.data.store_dir, anchor.isoformat(), pd.Timestamp(end).date().isoformat(),
             series=cfg.data.series, min_median_value_inr=cfg.data.load_min_median_value_inr,
             float_dtype=cfg.data.float_dtype,
-            include_symbols=(cfg.sleeves.gold_symbol, cfg.sleeves.silver_symbol),
+            include_symbols=cfg.sleeves.symbols,
             adjust_dividends=cfg.data.adjust_dividends,
         )
 

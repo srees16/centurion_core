@@ -43,6 +43,7 @@ HASH_NEUTRAL_DEFAULTS: Dict[Tuple[str, str], Any] = {
     ("regime", "crash_high_days"): 252,
     ("regime", "reentry_ma_days"): 50,
     ("sleeves", "trend_confirm_days"): 1,
+    ("sleeves", "extra_symbols"): (),
 }
 
 
@@ -192,6 +193,14 @@ class SleeveConfig:
     # after this many closes in a row above / below the average (the regime's
     # hysteresis).  1 = the close alone decides, as before.
     trend_confirm_days: int = 1
+    # Further ETF trend sleeves beside gold and silver (tracker R14), e.g.
+    # ("MON100",).  Each shares the sleeve capital by inverse volatility.
+    extra_symbols: Tuple[str, ...] = ()
+
+    @property
+    def symbols(self) -> Tuple[str, ...]:
+        """Every sleeve symbol (enabled or not): kept in the data, out of the core universe."""
+        return (self.gold_symbol, self.silver_symbol, *self.extra_symbols)
 
 
 @dataclass(frozen=True)
@@ -278,7 +287,7 @@ class EngineConfig:
             d.pop(k, None)
         d.get("data", {}).pop("store_dir", None)
         for (group, key), legacy in HASH_NEUTRAL_DEFAULTS.items():
-            if d.get(group, {}).get(key, legacy) == legacy:
+            if _to_tuple(d.get(group, {}).get(key, legacy)) == legacy:   # a JSON list is the same value as a tuple
                 d[group].pop(key, None)
         # A group whose every field is hash-neutral at its legacy value did not
         # exist when the registry started; an empty dict would still change the digest.
