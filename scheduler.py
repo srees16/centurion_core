@@ -253,42 +253,12 @@ _KITE_SESSION_TTL = 5 * 3600  # re-auth after 5 h (Kite tokens last ~6 h)
 
 
 def _get_scheduler_kite(force_refresh: bool = False):
-    """Return an authenticated KiteConnect instance for the scheduler process.
+    """No Kite session in the scheduler (tracker H1): returns None.
 
-    Tries the stored token first, then falls back to headless HTTP login
-    (TOTP-based, no browser).  Caches the instance for up to 5 hours.
+    The headless password + TOTP login it used to fall back to is removed;
+    the jobs that still name this function are retired and deleted in H3.
     """
-    global _scheduler_kite, _scheduler_kite_ts
-    import time as _time
-
-    # Return cached instance if still fresh
-    if (
-        not force_refresh
-        and _scheduler_kite is not None
-        and (_time.time() - _scheduler_kite_ts) < _KITE_SESSION_TTL
-    ):
-        return _scheduler_kite
-
-    try:
-        from kite_connect.auth.kite_session import try_stored_token, http_login_kite
-
-        kite = try_stored_token()
-        if kite is None:
-            logger.info("Scheduler Kite: stored token invalid, trying HTTP login")
-            kite = http_login_kite()
-
-        if kite is not None:
-            _scheduler_kite = kite
-            _scheduler_kite_ts = _time.time()
-            logger.info("Scheduler Kite session established")
-        else:
-            logger.warning("Scheduler Kite: all auth methods failed")
-            _scheduler_kite = None
-
-        return _scheduler_kite
-    except Exception as exc:
-        logger.warning("Scheduler Kite session error: %s", exc)
-        return None
+    return None
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -2778,372 +2748,24 @@ def _get_current_expiry_suffix():
 
 
 def start_scheduler():
-    """Start the APScheduler background scheduler with IST-aware jobs.
+    """Start the APScheduler background scheduler on the HF Space.
 
-    Jobs
-    ----
-    1. **pre_market_scan** â€” 9:20 AM IST, Mon-Fri
-       Full pipeline run after market opens (NSE opens 9:15).
-    1b. **intraday_rescan** â€” 10:30, 12:30, 14:30 IST, Mon-Fri
-       Lighter re-scan for intraday momentum shifts.
-    1c. **eod_scan** â€” 15:20 IST, Mon-Fri
-       End-of-day scan 10 min before market close.
-    2. **walk_forward_audit** â€” Saturday 6:00 AM IST
-       Weekly walk-forward validation of registered strategies.
+    Only GitHub Actions dispatches run here, all behind
+    ``CENTURION_GH_DISPATCH_TOKEN``: the nightly paper/live workflow at 19:00
+    IST (retry 20:30) and the Kite login reminder at 09:00 and 17:30 IST.  The
+    trading runs in GitHub Actions; the legacy jobs, several of which logged
+    in to Kite headlessly, are retired (tracker H1, docs/scheduler_audit.md).
     """
     try:
         from apscheduler.schedulers.blocking import BlockingScheduler
         from apscheduler.triggers.cron import CronTrigger
     except ImportError:
-        logger.error(
-            "APScheduler not installed. Run: pip install apscheduler\n"
-            "Falling back to single immediate run."
-        )
-        run_pipeline("manual")
+        logger.error("APScheduler not installed. Run: pip install apscheduler")
         return
 
     _init_cache_db()
 
     scheduler = BlockingScheduler(timezone="Asia/Kolkata")
-
-    # Job 1: Pre-market full scan at 9:20 AM IST, weekdays
-    # (includes DB pre-warming to wake Neon auto-suspended compute)
-    scheduler.add_job(
-        _pre_market_with_warmup,
-        CronTrigger(hour=9, minute=20, day_of_week="mon-fri", timezone="Asia/Kolkata"),
-        id="pre_market_scan",
-        name="Pre-Market Full Scan",
-        misfire_grace_time=600,
-    )
-
-    # Job 1b: Intraday re-scan at 10:30, 12:30, 14:30 IST, weekdays
-    scheduler.add_job(
-        _run_intraday_rescan,
-        CronTrigger(hour="10,12,14", minute=30, day_of_week="mon-fri", timezone="Asia/Kolkata"),
-        id="intraday_rescan",
-        name="Intraday Re-Scan",
-        misfire_grace_time=600,
-    )
-
-    # Job 1c: End-of-day scan at 15:20 IST (10 min before market close)
-    scheduler.add_job(
-        _run_eod_scan,
-        CronTrigger(hour=15, minute=20, day_of_week="mon-fri", timezone="Asia/Kolkata"),
-        id="eod_scan",
-        name="End-of-Day Scan",
-        misfire_grace_time=300,
-    )
-
-    # Job 1d: Paper EOD snapshot at 15:35 IST (after market close)
-    # Records daily equity, P&L, DD for equity curve reconstruction
-    scheduler.add_job(
-        _run_paper_eod_snapshot,
-        CronTrigger(hour=15, minute=35, day_of_week="mon-fri", timezone="Asia/Kolkata"),
-        id="paper_eod_snapshot",
-        name="Paper EOD Snapshot",
-        misfire_grace_time=600,
-    )
-
-    # Job 2: Weekly walk-forward strategy audit â€” Saturday 6 AM IST
-    scheduler.add_job(
-        run_walk_forward_audit,
-        CronTrigger(hour=6, minute=0, day_of_week="sat", timezone="Asia/Kolkata"),
-        id="walk_forward_audit",
-        name="Weekly Walk-Forward Audit",
-        misfire_grace_time=3600,
-    )
-
-    # Job 3: Weekly paper vs live reconciliation â€” Saturday 7 AM IST
-    scheduler.add_job(
-        _run_paper_live_reconciliation,
-        CronTrigger(hour=7, minute=0, day_of_week="sat", timezone="Asia/Kolkata"),
-        id="paper_live_reconciliation",
-        name="Paper vs Live Reconciliation",
-        misfire_grace_time=3600,
-    )
-
-    # Job 3b: Paper weekly checkpoint — Saturday 7:30 AM IST (after reconciliation)
-    # Aggregates weekly stats for crash-resilient 4-week analysis
-    scheduler.add_job(
-        _run_paper_weekly_checkpoint,
-        CronTrigger(hour=7, minute=30, day_of_week="sat", timezone="Asia/Kolkata"),
-        id="paper_weekly_checkpoint",
-        name="Paper Weekly Checkpoint",
-        misfire_grace_time=3600,
-    )
-
-    # Job 8: Weekly forecast scalar calibration - Saturday 5:30 AM IST
-    # Runs before walk-forward so WF uses freshly calibrated scalars
-    scheduler.add_job(
-        _run_forecast_calibration,
-        CronTrigger(hour=5, minute=30, day_of_week="sat", timezone="Asia/Kolkata"),
-        id="forecast_calibration",
-        name="Weekly Forecast Scalar Calibration",
-        misfire_grace_time=3600,
-    )
-
-    # Job 4: Nightly SQLite backup to R2 â€” 23:00 IST daily
-    scheduler.add_job(
-        _run_nightly_backup,
-        CronTrigger(hour=23, minute=0, timezone="Asia/Kolkata"),
-        id="nightly_backup",
-        name="Nightly SQLite Backup to R2",
-        misfire_grace_time=3600,
-    )
-
-    # Job 6: Proactive Kite token refresh — every 30 min during market hours
-    scheduler.add_job(
-        refresh_kite_token_if_needed,
-        CronTrigger(hour="9-16", minute="0,30", day_of_week="mon-fri", timezone="Asia/Kolkata"),
-        id="kite_token_refresh",
-        name="Kite Token Refresh Check",
-        misfire_grace_time=300,
-    )
-
-    # Job 7: Trade Monitor — poll every 3 min during market hours
-    # Manages SL/TP lifecycle, trailing-SL, time exits, capital rollup
-    scheduler.add_job(
-        _run_trade_monitor_poll,
-        CronTrigger(hour="9-15", minute="*/3", day_of_week="mon-fri", timezone="Asia/Kolkata"),
-        id="trade_monitor_poll",
-        name="Trade Monitor Poll",
-        misfire_grace_time=120,
-    )
-
-    # Job 7b (G3 FIX): Paper Trade Monitor — poll every 3 min during market hours
-    # Checks paper positions for SL/TP/trailing-SL at same cadence as live
-    scheduler.add_job(
-        _run_paper_trade_poll,
-        CronTrigger(hour="9-15", minute="*/3", day_of_week="mon-fri", timezone="Asia/Kolkata"),
-        id="paper_trade_poll",
-        name="Paper Trade Poll",
-        misfire_grace_time=120,
-    )
-
-    # Job 9: Monthly strategy tournament — 1st Saturday 4:00 AM IST
-    scheduler.add_job(
-        _run_strategy_tournament,
-        CronTrigger(hour=4, minute=0, day_of_week="sat", day="1-7", timezone="Asia/Kolkata"),
-        id="strategy_tournament",
-        name="Monthly Strategy Tournament",
-        misfire_grace_time=3600,
-    )
-
-    logger.info("Scheduler started â€” press Ctrl+C to stop")
-    logger.info("  Pre-market scan : 09:20 IST, Mon-Fri")
-    logger.info("  Intraday re-scan: 10:30, 12:30, 14:30 IST, Mon-Fri")
-    logger.info("  EOD scan        : 15:20 IST, Mon-Fri")
-    logger.info("  Paper EOD snap  : 15:35 IST, Mon-Fri")
-    logger.info("  Trade monitor   : every 3 min, 09:00-15:59 IST, Mon-Fri")
-    logger.info("  Paper trade poll: every 3 min, 09:00-15:59 IST, Mon-Fri")
-    logger.info("  Walk-forward    : 06:00 IST, Saturday")
-    logger.info("  Reconciliation  : 07:00 IST, Saturday")
-    logger.info("  Paper weekly ckpt: 07:30 IST, Saturday")
-    logger.info("  Nightly backup  : 23:00 IST, daily")
-    logger.info("  Kite refresh    : every 30 min, 09:00-16:30 IST, Mon-Fri")
-    logger.info("  Forecast calib  : 05:30 IST, Saturday")
-    logger.info("  Tournament      : 04:00 IST, 1st Saturday of month")
-
-    # Job 10: Monthly HMM regime re-fit — 1st Sunday 3:00 AM IST
-    # Gap B1: Re-train 3-state Gaussian HMM on 5 years of NIFTY data
-    scheduler.add_job(
-        _run_hmm_refit,
-        CronTrigger(hour=3, minute=0, day_of_week="sun", day="1-7", timezone="Asia/Kolkata"),
-        id="hmm_refit",
-        name="Monthly HMM Regime Re-fit",
-        misfire_grace_time=3600,
-    )
-
-    logger.info("  HMM re-fit      : 03:00 IST, 1st Sunday of month")
-
-    # Job 11: PEAD Earnings Feed — 8:00 AM IST, Mon-Fri (before pre-market)
-    # G6: Fetch Trendlyne earnings data and feed into PEADStrategy
-    scheduler.add_job(
-        _run_pead_earnings_feed,
-        CronTrigger(hour=8, minute=0, day_of_week="mon-fri", timezone="Asia/Kolkata"),
-        id="pead_earnings_feed",
-        name="PEAD Earnings Data Feed",
-        misfire_grace_time=600,
-    )
-
-    # Job 12: US Pre-Market Pipeline — 19:00 IST (9:30 AM ET), Mon-Fri
-    # G11: Run US Carver pipeline during US market hours
-    scheduler.add_job(
-        _run_us_pre_market,
-        CronTrigger(hour=19, minute=0, day_of_week="mon-fri", timezone="Asia/Kolkata"),
-        id="us_pre_market",
-        name="US Pre-Market Pipeline",
-        misfire_grace_time=600,
-    )
-
-    logger.info("  PEAD feed       : 08:00 IST, Mon-Fri")
-    logger.info("  US pipeline     : 19:00 IST, Mon-Fri")
-
-    # ── Phase 1-4: Advanced strategy jobs ──────────────────────
-
-    # Job 13: Options Monitor — Every 5 min during market hours
-    scheduler.add_job(
-        _run_options_monitor,
-        CronTrigger(
-            hour="9-15", minute="*/5", day_of_week="mon-fri",
-            timezone="Asia/Kolkata",
-        ),
-        id="options_monitor",
-        name="Options Monitor Poll",
-        misfire_grace_time=120,
-    )
-
-    # Job 14: Margin Monitor — Every 10 min during market hours
-    scheduler.add_job(
-        _run_margin_monitor,
-        CronTrigger(
-            hour="9-15", minute="*/10", day_of_week="mon-fri",
-            timezone="Asia/Kolkata",
-        ),
-        id="margin_monitor",
-        name="Margin Monitor Poll",
-        misfire_grace_time=120,
-    )
-
-    # Job 15: Pairs Scanner — Every 30 min during market hours
-    scheduler.add_job(
-        _run_pairs_scanner,
-        CronTrigger(
-            hour="9-15", minute="0,30", day_of_week="mon-fri",
-            timezone="Asia/Kolkata",
-        ),
-        id="pairs_scanner",
-        name="Pairs Trading Scanner",
-        misfire_grace_time=300,
-    )
-
-    # Job 16: Futures Rollover Check — 14:00 IST, Mon-Fri
-    scheduler.add_job(
-        _run_futures_monitor,
-        CronTrigger(hour=14, minute=0, day_of_week="mon-fri", timezone="Asia/Kolkata"),
-        id="futures_monitor",
-        name="Futures Monitor & Rollover",
-        misfire_grace_time=300,
-    )
-
-    # Job 17: Event Calendar Seed — 07:00 IST, Mon-Fri
-    scheduler.add_job(
-        _run_event_calendar_seed,
-        CronTrigger(hour=7, minute=0, day_of_week="mon-fri", timezone="Asia/Kolkata"),
-        id="event_calendar",
-        name="Event Calendar Seed",
-        misfire_grace_time=600,
-    )
-
-    logger.info("  Options monitor : */5 min, 09-15 IST, Mon-Fri")
-    logger.info("  Margin monitor  : */10 min, 09-15 IST, Mon-Fri")
-    logger.info("  Pairs scanner   : */30 min, 09-15 IST, Mon-Fri")
-    logger.info("  Futures monitor : 14:00 IST, Mon-Fri")
-    logger.info("  Event calendar  : 07:00 IST, Mon-Fri")
-
-    # Job 18: Meta-Label Retraining — 02:00 IST, 1st/15th of month (semi-monthly)
-    # AFML Ch.3: Retrain the meta-labeling classifier on accumulated trade outcomes
-    scheduler.add_job(
-        _run_meta_label_retrain,
-        CronTrigger(hour=2, minute=0, day="1,15", timezone="Asia/Kolkata"),
-        id="meta_label_retrain",
-        name="Meta-Label Model Retrain",
-        misfire_grace_time=3600,
-    )
-
-    logger.info("  Meta-label train: 02:00 IST, 1st & 15th of month")
-
-    # ── T3-5: Scheduler heartbeat — dead-man switch ──────────
-    # Writes timestamp to heartbeat file every 5 minutes.
-    # External monitor can check file freshness to detect stalled scheduler.
-    def _heartbeat():
-        import json
-        from datetime import datetime
-        hb_path = os.path.join(os.path.dirname(__file__), "data", "scheduler_heartbeat.json")
-        try:
-            hb = {
-                "timestamp": datetime.now().isoformat(),
-                "pid": os.getpid(),
-                "jobs_active": len(scheduler.get_jobs()),
-                "status": "alive",
-            }
-            with open(hb_path, "w") as f:
-                json.dump(hb, f)
-        except Exception as e:
-            logger.warning("Heartbeat write failed: %s", e)
-
-    scheduler.add_job(
-        _heartbeat,
-        "interval",
-        minutes=5,
-        id="scheduler_heartbeat",
-        name="Scheduler Heartbeat (T3-5)",
-        misfire_grace_time=120,
-    )
-    logger.info("  Heartbeat       : every 5 min (dead-man switch)")
-
-    # ── T3-5: Trade returns collector for Monte Carlo bootstrap ──
-    def _collect_trade_returns():
-        try:
-            from services.research.trade_returns_collector import run_collection
-            run_collection()
-        except Exception as e:
-            logger.warning("Trade returns collection failed: %s", e)
-
-    scheduler.add_job(
-        _collect_trade_returns,
-        CronTrigger(hour=16, minute=0, day_of_week="mon-fri", timezone="Asia/Kolkata"),
-        id="trade_returns_collector",
-        name="Trade Returns Collector (MC bootstrap)",
-        misfire_grace_time=600,
-    )
-    logger.info("  Trade returns   : 16:00 IST, Mon-Fri (MC bootstrap)")
-
-    # ── Job: Daily Carver Rebalance — 9:30 AM IST, Mon-Fri ──
-    # Bridges backtest→live: generates 10-source Carver forecasts,
-    # computes target portfolio, and places delta orders via Kite.
-    def _run_daily_rebalance():
-        _jid = _log_job_start("daily_rebalance", "Daily Carver Rebalance")
-        try:
-            from kite_connect.trading.daily_rebalancer import DailyRebalancer
-            kite = _get_scheduler_kite()
-            # Same paper switch as the rest of the system (was CENTURION_PAPER_MODE)
-            paper = os.getenv("CENTURION_PAPER_TRADE", "true").lower() in ("true", "1", "yes")
-            rebalancer = DailyRebalancer(kite=kite, paper_mode=paper)
-            report = rebalancer.run(progress_callback=lambda m: logger.info("[rebalance] %s", m))
-            _save_run("daily_rebalance", {
-                "universe_size": report.symbols_forecasted,
-                "screened_count": report.positive_forecasts,
-                "buy_signals": len(report.new_entries),
-                "sell_signals": len(report.exits),
-                "status": "success" if not report.errors else "error",
-            })
-            _log_job_end(_jid, "ok",
-                         f"regime={report.regime} dd={report.dd_tier} "
-                         f"entries={len(report.new_entries)} exits={len(report.exits)}")
-        except Exception as e:
-            logger.exception("Daily rebalance failed: %s", e)
-            _log_job_end(_jid, "error", str(e))
-
-    scheduler.add_job(
-        _run_daily_rebalance,
-        CronTrigger(hour=9, minute=30, day_of_week="mon-fri", timezone="Asia/Kolkata"),
-        id="daily_carver_rebalance",
-        name="Daily Carver Rebalance (v27)",
-        misfire_grace_time=600,
-    )
-    logger.info("  Carver rebalance: 09:30 IST, Mon-Fri")
-
-    # ── GTT stop reconciliation (live CNC holdings) — 09:05 and 15:45 IST ──
-    for _job_id, _hour, _minute in (("gtt_reconcile_open", 9, 5), ("gtt_reconcile_close", 15, 45)):
-        scheduler.add_job(
-            _run_gtt_reconciliation,
-            CronTrigger(hour=_hour, minute=_minute, day_of_week="mon-fri", timezone="Asia/Kolkata"),
-            id=_job_id,
-            name="GTT Stop Reconciliation",
-            misfire_grace_time=600,
-        )
-    logger.info("  GTT reconcile   : 09:05 and 15:45 IST, Mon-Fri (live only)")
 
     # ── NSE paper session: dispatch GitHub Actions at 19:00 IST, on time ──
     if os.environ.get("CENTURION_GH_DISPATCH_TOKEN"):
@@ -3171,17 +2793,8 @@ def start_scheduler():
                 misfire_grace_time=1800,
             )
         logger.info("  Kite login mail : 09:00 + 17:30 IST, Mon-Fri (GitHub Actions dispatch)")
-
-    # ── NSE engine executor (opt-in: CENTURION_NSE_ENGINE=true) — 09:25 IST ──
-    if os.environ.get("CENTURION_NSE_ENGINE", "false").lower() in ("true", "1", "yes"):
-        scheduler.add_job(
-            _run_nse_engine_executor,
-            CronTrigger(hour=9, minute=25, day_of_week="mon-fri", timezone="Asia/Kolkata"),
-            id="nse_engine_executor",
-            name="NSE Engine Executor",
-            misfire_grace_time=600,
-        )
-        logger.info("  NSE engine exec : 09:25 IST, Mon-Fri")
+    else:
+        logger.warning("CENTURION_GH_DISPATCH_TOKEN is not set: the scheduler has no jobs")
 
     try:
         scheduler.start()

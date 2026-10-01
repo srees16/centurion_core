@@ -9,7 +9,6 @@ FML, TTS chapters) is stubbed with minimal implementations.
 import asyncio
 import logging
 import math
-import os
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 
@@ -1361,14 +1360,12 @@ async def kite_session_status():
 
 @router.post("/kite/session/start")
 async def kite_session_start():
-    """Start a new Kite Connect session.
+    """Start a Kite Connect session: the current one, today's stored token, or a manual login.
 
-    First tries the stored request_token.  If expired, attempts auto-login
-    via Selenium + TOTP (with a timeout).  If that also fails, returns a
-    structured ``needs_login`` response so the frontend can prompt the user
-    to complete the OAuth flow manually.
+    Today's token is the one stored by the daily login (tracker U23).  There is
+    no automated login: without a token the frontend gets ``needs_login`` and
+    the user completes Zerodha's own login.
     """
-    import concurrent.futures
     from api.dependencies import set_kite_session, is_kite_token_expiring_soon
 
     # If already active and not expiring soon, return immediately
@@ -1378,63 +1375,25 @@ async def kite_session_start():
             profile = await asyncio.to_thread(existing.profile)
             return {"success": True, "profile": profile, "message": "Session already active"}
         except Exception:
-            pass  # session expired, proceed with re-login
+            pass  # session expired, fall through
 
-    # Step 1: Try stored request_token (fast, no browser)
+    # Today's token from the daily login (U23)
     try:
-        from kite_connect.auth.kite_session import try_stored_token
-        kite = await asyncio.to_thread(try_stored_token)
+        from kite_connect.auth.daily_login import kite_from_stored_token
+        kite = await asyncio.to_thread(kite_from_stored_token)
         if kite:
             set_kite_session(kite)
             profile = await kite_call(kite.profile)
             return {"success": True, "profile": profile}
-    except Exception:
-        pass  # token invalid/expired, continue
+    except Exception as e:
+        logger.info("No usable stored Kite token: %s", e)
 
-    # Step 2: Try auto-login with Selenium + TOTP (with timeout)
-    # Skip Selenium on containerised environments (HF Spaces, Docker) where
-    # no browser is available — use HTTP-based login instead.
-    _in_container = os.path.exists("/.dockerenv") or os.getenv("SPACE_ID")
-    if _in_container:
-        # Step 2a: HTTP-based login (no browser needed, ~3-5s)
-        logger.info("Container detected — using HTTP-based Kite login")
-        try:
-            from kite_connect.auth.kite_session import http_login_kite
-            kite = await asyncio.to_thread(http_login_kite)
-            if kite:
-                set_kite_session(kite)
-                profile = await kite_call(kite.profile)
-                return {"success": True, "profile": profile}
-            logger.warning("HTTP-based Kite login returned None")
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.warning("HTTP-based Kite login failed: %s", e)
-    else:
-        # Step 2b: Selenium + TOTP auto-login (local dev with browser)
-        try:
-            from kite_connect.auth.kite_session import create_kite_session
-            loop = asyncio.get_event_loop()
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                kite = await asyncio.wait_for(
-                    loop.run_in_executor(pool, create_kite_session),
-                    timeout=90,
-                )
-            set_kite_session(kite)
-            profile = await kite_call(kite.profile)
-            return {"success": True, "profile": profile}
-        except asyncio.TimeoutError:
-            logger.warning("Kite auto-login timed out after 90s")
-        except Exception as e:
-            logger.warning("Kite auto-login failed: %s", e)
-
-    # Step 3: Return structured response so frontend can prompt manual login
     from kite_connect.core.config import LOGIN_URL
     return {
         "success": False,
         "needs_login": True,
         "login_url": LOGIN_URL,
-        "message": "Token expired. Please complete the Kite login and paste the request_token.",
+        "message": "No Kite session today. Please complete the Kite login.",
     }
 
 
