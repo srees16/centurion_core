@@ -229,11 +229,15 @@ def push_code(task: str, args: List[str], heartbeat_url: Optional[str] = None,
     return slug
 
 
-def push_store() -> None:
-    """Upload the parquet store as one archive; run again when it is rebuilt."""
-    store = _ROOT / "data" / "nse_engine" / "store"
+def push_store(store_dir: Optional[str] = None, slug: str = STORE_SLUG) -> None:
+    """Upload a parquet store as one archive; run again when it is rebuilt.
+
+    ``store_dir`` / ``slug`` upload another store as its own dataset (the 2006
+    store for crash-window checks, tracker R13); a kernel attaches one store.
+    """
+    store = Path(store_dir) if store_dir else _ROOT / "data" / "nse_engine" / "store"
     if not store.is_dir():
-        raise SystemExit("data/nse_engine/store not found — run build-store first")
+        raise SystemExit(f"{store} not found — run build-store first")
     stage = STAGE_DIR / "store"
     if stage.exists():
         shutil.rmtree(stage)
@@ -241,7 +245,7 @@ def push_store() -> None:
     archive = shutil.make_archive(str(stage / "store"), "gztar",
                                   root_dir=store.parent, base_dir=store.name)
     logger.info("uploading %.0f MB (%s)", Path(archive).stat().st_size / 1e6, Path(archive).name)
-    _push_dataset(stage, STORE_SLUG, "Centurion NSE parquet store",
+    _push_dataset(stage, slug, "Centurion NSE parquet store" + ("" if slug == STORE_SLUG else f" ({store.name})"),
                   time.strftime("store %Y-%m-%d"))
 
 
@@ -252,7 +256,8 @@ def kernel_ref(suffix: str = "") -> str:
     return f"{kaggle_username()}/{slug}"
 
 
-def push_kernel(enable_internet: bool = False, suffix: str = "", code_slug: str = CODE_SLUG) -> str:
+def push_kernel(enable_internet: bool = False, suffix: str = "", code_slug: str = CODE_SLUG,
+                store_slug: str = STORE_SLUG) -> str:
     """Push the kernel that runs cloud/kaggle_entry.py against both datasets.
 
     ``suffix`` names a separate kernel (its own queue and output), so a second
@@ -272,7 +277,7 @@ def push_kernel(enable_internet: bool = False, suffix: str = "", code_slug: str 
         "is_private": True,
         "enable_gpu": False,
         "enable_internet": enable_internet,
-        "dataset_sources": [f"{user}/{code_slug}", f"{user}/{STORE_SLUG}"],
+        "dataset_sources": [f"{user}/{code_slug}", f"{user}/{store_slug}"],
         "competition_sources": [],
         "kernel_sources": [],
     }, indent=2))
@@ -331,7 +336,9 @@ def main(argv: Optional[List[str]] = None) -> None:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("check", help="report CLI, credentials and store state")
-    sub.add_parser("push-store", help="upload data/nse_engine/store as a dataset")
+    p = sub.add_parser("push-store", help="upload data/nse_engine/store as a dataset")
+    p.add_argument("--store-dir", help="another store directory, e.g. data/nse_engine/store_ext2006")
+    p.add_argument("--slug", default=STORE_SLUG, help="its dataset slug")
 
     for name, help_text in (("stage", "build the staging dir only"),
                             ("push-code", "upload code + job spec"),
@@ -348,6 +355,8 @@ def main(argv: Optional[List[str]] = None) -> None:
                            help="kernel may reach the network (not needed with a store dataset)")
             p.add_argument("--kernel-suffix", default="",
                            help="run as a separate kernel (e.g. 'b') so it can run alongside the default one")
+            p.add_argument("--store-slug", default=STORE_SLUG,
+                           help="store dataset to attach (one uploaded with push-store --slug)")
 
     p = sub.add_parser("watch", help="poll kernel status until it stops")
     p.add_argument("--kernel")
@@ -371,14 +380,14 @@ def main(argv: Optional[List[str]] = None) -> None:
     if args.command == "check":
         print(json.dumps(check(), indent=2))
     elif args.command == "push-store":
-        push_store()
+        push_store(args.store_dir, args.slug)
     elif args.command == "stage":
         print(stage_code(args.task, job_args, args.heartbeat_url, pins))
     elif args.command == "push-code":
         push_code(args.task, job_args, args.heartbeat_url, pins)
     elif args.command == "run":
         code_slug = push_code(args.task, job_args, args.heartbeat_url, pins, args.kernel_suffix)
-        print(f"kernel pushed: {push_kernel(args.internet or bool(pins), args.kernel_suffix, code_slug)}")
+        print(f"kernel pushed: {push_kernel(args.internet or bool(pins), args.kernel_suffix, code_slug, args.store_slug)}")
     elif args.command == "watch":
         print(watch(args.kernel, args.interval, args.max_hours))
     elif args.command == "status":

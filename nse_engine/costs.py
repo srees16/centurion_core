@@ -57,8 +57,16 @@ STT_EXEMPT_ETFS = frozenset({"GOLDBEES"})
 STT_OTHER_ETFS = frozenset({"SILVERBEES"})
 STT_OTHER_ETF_SELL = 0.00001
 #: Recorded in every run's manifest; runs are compared only within one version.
-#: 1 = until 30 Sep 2026 (equity delivery STT on the metal ETFs too); 2 = the ETF rates above.
-COST_MODEL_VERSION = 2
+#: 1 = until 30 Sep 2026 (equity delivery STT on the metal ETFs too); 2 = the ETF rates above;
+#: 3 = ETF opens held within ETF_OPEN_BAND of the close for fills (tracker D4, 1 Oct 2026).
+COST_MODEL_VERSION = 3
+
+# An ETF's open is often a stray first trade of a few units far from where it
+# traded all day (GOLDBEES 24 Dec 2020: open 48.98, low 43.58, close 43.73).  In
+# 2013-25 the metal ETFs opened more than 5% from their close on 1-2% of days, 88%
+# of those at the day's high or low, while gold's close-to-close move passed 2.95%
+# on 1% of days.  Shares open in the call auction and keep their open.
+ETF_OPEN_BAND = 0.03
 
 
 @dataclass(frozen=True)
@@ -236,6 +244,18 @@ def buy_cash_needed(value_inr: float, adv_value_inr: float, date: DateLike, cfg:
     return value_inr * (1 + impact_bps(value_inr, adv_value_inr, cfg) / 1e4) + statutory_cost(
         value_inr, "BUY", date, cfg.dp_charge_inr, symbol=symbol
     )
+
+
+def fillable_open(open_: pd.DataFrame, close: pd.DataFrame, etfs) -> pd.DataFrame:
+    """Opens that orders fill at: an ETF's open held within ``ETF_OPEN_BAND`` of the day's close."""
+    cols = [s for s in open_.columns if s in etfs]
+    if not cols:
+        return open_
+    o = open_[cols]
+    lo, hi = close[cols] * (1 - ETF_OPEN_BAND), close[cols] * (1 + ETF_OPEN_BAND)
+    out = open_.copy()
+    out[cols] = o.mask(o > hi, hi).mask(o < lo, lo)
+    return out
 
 
 def median_traded_value(value: pd.DataFrame, lookback: int, min_periods: Optional[int] = None) -> pd.DataFrame:
