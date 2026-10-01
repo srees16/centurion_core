@@ -782,6 +782,35 @@ Those are the numbers to hold the live book to, not the recorded ones. The
 realised haircut replaces them once the live book has fills: G4's cost
 ratio and tracking error are its first two components.
 
+## 5p. A futures short sleeve, scoped (R15, 1 Oct 2026): not now
+
+The only route left to a higher ceiling (U28) is a short sleeve in
+single-stock futures. Scoped with no build and no trial: one F&O bhavcopy
+per year from NSE's public archive, and one standard definition fixed
+before looking (each month, short the bottom decile of 12-1 momentum among
+that year's futures stocks, equal weight; a short future earns about the
+risk-free rate minus the stock's total return; costs 2.5% a year).
+
+| | Finding |
+|---|---|
+| Data | every year from 2013 (legacy format to mid-2024, UDiFF after) |
+| Universe | 135–223 stocks with futures; median near-month turnover ₹40–220 crore a day |
+| Lot size, 30 Sep 2026 | ₹3.0 lakh minimum, **₹6.3 lakh median**, ₹16.9 lakh maximum |
+| Short sleeve, 2013–25 | **−11.0% a year net**, volatility 36%, Sharpe −0.30, MaxDD −88% |
+| Losers vs the futures universe | +6.0% a year spread |
+| E4 + 20% short sleeve | CAGR 25.2% → 22.9%, Sharpe 1.09 → 1.05, MaxDD −23% → −18% |
+| Worst months | 2014-05 −40%, 2020-06 −31% (rebounds) |
+
+Three reasons, each sufficient. Size: one median lot is 21% of a ₹30 lakh
+book and all of the ₹6 lakh first rung; ten names need ~₹60 lakh of short
+notional, a book of ₹2–3 crore. Edge: momentum losers do trail the
+universe (6% a year), but a naked short pays the market's rise, so the
+sleeve is a hedge that costs CAGR and Sharpe; the spread needs a
+market-neutral pair, which needs more capital still. Risk: its worst
+months are rebounds, against decision U22. Revisit as a market-neutral
+spread when the book is past ₹2 crore. One look, not a trial: no
+configuration was recorded.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast

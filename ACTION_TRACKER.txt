@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 01 Oct 2026, 18:59 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 01 Oct 2026, 21:28 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -168,14 +168,16 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
-[!] P1  U27  Overfit gates in place of "PBO <= 30%": (a) deflated Sharpe
-             >= 0.95 at the full trial count; (b) walk-forward OOS Sharpe
-             >= 1.2; (c) the forward gate on paper; PBO reported, not a
-             target.  Why: PBO measures the trial set, not the strategy -
-             20 junk trials would lower it to 26%.  Say "approve U27" or
-             change the thresholds.
-[!] P2  U28  Start the short sleeve data project (track 3)?  Only route to
-             Sharpe 1.5.  Weeks of build before any trial.  Yes / later.
+[!] P0  U30  Rotate the Neon database password NOW.  README.md line 37 held
+             the real CENTURION_DATABASE_URL with its password, in a public
+             repo (removed in H1, but it stays in git history).  Neon
+             console -> Roles -> neondb_owner -> Reset password; then update
+             CENTURION_DATABASE_URL in GitHub secrets, the HF Space secrets
+             and your local env.  Never paste it in chat.
+[!] P0  U29  Delete ZERODHA_PASSWORD and ZERODHA_TOTP_SECRET from the HF
+             Space secrets (you confirmed both exist; CENTURION_PAPER_TRADE
+             is unset = paper).  Stops the headless logins at once; H1 stops
+             them in code once merged.  The daily login does not need them.
 [!] P0  U2   Rotate the Kaggle password and API token (both were pasted in
              chat).  The token lives only in ~/.kaggle/access_token; no
              GitHub/HF secret uses it.  kaggle.com/settings/api: revoke,
@@ -237,6 +239,23 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                  (weeks of build, no trial until then).  Your go/no-go.
 #5  [ ] P3  R6   R21A rules as signal groups (+/-0.1 Sharpe)    Prompt: do R6
 #6  [ ] P3  R9   Universe size 150 / 300 / 500 (+/-0.1)        Prompt: do R9
+ OCT-NOV  research and housekeeping while the books accumulate (no trials)
+   Measured 1 Oct: 147k lines of Python; the trading engine is 9k.  Two
+   modules hold the daily path: scheduler.py 3,211 lines / 30 jobs, all
+   registered unconditionally, and api/routers/v1_gateway.py 2,978.
+   71 functions exceed 150 lines.  Order: safety, then removal, then
+   structure - removal first, so refactoring has less to move.
+#H3 [ ] P1  H3   Dead code after H2, the C5 method: static reachability from
+                 the real entry points (API routes the frontend calls,
+                 scheduler, workflows, tests, research CLIs); inventory
+                 first, delete on your go.                    Prompt: do H3
+#H4 [ ] P2  H4   Split scheduler.py and v1_gateway.py by domain (moves only,
+                 behaviour unchanged, routes and job ids identical).
+                 Needs H5's safety net first.                 Prompt: do H4
+#H5 [ ] P2  H5   Safety net for refactoring: characterisation tests of the
+                 daily path (paper session on SQLite, live dry run on a stub
+                 broker, the emails, the book loop).  Your standing rule is
+                 "no new test files": say whether H5 may add them.
  NOT DOING  leverage (L4/E3: 25% only with Sharpe < 1.2, Calmar down),
             parameter grids (near-duplicate trials), core risk share up
             (measured: Sharpe 1.03, MaxDD -34%), a NIFTY sleeve (R5: +0.5
@@ -267,6 +286,45 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+1 Oct   H1   Legacy scheduler retired; no automated Kite login.  start_
+             scheduler registers only the 4 GitHub dispatches (behind
+             CENTURION_GH_DISPATCH_TOKEN; none without it; verified with a
+             stub scheduler).  _get_scheduler_kite returns None (no password
+             + TOTP login); kite_session's try_stored_token and
+             http_login_kite deleted.  /api/v1/kite/session/start: current
+             session, else today's stored daily token (U23), else
+             needs_login - no automated step (verified: needs_login 200).
+             ZERODHA_PASSWORD / ZERODHA_TOTP_SECRET out of sync_hf_secrets.py
+             and the HF README.  Found on the way: README.md line 37 held
+             the real Neon URL with its password (public repo) - replaced
+             with a placeholder; rotation is U30.  The 28 retired jobs'
+             code is still in scheduler.py, unregistered: H3 deletes it.
+             Left for H3: kite_auth.py's local Selenium + TOTP login (used
+             by local CLIs) and the request token committed in
+             kite_token_store.py.  Suite 109 both envs.
+1 Oct   H2   Scheduler audit (read-only, docs/scheduler_audit.md): 32
+             jobs; keep the 4 GitHub dispatches, retire 28.  Verified: the
+             3-min trade-monitor poll and 5-min options monitor call
+             _get_scheduler_kite() before checking for work; it falls back
+             to a headless password + TOTP login (sync_hf_secrets.py pushes
+             both secrets); the stored request token is single-use, so it
+             always falls through.  Trade monitor and options monitor act on
+             the account with no paper gate when their state has open
+             trades (empty today); futures and pairs jobs are one bug fix
+             from placing orders; GTT reconcile and the Carver rebalance go
+             live with CENTURION_PAPER_TRADE=false.  No active frontend page
+             depends on the 28.  Feeds H1 and H3.
+1 Oct   R15  Futures short sleeve scoped (no build, no trial): not now.
+             NSE F&O archive complete from 2013 (legacy, then UDiFF);
+             135-223 futures stocks, Rs 40-220 Cr near-month turnover each;
+             lots Rs 3.0 / 6.3 / 16.9 L (min / median / max, 30 Sep 2026).
+             One fixed definition (short the bottom 12-1 momentum decile
+             of the futures universe, monthly, EW, 2.5%/yr costs): -11.0%/yr
+             net, Sharpe -0.30, MaxDD -88%; losers trail the universe by
+             6%/yr but the market's rise dominates.  E4 + 20%: CAGR 25.2%
+             -> 22.9%, Sharpe 1.09 -> 1.05, MaxDD -23% -> -18% (a hedge).
+             Worst months 2014-05 -40%, 2020-06 -31%.  U28 updated.
+             Plan 5p.
 1 Oct   C9   docs/realistic_performance_estimate.md (Apr, R21A) marked
              superseded: banner pointing to section 1 and the validation
              plan; body kept for the record.
