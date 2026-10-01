@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 01 Oct 2026, 21:28 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 02 Oct 2026, 00:17 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -168,16 +168,6 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
-[!] P0  U30  Rotate the Neon database password NOW.  README.md line 37 held
-             the real CENTURION_DATABASE_URL with its password, in a public
-             repo (removed in H1, but it stays in git history).  Neon
-             console -> Roles -> neondb_owner -> Reset password; then update
-             CENTURION_DATABASE_URL in GitHub secrets, the HF Space secrets
-             and your local env.  Never paste it in chat.
-[!] P0  U29  Delete ZERODHA_PASSWORD and ZERODHA_TOTP_SECRET from the HF
-             Space secrets (you confirmed both exist; CENTURION_PAPER_TRADE
-             is unset = paper).  Stops the headless logins at once; H1 stops
-             them in code once merged.  The daily login does not need them.
 [!] P0  U2   Rotate the Kaggle password and API token (both were pasted in
              chat).  The token lives only in ~/.kaggle/access_token; no
              GitHub/HF secret uses it.  kaggle.com/settings/api: revoke,
@@ -286,6 +276,16 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+2 Oct   U30  Neon password rotated (it was public in README.md from 14 Apr
+             to 1 Oct).  New CENTURION_DATABASE_URL in GitHub and the HF
+             Space; verified 00:15 IST: the Space reads all three books
+             (deployed 11 sessions, candidate 4, e4 0 until 5 Oct) and the
+             login-reminder workflow reaches Neon.  First attempt failed
+             with "password authentication failed" (wrong password in both
+             secrets); fixed by copying the full string from Connect.
+1 Oct   U29  You deleted ZERODHA_PASSWORD and ZERODHA_TOTP_SECRET from the
+             HF Space (CENTURION_PAPER_TRADE unset = paper): the Space can no
+             longer log in to Kite, merged H1 or not.
 1 Oct   H1   Legacy scheduler retired; no automated Kite login.  start_
              scheduler registers only the 4 GitHub dispatches (behind
              CENTURION_GH_DISPATCH_TOKEN; none without it; verified with a
