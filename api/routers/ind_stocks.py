@@ -140,9 +140,9 @@ async def kite_login_callback(request_token: str = "", status: str = "", action:
         set_kite_session(res["kite"])
         when = datetime.fromisoformat(res["kite_login_at"]).strftime("%H:%M IST, %a %d %b")
         return HTMLResponse(_login_page(
-            "Logged in to Kite",
-            f"Zerodha user {escape(res['user_id'])}, {when}. The session is kept until 06:00 tomorrow; "
-            "tonight's live session will use it. You can close this page.", True))
+            "Kite Login Successful",
+            f"{escape(res['user_id'])}, {when}. The session will be active until 6 AM IST tomorrow; "
+            "Live session will use it tonight. You can close this page.", True))
     except PermissionError as exc:
         return HTMLResponse(_login_page("Login refused", escape(str(exc)), False), status_code=403)
     except Exception as exc:                              # noqa: BLE001

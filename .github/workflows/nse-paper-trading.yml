@@ -93,8 +93,9 @@ jobs:
             python cloud_paper_runner.py
           fi
 
-      - name: Candidate book - weekly checkpoint
-        if: vars.CENTURION_NSE_ENGINE == 'true' && hashFiles('config/nse_engine_candidate.json') != ''
+      # Extra paper books (D1, D5): see "Extra paper books - shift reference and session".
+      - name: Extra paper books - weekly checkpoint
+        if: vars.CENTURION_NSE_ENGINE == 'true'
         continue-on-error: true
         env:
           CENTURION_PAPER_TRADE: "true"
@@ -105,11 +106,18 @@ jobs:
           CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
           CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
           CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
-          CENTURION_NSE_DEPLOYMENT: config/nse_engine_candidate.json
-          CENTURION_PAPER_SCHEMA: candidate
-          CENTURION_PAPER_DB_PATH: ${{ runner.temp }}/candidate/paper_trades.sqlite3
-          CENTURION_PAPER_BOOK_LABEL: candidate 2d64ba4c
-        run: python cloud_paper_runner.py --engine
+        run: |
+          failed=""
+          for CFG in config/nse_engine_*.json; do
+            BOOK=$(basename "$CFG" .json); BOOK=${BOOK#nse_engine_}
+            [ "$BOOK" = deployed ] && continue
+            START=$(python -m nse_engine.deployment --path "$CFG" get paper_start_date) || START=""
+            if [[ "$(TZ=Asia/Kolkata date +%F)" < "$START" ]]; then echo "$BOOK starts $START"; continue; fi
+            CENTURION_NSE_DEPLOYMENT="$CFG" CENTURION_PAPER_SCHEMA="$BOOK" CENTURION_PAPER_BOOK_LABEL="$BOOK" \
+              CENTURION_PAPER_DB_PATH="$RUNNER_TEMP/$BOOK/paper_trades.sqlite3" python cloud_paper_runner.py --engine ||
+              failed="$failed $BOOK"
+          done
+          [ -z "$failed" ] || { echo "::error::weekly checkpoint failed for:$failed"; exit 1; }
 
   # GitHub delivers scheduled runs 1-4 hours late (measured: a 22:05 IST cron
   # arrived at 01:20 IST). Snapshots are now dated by the trading session, not
@@ -330,63 +338,14 @@ jobs:
           if [ "$NEW_BOOK" = "true" ]; then EXTRA="--new-book"; fi
           python cloud_paper_runner.py --engine $EXTRA
 
-      # Second paper book (tracker D1, decision U21): the candidate configuration
-      # trades beside the deployed book on the same data, in its own Postgres
-      # schema ("candidate") and its own local file, so nothing is shared but
-      # the paper switch. Both steps are isolated: a candidate failure never
-      # fails or delays the deployed book, it only emails.
-      - name: Candidate book - same-period shift reference
-        if: hashFiles('config/nse_engine_candidate.json') != ''
-        continue-on-error: true
-        env:
-          TODAY: ${{ steps.window.outputs.today }}
-        run: |
-          CAND=config/nse_engine_candidate.json
-          CAND_START=$(python -m nse_engine.deployment --path $CAND get paper_start_date)
-          if [[ ! "$TODAY" > "$CAND_START" ]]; then
-            echo "candidate paper trading starts $CAND_START: no live window yet"
-            exit 0
-          fi
-          python -m nse_engine.deployment --path $CAND write-engine-config --out "$RUNNER_TEMP/candidate_engine.json"
-          python -m runners.run_nse_engine shift-reference --config "$RUNNER_TEMP/candidate_engine.json" \
-            --start "$CAND_START" --data-start "$(python -m nse_engine.deployment --path $CAND get data_start)" \
-            --set initial_capital="$CENTURION_PAPER_INITIAL_CAPITAL" --out data/shift_reference_candidate.csv
-
-      - name: Candidate book - paper session
-        id: candidate
-        if: hashFiles('config/nse_engine_candidate.json') != ''
-        continue-on-error: true
-        env:
-          CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
-          CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
-          CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
-          CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
-          CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
-          CENTURION_NSE_DEPLOYMENT: config/nse_engine_candidate.json
-          CENTURION_PAPER_SCHEMA: candidate
-          CENTURION_PAPER_DB_PATH: ${{ runner.temp }}/candidate/paper_trades.sqlite3
-          CENTURION_PAPER_BOOK_LABEL: candidate 2d64ba4c
-          CENTURION_SHIFT_REFERENCE_CSV: data/shift_reference_candidate.csv
-          CENTURION_SHIFT_MAX_TRACKING_ERROR: ${{ vars.CENTURION_SHIFT_MAX_TRACKING_ERROR || '0.08' }}
-          CENTURION_SHIFT_MAX_DAILY_GAP_BPS: ${{ vars.CENTURION_SHIFT_MAX_DAILY_GAP_BPS || '3' }}
-        run: python cloud_paper_runner.py --engine
-
-      - name: Tell me when the candidate session fails
-        if: steps.candidate.outcome == 'failure'
-        env:
-          CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
-          CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
-          CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
-          CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
-        run: python -m tools.session_failed "${{ github.run_id }} (candidate book)"
-
       # Live book (tracker L5, decision U23): off until the repository variable
       # CENTURION_LIVE_MODE is 'dry_run' (orders built from the real account,
       # none sent) or 'live' (real orders).  It needs today's Kite login - the
       # link in the reminder email (kite-login-reminder.yml) - and, for real
       # orders, the static-IP proxy whose IP is registered with Zerodha.  Runs
       # once per session across the backup crons.  Isolated like the candidate:
-      # a failure emails and never touches the paper books.
+      # a failure emails and never touches the paper books.  It runs before the
+      # candidate books, so a slow or failing paper book cannot hold it up.
       - name: Live book - session
         id: live
         if: vars.CENTURION_LIVE_MODE == 'dry_run' || vars.CENTURION_LIVE_MODE == 'live'
@@ -438,6 +397,48 @@ jobs:
           CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
           CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
         run: python -m tools.session_failed "${{ github.run_id }} (live book)"
+
+      # Extra paper books (trackers D1, D5): every config/nse_engine_<book>.json
+      # but the deployed one is a paper-only book (status 'candidate': live is
+      # refused) traded beside the deployed book on the same data, in its own
+      # Postgres schema (<book>), local file and same-period shift reference,
+      # with emails tagged by book.  A new book is a new file.  Books are
+      # isolated: a failure emails and the next book still runs.
+      - name: Extra paper books - shift reference and session
+        continue-on-error: true
+        env:
+          TODAY: ${{ steps.window.outputs.today }}
+          CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
+          CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
+          CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
+          CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
+          CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+          CENTURION_SHIFT_MAX_TRACKING_ERROR: ${{ vars.CENTURION_SHIFT_MAX_TRACKING_ERROR || '0.08' }}
+          CENTURION_SHIFT_MAX_DAILY_GAP_BPS: ${{ vars.CENTURION_SHIFT_MAX_DAILY_GAP_BPS || '3' }}
+        run: |
+          failed=""
+          for CFG in config/nse_engine_*.json; do
+            BOOK=$(basename "$CFG" .json); BOOK=${BOOK#nse_engine_}
+            [ "$BOOK" = deployed ] && continue
+            echo "::group::paper book $BOOK"
+            START=$(python -m nse_engine.deployment --path "$CFG" get paper_start_date) || START=""
+            if [[ "$TODAY" < "$START" ]]; then echo "$BOOK paper trading starts $START"; echo "::endgroup::"; continue; fi
+            if [[ "$TODAY" > "$START" ]]; then
+              python -m nse_engine.deployment --path "$CFG" write-engine-config --out "$RUNNER_TEMP/${BOOK}_engine.json" &&
+              python -m runners.run_nse_engine shift-reference --config "$RUNNER_TEMP/${BOOK}_engine.json" \
+                --start "$START" --data-start "$(python -m nse_engine.deployment --path "$CFG" get data_start)" \
+                --set initial_capital="$CENTURION_PAPER_INITIAL_CAPITAL" --out "data/shift_reference_${BOOK}.csv" ||
+                echo "::warning::$BOOK shift reference failed"
+            fi
+            if ! CENTURION_NSE_DEPLOYMENT="$CFG" CENTURION_PAPER_SCHEMA="$BOOK" CENTURION_PAPER_BOOK_LABEL="$BOOK" \
+                 CENTURION_PAPER_DB_PATH="$RUNNER_TEMP/$BOOK/paper_trades.sqlite3" \
+                 CENTURION_SHIFT_REFERENCE_CSV="data/shift_reference_${BOOK}.csv" python cloud_paper_runner.py --engine; then
+              failed="$failed $BOOK"
+              python -m tools.session_failed "${{ github.run_id }} ($BOOK book)" || true
+            fi
+            echo "::endgroup::"
+          done
+          [ -z "$failed" ] || { echo "::error::paper book(s) failed:$failed"; exit 1; }
 
       - name: Tell me when a session fails
         if: failure()

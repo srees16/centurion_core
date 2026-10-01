@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 01 Oct 2026, 10:00 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 01 Oct 2026, 13:29 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -18,6 +18,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                                      Sharpe   CAGR    MaxDD   Calmar
    Backtest 2013-25 (gross 0.88)      1.14   22.8%   -24.7%   0.92
    Walk-forward OOS 2017-25 (K5)      1.19   22.0%   -22.5%   0.98
+   Walk-forward OOS 2017-25 + exit rank 60 (R12, Kaggle, model 3; same-run
+     control 1.15 / 20.9% / -20.9%)   1.27   21.9%   -17.2%   1.27
    Holdout 2026 (1 Jan-11 Sep)        1.04   26.9%*  -13.0%     -
    Stress: x2 costs + 1-day lag       0.97   20.4%   -22.6%   0.90
    2007-25 with 2008 (R4), B1 + rule  1.03   21.1%   -32.9%   0.64
@@ -35,9 +37,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
    MaxDD 30%    YES outside crises (-24.7% in 2013-25).  A 2008-type crash
                 costs ~33% even with the drawdown rule (R4); accepted (U22).
    Calmar 1.0   BORDERLINE.  0.92 backtest, 1.05 OOS; more CAGR lowers it.
-   PBO 30%      NO.  48.6% over the 58 same-window configs (cost model 3,
-                1 Oct, D4); rises with every trial.  Deflated Sharpe 0.989-
-                0.990 at N = 58 (gate 0.95).
+   PBO 30%      NO.  50.5% over the 59 same-window configs (cost model 3,
+                1 Oct, E4); rises with every trial.  Deflated Sharpe 0.988-
+                0.990 at N = 58-59 (gate 0.95).
 
  REALISTIC LIVE OUTCOME  (central, range)   Sharpe    CAGR     MaxDD    Calmar
    A  as deployed, gross 0.88               0.95    19 (16-22) 27 (25-33)  0.70
@@ -61,6 +63,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
    0.6) from Rs 35L, first session Mon 28 Sep, bought 29 Sep (backtest
    replay +0.97% to 30 Sep); emails labelled [candidate 2d64ba4c]; not on
    the monitor until G12.  Session 30 ~11 Nov, 60 ~24 Dec.
+   Third book (D5, U26): e4 93cf6c4d (exit rank 60 + refill exits) from
+   Rs 35L, first session Mon 5 Oct; emails [e4 93cf6c4d].  Session 60
+   ~early Jan.  More books: add config/nse_engine_<book>.json.
    Session 19:00 IST Mon-Fri (HF dispatch; GitHub backups 19:05-22:05;
    heartbeat alarm 00:15).  Drawdown rule 20/30/35 (G3) is on main and runs
    from Mon 28 Sep; the book is ~0.3% below its peak, so: normal.
@@ -171,40 +176,28 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
  Backtest today (cost model 3): 1.21 / 23.7%.  Gap 1.3 pt CAGR.  Live
  estimate 0.95 / 19%: the haircut is the bigger gap.  Two halves:
 
- HALF 1  close the backtest gap with changes already measured        Oct
-   Stacked estimate: ~25.5% CAGR, Sharpe ~1.25-1.3.  One trial each.
-#1  [~] P1  R12  Exit rank 60: walk-forward with exit_rank {40, 60}
-                 in the K5 grid (Kaggle, ~35 min).                Prompt: do R12
-        Pass: 60 chosen in most folds, OOS Sharpe 2017-25 >= base - 0.05.
-        Evidence so far (R7, its own data): +0.9 pt CAGR, +0.09 Sharpe,
-        turnover -17%, MaxDD up to 1.6 pts deeper.
-#2  [ ] P1  E4   One combined config, no grid: exit rank 60 + refill
-                 exits on the deployed base.                      Prompt: do E4
-        Pass: CAGR >= 25%, Sharpe >= base, MaxDD at most 2 pts deeper,
-        turnover not higher.  Refill alone measured 24.7% / 1.21 (E1).
-        Needs R12 PASS.  Runs on Kaggle under the current cost model.
-#3  [ ] P1  D5   Third paper slot for the E4 winner (D1 made it a config
-                 file + workflow step).  60 sessions -> decision
-                 ~mid Jan; the forward gate (V3) decides.         Prompt: do D5
-        Needs E4 PASS.
+ HALF 1  close the backtest gap: CLOSED 1 Oct.  R12 PASS (exit rank 60
+   out of sample); E4 FAIL on CAGR alone (24.64% vs 25%; Sharpe 1.205,
+   turnover -16%).  The changes do not stack.  Paper-trading E4 anyway
+   is your decision U26 (section 4); D5 builds the slot if you say yes.
 
  HALF 2  cut the live haircut (worth more than any research item)   Nov ->
-#4  [ ] P1  G4   Read the paper gate from session 30 (~late Oct): tracking
+#1  [ ] P1  G4   Read the paper gate from session 30 (~late Oct): tracking
                  error <= 8%/yr, cost ratio <= 1.5x.  Nothing to run: it is
                  in every daily email.  If FAIL, say "diagnose G4".
-#5  [ ] P1  D3   Go live at the Rs 6L rung (~mid Dec) once paper G4 PASS at
+#2  [ ] P1  D3   Go live at the Rs 6L rung (~mid Dec) once paper G4 PASS at
                  60 sessions + 5 clean dry runs: set CENTURION_LIVE_CAPITAL
                  =600000 and CENTURION_LIVE_MODE=live.  Real fills start.
-#6  [ ] P2  X1   Execution: limit-at-open / sliced fills.         Prompt: do X1
-        Needs >= 30 real fills (after #5).  Targets the modelled 2.8%/yr
+#3  [ ] P2  X1   Execution: limit-at-open / sliced fills.         Prompt: do X1
+        Needs >= 30 real fills (after #2).  Targets the modelled 2.8%/yr
         cost drag; measured against the realised cost ratio.
-#7  [ ] P2  D2   OOS haircut beside validate results.             Prompt: do D2
+#4  [ ] P2  D2   OOS haircut beside validate results.             Prompt: do D2
         Makes the backtest -> live haircut a number, not an estimate.
 
- AFTER BOTH HALVES  only if E4 fails: a new return stream
-#8  [ ] P3  R5   NIFTY time-series-momentum sleeve.               Prompt: do R5
-#9  [ ] P3  R6   R21A rules as signal groups (+/-0.1)             Prompt: do R6
-#10 [ ] P3  R9   Universe size 150 / 300 / 500                    Prompt: do R9
+ NEXT RESEARCH  E4 failed, so 25% needs a new return stream (parallel)
+#5  [ ] P2  R5   NIFTY time-series-momentum sleeve.               Prompt: do R5
+#6  [ ] P3  R6   R21A rules as signal groups (+/-0.1)             Prompt: do R6
+#7  [ ] P3  R9   Universe size 150 / 300 / 500                    Prompt: do R9
  NOT DOING  leverage (L4: every step lowers Sharpe), parameter grids (PBO
             47.6% and rising), neutral 0.6 for CAGR (it buys Sharpe with CAGR).
 
@@ -235,6 +228,71 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+1 Oct   D5   Third paper book, and paper books by file.  The workflow's
+             hand-copied candidate steps (daily shift reference, session,
+             failure email; Saturday checkpoint) are now two loops over
+             config/nse_engine_<book>.json (all but the deployed file):
+             schema, local file, shift reference CSV and email label come
+             from the name; a book is skipped before its paper_start_date;
+             a failing book emails and the next still runs.  The candidate's
+             commands and settings are unchanged (checked with the loop run
+             under bash -eo pipefail against stubs, three dates and a forced
+             failure).  New book config/nse_engine_e4.json: E4 93cf6c4d,
+             status candidate (live refused), the deployed drawdown overlay,
+             first session Mon 5 Oct; its paper plan on 30 Sep: 20 buys,
+             Rs 34.6L of 35L.  .gitignore tracked only the two book files by
+             name, so a new book would have been left out of git: now
+             config/nse_engine_*.json.  Forward gate later: promote
+             --candidate config/nse_engine_e4.json --schema e4.
+             docs/nse_engine.md; plan 5l, forward gate and commands.
+1 Oct   U26  Your decision: paper-trade E4 (D5) for the forward evidence it
+             lacks, although it missed the 25% CAGR rule (24.64%).
+1 Oct   G17  Paper emails name their book.  Daily and weekly subjects now
+             carry the book and its engine fingerprint, computed from the
+             book's config: [deployed 679cbd0c] / [candidate 2d64ba4c]
+             (the deployed book had none; the candidate's was typed into
+             the workflow and could go stale).  The daily email ends with
+             the book's objective, from the gate constants: the deployed
+             book rehearses for live (60+ sessions of G4 PASS, 5 clean dry
+             runs, then Rs 6 lakh); the candidate trials for the forward
+             gate (60 sessions, G4 PASS, walk-forward Sharpe within 0.05).
+             Live and dry-run emails unchanged.  Suite 108 both envs.
+1 Oct   D1b  Paper books vs the live book, checked before D5.  Already
+             safe: real orders refuse any deployment that is not 'approved'
+             (candidate / placeholder), and the live session always loads
+             nse_engine_deployed.json (CENTURION_NSE_DEPLOYMENT cannot
+             redirect it); paper steps get no Kite secrets and run with
+             kite=None; each book has its own Neon schema, SQLite file,
+             shift state, reference CSV and label; the capital ladder reads
+             only the deployed paper book.  Fixed: (1) a paper book given
+             the live schema (CENTURION_PAPER_SCHEMA=live) was accepted and
+             would have written into the live ledger - now refused
+             (database/paper_cloud.py); (2) the live session ran after the
+             candidate book, whose steps have no timeouts, so a hung paper
+             book could cost that night's live session - it now runs right
+             after the deployed paper session (workflow order only).
+             Not yet generic: each extra book is hand-copied workflow steps
+             (for D5).  Suite 108 both envs.
+1 Oct   E4   Exit rank 60 + refill exits on B1: FAIL (CAGR only).
+             Pre-registered 12:34 IST, one config (93cf6c4d), Kaggle, cost
+             model 3, beside B1 in one job.  2013-25: CAGR 24.64% vs 23.19%
+             (needed 25%: FAIL), Sharpe 1.205 vs 1.172 (PASS), MaxDD -24.6%
+             vs -23.5% (PASS), turnover 5.79x vs 6.88x (PASS); 2017-25
+             Sharpe 1.49 vs 1.37; costs 2.38% vs 2.79%/yr.  Each change
+             alone gave 24.2-24.7%: they do not stack.  2007-25: 21.1% /
+             0.97 / -39.1% vs 19.9% / 0.95 / -37.7%.  PBO 50.5% (59), DSR
+             0.988.  Not re-tuned.  Plan section 5l; decision U26.
+1 Oct   R12  Exit rank 60 out of sample: PASS.  Pre-registered 10:30 IST:
+             two anchored walk-forwards on Kaggle, cost model 3, B1 base,
+             test years 2017-25, identical but for the grid.  Arm A, K5's
+             32 points: OOS Sharpe 1.150, CAGR 20.87%, MaxDD -20.9%,
+             turnover 5.92x.  Arm B, x exit rank {40, 60}: 1.273, 21.93%,
+             -17.2%, 4.90x.  60 chosen in 9 of 9 folds (needed 5) and
+             Sharpe +0.12 (needed >= -0.05).  In training 60 beat 40 on
+             25-30 of 32 paired settings every fold.  It gives up some of
+             the best years (2017 +39.8% -> +29.5%) and loses less in the
+             worst (2018 -11.6% -> -4.3%).  882 runs in the registry.  Plan
+             section 5k; data/nse_engine/wf_stitched_r12{a,b}.json.
 1 Oct   U23b Login email on time.  GitHub ran the reminder's crons 5-7
              hours late (29-30 Sep: 15:30 and 23:15 IST, after the 19:00
              session), so 1 Oct's 09:03 mail never came.  The HF Space now

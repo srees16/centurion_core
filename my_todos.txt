@@ -241,3 +241,8 @@ prompt for code hygiene:
 5. Reuse existing utilities/patterns; avoid unnecessary refactoring, duplication, or abstraction.
 6. Keep the diff **minimal, clean, and production-ready**.
 7. Review the final diff and remove anything unrelated or unnecessary.
+
+
+1. Where are images stored currently wen i run analysis? Display location or url to access dem on ui pages
+2. Analyse n understand wats 3 emails doing? Give clear identifier and purpose of each of them
+how many trade books are running currently, what is their objective?
