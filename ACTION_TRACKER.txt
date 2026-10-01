@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 01 Oct 2026, 13:29 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 01 Oct 2026, 17:19 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -10,7 +10,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  1. WHERE WE STAND (28 Sep 2026)
 --------------------------------------------------------------------------------
- TARGET   Sharpe >= 1.5 | CAGR >= 25% | MaxDD <= 30%* | Calmar >= 1 | PBO <= 30%
+ TARGET   CAGR > 25% | Sharpe > 1.2 (your 1 Oct revision; was 1.5) | MaxDD
+          <= 30%* | Calmar >= 1 | overfit gates: DSR >= 0.95 at the full
+          trial count, walk-forward OOS Sharpe >= 1.2, forward gate on paper
+          (U27 proposes these replace "PBO <= 30%"; PBO stays reported)
           (* soft, U5; not in a 2008-type crisis, where rebound capture comes first, U22)
           (Sharpe = excess over 6.5% rf; Calmar = CAGR / MaxDD)
 
@@ -21,7 +24,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
    Walk-forward OOS 2017-25 + exit rank 60 (R12, Kaggle, model 3; same-run
      control 1.15 / 20.9% / -20.9%)   1.27   21.9%   -17.2%   1.27
    Holdout 2026 (1 Jan-11 Sep)        1.04   26.9%*  -13.0%     -
-   Stress: x2 costs + 1-day lag       0.97   20.4%   -22.6%   0.90
+   Haircut (D2): deployed, 1-day lag + 2x impact, measured 1 Oct
+                                      1.00   20.2%   -22.8%   0.89
+   Haircut (D2): E4 the same         1.08   22.2%   -26.5%   0.84
    2007-25 with 2008 (R4), B1 + rule  1.03   21.1%   -32.9%   0.64
    Deployed, cost model 3 (D4, Kaggle)  1.21   23.7%   -23.1%   1.03
    Walk-forward OOS 2008-25 (R4)      0.87   16.4%   -32.9%   0.50
@@ -30,20 +35,32 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
    * 8 months annualised.  All CAGRs on calendar years (B2).  Walk-forward
      re-run 27 Sep on complete NIFTY data (K5; was 1.24 / 23.3% / -22.3%).
 
- VERDICT   the five targets are NOT jointly reachable with what is implemented
-   Sharpe 1.5   NO.  Needs 32% more edge; no queued item is worth > +0.1.
-                Backtest 1.14 +/- 0.57 (95% CI); P(true Sharpe >= 1.5) ~ 11%.
-   CAGR 25%     NO / BORDERLINE.  22.0-22.8% unlevered; more spends DD budget.
+ VERDICT   CAGR 25% + Sharpe 1.2 are NOT jointly reached by any recorded
+           configuration; E4 (24.64% / 1.205) is the closest, on paper from 5 Oct
+   Sharpe 1.2   YES in backtest (17 of 59 configs), 1.27 walk-forward OOS
+                (R12); live estimate ~1.0 after the haircut.
+   CAGR 25%     NO.  Ceiling 24.6% unlevered (E4).  Measured dead ends:
+                NIFTY sleeve +0.5 pt at most (R5); moving the metal sleeve's
+                capital into the core +0.4 pt but Sharpe 1.03 and MaxDD -34%
+                (the sleeve is the Sharpe engine: corr -0.02 with the core);
+                1.1x leverage reaches 25% with Sharpe < 1.2 (L4, E3); a
+                second ETF sleeve (R14, MON100) funds itself from the core:
+                CAGR -1.9 pts, Sharpe flat.  What is left: the forward
+                evidence on E4, and a new return stream from new data (U28).
    MaxDD 30%    YES outside crises (-24.7% in 2013-25).  A 2008-type crash
                 costs ~33% even with the drawdown rule (R4); accepted (U22).
    Calmar 1.0   BORDERLINE.  0.92 backtest, 1.05 OOS; more CAGR lowers it.
-   PBO 30%      NO.  50.5% over the 59 same-window configs (cost model 3,
-                1 Oct, E4); rises with every trial.  Deflated Sharpe 0.988-
-                0.990 at N = 58-59 (gate 0.95).
+   Overfit      PBO 50.5% over 59 configs is a property of the trial set
+                (near-ties, median correlation 0.87), not of the strategy:
+                20 random junk configs would "lower" it to 26%, deleting the
+                29 weakest raises it to 63%.  The strategy's own checks pass:
+                DSR 0.988 at N = 59, walk-forward OOS 1.27 > IS 1.05, the IS
+                pick never lost money OOS in 12,870 CSCV splits, rank
+                persistence 0.60 across 2013-19 / 2020-25.  Hence U27.
 
  REALISTIC LIVE OUTCOME  (central, range)   Sharpe    CAGR     MaxDD    Calmar
-   A  as deployed, gross 0.88               0.95    19 (16-22) 27 (25-33)  0.70
-   B  refill exits (E1: failed 25% rule)    1.0     21 (18-24) 28 (26-31)  0.75
+   A  as deployed (D2 measured)           1.00    20.2       22.8       0.89
+   B  E4 on paper (D2 measured)          1.08    22.2       26.5       0.84
    C  MTF 1.2x at 14.6% (L4: not worth it)  0.85    20 (17-23) 33 (30-37)  0.60
    PBO stays 39-49% whatever is traded.  B measured (E1, 2013-25): 24.7% /
    -25.5% / Sharpe 1.21.  Leverage on A: 1.2x -> 25.6% / -29.9%; 1.5x ->
@@ -79,9 +96,12 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                R2, R3, R10); open items (R6, R7, R9) expected at +/-0.1.  The
                family (long-only trend + momentum, 20 names) is near its
                ceiling; the OOS 1.24 already sits in a friendly 2017-25.
-  2 Overfit    PBO 45-49% while promote refuses > 30%: nothing could ever
-               replace 679cbd0c.  Forward gate built (U19, V3).  Every
-               trial must stay recorded and counted (V2).
+  2 Overfit    PBO 50% and rising with every near-duplicate trial; it
+               cannot be lowered honestly (see VERDICT).  Guard: at most 2
+               new configurations before the January forward-gate
+               decisions, each one pre-registered value, judged by DSR,
+               walk-forward OOS and paper (U27).  Every trial stays
+               recorded and counted (V2).
   3 Drawdown   -24.7% leaves 5 points of budget; gross 1.0 spends 3.5, 1.2x
                all of it.  The drawdown rule (E2) trims 1.5 points at 20/30/35
                and its half / risk-off legs never fired in-sample.  2008
@@ -148,6 +168,14 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
+[!] P1  U27  Overfit gates in place of "PBO <= 30%": (a) deflated Sharpe
+             >= 0.95 at the full trial count; (b) walk-forward OOS Sharpe
+             >= 1.2; (c) the forward gate on paper; PBO reported, not a
+             target.  Why: PBO measures the trial set, not the strategy -
+             20 junk trials would lower it to 26%.  Say "approve U27" or
+             change the thresholds.
+[!] P2  U28  Start the short sleeve data project (track 3)?  Only route to
+             Sharpe 1.5.  Weeks of build before any trial.  Yes / later.
 [!] P0  U2   Rotate the Kaggle password and API token (both were pasted in
              chat).  The token lives only in ~/.kaggle/access_token; no
              GitHub/HF secret uses it.  kaggle.com/settings/api: revoke,
@@ -172,34 +200,45 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
  6. QUEUE — do #1 first.  Every item: pass rule fixed before running, every
     backtest recorded, no tuning on 2026 data, CAGR on calendar years.
 --------------------------------------------------------------------------------
- TARGET (your decision 1 Oct)   CAGR > 25% | Sharpe > 1.2   (was 1.5)
- Backtest today (cost model 3): 1.21 / 23.7%.  Gap 1.3 pt CAGR.  Live
- estimate 0.95 / 19%: the haircut is the bigger gap.  Two halves:
+ GOAL  the best LIVE CAGR / Sharpe / Calmar.  Ranked by expected effect on
+   the live book, largest first.  Backtest today: E4 24.6% / 1.21 / Calmar
+   1.00; deployed 23.7% / 1.21 / 1.03.  Live estimate after the haircut:
+   ~19% / ~1.0 / ~0.7.  The haircut (4-5 pt CAGR, 0.2 Sharpe) is bigger
+   than any research item, so what measures and shrinks it ranks first
+   once real fills exist.  Trial budget: 1 configuration left before
+   January (R14 used one).
 
- HALF 1  close the backtest gap: CLOSED 1 Oct.  R12 PASS (exit rank 60
-   out of sample); E4 FAIL on CAGR alone (24.64% vs 25%; Sharpe 1.205,
-   turnover -16%).  The changes do not stack.  Paper-trading E4 anyway
-   is your decision U26 (section 4); D5 builds the slot if you say yes.
-
- HALF 2  cut the live haircut (worth more than any research item)   Nov ->
-#1  [ ] P1  G4   Read the paper gate from session 30 (~late Oct): tracking
-                 error <= 8%/yr, cost ratio <= 1.5x.  Nothing to run: it is
-                 in every daily email.  If FAIL, say "diagnose G4".
-#2  [ ] P1  D3   Go live at the Rs 6L rung (~mid Dec) once paper G4 PASS at
-                 60 sessions + 5 clean dry runs: set CENTURION_LIVE_CAPITAL
-                 =600000 and CENTURION_LIVE_MODE=live.  Real fills start.
-#3  [ ] P2  X1   Execution: limit-at-open / sliced fills.         Prompt: do X1
-        Needs >= 30 real fills (after #2).  Targets the modelled 2.8%/yr
-        cost drag; measured against the realised cost ratio.
-#4  [ ] P2  D2   OOS haircut beside validate results.             Prompt: do D2
-        Makes the backtest -> live haircut a number, not an estimate.
-
- NEXT RESEARCH  E4 failed, so 25% needs a new return stream (parallel)
-#5  [ ] P2  R5   NIFTY time-series-momentum sleeve.               Prompt: do R5
-#6  [ ] P3  R6   R21A rules as signal groups (+/-0.1)             Prompt: do R6
-#7  [ ] P3  R9   Universe size 150 / 300 / 500                    Prompt: do R9
- NOT DOING  leverage (L4: every step lowers Sharpe), parameter grids (PBO
-            47.6% and rising), neutral 0.6 for CAGR (it buys Sharpe with CAGR).
+    R14 MON100 sleeve: FAIL 1 Oct (CAGR 22.8%, Sharpe flat; see DONE).
+    No research item left adds CAGR; 1 configuration of the trial budget
+    remains, held for anything the paper books reveal.
+#1  [ ] P1  D3   Go live on schedule: Rs 6L rung ~mid Dec, once paper G4
+                 PASS at 60 sessions + 5 clean dry runs (set
+                 CENTURION_LIVE_CAPITAL=600000, CENTURION_LIVE_MODE=live).
+                 Every live session is the only data that moves the live
+                 metrics; the ladder's auto step-down guards Calmar.
+        Until then: G4 verdicts from session 30 (~late Oct) in every daily
+        email; "diagnose G4" if FAIL.  Daily Kite login (U23) - a missed
+        login is a missed session, which is tracking error.
+#2  [ ] P1  V3   Forward-gate decisions pick the live configuration: candidate
+                 ~24 Dec, e4 ~early Jan ("promote --check").  R12's OOS says
+                 exit rank 60 cuts MaxDD 20.9% -> 17.2% (Calmar 1.0 -> 1.27);
+                 the gate confirms it on paper before it goes live.
+#3  [ ] P2  X1   Execution: limit-at-open / sliced fills.  Shrinks the
+                 realised-vs-model cost gap (model 2.4-2.8%/yr of CAGR);
+                 sized by G4's cost ratio.  Needs >= 30 real fills (~Jan).
+                                                                  Prompt: do X1
+#4  [ ] P2  U28  Short sleeve in single-stock futures (NSE F&O archive).
+                 Largest potential (the route to Sharpe 1.5), longest lead
+                 (weeks of build, no trial until then).  Your go/no-go.
+#5  [ ] P3  G12  Book selector on the monitor (deployed, candidate, e4).
+                 Convenience only.                              Prompt: do G12
+#6  [ ] P3  R6   R21A rules as signal groups (+/-0.1 Sharpe)    Prompt: do R6
+#7  [ ] P3  R9   Universe size 150 / 300 / 500 (+/-0.1)        Prompt: do R9
+ NOT DOING  leverage (L4/E3: 25% only with Sharpe < 1.2, Calmar down),
+            parameter grids (near-duplicate trials), core risk share up
+            (measured: Sharpe 1.03, MaxDD -34%), a NIFTY sleeve (R5: +0.5
+            pt at most), more ETF sleeves (R14: funded from the core),
+            anything to "lower PBO" (gamed by junk trials).
 
 --------------------------------------------------------------------------------
  7. BACKLOG (after the queue)
@@ -228,6 +267,43 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+1 Oct   D2   Haircut beside every validation.  validate re-simulates the
+             run twice here, unrecorded (as recorded; every fill 1 session
+             late + impact model x2, R8's stress), applies the difference to
+             the recorded metrics (both legs on one platform, so Kaggle runs
+             work), then the CSCV selection ratio (mean OOS / mean IS Sharpe
+             of the in-sample pick, 0.85).  validation.json -> haircut; one
+             line in the forward gate's summary.  Measured: deployed 1.197 /
+             23.6% / -23.1% -> 1.00 / 20.2% / -22.8%, expected OOS Sharpe
+             0.85; E4 1.205 / 24.6% / -24.6% -> 1.08 / 22.2% / -26.5%, 0.91.
+             These replace the section-1 estimates.  Found on the way: a
+             re-recorded config hides older run ids from validate (the
+             matrix keeps the newest run per config); use the newest id.
+             Plan 5o.  Suite 109 both envs.
+1 Oct   R14  MON100 (Nasdaq 100 ETF) trend sleeve on E4: FAIL.  Pre-
+             registered 16:13 IST, one config (042a5b69), Kaggle beside E4,
+             cost model 3.  2013-25: CAGR 24.64% -> 22.76% (needed 25%:
+             FAIL), Sharpe 1.205 -> 1.203 (FAIL), MaxDD -24.6% -> -23.8%
+             (PASS); 2017-25 Sharpe 1.49 -> 1.36.  The sleeve took 15.6% of
+             the book from the core (64% -> 53%) and silver (10% -> 2%);
+             its 14-17%/yr in trend cannot replace the core's ~34% per unit.
+             Gold works because its capital came from cash the regime gate
+             had freed; an equity-vol sleeve is funded from the core.  PBO
+             56.1% (60), DSR 0.988.  Not re-tuned.  Code kept: sleeves.
+             extra_symbols (empty = hash-neutral; 948 recorded hashes
+             reproduce), sleeves.symbols property replaces four gold/silver
+             call sites, MON100 pays other-ETF STT (never traded on record,
+             cost model 3 unchanged).  Plan 5n.  Suite 109 both envs.
+1 Oct   R5   NIFTY trend sleeve: closed without a trial (your decision).
+             Measured first on E4's recorded run: the book is 90.3%
+             invested; idle cash averages 3.8% in risk_on (66% of days),
+             5.0% in neutral, 56% in risk_off.  NIFTYBEES on idle cash while
+             NIFTY is above its 200-day mean deploys 3.6% of the book: at
+             most +0.50 pt CAGR a year before costs (E4 needs +0.36 for
+             25%), so a coin flip after costs.  A 12-month momentum rule
+             bounds +1.0 pt but gets it by buying in risk_off (R11's crash
+             pattern).  No engine change, no trial; PBO stays 50.5% (59).
+             Plan section 5m.
 1 Oct   D5   Third paper book, and paper books by file.  The workflow's
              hand-copied candidate steps (daily shift reference, session,
              failure email; Saturday checkpoint) are now two loops over

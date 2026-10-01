@@ -54,7 +54,7 @@ IMPACT_REFERENCE_PARTICIPATION = 0.01
 # Zerodha's page does not name them, so they are charged the other-ETF rate
 # (Rs 1 per lakh sold): within a rupee of exempt either way.
 STT_EXEMPT_ETFS = frozenset({"GOLDBEES"})
-STT_OTHER_ETFS = frozenset({"SILVERBEES"})
+STT_OTHER_ETFS = frozenset({"SILVERBEES", "MON100"})   # MON100 (tracker R14): an equity ETF, the other-ETF rate
 STT_OTHER_ETF_SELL = 0.00001
 #: Recorded in every run's manifest; runs are compared only within one version.
 #: 1 = until 30 Sep 2026 (equity delivery STT on the metal ETFs too); 2 = the ETF rates above;

@@ -87,8 +87,7 @@ def _default_universe_mask(data: Any, config: Any) -> pd.DataFrame:
     """Point-in-time universe mask via ``nse_engine.universe`` (sleeve ETFs excluded)."""
     from nse_engine.universe import compute_universe_panel  # lazy
 
-    exclude = (config.sleeves.gold_symbol, config.sleeves.silver_symbol)
-    return compute_universe_panel(data, config.universe, exclude=exclude).mask
+    return compute_universe_panel(data, config.universe, exclude=config.sleeves.symbols).mask
 
 
 def decision_positions(dates: pd.DatetimeIndex, s0: int, s1: int) -> np.ndarray:

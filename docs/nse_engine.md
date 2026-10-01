@@ -92,7 +92,7 @@ nse_engine/
   regime.py            NIFTY trend + breadth + India VIX regime
   drawdown.py          drawdown rule from the book's own equity (halt / half / risk_off)
   portfolio.py         core selection, weights, rank-drop exits, trailing stops
-  sleeves.py           gold / silver ETF trend sleeves
+  sleeves.py           gold / silver ETF trend sleeves (+ `sleeves.extra_symbols`, R14)
   allocator.py         core vs metals risk budget, gross <= 1
   metrics.py           performance metrics (excess Sharpe, CAGR, MaxDD, turnover)
   engine.py            generate_targets, run_backtest, run manifests
