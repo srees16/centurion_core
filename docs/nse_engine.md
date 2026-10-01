@@ -288,7 +288,9 @@ reference `data/shift_reference_<book>.csv`, and `CENTURION_PAPER_BOOK_LABEL`
 skipped before its `paper_start_date`. Adding a book is adding its file. The
 books share only the paper switch and never write the switch row's run
 status; a failing book emails and the next one still runs. The trade
-monitor still shows the deployed book (a book selector is G12).
+monitor shows any of them (G12): `GET /api/v1/screener/monitor/books` lists
+the books from the config files, and the monitor endpoints take `?book=<book>`
+(the deployed book without it; an unknown book is 404).
 
 Paper flow (`EngineExecutor.run_paper_session`, daily after the bhavcopy is
 published): GTT-style stop checks at the open → fill yesterday's pending

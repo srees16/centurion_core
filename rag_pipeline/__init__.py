@@ -9,7 +9,6 @@ Components:
     - vector_store: ChromaDB vector storage and retrieval
     - pdf_ingestion: PDF parsing, chunking, and embedding
     - query_engine: RAG query orchestration
-    - ui: Streamlit UI components for RAG interaction
 
 Usage:
     from rag_pipeline import RAGConfig, VectorStoreManager, PDFIngestionService, RAGQueryEngine

@@ -2,7 +2,7 @@
 Order placement service for Zerodha Kite Connect.
 
 Provides functions to place, modify, and cancel orders, as well as
-retrieve order book and position data.  Used by the Streamlit UI.
+retrieve order book and position data.
 
 Features:
   - Idempotent retry with exponential backoff (max 3 attempts)

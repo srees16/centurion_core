@@ -11,8 +11,9 @@ import logging
 import math
 import os
 from typing import Any, Dict, List, Optional
+from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request, UploadFile, File
+from fastapi import Depends, APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -960,15 +961,52 @@ def _kite_ltp_or_none():
     return ltp
 
 
+def _paper_books() -> list:
+    """The paper books, from config/nse_engine_<book>.json (tracker D5): deployed first."""
+    from nse_engine.deployment import load_deployment
+    root = Path(__file__).resolve().parent.parent.parent
+    books = []
+    for path in sorted(root.glob("config/nse_engine_*.json")):
+        name = path.stem[len("nse_engine_"):]
+        try:
+            dep = load_deployment(path)
+        except Exception as exc:                          # noqa: BLE001 - a broken file is not a book
+            logger.warning("paper book %s skipped: %s", path.name, exc)
+            continue
+        books.append({"book": name, "schema": None if name == "deployed" else name,
+                      "label": f"{name} {dep.engine.config_hash()[:8]}", "status": dep.status,
+                      "paper_start_date": dep.paper_start_date.isoformat()})
+    books.sort(key=lambda b: (b["book"] != "deployed", b["paper_start_date"]))
+    return books
+
+
+_book_clouds: Dict[str, Any] = {}
+
+
+def _book_param(book: Optional[str] = None) -> Optional[str]:
+    """``?book=`` on the monitor endpoints (G12): a known paper book, or None for the deployed one.
+
+    A dependency, so an unknown book is 404 (and a book without Neon 503)
+    before the handler's own error handling turns it into a 500.
+    """
+    if not book or book == "deployed":
+        return None
+    if not any(b["book"] == book for b in _paper_books()):
+        raise HTTPException(status_code=404, detail=f"unknown paper book {book!r}")
+    if _cloud_or_none() is None:
+        raise HTTPException(status_code=503, detail=f"paper book {book!r} is only in Neon, which is not configured")
+    return book
+
+
 @router.get("/screener/monitor/trades")
-async def screener_monitor_trades():
+async def screener_monitor_trades(book: Optional[str] = Depends(_book_param)):
     """Active and closed paper trades — from the cloud book the Actions job writes.
 
     Orders decided at the close and filling at the next open appear as Pending.
     Local SQLite is only a fallback for a machine without a Neon connection.
     """
     try:
-        cloud = _cloud_or_none()
+        cloud = _cloud_or_none(book)
         if cloud:
             from kite_connect.trading.paper_book_view import trades_view
             return trades_view(cloud, live_prices=_kite_ltp_or_none())
@@ -1035,7 +1073,7 @@ async def screener_monitor_trades():
 
 
 @router.get("/screener/monitor/paper-dashboard")
-async def screener_paper_dashboard():
+async def screener_paper_dashboard(book: Optional[str] = Depends(_book_param)):
     """Paper dashboard from the cloud book: equity from the latest daily snapshot.
 
     Not built through ``PaperTrader`` here on purpose: its local SQLite copy is
@@ -1043,7 +1081,7 @@ async def screener_paper_dashboard():
     stop updating after the first day.
     """
     try:
-        cloud = _cloud_or_none()
+        cloud = _cloud_or_none(book)
         if cloud:
             from kite_connect.trading.paper_book_view import dashboard_view
             return dashboard_view(cloud)
@@ -1055,13 +1093,27 @@ async def screener_paper_dashboard():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _cloud_or_none():
-    """Return PaperCloudSync if Neon is available, else None."""
+def _cloud_or_none(book: Optional[str] = None):
+    """PaperCloudSync for a paper book: the deployed book (None without Neon), or ``book``'s own schema."""
     try:
         from database.paper_cloud import get_paper_cloud
-        return get_paper_cloud()
+        cloud = get_paper_cloud()
     except Exception:
-        return None
+        cloud = None
+    if book is None or cloud is None:
+        return cloud
+    if book not in _book_clouds:
+        from database.connection import get_db_manager
+        from database.paper_cloud import PaperCloudSync
+        _book_clouds[book] = PaperCloudSync(get_db_manager(), schema=book)
+    return _book_clouds[book]
+
+
+@router.get("/screener/monitor/books")
+async def screener_paper_books():
+    """The paper books the monitor can show (G12)."""
+    books = _paper_books()
+    return {"books": books, "count": len(books)}
 
 
 def _sqlite_rows(table: str, sql: str):
@@ -1079,10 +1131,10 @@ def _sqlite_rows(table: str, sql: str):
 
 
 @router.get("/screener/monitor/daily-snapshots")
-async def screener_daily_snapshots():
+async def screener_daily_snapshots(book: Optional[str] = Depends(_book_param)):
     """Get daily equity snapshots for chart rendering."""
     try:
-        cloud = _cloud_or_none()
+        cloud = _cloud_or_none(book)
         if cloud:
             from kite_connect.trading.paper_book_view import snapshots_view
             snapshots = snapshots_view(cloud)          # day / cumulative P&L from equity
@@ -1096,7 +1148,7 @@ async def screener_daily_snapshots():
 
 
 @router.get("/screener/monitor/sessions")
-async def screener_sessions():
+async def screener_sessions(book: Optional[str] = Depends(_book_param)):
     """What each session decided, for the current book.
 
     The trade monitor uses this to mark the days the portfolio actually
@@ -1104,7 +1156,7 @@ async def screener_sessions():
     next session's open, so the two are different days.
     """
     try:
-        cloud = _cloud_or_none()
+        cloud = _cloud_or_none(book)
         if cloud:
             df = cloud.read_sessions()
             if not df.empty:
@@ -1116,10 +1168,10 @@ async def screener_sessions():
 
 
 @router.get("/screener/monitor/signal-log")
-async def screener_signal_log():
+async def screener_signal_log(book: Optional[str] = Depends(_book_param)):
     """Get signal audit log for backtest-vs-live comparison."""
     try:
-        cloud = _cloud_or_none()
+        cloud = _cloud_or_none(book)
         if cloud:
             df = cloud.read_signals()
             if not df.empty:
@@ -1179,10 +1231,10 @@ async def screener_signal_log():
 
 
 @router.get("/screener/monitor/weekly-checkpoints")
-async def screener_weekly_checkpoints():
+async def screener_weekly_checkpoints(book: Optional[str] = Depends(_book_param)):
     """Get weekly performance checkpoints."""
     try:
-        cloud = _cloud_or_none()
+        cloud = _cloud_or_none(book)
         if cloud:
             df = cloud.read_weekly()
             if not df.empty:
@@ -1196,12 +1248,12 @@ async def screener_weekly_checkpoints():
 
 
 @router.get("/screener/monitor/daily-detail/{date}")
-async def screener_daily_detail(date: str):
+async def screener_daily_detail(date: str, book: Optional[str] = Depends(_book_param)):
     """Get full drill-down for a single trading day."""
     import json as _json
     try:
         # 1. Snapshot for this date
-        cloud = _cloud_or_none()
+        cloud = _cloud_or_none(book)
         snapshot = None
         snapshot_detail = {}
         if cloud:
@@ -2435,9 +2487,8 @@ async def rag_query(
 ):
     """SSE streaming RAG query with real token-by-token LLM output.
 
-    Uses ``query_stream()`` — the same streaming pipeline as the
-    Streamlit UI — so retrieval, context-building, and LLM generation
-    are identical.
+    Uses ``query_stream()``, the engine's streaming pipeline, so retrieval,
+    context-building and LLM generation match the non-streaming query.
     """
     engine = get_rag_engine()
     rag_enabled = rag.lower() == "true"
@@ -2462,8 +2513,7 @@ async def rag_query(
         try:
             source_filter = source_ids[0] if source_ids and len(source_ids) == 1 else None
 
-            # Use query_stream() — real token-by-token streaming,
-            # identical pipeline to Streamlit UI.
+            # Use query_stream() — real token-by-token streaming.
             stream_gen = engine.query_stream(q, source_filter=source_filter)
 
             # query_stream() is a blocking generator; iterate in a

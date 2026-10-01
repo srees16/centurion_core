@@ -1956,7 +1956,7 @@ class PDFIngestionService:
         extra_metadata: Optional[Dict[str, Any]] = None,
         progress_callback: Optional[Callable[[str, float], None]] = None,
     ) -> Dict[str, Any]:
-        """Ingest a PDF from raw bytes (e.g. Streamlit file uploader).
+        """Ingest a PDF from raw bytes (e.g. an uploaded file).
 
         Args:
             file_name: Original file name.

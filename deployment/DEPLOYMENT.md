@@ -110,9 +110,6 @@ Create a `.env` file for sensitive configurations:
 # ALPHA_VANTAGE_KEY=your_key
 # NEWS_API_KEY=your_key
 
-# Application Settings
-STREAMLIT_SERVER_PORT=9000
-STREAMLIT_SERVER_HEADLESS=true
 ```
 
 Update Dockerfile to use env file:

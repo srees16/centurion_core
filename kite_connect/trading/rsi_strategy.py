@@ -8,7 +8,7 @@ bullish close reversal; SELL signals when RSI > 70 with a bearish reversal.
 Auto-placement is long-only CNC swing: daily candles only, BUY via
 ``order_service`` plus a GTT stop, SELL only exits an existing holding.
 
-Designed to be called from the Streamlit UI or run standalone via CLI.
+Designed to be called from the API or run standalone via CLI.
 """
 
 import sys

@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 01 Oct 2026, 17:19 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 01 Oct 2026, 18:59 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -78,8 +78,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
    report Sat 3 Oct.  Live capital will be Rs 30L.
    Second book (D1, on main 27 Sep 23:06): candidate 2d64ba4c (neutral
    0.6) from Rs 35L, first session Mon 28 Sep, bought 29 Sep (backtest
-   replay +0.97% to 30 Sep); emails labelled [candidate 2d64ba4c]; not on
-   the monitor until G12.  Session 30 ~11 Nov, 60 ~24 Dec.
+   replay +0.97% to 30 Sep); emails labelled [candidate 2d64ba4c]; on the
+   monitor's book selector (G12).  Session 30 ~11 Nov, 60 ~24 Dec.
    Third book (D5, U26): e4 93cf6c4d (exit rank 60 + refill exits) from
    Rs 35L, first session Mon 5 Oct; emails [e4 93cf6c4d].  Session 60
    ~early Jan.  More books: add config/nse_engine_<book>.json.
@@ -219,6 +219,11 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
         Until then: G4 verdicts from session 30 (~late Oct) in every daily
         email; "diagnose G4" if FAIL.  Daily Kite login (U23) - a missed
         login is a missed session, which is tracking error.
+        Readiness 1 Oct 17:30: paper 10/60 sessions (equity +0.59%); G4 from
+        session 30; dry runs 0/5, the first tonight 19:00; today's login
+        cannot be checked from outside (the Space's /auth/status is its
+        own session, cleared by every redeploy) - the dry-run email says
+        "no login today" if the token is missing.
 #2  [ ] P1  V3   Forward-gate decisions pick the live configuration: candidate
                  ~24 Dec, e4 ~early Jan ("promote --check").  R12's OOS says
                  exit rank 60 cuts MaxDD 20.9% -> 17.2% (Calmar 1.0 -> 1.27);
@@ -230,10 +235,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 #4  [ ] P2  U28  Short sleeve in single-stock futures (NSE F&O archive).
                  Largest potential (the route to Sharpe 1.5), longest lead
                  (weeks of build, no trial until then).  Your go/no-go.
-#5  [ ] P3  G12  Book selector on the monitor (deployed, candidate, e4).
-                 Convenience only.                              Prompt: do G12
-#6  [ ] P3  R6   R21A rules as signal groups (+/-0.1 Sharpe)    Prompt: do R6
-#7  [ ] P3  R9   Universe size 150 / 300 / 500 (+/-0.1)        Prompt: do R9
+#5  [ ] P3  R6   R21A rules as signal groups (+/-0.1 Sharpe)    Prompt: do R6
+#6  [ ] P3  R9   Universe size 150 / 300 / 500 (+/-0.1)        Prompt: do R9
  NOT DOING  leverage (L4/E3: 25% only with Sharpe < 1.2, Calmar down),
             parameter grids (near-duplicate trials), core risk share up
             (measured: Sharpe 1.03, MaxDD -34%), a NIFTY sleeve (R5: +0.5
@@ -260,13 +263,46 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              finds MTF unusable and you accept MaxDD 40%+.        Prompt: do L2
 [ ] P3  G12  Book selector on the monitor: earlier books, and the candidate
              book (Neon schema "candidate", D1).             Prompt: do G12
-[ ] P3  C5   Streamlit removal (reverted; name the unused parts). Prompt: do C5
-[ ] P3  C9   Mark docs/realistic_performance_estimate.md (Apr, R21A)
-             superseded by section 1.                             Prompt: do C9
 
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+1 Oct   C9   docs/realistic_performance_estimate.md (Apr, R21A) marked
+             superseded: banner pointing to section 1 and the validation
+             plan; body kept for the record.
+1 Oct   C5   Streamlit removed (your decision, after the inventory).  Why the
+             17 Sep removal broke: api/main.py imports auth.shared_session,
+             and auth/__init__.py eagerly imported the Streamlit
+             authenticator, so the API could not start without Streamlit.
+             auth/__init__.py no longer imports it.  Static reachability
+             from the 104 real entry points (API, scheduler, paper runner,
+             workflow modules, tests) found 23 files / 12,828 lines reached
+             only by the Streamlit scripts: deleted (app.py, ui/ except
+             ui/assets/centurion_logo.png - the API favicon - auth/
+             authenticator.py, kite_connect/zerodha_live.py, the RAG
+             Streamlit page + rag_pipeline/ui + llm/code_applier.py,
+             services/app/session.py + analysis.py), with .streamlit/ and
+             kite_connect.core.config.REFRESH_INTERVAL (dead).  streamlit
+             and plotly dropped from requirements.txt (no other users).
+             53 comments / docs reworded; no Streamlit reference left
+             outside this log.  Every page has a Next.js counterpart.
+             Live /login unaffected: it calls /api/v1/auth/* in api/auth.py
+             (bcrypt, auth/credentials.yaml); checked with Streamlit
+             blocked from import: login 401 on bad credentials, me 401,
+             logout 200; API, scheduler, paper runner, daily login and
+             live session all import.  Frontend repo untouched.
+1 Oct   G12  Book selector on the trade monitor (both repos).  API: GET
+             /screener/monitor/books lists the books from config/
+             nse_engine_*.json (label = book + fingerprint); the seven
+             monitor endpoints take ?book=<book>, validated by a FastAPI
+             dependency (unknown 404, no Neon 503, before the handlers'
+             catch-all); each book gets its own PaperCloudSync on its
+             schema, cached; no param = deployed, unchanged.  Frontend: a
+             select in the page header (also ?book= in the URL) threaded
+             through the hooks and the two panels; query keys include the
+             book.  Verified with FastAPI's test client (404/503/200 paths,
+             schemas deployed=None / candidate / e4) and tsc.  Suite 109
+             both envs.  Live after both repos merge.
 1 Oct   D2   Haircut beside every validation.  validate re-simulates the
              run twice here, unrecorded (as recorded; every fill 1 session
              late + impact model x2, R8's stress), applies the difference to

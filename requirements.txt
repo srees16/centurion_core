@@ -12,8 +12,6 @@ openpyxl
 transformers
 torch
 plyer
-streamlit
-plotly
 scikit-learn
 matplotlib
 statsmodels

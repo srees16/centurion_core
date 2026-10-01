@@ -6,7 +6,7 @@ lazy re-exports below cover the most-used entry points.
 
 Sub-packages
 ------------
-  app/                – Streamlit app services: analysis runs, session, cache
+  app/                – in-process response cache
   decision_engine/    – Rules engine for trade decisions
   execution/          – Order execution, overlays and strategy runners
   market_data/        – Bhavcopy, delivery, corporate actions, events
@@ -23,7 +23,7 @@ Sub-packages
   technical_analysis/ – RSI, MACD, Bollinger, Supertrend aggregator
 
 The NSE engine that paper- and live-trades is a separate package
-(``nse_engine/``); these services support research and the Streamlit app.
+(``nse_engine/``); these services support research and the API.
 """
 
 from __future__ import annotations

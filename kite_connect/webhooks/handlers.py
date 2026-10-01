@@ -120,7 +120,7 @@ class NSEMarketStatusMonitor:
     """
     Monitors NSE market status and dispatches MARKET_* events.
 
-    Instead of checking NSE status on every Streamlit page render,
+    Instead of checking NSE status on every request,
     this runs a background poller (every 60 s) and only fires an
     event when the status *changes*.
 
@@ -161,7 +161,7 @@ class NSEMarketStatusMonitor:
 
     @property
     def pill_class(self) -> str:
-        """CSS pill class for Streamlit UI."""
+        """CSS pill class for the market-status badge."""
         with self._lock:
             return self._current_pill
 
@@ -236,12 +236,12 @@ class NSEMarketStatusMonitor:
 
 
 # ═══════════════════════════════════════════════════════════════
-# 3. UI Tick Cache — thread-safe cache for Streamlit reads
+# 3. UI Tick Cache — thread-safe cache for UI reads
 # ═══════════════════════════════════════════════════════════════
 
 class UITickCache:
     """
-    A lightweight cache that the Streamlit UI reads from instead
+    A lightweight cache that UI reads use instead
     of calling kite.quote().
 
     Updated by TICK_BATCH events from the dispatcher.

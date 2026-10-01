@@ -152,7 +152,7 @@ def main():
     print("\n" + "=" * 60)
     print(" Database setup completed successfully!")
     print("=" * 60)
-    print("\nYou can now run: streamlit run app.py")
+    print("\nYou can now start the API: python run_api.py")
     print("Analysis results will be automatically saved to the database.\n")
     
     return 0
