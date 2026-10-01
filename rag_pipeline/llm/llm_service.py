@@ -208,7 +208,7 @@ class OllamaLLMBackend:
     prevents the old 600 s hard-hang.
 
     ``generate_stream()`` additionally **buffers** tokens and yields
-    them every ~1–2 s so the Streamlit UI refreshes smoothly without
+    them every ~1–2 s so the client refreshes smoothly without
     per-token overhead.
     """
 
@@ -357,7 +357,7 @@ class OllamaLLMBackend:
         """Stream tokens from Ollama's chat API with **two-tier timeout**.
 
         Tokens are buffered internally and flushed to the caller every
-        ~1–2 seconds (``_STREAM_FLUSH_INTERVAL``) so the Streamlit UI
+        ~1–2 seconds (``_STREAM_FLUSH_INTERVAL``) so the client
         refreshes smoothly without per-token rerender overhead.
 
         Two-tier timeout behaviour

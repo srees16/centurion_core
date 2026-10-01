@@ -1,5 +1,12 @@
 # Realistic Performance Estimate — Centurion Core
 
+> **Superseded (1 Oct 2026).** This April estimate describes the legacy R21A
+> system (55% vol target, 4× leverage), which no longer trades. For the NSE
+> engine that does, see `ACTION_TRACKER.txt` section 1 (*Where we stand*: the
+> recorded backtest, walk-forward and measured live haircut) and
+> `docs/nse_engine_validation_plan.md` (sections 5o and 6). Kept unchanged
+> below for the record.
+
 *Generated: 2026-04-02 | Revised with current parameters (55% vol target, 4× leverage, 2012–2025 window)*
 *Methodology: First-principles Sharpe-to-CAGR with position-sizing mechanics verification*
 *Perspective: Independent quantitative assessment (RenTec/Jane Street framework)*

@@ -9,7 +9,7 @@ Resolves ALL 5 gaps identified in the backtest-to-live bridge:
   G5: R22 infusion trigger    → alert on bull crossover
 
 Designed to be called once per trading day (9:30 AM IST) from the
-scheduler or manually from the Streamlit UI.
+scheduler or manually from the API.
 
 Usage::
 

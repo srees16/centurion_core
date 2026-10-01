@@ -1,1 +1,1 @@
-"""Services for the Streamlit app: analysis runs, session state, caching."""
+"""In-process response cache for the API."""

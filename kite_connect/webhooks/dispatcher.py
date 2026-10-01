@@ -2,7 +2,7 @@
 Internal webhook dispatcher for Centurion Core.
 
 Routes real-time market events from the Kite WebSocket ticker to
-registered subscribers (DB updater, Streamlit UI cache, alert manager, etc.)
+registered subscribers (DB updater, UI tick cache, alert manager, etc.)
 without any HTTP overhead — all callbacks are in-process.
 
 Thread-safe: the WebSocket runs on a background thread, so all subscriber
@@ -30,7 +30,7 @@ class WebhookDispatcher:
     """
     In-process event dispatcher.
 
-    Replaces the polling loop — instead of every Streamlit fragment
+    Replaces the polling loop — instead of every UI read
     calling ``kite.quote()`` on a timer, the WebSocket pushes ticks
     and the dispatcher fans them out to all registered handlers.
 
