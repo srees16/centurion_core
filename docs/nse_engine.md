@@ -21,7 +21,9 @@ Scope: NSE equities and NSE-listed metal ETFs only. No BTC, US stocks or options
   schedule; the metal-sleeve ETFs pay ETF STT (none on gold, 0.001% on the
   sell side for silver) rather than the 0.1% a side on shares (cost model 2,
   U25; every run records `cost_model`, and runs are compared only within one
-  version). Gross exposure is at most 1 (CNC); idle cash earns a yield.
+  version). An ETF's open is often a stray first trade, so an ETF fills at
+  its open held within 3% of the day's close (cost model 3, D4). Gross
+  exposure is at most 1 (CNC); idle cash earns a yield.
 - **Honest statistics.** Sharpe uses excess returns over the risk-free rate
   and sqrt(252); CAGR compounds over calendar years (days / 365.25) in the
   engine, the validation reports and the paper book alike — never sessions
@@ -40,6 +42,14 @@ Scope: NSE equities and NSE-listed metal ETFs only. No BTC, US stocks or options
   on the honest baseline (E2, 27 Sep 2026): at 20/30/35% it lifts Calmar
   0.92 → 0.99 and trims MaxDD 24.7% → 23.2% with CAGR unchanged; at 15/25/30%
   it whipsaws through 2015 and lowers Calmar to 0.86.
+- **Sleeve trend confirmation (opt-in, not adopted).**
+  `sleeves.trend_confirm_days` > 1 lets a metal sleeve enter or leave its
+  trend only after that many closes in a row on the other side of its
+  average (the regime gate's hysteresis). Default 1 = the close alone,
+  hash-neutral. Tested at 3 (R13, 1 Oct 2026): gold round trips of 20
+  sessions or less fell from 22 to 8 and MaxDD by 1.6 points, but Sharpe
+  fell 0.04 and CAGR 0.3 points, so it failed its pre-registered rule
+  (`docs/nse_engine_validation_plan.md` section 5i).
 - **Anchor independence (opt-in).** With the legacy settings a decision
   depends on where the data was loaded from: rebalance, universe-refresh and
   FDM-refresh days were counted from the first loaded row, forecast

@@ -12,7 +12,8 @@ Timeline of one backtest day ``u``
 4. Orders decided at close ``u - 1 - lag_days`` fill at ``open_u``: sells
    first, then buys with the available cash (scaled down if insufficient),
    each capped at ``max_participation`` of the median traded value known at
-   the decision, with impact and statutory costs.
+   the decision, with impact and statutory costs.  An ETF's open is held
+   within ``ETF_OPEN_BAND`` of the close (:func:`costs.fillable_open`).
 5. Intraday stops: ``low_u <= stop`` fills at ``min(open_u, stop)``.
 6. Mark to market at the close (last close for suspended symbols).
 7. After the close, :func:`generate_targets` produces the next targets; stops
@@ -37,7 +38,7 @@ import pandas as pd
 
 from nse_engine.allocator import allocate, basket_vol
 from nse_engine.config import EngineConfig
-from nse_engine.costs import median_traded_value, simulate_fill, COST_MODEL_VERSION
+from nse_engine.costs import fillable_open, median_traded_value, simulate_fill, COST_MODEL_VERSION
 from nse_engine.drawdown import NORMAL as DD_NORMAL, DrawdownDecision, DrawdownTracker, summarise as dd_summarise
 from nse_engine.metrics import compute_metrics
 from nse_engine.portfolio import (
@@ -91,7 +92,7 @@ class EngineCache:
 
         close_df = data.close.astype("float64")
         self.close = close_df.to_numpy()
-        self.open = data.open.to_numpy(dtype="float64")
+        self.open = fillable_open(data.open, data.close, data.etfs).to_numpy(dtype="float64")
         self.high = data.high.to_numpy(dtype="float64")
         self.low = data.low.to_numpy(dtype="float64")
         self.close_ffill = close_df.ffill().to_numpy()
