@@ -812,14 +812,14 @@ class EngineExecutor:
     @staticmethod
     def _open_quotes(view, symbols, adv_lookback: int) -> Dict[str, dict]:
         """{symbol: {open (last session), adv (median traded value at the previous session)}}."""
-        from nse_engine.costs import median_traded_value
+        from nse_engine.costs import fillable_open, median_traded_value
 
         cols = [s for s in dict.fromkeys(symbols) if s in view.close.columns]
         if not cols or not len(view.dates):
             return {}
         adv = median_traded_value(view.value[cols], adv_lookback)
         adv_row = adv.iloc[-2] if len(adv) >= 2 else adv.iloc[-1] * np.nan
-        opens = view.open[cols].iloc[-1]
+        opens = fillable_open(view.open[cols].iloc[-1:], view.close[cols].iloc[-1:], view.etfs).iloc[-1]
         return {s: {"open": float(opens[s]), "adv": float(adv_row[s])} for s in cols}
 
     def run_paper_session(self, as_of=None) -> dict:

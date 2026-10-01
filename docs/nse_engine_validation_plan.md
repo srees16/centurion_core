@@ -460,6 +460,142 @@ under model 1 and are not re-run: every configuration carries the same sleeve,
 so choices between them do not change, and their levels are about 0.3 points
 of CAGR conservative.
 
+## 5i. Metal sleeve trend confirmation (R13, 1 Oct 2026)
+
+On 29 Sep the deployed paper book sold its gold sleeve (28% of the book) at
+a loss of ₹29,662 after one close below the 200-day average, 8 sessions
+after buying it; gold closed back on the average the next day. The recorded
+2013–25 backtest of 679cbd0c shows the same pattern: 22 of its 34 gold round
+trips lasted 20 sessions or less and together cost about 1% of the book a
+year (excluding one trade filled at a stray opening print, tracker D4),
+while the longer trends made +18.9% of the book.
+
+**Pre-registered 1 Oct 2026, 00:06 IST, before any run.** One variant, no
+grid: `sleeves.trend_confirm_days = 3`. A sleeve enters its trend only after
+3 closes in a row above the average and leaves it only after 3 in a row
+below, the regime gate's own `confirm_days` and hysteresis
+(`apply_hysteresis`). The default of 1 is the old rule and keeps every
+config hash.
+
+Primary comparison: the deployed engine 679cbd0c with and without the rule,
+both run on Kaggle in one job under cost model 2. It passes only if all four
+checks hold:
+
+| Check | Window | Rule |
+|---|---|---|
+| Excess Sharpe | 2013–25, anchor 2012-01-02 (fingerprint 6c94f4f4) | at least base + 0.02 |
+| CAGR (calendar years) | 2013–25 | at least the base |
+| MaxDD | 2013–25 | at most 1 point deeper |
+| MaxDD | 2007–25, `store_ext2006`, anchor 2006-01-02 | at most 1 point deeper |
+
+Reported, not gating: the candidate 2d64ba4c with and without the rule;
+gold and silver round trips of 20 sessions or less and their cost; sleeve
+turnover; excess Sharpe 2017–25; PBO and deflated Sharpe with the new
+configurations counted. A pass makes the rule eligible, not deployed: it
+changes the engine hash, so adopting it is your decision under the forward
+gate (U19, V3). A fail is logged and the flag stays in the code, off.
+
+**Result: FAIL.** Four backtests in one Kaggle job (Python 3.12.13, pandas
+2.3.3, the U25 image); the two bases reproduced their 30 Sep runs to 15
+significant digits. 679cbd0c → 87a481bb:
+
+| Check | Base | With the rule | Rule | Verdict |
+|---|---|---|---|---|
+| Excess Sharpe 2013–25 | 1.197 | 1.156 | at least 1.217 | FAIL (−0.040) |
+| CAGR 2013–25 | 23.63% | 23.32% | at least the base | FAIL (−0.31 pt) |
+| MaxDD 2013–25 | −23.1% | −21.5% | at most 1 pt deeper | PASS (1.6 pts shallower) |
+| MaxDD 2007–25 (cost model 3, both) | −37.7% | −38.2% | at most 1 pt deeper | PASS (0.5 pt deeper) |
+
+The rule did what it was built for: gold round trips of 20 sessions or less
+fell from 22 (−1.22% of the book a year) to 8 (−0.79%), the sleeves' own P&L
+over 2013–25 rose from +4.1% to +6.0% of the book, sleeve turnover fell from
+2.9× to 1.7× equity a year and total costs from 2.80% to 2.44% a year.
+Calmar rose from 1.02 to 1.09. The book still earned less: most years moved
+by ±2 points, and two moved by more, both on the stray opening prints of
+tracker D4. On 24 Dec 2020 the variant bought 26% of the book in gold at an
+open of 48.98 against a day's range of 43.6–43.7 (−2.8% of the book; 2020
+−8.1 points); on 18 Oct 2021 the base bought at 44.00 against a close of
+40.98 (−3.2%; 2021 +4.3 points for the variant). The two roughly cancel, so
+the verdict does not rest on them, but one stray print moves a single
+configuration by about 3% of the book.
+
+The 2007–25 check ran on Kaggle against `store_ext2006` after D4 (5j), so
+base and variant both use cost model 3; over 2007–25 the rule also lowered
+Sharpe (0.949 → 0.913) and CAGR (19.95% → 19.33%). Under cost model 3 the
+2013–25 comparison is 1.206 / 23.74% against 1.166 / 23.40%: the same verdict.
+
+Candidate 2d64ba4c → a80af9f5 (reported): Sharpe 1.201 → 1.163, CAGR 22.42%
+→ 22.25%, MaxDD −23.1% → −23.4%. With both variants counted, PBO over the
+58 same-window configurations is 47.6% (46.4% over 56), deflated Sharpe
+0.981 and 0.982, benchmark gate passed. Not adopted and not re-tuned:
+another hysteresis length would be fitted to these same whipsaws. The flag
+stays in the code, off and hash-neutral, so the runs reproduce.
+
+## 5j. Stray ETF opens: cost model 3 (D4, 1 Oct 2026)
+
+The backtest and the paper books fill orders at the next session's open. For
+the metal ETFs that open is often a stray first trade of a few units: on 24
+Dec 2020 GOLDBEES opened at 48.98 and traded at 43.58–43.73 for the rest of
+the day, and a sleeve bought there loses 2.8% of the book at once (R13, 5i).
+Measured on the 2013–25 panel, before any backtest:
+
+| Open more than 5% from the day's close | Share of days | At the day's high or low |
+|---|---|---|
+| Top-300 shares | 4.6% | 24% |
+| GOLDBEES, SILVERBEES | 2.0%, 1.0% | 88% |
+
+Shares open in the call auction and move a lot within a day, so their opens
+stay. The metal ETFs do not: gold's close-to-close move exceeds 2.95% on 1%
+of days, yet its open sits more than 3% from its close on 4.75%.
+
+**Fixed 1 Oct 2026, 00:37 IST, before any run.** An ETF's open is held within
+3% of the same day's close for every fill modelled at the open (orders, and
+the paper books' pending orders); shares are unchanged. The 3% is gold's
+99th-percentile daily move, set from the price data above, not from backtest
+results. Live orders are LIMIT orders around the previous close and are not
+affected. This is cost model 3; it is adopted on the data evidence, whatever
+it does to the backtests, and the 58 same-window configurations are re-run
+on Kaggle under it (no new trials), as for U25.
+
+**Result.** All 58 configurations re-ran in one Kaggle job (the U25 image,
+fingerprint 6c94f4f4); 154 GOLDBEES and 38 SILVERBEES opens are capped over
+2012–25, no share price changes. Model 2 → model 3, every configuration:
+
+| | Mean | Range |
+|---|---|---|
+| Excess Sharpe | +0.015 | 0.000 to +0.037 |
+| CAGR | +0.14 pt | −0.01 to +0.30 pt |
+| MaxDD | 0 | 0 |
+
+The ranking does not move (Spearman 0.998), so no earlier choice between
+configurations changes. Deployed 679cbd0c: Sharpe 1.206, CAGR 23.74%, MaxDD
+−23.1%, Calmar 1.03; candidate 2d64ba4c: 1.213 / 22.56% / −23.0%. PBO over
+the 58 is 48.6%, deflated Sharpe 0.989 and 0.990, benchmark gate passed for
+both. The paper books fill the metal ETFs the same way from their next
+session; live orders are unchanged.
+
+## 5k. Exit rank 60 out of sample (R12, 1 Oct 2026)
+
+In R7 (5g) lowering the exit rank from 40 to 60 names, alone, added 0.87
+point of CAGR and 0.09 of Sharpe and cut turnover 17%, but that was found in
+R7's own data. R12 asks whether a walk-forward picks it out of sample.
+
+**Pre-registered 1 Oct 2026, 10:30 IST, before any run.** Two walk-forwards
+on Kaggle under cost model 3, in parallel, identical except for the grid:
+B1 base (`bd79bf28`), anchored, 4-year minimum training, 12-month tests
+2017–25 (9 folds), data from 2012-01-02 (fingerprint 6c94f4f4), selection on
+training excess Sharpe as in K5.
+
+- Arm A, control: the K5 grid (32 points: group weights, stop 3/6 ATR,
+  rebalance 5/21, neutral 0.6/1.0, 20/30 positions).
+- Arm B: the same grid × `portfolio.exit_rank` {40, 60} (64 points).
+
+PASS needs both: arm B picks exit rank 60 in at least 5 of the 9 folds, and
+arm B's stitched OOS excess Sharpe 2017–25 is at least arm A's − 0.05.
+Reported, not gating: OOS CAGR, MaxDD and turnover of both arms, each fold's
+choice. A pass sends exit rank 60 to E4 (one combined configuration with
+refill exits); a fail closes R12 and E4 tests refill exits alone.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast

@@ -6,6 +6,9 @@ name: Kite login reminder
 # logged in, on NSE trading days while CENTURION_LIVE_MODE is 'dry_run' or
 # 'live'.  The link opens Zerodha's own login page; Zerodha then redirects to
 # the HF Space (/ind-stocks/auth/callback), which stores the day's token.
+# GitHub delivered these crons 5-7 hours late (29-30 Sep 2026), so the HF
+# Space's scheduler dispatches this workflow at 09:00 and 17:30 IST on time;
+# the crons stay as backups (no email once today's login exists).
 
 on:
   schedule:

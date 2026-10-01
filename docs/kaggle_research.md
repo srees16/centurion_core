@@ -122,6 +122,20 @@ The file holds `[{"config": {...}, "tag": "..."}, ...]` (each run's
 pulled runs with `wf_stitch import-runs`. `validate` falls back to the local
 store for runs that recorded a `/kaggle/...` store path.
 
+## A second store (the 2006 crash window)
+
+A kernel attaches one store. Checks over 2007–25 need `store_ext2006`
+(tracker K4, R4), uploaded as its own dataset once:
+```bash
+python -m cloud.kaggle_local push-store --store-dir data/nse_engine/store_ext2006 \
+  --slug centurion-nse-store-ext2006
+python -m cloud.kaggle_local run --task configs --kernel-suffix ext \
+  --store-slug centurion-nse-store-ext2006 --args \
+  "--configs config/<file>.json --start 2007-01-01 --end 2025-12-31 --data-start 2006-01-02 --workers 4"
+```
+`push-store` without options still uploads `data/nse_engine/store` to the
+default dataset.
+
 ## Stage-A sweep
 
 ```bash

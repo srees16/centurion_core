@@ -42,6 +42,7 @@ HASH_NEUTRAL_DEFAULTS: Dict[Tuple[str, str], Any] = {
     ("regime", "crash_drawdown"): 0.25,
     ("regime", "crash_high_days"): 252,
     ("regime", "reentry_ma_days"): 50,
+    ("sleeves", "trend_confirm_days"): 1,
 }
 
 
@@ -187,6 +188,10 @@ class SleeveConfig:
     silver_enabled: bool = True
     trend_ma_days: int = 200
     min_history_days: int = 252
+    # Trend confirmation (tracker R13): a sleeve enters / leaves its trend only
+    # after this many closes in a row above / below the average (the regime's
+    # hysteresis).  1 = the close alone decides, as before.
+    trend_confirm_days: int = 1
 
 
 @dataclass(frozen=True)

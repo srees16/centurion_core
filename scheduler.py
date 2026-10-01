@@ -1542,6 +1542,49 @@ def _hf_paper_session_allowed() -> Tuple[bool, str]:
     return False, f"book_writer={writer or 'unset'}"
 
 
+def _github_dispatch(workflow: str, inputs: dict, token: str) -> int:
+    """Start a GitHub Actions workflow by ``workflow_dispatch``; returns the HTTP status (204 = started)."""
+    import urllib.request
+
+    repo = os.environ.get("CENTURION_GH_REPO", "srees16/centurion_core")
+    url = f"https://api.github.com/repos/{repo}/actions/workflows/{workflow}/dispatches"
+    body = json.dumps({"ref": os.environ.get("CENTURION_GH_REF", "main"), "inputs": inputs}).encode()
+    req = urllib.request.Request(url, data=body, method="POST", headers={
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "Content-Type": "application/json",
+    })
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return resp.status
+
+
+@_tracked_job("kite_login_reminder_dispatch", "Kite Login Reminder Dispatch")
+def _dispatch_kite_login_reminder():
+    """Start the Kite login reminder workflow at 09:00 / 17:30 IST, on time (U23).
+
+    GitHub's cron delivered it 5-7 hours late (29-30 Sep 2026: 15:30 and 23:15
+    IST), after the 19:00 session.  The workflow decides whether to email: live
+    mode on, an NSE trading day, and no token for today yet.
+    """
+    import urllib.error
+
+    token = os.environ.get("CENTURION_GH_DISPATCH_TOKEN", "")
+    if not token:
+        return
+    try:
+        http = _github_dispatch("kite-login-reminder.yml", {}, token)
+        logger.info("Kite login reminder dispatch: HTTP %s", http)
+        _save_run("kite_login_reminder_dispatch", {"status": "success" if http == 204 else "error", "http": http})
+    except urllib.error.HTTPError as exc:
+        detail = exc.read()[:200].decode("utf-8", "replace")
+        logger.error("Kite login reminder dispatch failed: HTTP %s %s", exc.code, detail)
+        _save_run("kite_login_reminder_dispatch", {"status": "error", "http": exc.code, "detail": detail})
+    except Exception as exc:                              # noqa: BLE001 - never kill the scheduler
+        logger.error("Kite login reminder dispatch failed: %s", exc)
+        _save_run("kite_login_reminder_dispatch", {"status": "error", "detail": str(exc)})
+
+
 @_tracked_job("nse_engine_dispatch", "NSE Engine Dispatch")
 def _dispatch_nse_paper_workflow():
     """Start the GitHub Actions paper session at 19:00 IST, on time.
@@ -1556,7 +1599,6 @@ def _dispatch_nse_paper_workflow():
     Space without the secret is simply quiet.
     """
     import urllib.error
-    import urllib.request
 
     def report(status: str, detail: str = "") -> None:
         """Leave a breadcrumb in Neon: the Space's own logs are not reachable
@@ -1588,23 +1630,13 @@ def _dispatch_nse_paper_workflow():
     if done and done >= today_ist:
         logger.info("NSE paper dispatch: session %s already processed, skipping", done)
         return
-    repo = os.environ.get("CENTURION_GH_REPO", "srees16/centurion_core")
     workflow = os.environ.get("CENTURION_GH_WORKFLOW", "nse-paper-trading.yml")
-    url = f"https://api.github.com/repos/{repo}/actions/workflows/{workflow}/dispatches"
-    body = json.dumps({"ref": os.environ.get("CENTURION_GH_REF", "main"),
-                       "inputs": {"reason": "hf scheduler 19:00 IST"}}).encode()
-    req = urllib.request.Request(url, data=body, method="POST", headers={
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {token}",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "Content-Type": "application/json",
-    })
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            ok = resp.status == 204
-        logger.info("NSE paper dispatch: %s (HTTP %s)", "started" if ok else "unexpected status", resp.status)
-        _save_run("nse_engine_dispatch", {"status": "success" if ok else "error", "http": resp.status})
-        report("dispatched" if ok else "unexpected_status", f"HTTP {resp.status}")
+        http = _github_dispatch(workflow, {"reason": "hf scheduler 19:00 IST"}, token)
+        ok = http == 204
+        logger.info("NSE paper dispatch: %s (HTTP %s)", "started" if ok else "unexpected status", http)
+        _save_run("nse_engine_dispatch", {"status": "success" if ok else "error", "http": http})
+        report("dispatched" if ok else "unexpected_status", f"HTTP {http}")
     except urllib.error.HTTPError as exc:                 # 401 token, 403 scope, 404 path, 422 body
         detail = exc.read()[:200].decode("utf-8", "replace")
         logger.error("NSE paper dispatch failed: HTTP %s %s", exc.code, detail)
@@ -3130,6 +3162,15 @@ def start_scheduler():
             misfire_grace_time=3600,
         )
         logger.info("  NSE paper start : 19:00 IST + retry 20:30 IST, Mon-Fri (GitHub Actions dispatch)")
+        for _job_id, _hour, _minute in (("kite_login_reminder", 9, 0), ("kite_login_reminder_evening", 17, 30)):
+            scheduler.add_job(
+                _dispatch_kite_login_reminder,
+                CronTrigger(hour=_hour, minute=_minute, day_of_week="mon-fri", timezone="Asia/Kolkata"),
+                id=_job_id,
+                name="Kite Login Reminder Dispatch",
+                misfire_grace_time=1800,
+            )
+        logger.info("  Kite login mail : 09:00 + 17:30 IST, Mon-Fri (GitHub Actions dispatch)")
 
     # ── NSE engine executor (opt-in: CENTURION_NSE_ENGINE=true) — 09:25 IST ──
     if os.environ.get("CENTURION_NSE_ENGINE", "false").lower() in ("true", "1", "yes"):

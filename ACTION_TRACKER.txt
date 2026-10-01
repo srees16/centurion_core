@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 30 Sep 2026, 23:46 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 01 Oct 2026, 10:00 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -21,7 +21,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
    Holdout 2026 (1 Jan-11 Sep)        1.04   26.9%*  -13.0%     -
    Stress: x2 costs + 1-day lag       0.97   20.4%   -22.6%   0.90
    2007-25 with 2008 (R4), B1 + rule  1.03   21.1%   -32.9%   0.64
-   Deployed, cost model 2 (U25, Kaggle) 1.20   23.6%   -23.1%   1.02
+   Deployed, cost model 3 (D4, Kaggle)  1.21   23.7%   -23.1%   1.03
    Walk-forward OOS 2008-25 (R4)      0.87   16.4%   -32.9%   0.50
    Paper since 17 Sep (10 sessions)    -     +0.59%   -3.5%     -   too early
      (same days: NIFTY 500 -2.0%, NIFTY 50 -2.6%; backtest replay +0.8%)
@@ -35,9 +35,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
    MaxDD 30%    YES outside crises (-24.7% in 2013-25).  A 2008-type crash
                 costs ~33% even with the drawdown rule (R4); accepted (U22).
    Calmar 1.0   BORDERLINE.  0.92 backtest, 1.05 OOS; more CAGR lowers it.
-   PBO 30%      NO.  46.4% over the 56 same-window configs (cost model 2,
-                30 Sep); rises with every trial.  Deflated Sharpe 0.987-
-                0.988 at N = 56 (gate 0.95).
+   PBO 30%      NO.  48.6% over the 58 same-window configs (cost model 3,
+                1 Oct, D4); rises with every trial.  Deflated Sharpe 0.989-
+                0.990 at N = 58 (gate 0.95).
 
  REALISTIC LIVE OUTCOME  (central, range)   Sharpe    CAGR     MaxDD    Calmar
    A  as deployed, gross 0.88               0.95    19 (16-22) 27 (25-33)  0.70
@@ -148,38 +148,13 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              GitHub/HF secret uses it.  kaggle.com/settings/api: revoke,
              "Generate New Token", save over the file, chmod 600.  Test:
              myenv/bin/python -m cloud.kaggle_local check  (shows
-             "authenticated_as": "srees16" when the new token works)
-[!] P1  U24  One-time setup for the live login (U23) and the Oracle static
-             IP; full guide: deployment/oracle-proxy/README.md.
-             1. Oracle Cloud: account in Mumbai, convert to Pay As You Go
-                (still $0; stops idle reclamation), Ubuntu VM on an Always
-                Free shape, reserved public IP attached.
-             2. Tunnel key on your machine (never in chat):
-                ssh-keygen -t ed25519 -N "" -C centurion-kite-tunnel -f kite_tunnel
-                then on the VM: sudo bash setup_tunnel_user.sh "<kite_tunnel.pub>"
-                (it prints the three values for step 4).
-             3. developers.kite.trade: IP Whitelist = the reserved IP;
-                Redirect URL = https://srees16-centurion-core.hf.space/
-                ind-stocks/auth/callback
-             4. GitHub secrets: CENTURION_PROXY_SSH_KEY (private key file),
-                CENTURION_PROXY_HOST, CENTURION_PROXY_HOST_KEY (printed),
-                ZERODHA_API_KEY, CENTURION_KITE_TOKEN_KEY.  Variables:
-                CENTURION_KITE_STATIC_IP (printed), CENTURION_LIVE_CAPITAL=
-                600000, then CENTURION_LIVE_MODE=dry_run.
-             5. Token key (never in chat): python -c "from cryptography.
-                fernet import Fernet; print(Fernet.generate_key().decode())"
-                -> CENTURION_KITE_TOKEN_KEY in GitHub AND the HF Space; also
-                HF: CENTURION_KITE_USER_ID (your client ID); check
-                ZERODHA_API_KEY/SECRET and CENTURION_DATABASE_URL exist.
-             6. Test: run "Kite login reminder" by hand (force) and log in.
-[!] P1  U12  Click Resolve on two Sentry issues (All Environments; events
-             are tagged "development").  Both fixes verified 30 Sep:
-             CENTURION-CORE-3Y "Kite session not active": last event 17 Sep
-             20:47 IST, before its fix (21:58 IST), none since.
-             CENTURION-CORE-3Z Vince chapter 3: last event 27 Sep 23:23 IST
-             (old container during the deploy); chapter 3 re-run on the
-             live Space 30 Sep 22:40 IST: done, 4 charts, no new event.
-
+             "authenticated_as": "srees16" when the new token works).
+             Wait until R13's 2007-25 Kaggle job has been pulled (1 Oct).
+[!] P1  U23  Log in to Kite once every trading day: tap the link in the
+             09:00 / 17:30 IST email (valid until 06:00 next day).  The first
+             live dry run is Thu 1 Oct 19:00 IST (Fri 2 Oct is a holiday);
+             it needs that day's login.  Check its email ("live dry run");
+             5 clean dry runs are part of go-live readiness (D3).
 --------------------------------------------------------------------------------
  5. IN PROGRESS [~]
 --------------------------------------------------------------------------------
@@ -192,44 +167,52 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
  6. QUEUE — do #1 first.  Every item: pass rule fixed before running, every
     backtest recorded, no tuning on 2026 data, CAGR on calendar years.
 --------------------------------------------------------------------------------
- PHASE 0   protect the book, fix the measurement            DONE 28 Sep (G4)
- PHASE 1   decide the exposure: one pre-registered trial each     DONE 28 Sep (R4)
- PHASE 2   costs                                                            Nov
-#1  [ ] P3  X1   Execution: limit-at-open / sliced fills after G4 Prompt: do X1
-        Needs >= 30 real fills first; worth <= +0.1 Sharpe.
- PHASE 3   paper -> live ladder                                       Nov -> Feb
- PHASE 4   research that might move Sharpe (each adds trials)          parallel
-#2  [ ] P2  R13  Metal sleeve: confirm the trend exit (G16)       Prompt: do R13
-        Gold round trips of <= 20 sessions cost ~1.0% of book a year in
-        2013-25 (21 whipsaws, excluding one bad-print trade, D4); longer
-        gold trends made +18.9%.  Paper hit one on 29 Sep (-Rs 29,662).
-        Proposed rule (change first if you like): the sleeve enters /
-        exits only after 3 closes in a row above / below its 200-day
-        average (the regime's own confirm_days; one value, no grid).
-        Pass: Kaggle, cost model 2, 2013-25 Sharpe >= base + 0.02 and
-        CAGR >= base; MaxDD no more than 1 pt deeper in 2013-25 and
-        2007-25 (store_ext2006).  Off by default, hash-neutral.
-#3  [ ] P3  R12  Exit rank 60 alone (seen in R7, not tested)      Prompt: do R12
-        In R7 the exit-rank change alone did better than the pre-registered
-        combination in both books (CAGR +0.9 pt, Sharpe 2017-25 +0.09 /
-        +0.11, turnover -17%, MaxDD up to 1.6 pts deeper).  Found in R7's
-        own data, so it needs evidence R7 did not see: a walk-forward with
-        exit_rank {40, 60} in the grid, or paper.  Pre-register first.
-#4  [ ] P3  R6   R21A rules as signal groups (+/-0.1)             Prompt: do R6
-#5  [ ] P3  R9   Universe size 150 / 300 / 500                    Prompt: do R9
-        Deploy a Phase-4 winner only on a pre-registered +0.15 OOS Sharpe,
-        then >= 60 sessions in a paper slot.  Sharpe 1.5 needs a new return
-        stream (short side, futures, options, intraday): data we do not have.
+ TARGET (your decision 1 Oct)   CAGR > 25% | Sharpe > 1.2   (was 1.5)
+ Backtest today (cost model 3): 1.21 / 23.7%.  Gap 1.3 pt CAGR.  Live
+ estimate 0.95 / 19%: the haircut is the bigger gap.  Two halves:
+
+ HALF 1  close the backtest gap with changes already measured        Oct
+   Stacked estimate: ~25.5% CAGR, Sharpe ~1.25-1.3.  One trial each.
+#1  [~] P1  R12  Exit rank 60: walk-forward with exit_rank {40, 60}
+                 in the K5 grid (Kaggle, ~35 min).                Prompt: do R12
+        Pass: 60 chosen in most folds, OOS Sharpe 2017-25 >= base - 0.05.
+        Evidence so far (R7, its own data): +0.9 pt CAGR, +0.09 Sharpe,
+        turnover -17%, MaxDD up to 1.6 pts deeper.
+#2  [ ] P1  E4   One combined config, no grid: exit rank 60 + refill
+                 exits on the deployed base.                      Prompt: do E4
+        Pass: CAGR >= 25%, Sharpe >= base, MaxDD at most 2 pts deeper,
+        turnover not higher.  Refill alone measured 24.7% / 1.21 (E1).
+        Needs R12 PASS.  Runs on Kaggle under the current cost model.
+#3  [ ] P1  D5   Third paper slot for the E4 winner (D1 made it a config
+                 file + workflow step).  60 sessions -> decision
+                 ~mid Jan; the forward gate (V3) decides.         Prompt: do D5
+        Needs E4 PASS.
+
+ HALF 2  cut the live haircut (worth more than any research item)   Nov ->
+#4  [ ] P1  G4   Read the paper gate from session 30 (~late Oct): tracking
+                 error <= 8%/yr, cost ratio <= 1.5x.  Nothing to run: it is
+                 in every daily email.  If FAIL, say "diagnose G4".
+#5  [ ] P1  D3   Go live at the Rs 6L rung (~mid Dec) once paper G4 PASS at
+                 60 sessions + 5 clean dry runs: set CENTURION_LIVE_CAPITAL
+                 =600000 and CENTURION_LIVE_MODE=live.  Real fills start.
+#6  [ ] P2  X1   Execution: limit-at-open / sliced fills.         Prompt: do X1
+        Needs >= 30 real fills (after #5).  Targets the modelled 2.8%/yr
+        cost drag; measured against the realised cost ratio.
+#7  [ ] P2  D2   OOS haircut beside validate results.             Prompt: do D2
+        Makes the backtest -> live haircut a number, not an estimate.
+
+ AFTER BOTH HALVES  only if E4 fails: a new return stream
+#8  [ ] P3  R5   NIFTY time-series-momentum sleeve.               Prompt: do R5
+#9  [ ] P3  R6   R21A rules as signal groups (+/-0.1)             Prompt: do R6
+#10 [ ] P3  R9   Universe size 150 / 300 / 500                    Prompt: do R9
+ NOT DOING  leverage (L4: every step lowers Sharpe), parameter grids (PBO
+            47.6% and rising), neutral 0.6 for CAGR (it buys Sharpe with CAGR).
 
 --------------------------------------------------------------------------------
  7. BACKLOG (after the queue)
 --------------------------------------------------------------------------------
-[ ] P3  U20  Refill exits (E1): decide ~24 Dec, when the candidate has 60
-             sessions.  E1 missed your 25% rule (24.68%) and U21 took the
-             second slot.  Then: (a) drop it; or (b) a pre-registered walk-
-             forward on top of the winning book (~35 min, ~300 trials, PBO
-             rises), then 60 paper sessions.  Sooner means a third paper
-             book (D1 made that a config file and a workflow step).
+[ ] P3  U20  Refill exits: now tested through E4 / D5 in the queue (was a
+             decision due ~24 Dec).  Drop it if E4 fails.
 [ ] P3  E3   MTF-levered variant: only after U20 (b), ~24 Dec.   Prompt: do E3
              Moved from the queue 28 Sep: it levers the refill variant,
              which is untested forward, and L4 found MTF not worth it at
@@ -243,18 +226,6 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              Sharpe within 0.05.
 [ ] P3  L2   NIFTY futures overlay: CLOSED on evidence.  Reopen only if L4
              finds MTF unusable and you accept MaxDD 40%+.        Prompt: do L2
-[ ] P3  D2   Show the OOS haircut beside validate results.        Prompt: do D2
-[ ] P3  D4   Stray opening prints in backtest and paper fills.   Prompt: do D4
-             Both fill at the bhavcopy open, which for thin ETFs is often
-             a stray first trade: GOLDBEES 137 sessions since 2012 with
-             the open > 3% off the previous close while the close moved
-             < 1.5% (SILVERBEES 9).  18 Oct 2021: open 44.00, close 40.98;
-             the backtest bought the sleeve there (-3.2% of book).  Live
-             orders are LIMIT around the reference, so live is not
-             exposed.  Fix idea: cap the modelled fill at the day's
-             close +/- a band when the open is an outlier; changes every
-             run's numbers, so it re-runs the registry on Kaggle.
-[ ] P3  R5   NIFTY time-series-momentum sleeve.                   Prompt: do R5
 [ ] P3  G12  Book selector on the monitor: earlier books, and the candidate
              book (Neon schema "candidate", D1).             Prompt: do G12
 [ ] P3  C5   Streamlit removal (reverted; name the unused parts). Prompt: do C5
@@ -264,6 +235,51 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+1 Oct   U23b Login email on time.  GitHub ran the reminder's crons 5-7
+             hours late (29-30 Sep: 15:30 and 23:15 IST, after the 19:00
+             session), so 1 Oct's 09:03 mail never came.  The HF Space now
+             dispatches kite-login-reminder.yml at 09:00 and 17:30 IST,
+             Mon-Fri, as it already does the 19:00 paper session (same
+             token); the workflow still mails only on NSE trading days
+             without a login.  GitHub crons stay as backups.  scheduler.py.
+1 Oct   D4   Stray ETF opens fixed: cost model 3.  The metal ETFs often
+             open on a stray first trade (GOLDBEES 24 Dec 2020: open 48.98,
+             rest of the day 43.6-43.7); shares open in the call auction.
+             Fixed 00:37 IST before any run, from price data only: an ETF's
+             open is held within 3% of the day's close for fills (backtest
+             and paper books); shares untouched, live orders unchanged.
+             154 GOLDBEES and 38 SILVERBEES opens capped 2012-25.  58
+             configs re-run on Kaggle (no new trials): Sharpe +0.015, CAGR
+             +0.14 pt on average, MaxDD unchanged, ranking unchanged
+             (0.998).  Deployed 1.206 / 23.74% / -23.1% / Calmar 1.03;
+             candidate 1.213 / 22.56%.  PBO 48.6% (58), DSR 0.989-0.990,
+             gate passed.  costs.fillable_open; plan 5j.  Suite 108 both envs.
+1 Oct   U12  You resolved CENTURION-CORE-3Y (Kite session not active) and
+             3Z (Vince chapter 3) in Sentry.  Both fixes were verified 30
+             Sep; a recurrence reopens them as regressions and emails you.
+30 Sep  U24  Your one-time setup for the live login and static IP, done:
+             Oracle VM (Mumbai, Always Free, reserved IP), tunnel key and
+             locked-down user, Kite IP whitelist and redirect URL, GitHub
+             and HF secrets and variables; the login reminder email
+             arrived.  Guide: deployment/oracle-proxy/README.md.
+1 Oct   R13  Metal sleeve trend confirmation: FAIL.  Pre-registered 00:06
+             IST before any run: sleeves.trend_confirm_days = 3 (enter /
+             leave the trend after 3 closes in a row, the regime's own
+             hysteresis), one value.  Kaggle, cost model 2, one job, bases
+             reproduced to 15 digits.  679cbd0c -> 87a481bb, 2013-25:
+             Sharpe 1.197 -> 1.156 (needed +0.02: FAIL), CAGR 23.63% ->
+             23.32% (FAIL), MaxDD -23.1% -> -21.5% (PASS), Calmar 1.02 ->
+             1.09.  Short gold trips 22 -> 8, sleeve P&L +4.1% -> +6.0% of
+             book, sleeve turnover 2.9x -> 1.7x, costs 2.80% -> 2.44%/yr:
+             it cuts whipsaws and drawdown, not return.  Candidate the same
+             (1.201 -> 1.163).  The two biggest year gaps are stray gold
+             opens (D4), one against each book; they roughly cancel.  PBO
+             47.6% over 58, DSR 0.981-0.988.  Not adopted, not re-tuned;
+             flag stays off and hash-neutral.  kaggle_local can now upload
+             and attach a second store (push-store --store-dir --slug, run
+             --store-slug).  2007-25 on store_ext2006 (cost model 3, both):
+             MaxDD -37.7% -> -38.2% (PASS), Sharpe 0.949 -> 0.913.  Plan
+             section 5i; docs/nse_engine.md.
 30 Sep  G16  Paper books checked; the "fast loss" was the P&L display.
              The daily email and the monitor's day P&L bars showed only
              closed trades: -Rs 20,178 on 28 Sep and -Rs 49,839 on 29 Sep,
