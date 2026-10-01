@@ -12,8 +12,8 @@ Orchestrates the full pipeline:
 Signalâ†’Executor bridge: accepts analysis verdicts to filter
 execution to only high-conviction BUY / STRONG_BUY signals.
 
-Designed to be called from the Streamlit UI (sync) or from a
-scheduled background job.
+Designed to be called from the API (sync) or from a scheduled
+background job.
 """
 
 from __future__ import annotations

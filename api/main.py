@@ -121,7 +121,7 @@ def _get_authenticated_user(request: Request) -> dict | None:
         result = verify_session_token(token)
         if result:
             return result
-    # Fall back to shared SSO cookie (set by Streamlit)
+    # Fall back to the shared SSO cookie (set at login, auth/shared_session.py)
     shared = request.cookies.get(SHARED_COOKIE_NAME)
     if shared:
         return verify_shared_token(shared)
@@ -256,7 +256,7 @@ def create_app() -> FastAPI:
             samesite="lax",
             max_age=28800,
         )
-        # Shared SSO cookie (readable by Streamlit via JS)
+        # Shared SSO cookie (auth/shared_session.py)
         response.set_cookie(
             key=SHARED_COOKIE_NAME,
             value=shared_token,

@@ -6,7 +6,7 @@ This module wires together all webhook components after 2FA auth:
   1. KiteWebSocketService  — receives real-time ticks via WebSocket
   2. WebhookDispatcher     — fans out events to subscribers
   3. DBTickHandler         — writes ticks to PostgreSQL
-  4. UITickCache           — thread-safe cache for Streamlit reads
+  4. UITickCache           — thread-safe cache for UI reads
   5. NSEMarketStatusMonitor — background market session tracker
   6. SessionWatchdog       — monitors connection health
 
@@ -129,7 +129,7 @@ class WebhookService:
             "ui_tick_cache",
             [EventType.TICK_BATCH],
             self._ui_cache,
-            description="Thread-safe tick cache for Streamlit UI reads",
+            description="Thread-safe tick cache for UI reads",
         )
 
         if on_session_expired:

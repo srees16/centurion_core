@@ -20,7 +20,7 @@ module so that:
 Design constraints
 ──────────────────
 * No external cache infrastructure (Redis, Memcached) required.
-* Thread-safe for Streamlit's rare background-thread usage.
+* Thread-safe for background-thread usage.
 * Gracefully degrades when the database is unavailable — falls back to
   in-process cache only.
 """

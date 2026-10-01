@@ -20,7 +20,7 @@ User Query Embed Query ───────────────────
                                                               Ollama LLM (Mistral 7B) Grounded answer
 ```
 
-**Design:** Modular protocol/interface pattern — swap any component (embeddings, re-ranker, LLM, vector store) without touching the rest. Lazy model loading. Streamlit session-state singletons.
+**Design:** Modular protocol/interface pattern — swap any component (embeddings, re-ranker, LLM, vector store) without touching the rest. Lazy model loading. Process-level singletons.
 
 ---
 
@@ -34,9 +34,8 @@ pip install -r requirements.txt
 #    Download from https://ollama.com/download, then:
 ollama pull mistral
 
-# 3. Run (pick one)
-streamlit run app.py                      # as part of main app (navigate to RAG page)
-streamlit run rag_pipeline/rag_page.py    # standalone mode
+# 3. Run the API, then open the RAG Engine page (/rag-engine) in the Next.js app
+python run_api.py
 ```
 
 **Programmatic usage:**
@@ -65,8 +64,6 @@ print(response.answer)
 | `query_engine.py` | RAG orchestrator — embed retrieve re-rank LLM |
 | `reranker.py` | Cross-encoder re-ranking (ms-marco-MiniLM-L-6-v2) |
 | `llm_service.py` | Ollama LLM backend with RAG-grounded system prompts |
-| `ui_components.py` | Reusable Streamlit widgets (toggle, uploader, query, KB) |
-| `rag_page.py` | Standalone Streamlit page / main app route |
 
 ---
 
@@ -120,8 +117,6 @@ rag_pipeline/
 ├── query_engine.py      # RAG orchestrator
 ├── reranker.py          # Cross-encoder re-ranking
 ├── llm_service.py       # Ollama LLM backend
-├── ui_components.py     # Streamlit widgets
-├── rag_page.py          # Streamlit page entry point
 └── __init__.py          # Package exports & logging
 
 data/                    # Auto-created at project root
@@ -158,5 +153,5 @@ For new file types (DOCX, CSV, etc.), create an ingestion class that extracts te
 | **LLM timeout** | First query after restart loads model into memory (can take minutes). Increase: `CENTURION_RAG_LLM_TIMEOUT=900` |
 | **Model not found** | Pull it: `ollama pull mistral`. List available: `ollama list` |
 | **No results** | Ensure PDFs are uploaded & ingested. Check KB stats in the UI. |
-| **Import errors** | Run from project root: `cd centurion_core && streamlit run rag_pipeline/rag_page.py` |
+| **Import errors** | Run from project root: `cd centurion_core && python run_api.py` |
 | **Slow first run** | Embedding (~90 MB) and re-ranker (~80 MB) models download on first use. Cached after that. |

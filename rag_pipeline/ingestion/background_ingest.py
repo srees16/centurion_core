@@ -1,29 +1,28 @@
 """
 Background Ingestion Manager for Centurion Capital LLC RAG Pipeline.
 
-Runs PDF ingestion in background threads so the Streamlit UI remains
+Runs PDF ingestion in background threads so the API remains
 responsive — users can submit queries for already-ingested documents
 while new documents are being ingested concurrently.
 
 Architecture
 ------------
 - **Module-level singleton** (``BackgroundIngestionManager``) — persists
-  across Streamlit reruns within the same server process.
+  across requests within the same server process.
 - Each background task creates **isolated** RAGConfig / VectorStoreManager /
   EmbeddingService / PDFIngestionService instances so there are zero
   thread-safety concerns with the main-thread services.
 - ChromaDB PersistentClient handles concurrent reads & writes to the
   same on-disk store transparently.
-- Task status is tracked in a thread-safe dict and polled by the UI on
-  every Streamlit rerun.
+- Task status is tracked in a thread-safe dict and polled by the UI.
 
-Usage (from ``ui_components.py``)::
+Usage::
 
     from rag_pipeline.ingestion.background_ingest import get_ingestion_manager
 
     mgr = get_ingestion_manager()
     mgr.submit(file_name, file_bytes)    # non-blocking
-    tasks = mgr.get_active_tasks()       # poll on each rerun
+    tasks = mgr.get_active_tasks()       # poll for progress
 """
 
 from __future__ import annotations
@@ -77,8 +76,8 @@ class IngestionTask:
 class BackgroundIngestionManager:
     """Manages concurrent PDF ingestion in background threads.
 
-    Thread-safe.  A single instance is shared across all Streamlit
-    sessions in the same server process.
+    Thread-safe.  A single instance is shared across all requests
+    in the same server process.
     """
 
     _instance: Optional["BackgroundIngestionManager"] = None

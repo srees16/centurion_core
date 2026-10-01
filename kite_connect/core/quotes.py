@@ -1,5 +1,5 @@
 """
-Batch quote fetching via Kite Connect API (no Streamlit dependency).
+Batch quote fetching via Kite Connect API.
 """
 
 import logging

@@ -133,9 +133,6 @@ INDEX_CONSTITUENTS = {
     ],
 }
 
-# ── Streamlit ──────────────────────────────────────────────────
-REFRESH_INTERVAL = 5  # seconds between UI re-renders (reads from WebSocket cache)
-
 # ── WebSocket / Webhook Settings ───────────────────────────────
 # Tick mode: "full" (OHLC + depth), "quote" (OHLC only), "ltp" (price only)
 WS_TICK_MODE = os.getenv("WS_TICK_MODE", "quote")

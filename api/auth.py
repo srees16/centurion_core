@@ -39,7 +39,7 @@ TOKEN_MAX_AGE = int(os.getenv("CENTURION_API_TOKEN_MAX_AGE", 28800))
 
 
 # ---------------------------------------------------------------------------
-# Credential helpers (stand-alone, no Streamlit dependency)
+# Credential helpers (stand-alone)
 # ---------------------------------------------------------------------------
 
 CREDENTIALS_YAML = Path(__file__).resolve().parent.parent / "auth" / "credentials.yaml"
@@ -60,7 +60,7 @@ def _verify_password(password: str, hashed: str) -> bool:
 
 
 def _load_credentials_from_yaml() -> Dict:
-    """Load credentials directly from YAML (no Streamlit). Cached after first load."""
+    """Load credentials directly from YAML. Cached after first load."""
     if not CREDENTIALS_YAML.exists():
         logger.warning("Credentials file not found: %s", CREDENTIALS_YAML)
         return {"users": {}}

@@ -2,20 +2,20 @@
 Background Scheduler for Centurion Core â€” IND Stocks Pipeline.
 
 Runs screening and scoring pipelines at configurable times during
-market hours without requiring the Streamlit UI to be open.
+market hours without requiring the UI to be open.
 
 Usage::
 
     # Activate virtualenv first, then:
     python scheduler.py
 
-    # Or, from the Streamlit shell:
+    # Or, detached (PowerShell):
     # Start-Process python -ArgumentList "scheduler.py" -WindowStyle Hidden
 
 Requires: ``pip install apscheduler``
 
-Results are written to a lightweight SQLite cache so the Streamlit UI
-(and the REST API) can read the latest signals without re-running.
+Results are written to a lightweight SQLite cache so the REST API
+can read the latest signals without re-running.
 """
 
 from __future__ import annotations
@@ -110,7 +110,7 @@ def _save_run(run_type: str, summary: dict):
 def get_latest_run(run_type: Optional[str] = None) -> Optional[dict]:
     """Read the most recent pipeline run from cache.
 
-    This is called by the Streamlit UI and REST API to display
+    This is called by the REST API to display
     the latest scheduled scan results without re-running.
     """
     if not _DB_PATH.exists():
@@ -326,7 +326,7 @@ def refresh_kite_token_if_needed():
 
 
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-# Pipeline runner (headless â€” no Streamlit, no Kite orders)
+# Pipeline runner (headless — no Kite orders)
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 @_tracked_job("pre_market_scan", "Pre-Market Full Scan")

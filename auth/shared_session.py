@@ -1,9 +1,8 @@
 """
 Shared session token management for cross-app SSO.
 
-Both Streamlit (port 9000) and FastAPI (port 9001) use this module
-to create and verify the same signed session tokens, enabling
-single sign-on via a shared browser cookie.
+FastAPI uses this module to create and verify signed session tokens,
+enabling single sign-on via a shared browser cookie.
 
 IMPORTANT: Both apps must be accessed via ``localhost`` (not
 ``127.0.0.1``) for the cookie to be shared across ports.
@@ -18,7 +17,7 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Shared secret — MUST be identical across Streamlit and FastAPI processes
+# Shared secret — MUST be identical across every process that verifies tokens
 # ---------------------------------------------------------------------------
 _SECRET_KEY = os.getenv("CENTURION_API_SECRET_KEY", "")
 if not _SECRET_KEY:

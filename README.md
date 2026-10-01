@@ -157,7 +157,7 @@ Jump to **Section 15: Troubleshooting** or **Section 12: Installation** for deta
 
 **Paper Trading Frontend** — Trade Monitor page (`/ind-stocks/trade-monitor`) with Paper Validation tab showing cumulative performance metrics (Sharpe, Sortino, Calmar, CAGR, Max DD, Win Rate), equity curve, daily P&L, weekly checkpoints, signal audit, and pass/fail verdict. Daily Detail tab for per-day drill-down. Automated via GitHub Actions.
 
-**Streamlit Removal** — Removed legacy Streamlit UI (`app.py`, `ui/` folder, `auth/authenticator.py`). Next.js 14 is now the sole frontend.
+**Single frontend** — Next.js 14 is the sole frontend; the legacy Python UI is removed.
 
 **Signal Quality Evaluator** — New `services/signals/signal_quality_evaluator.py` provides regime-conditioned signal analysis with CAGR estimation, stress testing, and auto-generated documentation.
 
