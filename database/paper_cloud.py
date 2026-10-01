@@ -101,6 +101,9 @@ def paper_schema_from_env() -> Optional[str]:
         return None
     if not _SCHEMA_RE.match(raw):
         raise ValueError(f"{ENV_SCHEMA}={raw!r} is not a plain lower-case identifier")
+    from kite_connect.trading.live_session import live_schema
+    if raw == live_schema():
+        raise ValueError(f"{ENV_SCHEMA}={raw!r} is the live book's schema: a paper book needs its own")
     return raw
 
 

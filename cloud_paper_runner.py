@@ -119,8 +119,30 @@ def _check_active() -> bool:
 
 
 def _book_label() -> str:
-    """Label of a second paper book (``CENTURION_PAPER_BOOK_LABEL``), '' for the deployed one."""
+    """Name of a second paper book (``CENTURION_PAPER_BOOK_LABEL``, e.g. 'candidate'), '' for the deployed one."""
     return (os.environ.get("CENTURION_PAPER_BOOK_LABEL") or "").strip()
+
+
+def _book_tag(dep) -> str:
+    """Book name and engine fingerprint for email subjects: 'deployed 679cbd0c', 'candidate 2d64ba4c'."""
+    return f"{_book_label() or 'deployed'} {dep.engine.config_hash()[:8]}"
+
+
+def _book_objective(dep) -> str:
+    """What this paper book is for, at the foot of its daily email."""
+    from nse_engine import capital_ladder as cl, forward_gate as fg
+    from nse_engine.deployment import STATUS_CANDIDATE
+
+    fingerprint = dep.engine.config_hash()[:8]
+    if dep.status == STATUS_CANDIDATE:
+        return (f"Objective: trial configuration {fingerprint} beside the deployed book, on the same data and "
+                f"with no real money. After {fg.FORWARD_MIN_SESSIONS} sessions the forward gate decides whether "
+                f"it replaces the deployed configuration: its paper gate (G4) must pass and its walk-forward "
+                f"Sharpe (2017-25) must be within {fg.WF_SHARPE_TOLERANCE} of the deployed one's.")
+    return (f"Objective: rehearse the deployed configuration {fingerprint} with no real money before live "
+            f"capital. Going live needs {cl.GO_LIVE_MIN_PAPER_SESSIONS}+ sessions with the paper gate (G4) "
+            f"passing ({', '.join(cl.GO_CHECKS)}) and {cl.GO_LIVE_MIN_DRY_RUNS} clean "
+            f"live dry runs; it then starts at ₹{cl.RUNGS[0] / 1e5:.0f} lakh on your go-ahead.")
 
 
 def _update_run_status(status: str, message: str):
@@ -692,9 +714,9 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict, g
                               else f"DRAWDOWN RULE re-armed: back to normal (new 60-session equity high)")
         sent = NotificationManager().email_engine_daily_report({
             "session": session.get("session"),
-            "deployment": (f"{dep.status} {dep.engine.config_hash()[:8]} · paper since {dep.paper_start_date}"
-                           if _book_label() else f"{dep.status} · paper since {dep.paper_start_date}"),
-            "book_label": _book_label(),
+            "deployment": f"{dep.status} {dep.engine.config_hash()[:8]} · paper since {dep.paper_start_date}",
+            "book_label": _book_tag(dep),
+            "objective": _book_objective(dep),
             "equity": dash.current_capital,
             "initial_capital": dash.initial_capital,
             "cash": pt.cash,
@@ -756,7 +778,7 @@ def _weekly_gate_verdict(pt) -> tuple:
     return text, colour, detail
 
 
-def _run_weekly_checkpoint():
+def _run_weekly_checkpoint(use_engine: bool = False):
     """Run weekly checkpoint + send weekly performance email.
 
     Mirrors scheduler.py _run_paper_weekly_checkpoint + _send_paper_weekly_email.
@@ -890,7 +912,8 @@ def _run_weekly_checkpoint():
   </div>
 </div></body></html>"""
 
-    label = f"[{_book_label()}] " if _book_label() else ""
+    tag = _book_tag(_load_engine_deployment()) if use_engine else _book_label()
+    label = f"[{tag}] " if tag else ""
     subject = (f"[Centurion Paper] {label}Week {wk} | {checkpoint['week_return_pct']:+.1f}% | "
                f"{checkpoint['trades_opened']} opened, {checkpoint['trades_closed']} closed | "
                f"gate {verdict.split(' — ')[0]}")
@@ -1001,7 +1024,7 @@ def main(argv=None):
         # Saturday: run weekly checkpoint + email only (no daily pipeline)
         logger.info("Saturday detected — running weekly checkpoint...")
         try:
-            status, message = _run_weekly_checkpoint()
+            status, message = _run_weekly_checkpoint(use_engine)
             _update_run_status(status, message[:500])
             logger.info("Weekly checkpoint complete: [%s] %s", status, message)
         except Exception as exc:
