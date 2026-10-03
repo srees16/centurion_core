@@ -8,8 +8,8 @@ Read-only audit; the claims marked *verified* were re-checked by hand.
 **Status (3 Oct):** H1 unregistered the 28 jobs below and removed the
 automated login. H3 deleted the code of the legacy pipeline, login, paper,
 backup, email and reconciliation jobs; the strategy-maintenance and
-options/futures job functions stay in `scheduler.py`, unregistered, for
-later use. This page records the scheduler as audited.
+options/futures job functions stay, unregistered, for later use (in
+`scheduling/` since H4). This page records the scheduler as audited.
 
 ## Keep (4)
 
