@@ -1,4 +1,4 @@
-"""Varsity Module 5 worked examples (kite_connect/options/CONCEPTS.md, IDs M5.x.y)."""
+"""Varsity Module 5 worked examples (docs/options/CONCEPTS.md, IDs M5.x.y)."""
 
 import numpy as np
 import pytest

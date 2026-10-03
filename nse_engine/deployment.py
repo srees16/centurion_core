@@ -65,7 +65,7 @@ STATUS_CANDIDATE = "candidate"
 STATUSES = (STATUS_PLACEHOLDER, STATUS_APPROVED, STATUS_CANDIDATE)
 
 REQUIRED_KEYS = ("engine", "paper_start_date", "status")
-OPTIONAL_KEYS = ("source_run_id", "approved_at", "notes", "data_anchor_date", "risk_overlay")
+OPTIONAL_KEYS = ("source_run_id", "approved_at", "notes", "data_anchor_date", "risk_overlay", "description")
 ALLOWED_KEYS = frozenset(REQUIRED_KEYS + OPTIONAL_KEYS)
 
 #: Years of archive history synced before paper_start_date on a fresh runner
@@ -85,6 +85,8 @@ class Deployment:
     source_run_id: Optional[str] = None
     approved_at: Optional[str] = None
     notes: str = ""
+    #: One line for the books register and the weekly comparison email (tracker V4).
+    description: str = ""
     path: str = ""
     #: First row of market data loaded for signals.  Rebalance-day counting and the
     #: expanding forecast normalisers start at this row, so live trading must load
@@ -227,10 +229,13 @@ def parse_deployment(raw: Any, path: str = "") -> Deployment:
     notes = raw.get("notes") or ""
     if not isinstance(notes, str):
         raise DeploymentError(f"notes{where} must be a string")
+    description = raw.get("description") or ""
+    if not isinstance(description, str):
+        raise DeploymentError(f"description{where} must be a string")
     rule = _parse_risk_overlay(raw.get("risk_overlay"), where)
     return Deployment(engine=engine, paper_start_date=paper_start, status=status,
-                      source_run_id=run_id, approved_at=approved_at, notes=notes, path=path,
-                      data_anchor_date=anchor, drawdown_rule=rule)
+                      source_run_id=run_id, approved_at=approved_at, notes=notes, description=description,
+                      path=path, data_anchor_date=anchor, drawdown_rule=rule)
 
 
 def _parse_risk_overlay(raw: Any, where: str) -> Optional[DrawdownConfig]:

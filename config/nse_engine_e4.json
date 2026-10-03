@@ -1,5 +1,6 @@
 {
   "status": "candidate",
+  "description": "E4: B1 with exit rank 60 and refill exits. Best backtest on record (Sharpe 1.205, CAGR 24.64%); missed the pre-registered 25% CAGR, paper-traded for forward evidence (U26) from 5 Oct 2026.",
   "paper_start_date": "2026-10-05",
   "source_run_id": "20261001T070708574377Z_93cf6c4d",
   "approved_at": "2026-10-01T13:15:11+05:30",

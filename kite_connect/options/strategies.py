@@ -1,5 +1,5 @@
 """
-Strategy engine: Zerodha Varsity Module 6, chapters 2 to 13 (see STRATEGIES.md).
+Strategy engine: Zerodha Varsity Module 6, chapters 2 to 13 (see docs/options/STRATEGIES.md).
 
 A :class:`Strategy` is a list of :class:`Leg` objects; everything it reports
 (net premium, max profit and loss, breakevens, payoff table and chart, net
