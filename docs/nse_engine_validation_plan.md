@@ -811,6 +811,178 @@ months are rebounds, against decision U22. Revisit as a market-neutral
 spread when the book is past ₹2 crore. One look, not a trial: no
 configuration was recorded.
 
+## 5q. Options sleeve, first round (O2, 3 Oct 2026)
+
+The book is long-only, so the options that complement it are the ones
+Varsity writes: calls, sold above the range the index should stay in, which
+earn in flat and falling months and lose in the strongest rallies, when the
+core gains most. The toolkit's hard limits refuse an unlimited loss, so
+each short call carries a long call further out: a bear call spread (M6
+ch. 8) with a defined maximum loss. Options are a separate trial family
+(U32): their runs go to `data/nse_engine/runs_options/`, with their own PBO
+and deflated Sharpe; only the combined book enters the main registry.
+
+**Pre-registered 3 Oct 2026, 20:55 IST, before the F&O data was in hand and
+before any options backtest existed.** Three configurations, no grid, all on
+NIFTY's monthly options (the last NIFTY option expiry of each calendar
+month; weeklies exist only from 2019), 2013-01-01 to 2025-12-31. 2026 stays
+unseen.
+
+| | A1: SD writer, 15 days | A2: SD writer, 4 days | B: max-pain writer |
+|---|---|---|---|
+| Source | M5 ch. 18 | M5 ch. 18 | M6 ch. 13 |
+| Decision day | first session ≤ 15 calendar days before expiry | first session ≤ 4 days before | first session ≤ 15 days before |
+| Short call | first strike above the 2 SD upper bound | above the 1 SD bound | first strike ≥ max pain × 1.05; skip the month if that is not above spot |
+| Long call (wing) | first strike above the 3 SD bound | above the 2 SD bound | first strike ≥ short + 1 SD of the period, in points |
+| Early exit | when the short strike becomes the ATM strike | same | none: held to expiry, as the PDF says |
+
+Common to all three:
+
+- **Range.** The ch. 18 linear method, S × (1 + μn ± kσ√n). σ and μ are the
+  sample SD and mean of NIFTY 50's daily log returns over the 252 sessions
+  ending on the decision day. n is the calendar days to expiry, as in the
+  PDF. That is wider than a session count, so the strikes sit further out.
+- **Strikes.** Only strikes of that expiry that traded (contracts > 0) on the
+  decision day are eligible. No eligible strike, or no net credit at the
+  fill, means no trade that month.
+- **Events.** No position whose life spans a Union Budget day or a general
+  election result day (ch. 18, "skip event days"). The dates are in
+  `kite_connect/options/sleeves.py`.
+- **Fills.** Decisions use the decision day's close; fills come one session
+  later at each leg's close, or its settlement price if it did not trade.
+  An exit signalled on a close fills the next session. Expiry settles at
+  NIFTY 50's close, or failing that the expiring future's settlement price.
+  Lot sizes come from the data: UDiFF's lot column, or before July 2024 the
+  near-month NIFTY future's turnover ÷ contracts ÷ price.
+- **Costs.** `fno_costs` cost model 1, at each day's rates:
+  - brokerage ₹20 per order
+  - STT on the sell side, and on exercise of an ITM long (on the full value
+    before Sep 2019)
+  - exchange charges, SEBI fee, stamp duty and GST
+  - slippage of max(1 tick, 0.5% of premium) per side
+- **Size.** Ch. 18's split puts 25% of capital into option writing and
+  commits 35% of that per trade. The sleeve starts at ₹7.5 lakh (25% of the
+  ₹30 lakh book), and each month's maximum loss is at most 35% of the
+  sleeve's equity, in whole lots.
+- **Marking.** The sleeve is marked daily at close (settlement if
+  untraded). Its return is option P&L over sleeve equity, with no interest
+  on the collateral; that yield belongs to the book.
+
+**Gate 1: each configuration alone.** Deflated Sharpe ≥ 0.95, on the
+sleeve's daily returns with rf = 0, at N = the options configurations
+recorded (3). Reported, not gating:
+- CAGR on sleeve capital, MaxDD and Calmar
+- months traded and skipped, win rate, worst month, costs
+- CSCV PBO across the family
+
+**Selection.** Of the configurations that pass gate 1, the one with the
+highest Sharpe goes forward. Ties go to A1, then A2, then B. If none passes,
+round 1 closes and the book's last configuration stays unused.
+
+**Gate 2: the combined book.** E4's recorded run
+(`20261001T104724595094Z_93cf6c4d`, 2013–25, cost model 3) plus the sleeve
+as an overlay: r = r(E4) + 0.25 × r(sleeve) each day. The margin is posted
+from the book's holdings and cash, so no capital leaves the core. This is
+the R14 lesson: a sleeve funded from the core costs more than it adds. It
+passes only if all three hold against E4:
+
+| Check | Rule |
+|---|---|
+| CAGR (calendar) | at least 25.0% |
+| Excess Sharpe (rf 6.5%) | at least E4's (1.205) |
+| MaxDD | at most 2 points deeper than E4's (−24.6%) |
+
+Reported, not gating:
+- Calmar
+- excess Sharpe 2017–25 (the walk-forward test years)
+- deflated Sharpe at the total trial count (book plus options)
+- PBO over the book's same-window configurations with the combined run
+  counted
+
+The combined run is recorded in the main registry as one configuration of
+the book's budget (U32). A pass sends the sleeve to paper trading with the
+toolkit beside the E4 book, and live only after its own forward evidence. A
+fail closes round 1 without re-tuning. Later options strategies are new
+configurations in the options family. Caveat written down now: SEBI
+requires half of F&O margin in cash or cash equivalents, and E4 holds about
+4% idle cash while risk-on, so in full-invested months the overlay may
+need a liquid-ETF pledge.
+
+**Addendum, 3 Oct 2026, 21:40 IST, before any result: a 2007–25 check,
+reported, not gating (your request).** NSE's F&O archive runs back to
+June 2000, but NIFTY options barely traded before 2007, and NSE's own index
+closes start only in February 2012. The same three configurations are
+therefore also run over 2007-01-02 to 2025-12-31, the window of E4's
+2007–25 run (`20261001T070903385179Z_93cf6c4d`, `store_ext2006`). That
+window takes in the 2008 crash and the election-day rally of 18 May 2009.
+
+- **Before 2012:** NIFTY comes from the external history (`nse_engine.data.external`).
+  - Yahoo ^NSEI from 17 Sep 2007 matches NSE to the paisa.
+  - Before that, decisions read the labelled Sensex proxy. Expiries then
+    settle only on an exact close, or else on the expiring future's
+    settlement price.
+- **Not new configurations:** a window is part of a run, not of a
+  configuration. The hash excludes dates, as the engine's does, so these
+  runs do not add to gate 1's N of 3.
+- **What is reported:** each sleeve's 2007–25 metrics. If gate 2 selected a
+  sleeve, E4 2007–25 plus that sleeve at 0.25 against E4 2007–25 alone,
+  recorded on that run's window.
+- **No influence on the gates:** neither gate, nor the selection, reads any
+  of it.
+
+**Code fixes, 4 Oct 2026, 00:40 IST, before any result was read.** The first
+Kaggle runs of both windows stopped on two defects, fixed and relaunched:
+(1) the max-pain sleeve read open interest before checking that the
+expiry had a call chain that day, so a month with none crashed it; it now
+skips the month, as the SD sleeves already did; (2) the charge schedules
+began on 1 Jun 2008, so the 2007–25 window raised on its first fill; they
+now begin with STT on derivatives (1 Oct 2004: 0.01%, 0.0133% from Jun
+2005, 0.017% from Jun 2006; no exercise levy before Jun 2008). No rate in
+force for 2013–25 changed; the cost model stays version 1. The two partial
+outputs were discarded unread.
+
+**Result, 4 Oct 2026: round 1 closed, no sleeve passed gate 1.** Both
+windows ran on Kaggle (the pinned image), on the F&O store built from NSE's
+archive 2000–2026 (data hash `c3f44a34`), six runs in
+`data/nse_engine/runs_options/`. Gate 1, each sleeve alone over 2013–25 on
+its ₹7.5 lakh, rf 0, N = 3:
+
+| Sleeve | Months traded (of 156) | Win rate | Sharpe | CAGR | MaxDD | Deflated Sharpe | Verdict |
+|---|---|---|---|---|---|---|---|
+| A1: 2 / 3 SD at 15 days | 103 | 95% | 0.82 | +0.9% | −2.1% | 0.865 | FAIL |
+| A2: 1 / 2 SD at 4 days | 147 | 89% | −0.27 | −7.2% | −71.4% | 0.002 | FAIL |
+| B: max pain + 5% | 145 | 94% | 0.26 | +2.2% | −26.1% | 0.239 | FAIL |
+
+No selection, so gate 2 was not run and nothing entered the book's
+registry; the book's last configuration stays unused. Reported, 2007–25
+(E4's extended window): A1 Sharpe 0.19, CAGR +0.5%, MaxDD −8.6%; A2 −0.17,
+−4.9%, −72.4%; B −0.11, −2.3%, −59.1%. The options-family PBO over 3 trials
+is 1.9%, too few trials to mean anything.
+
+What the months say. The profile is the one a short call has: most months
+earn a small credit and a few rallies take back more than the rest earned.
+A2 lost ₹3.3 lakh (35% of the sleeve) in May 2016 alone, bought back at
+the money after a 2% move within days, and ₹4.0 lakh over 2020; its early
+exits fired 8 times. B's worst months were January 2015 (short 8750 at
+max pain + 5%, settled at 8952) and, in the extended window, March 2009
+(short 2750, settled at 3082). A1 is the cautious version and shows what
+the rule is worth without the blow-ups: in 33 of 156 months no listed
+strike lay beyond 2 SD, and where it traded the credit was ₹1,000 to
+₹8,000 a month, so it returned less than a treasury bill on its capital.
+Charges over 13 years were ₹5,000 to ₹13,000 per sleeve: costs are not the
+reason. Writing calls above the expected range and holding to expiry, as
+Varsity ch. 18 and ch. 13 prescribe, does not produce a return stream worth
+a quarter of the book on NIFTY's 2013–25 path.
+
+Not re-tuned: a narrower buffer, a later entry or a stop would be fitted
+to these months. The data and the harness remain (one Kaggle run per
+round), so a second round is a new pre-registered set of configurations in
+the options family (U32), for your go/no-go: the ones the evidence points
+at are a protective bear put spread judged on the combined book's MaxDD
+and Calmar rather than on its own return (a hedge costs carry by design),
+and weekly-expiry versions, which exist only from 2019 and so have less
+history to pass on.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast

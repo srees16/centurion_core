@@ -1630,7 +1630,7 @@ cd deployment; docker compose up -d
 cd deployment && docker-compose up -d
 ```
 
-For detailed setup, see [deployment/DEPLOYMENT.md](deployment/DEPLOYMENT.md) and [deployment/DOCKER_QUICKSTART.md](deployment/DOCKER_QUICKSTART.md).
+For detailed setup, see [deployment/DEPLOYMENT.md](../deployment/DEPLOYMENT.md) and [deployment/DOCKER_QUICKSTART.md](../deployment/DOCKER_QUICKSTART.md).
 
 ---
 

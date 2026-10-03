@@ -106,6 +106,26 @@ def _find_marker(root: Path, marker: str, max_depth: int = 8) -> Optional[Path]:
     return None
 
 
+def find_fo_store_dir(explicit: Optional[str] = None) -> str:
+    """Locate the F&O store (tracker O2) the way ``find_store_dir`` finds the equity store."""
+    if explicit:
+        return explicit
+    if not KAGGLE_INPUT.is_dir():
+        return "data/nse_engine/fo_store"
+    found = _find_marker(KAGGLE_WORKING, "underlying.parquet") or _find_marker(KAGGLE_INPUT, "underlying.parquet")
+    if found:
+        return str(found)
+    import shutil
+
+    for archive in sorted(KAGGLE_INPUT.rglob("store.tar.gz")):
+        logger.info("unpacking %s", archive)
+        shutil.unpack_archive(str(archive), str(KAGGLE_WORKING))
+        found = _find_marker(KAGGLE_WORKING, "underlying.parquet")
+        if found:
+            return str(found)
+    return "data/nse_engine/fo_store"
+
+
 def default_out_dir() -> Path:
     return (KAGGLE_WORKING / "wf") if on_kaggle() else (_ROOT / "data/nse_engine/wf")
 
@@ -514,6 +534,28 @@ def run_configs(args) -> Dict[str, Any]:
     return state
 
 
+def run_options(args) -> Dict[str, Any]:
+    """Backtest the pre-registered options sleeves (tracker O2) and record them."""
+    from dataclasses import replace
+
+    from kite_connect.options.backtest import record, run_sleeve
+    from kite_connect.options.sleeves import CANDIDATES
+
+    store = find_fo_store_dir(args.fo_store)
+    runs_dir = args.runs_dir or default_runs_dir()
+    results = {}
+    for key in args.candidates.split(","):
+        cfg = CANDIDATES[key]
+        res = run_sleeve(replace(cfg, start=args.start or cfg.start, end=args.end or cfg.end), store)
+        results[key] = {"run_dir": record(res, runs_dir), "metrics": res.metrics}
+        logger.info("%s recorded in %s", key, results[key]["run_dir"])
+    out_dir = Path(args.out_dir or default_out_dir())
+    out_dir.mkdir(parents=True, exist_ok=True)
+    state = {"task": "options", "results": results, "fo_store": store, "provenance": provenance()}
+    (out_dir / "options_results.json").write_text(json.dumps(state, indent=2, default=str))
+    return state
+
+
 def _recorded_hashes(runs_dir: str) -> set:
     """Config hashes already in the run registry, so a resumed sweep skips them."""
     out = set()
@@ -572,6 +614,15 @@ def main(argv: Optional[List[str]] = None) -> None:
     p.add_argument("--workers", type=int, default=min(4, os.cpu_count() or 1))
     p.add_argument("--tag", default="refresh")
     p.set_defaults(func=run_configs)
+
+    p = sub.add_parser("options", help="the pre-registered options sleeves (tracker O2)")
+    p.add_argument("--candidates", default="A1,A2,B")
+    p.add_argument("--start", help="window override (plan 5q addendum: 2007-01-02)")
+    p.add_argument("--end")
+    p.add_argument("--fo-store", help="F&O store (default: attached dataset, else repo)")
+    p.add_argument("--runs-dir", help="options registry (default: /kaggle/working/runs)")
+    p.add_argument("--out-dir")
+    p.set_defaults(func=run_options)
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,

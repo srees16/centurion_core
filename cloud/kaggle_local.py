@@ -45,8 +45,11 @@ KERNEL_SLUG = "centurion-nse-research"   # default; --kernel-suffix runs a secon
 STAGE_DIR = _ROOT / "data" / "kaggle" / "stage"
 OUT_DIR = _ROOT / "data" / "nse_engine" / "kaggle_out"
 
-# Only what a research run needs; the store travels as its own dataset.
-CODE_PATHS = ["nse_engine", "runners", "cloud", "config", "requirements.txt"]
+# Only what a research run needs; the store travels as its own dataset.  The
+# options sleeves (tracker O2) need kite_connect/options; its package file is
+# copied after the directory that creates its parent.
+CODE_PATHS = ["nse_engine", "runners", "cloud", "config", "requirements.txt",
+              "kite_connect/options", "kite_connect/__init__.py"]
 
 
 # ── kaggle CLI ───────────────────────────────────────────────────
@@ -344,7 +347,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                             ("push-code", "upload code + job spec"),
                             ("run", "push code, then the kernel")):
         p = sub.add_parser(name, help=help_text)
-        p.add_argument("--task", default="walk-forward", choices=["walk-forward", "grid", "configs"])
+        p.add_argument("--task", default="walk-forward", choices=["walk-forward", "grid", "configs", "options"])
         p.add_argument("--args", default="", help="arguments for cloud.kaggle_runner, one string")
         p.add_argument("--heartbeat-url", default=None)
         p.add_argument("--pin", action="store_true",

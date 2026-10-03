@@ -1,6 +1,6 @@
 """
 Strategy selector: market view + volatility view + days to expiry -> ranked
-Module 6 strategies, using only the PDF's rules (STRATEGIES.md § Selector).
+Module 6 strategies, using only the PDF's rules (docs/options/STRATEGIES.md § Selector).
 
 Every score change carries the rule it came from, so a ranking can be read
 and challenged.  Strike guidance is in the PDF's moneyness labels; turn a

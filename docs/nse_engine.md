@@ -84,6 +84,7 @@ nse_engine/
     validation.py      clean_ohlcv, factors_from_prev_close, adjust_for_factors
     archive.py         BhavcopyArchive: resumable download of NSE archives
     store.py           build_store: normalised parquet tables
+    fo_store.py        build_fo_store: index options / futures from the F&O bhavcopy (O2)
     reference.py       ETF list, symbol changes, sector map builder
     panel.py           load_market_data -> MarketData
   costs.py             statutory schedule, impact, participation cap
@@ -115,9 +116,11 @@ runners/run_nse_engine.py                      CLI: sync | backtest | validate |
 ```python
 BhavcopyArchive(root: str | Path, requests_per_second: float = 2.0)
     .sync(start: date, end: date, kinds=("equity", "delivery", "indices", "corpact")) -> dict  # counts; resumable
+                                                  # kinds may add "fo" (F&O bhavcopy, not in the default)
     .sync_reference() -> dict   # eq_etfseclist.csv, symbolchange.csv, EQUITY_L.csv, ind_nifty500list.csv
 
 build_store(archive_root, store_dir) -> dict          # writes parquet; idempotent
+build_fo_store(archive_root, store_dir, equity_stores) -> dict  # data/nse_engine/fo_store; own data hash
 build_sector_map(archive_root, out_path="data/nse_sector_map.json") -> dict[str, str]
 
 load_market_data(store_dir, start, end, *, symbols=None, series=("EQ","BE"),
@@ -291,6 +294,37 @@ status; a failing book emails and the next one still runs. The trade
 monitor shows any of them (G12): `GET /api/v1/screener/monitor/books` lists
 the books from the config files, and the monitor endpoints take `?book=<book>`
 (the deployed book without it; an unknown book is 404).
+
+**Books register and the weekly comparison (tracker V4).** The operating
+reference (books, the three checks, candidate selection, promotion, go-live
+checklist) is `docs/paper_trade_strategy.md`.
+`docs/books_register.csv` holds one row per book: its configuration and
+one-line `description` (a key of the book file), the backtest scores of the
+registry's like-for-like run (same window, newest cost model), the
+walk-forward OOS Sharpe 2017–25 from that run's returns, PBO / DSR from its
+validation, and, once the Saturday job has filled them, its paper scores and
+forward-gate status, with a one-line summary. `python -m nse_engine.books
+register` rebuilds the backtest columns from the run registry (research
+machine only; commit the file). Every Saturday `tools/books_report.py` reads
+each book's Neon schema and emails one report: every book over its whole
+record (return, alpha against NIFTY 50, Sharpe, MaxDD, G4); each trial
+against the deployed book over their common sessions (difference in points,
+the t of the daily differences, tracking error); the three forward-gate
+checks per trial as PASS / FAIL / PENDING; and, for a trial that has cleared
+all three, its promotion review (the same tables, the backtest comparison
+and the rationale) with READY FOR YOUR REVIEW in the subject. The register
+is attached. Nothing promotes on its own: `promote` stays a hand-run
+command, and `python -m nse_engine.books review --book <book>` prints the
+review from the register alone.
+
+Adding a book: (1) record its 2013–25 backtest in the registry on the
+current cost model (Kaggle, `cloud.kaggle_local`) and `validate` it; (2)
+write `config/nse_engine_<book>.json` with `status: candidate`, the
+`source_run_id`, a `paper_start_date`, a one-line `description` and `notes`;
+(3) `python -m nse_engine.books register`, and commit both files. The daily
+job picks the book up at its start date, the Saturday report includes it,
+and after 60 sessions `promote --check` shows the gate. The trial budget
+(U27) still applies: a new book is a pre-registered configuration.
 
 Paper flow (`EngineExecutor.run_paper_session`, daily after the bhavcopy is
 published): GTT-style stop checks at the open → fill yesterday's pending

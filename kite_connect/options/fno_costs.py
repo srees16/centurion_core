@@ -27,6 +27,10 @@ from nse_engine.costs import SEBI_FEE_RATE, indirect_tax_rate
 
 DateLike = Union[str, pd.Timestamp]
 
+#: Recorded with every options backtest; runs are compared only within one version.
+#: 1 = the schedules and slippage of ``OptionsConfig`` as first written (3 Oct 2026).
+FNO_COST_MODEL_VERSION = 1
+
 
 @dataclass(frozen=True)
 class FnoCharges:
