@@ -113,7 +113,7 @@ class NDTVProfitScraper(BaseNewsScraper):
                     link_el = article.select_one(sel["link"])
                     url = link_el.get("href", "") if link_el else ""
                     if url and not url.startswith("http"):
-                        url = active_host + url
+                        url = self.base_url + url
 
                     summary_el = article.select_one(sel["summary"])
                     summary = self._extract_text(summary_el) if summary_el else title

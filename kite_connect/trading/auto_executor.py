@@ -1546,6 +1546,7 @@ class AutoExecutor:
                 if product != "CNC":
                     try:
                         from kite_connect.trading.margin_monitor import check_margin_before_order
+                        from config import Config
                         est_margin = plan.entry_price * plan.quantity * getattr(Config, "FUTURES_MARGIN_PCT", 0.12)
                         if not check_margin_before_order(self.kite, est_margin):
                             _cb(f"  Skipped {plan.symbol} \u2014 insufficient margin for {product}")

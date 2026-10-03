@@ -435,6 +435,10 @@ Kite API tokens expire daily. Options:
 **Recommendation:** Build TOTP auto-login before going live. Manual login
 will break the system if you oversleep or travel.
 
+> Superseded (tracker U23, H6): no automated Kite login. The daily login is
+> manual, from the 09:00 IST email link; without it the live session places
+> no orders and GTT stops stay active.
+
 ---
 
 ## 17. Tax & Compliance

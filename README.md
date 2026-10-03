@@ -29,12 +29,12 @@ cd ../centurion_core
 
 **Windows PowerShell:**
 ```powershell
-$env:ZERODHA_API_KEY='YOUR_API_KEY'; $env:ZERODHA_API_SECRET='YOUR_API_SECRET'; $env:ZERODHA_USER_ID='YOUR_ZERODHA_ID'; $env:ZERODHA_PASSWORD='YOUR_ZERODHA_PASSWORD'; $env:ZERODHA_TOTP_SECRET='YOUR_BASE32_TOTP_SECRET'; $env:ANTHROPIC_API_KEY='YOUR_ANTHROPIC_API_KEY'; $env:CENTURION_EMAIL_USER='YOUR_GMAIL_ID'; $env:CENTURION_EMAIL_PASS='YOUR_GMAIL_APP_PASSWORD'; $env:CENTURION_DATABASE_URL='postgresql://user:pass@ep-xxx.neon.tech/neondb?sslmode=require'; $env:UPSTASH_REDIS_URL='rediss://default:token@host.upstash.io:6379'; $env:SENTRY_DSN='https://YOUR_KEY@YOUR_ORG.ingest.sentry.io/YOUR_PROJECT_ID'; $env:LOGTAIL_TOKEN='YOUR_LOGTAIL_SOURCE_TOKEN'; $env:CENTURION_RAG_LLM_PROVIDER='claude'; $env:CENTURION_RAG_CLAUDE_MODEL='claude-opus-4-20250514'; $env:CENTURION_RAG_CLAUDE_MAX_TOKENS='1024'; $env:CENTURION_RAG_CLAUDE_TEMPERATURE='0.2'; $env:CENTURION_EMAIL_HOST='smtp.gmail.com'; $env:CENTURION_EMAIL_PORT='587'; $env:API_PORT='9001'; $env:CENTURION_DB_HOST='localhost'; $env:CENTURION_DB_PORT='9003'; $env:CENTURION_DB_NAME='centurion_rag'; $env:CENTURION_DB_USER='postgres'; $env:CENTURION_DB_PASSWORD='superadmin1'; $env:KITE_DB_HOST='localhost'; $env:KITE_DB_PORT='9003'; $env:KITE_DB_NAME='livestocks_ind'; $env:KITE_DB_USER='postgres'; $env:KITE_DB_PASSWORD='superadmin1'; $env:KITE_POOL_MAXSIZE='40'; $env:MINIO_ENDPOINT='localhost:9004'; $env:MINIO_ACCESS_KEY='minioadmin'; $env:MINIO_SECRET_KEY='minioadmin123'; $env:MINIO_SECURE='false'; $env:MINIO_BUCKET='centurion-backtests'; $env:MINIO_ENABLED='true'; $env:MINIO_REGION='auto'; $env:CENTURION_DEFAULT_ADMIN_PASSWORD='admin123'; $env:CENTURION_DEFAULT_ANALYST_PASSWORD='analyst123'; $env:CENTURION_RAG_LLM_URL='http://localhost:11434'; $env:RAG_MODEL='qwen2.5:3b'; $env:CENTURION_RAG_LLM_FIRST_TOKEN_TIMEOUT='300'; $env:CENTURION_RAG_LLM_CHUNK_TIMEOUT='30'; $env:CENTURION_RAG_LLM_NUM_CTX='4096'; $env:CENTURION_RAG_LLM_NUM_PREDICT='500'; $env:CENTURION_RAG_LLM_MAX_TOKENS='500'; $env:CENTURION_RAG_LLM_TEMPERATURE='0.2'; $env:CENTURION_RAG_CHROMA_DIR='./data/chroma_db'; $env:CENTURION_RAG_EMBEDDING_MODEL='BAAI/bge-base-en-v1.5'; $env:CENTURION_RAG_CONTEXT_TOKEN_BUDGET='2000'; $env:CENTURION_RAG_MAX_CONTEXT_CHUNKS='8'; $env:CENTURION_RAG_TOP_K='15'; $env:CENTURION_RAG_SIMILARITY_THRESHOLD='0.70'; $env:CENTURION_RAG_QUERY_BUDGET='300'; $env:CENTURION_RAG_QUERY_REWRITE='false'; $env:CENTURION_RAG_STREAMING='true'; $env:CENTURION_RAG_CACHE_ENABLED='false'; $env:CENTURION_RAG_FAQ_ENABLED='false'; $env:RAG_FAST_MODE='false'; $env:SENTRY_TRACES_SAMPLE_RATE='0.2'; $env:SENTRY_ENVIRONMENT='development'
+$env:ZERODHA_API_KEY='YOUR_API_KEY'; $env:ZERODHA_API_SECRET='YOUR_API_SECRET'; $env:ANTHROPIC_API_KEY='YOUR_ANTHROPIC_API_KEY'; $env:CENTURION_EMAIL_USER='YOUR_GMAIL_ID'; $env:CENTURION_EMAIL_PASS='YOUR_GMAIL_APP_PASSWORD'; $env:CENTURION_DATABASE_URL='postgresql://user:pass@ep-xxx.neon.tech/neondb?sslmode=require'; $env:UPSTASH_REDIS_URL='rediss://default:token@host.upstash.io:6379'; $env:SENTRY_DSN='https://YOUR_KEY@YOUR_ORG.ingest.sentry.io/YOUR_PROJECT_ID'; $env:LOGTAIL_TOKEN='YOUR_LOGTAIL_SOURCE_TOKEN'; $env:CENTURION_RAG_LLM_PROVIDER='claude'; $env:CENTURION_RAG_CLAUDE_MODEL='claude-opus-4-20250514'; $env:CENTURION_RAG_CLAUDE_MAX_TOKENS='1024'; $env:CENTURION_RAG_CLAUDE_TEMPERATURE='0.2'; $env:CENTURION_EMAIL_HOST='smtp.gmail.com'; $env:CENTURION_EMAIL_PORT='587'; $env:API_PORT='9001'; $env:CENTURION_DB_HOST='localhost'; $env:CENTURION_DB_PORT='9003'; $env:CENTURION_DB_NAME='centurion_rag'; $env:CENTURION_DB_USER='postgres'; $env:CENTURION_DB_PASSWORD='superadmin1'; $env:KITE_DB_HOST='localhost'; $env:KITE_DB_PORT='9003'; $env:KITE_DB_NAME='livestocks_ind'; $env:KITE_DB_USER='postgres'; $env:KITE_DB_PASSWORD='superadmin1'; $env:KITE_POOL_MAXSIZE='40'; $env:MINIO_ENDPOINT='localhost:9004'; $env:MINIO_ACCESS_KEY='minioadmin'; $env:MINIO_SECRET_KEY='minioadmin123'; $env:MINIO_SECURE='false'; $env:MINIO_BUCKET='centurion-backtests'; $env:MINIO_ENABLED='true'; $env:MINIO_REGION='auto'; $env:CENTURION_DEFAULT_ADMIN_PASSWORD='admin123'; $env:CENTURION_DEFAULT_ANALYST_PASSWORD='analyst123'; $env:CENTURION_RAG_LLM_URL='http://localhost:11434'; $env:RAG_MODEL='qwen2.5:3b'; $env:CENTURION_RAG_LLM_FIRST_TOKEN_TIMEOUT='300'; $env:CENTURION_RAG_LLM_CHUNK_TIMEOUT='30'; $env:CENTURION_RAG_LLM_NUM_CTX='4096'; $env:CENTURION_RAG_LLM_NUM_PREDICT='500'; $env:CENTURION_RAG_LLM_MAX_TOKENS='500'; $env:CENTURION_RAG_LLM_TEMPERATURE='0.2'; $env:CENTURION_RAG_CHROMA_DIR='./data/chroma_db'; $env:CENTURION_RAG_EMBEDDING_MODEL='BAAI/bge-base-en-v1.5'; $env:CENTURION_RAG_CONTEXT_TOKEN_BUDGET='2000'; $env:CENTURION_RAG_MAX_CONTEXT_CHUNKS='8'; $env:CENTURION_RAG_TOP_K='15'; $env:CENTURION_RAG_SIMILARITY_THRESHOLD='0.70'; $env:CENTURION_RAG_QUERY_BUDGET='300'; $env:CENTURION_RAG_QUERY_REWRITE='false'; $env:CENTURION_RAG_STREAMING='true'; $env:CENTURION_RAG_CACHE_ENABLED='false'; $env:CENTURION_RAG_FAQ_ENABLED='false'; $env:RAG_FAST_MODE='false'; $env:SENTRY_TRACES_SAMPLE_RATE='0.2'; $env:SENTRY_ENVIRONMENT='development'
 ```
 
 **macOS / Linux:**
 ```bash
-export ZERODHA_API_KEY='YOUR_API_KEY' && export ZERODHA_API_SECRET='YOUR_API_SECRET' && export ZERODHA_USER_ID='YOUR_ZERODHA_ID' && export ZERODHA_PASSWORD='YOUR_ZERODHA_PASSWORD' && export ZERODHA_TOTP_SECRET='YOUR_BASE32_TOTP_SECRET' && export ANTHROPIC_API_KEY='YOUR_ANTHROPIC_API_KEY' && export CENTURION_EMAIL_USER='YOUR_GMAIL_ID' && export CENTURION_EMAIL_PASS='YOUR_GMAIL_APP_PASSWORD' && export CENTURION_DATABASE_URL='postgresql://user:pass@ep-xxx.neon.tech/neondb?sslmode=require' && export UPSTASH_REDIS_URL='rediss://default:token@host.upstash.io:6379' && export SENTRY_DSN='https://YOUR_KEY@YOUR_ORG.ingest.sentry.io/YOUR_PROJECT_ID' && export LOGTAIL_TOKEN='YOUR_LOGTAIL_SOURCE_TOKEN' && export CENTURION_RAG_LLM_PROVIDER='claude' && export CENTURION_RAG_CLAUDE_MODEL='claude-opus-4-20250514' && export CENTURION_RAG_CLAUDE_MAX_TOKENS='1024' && export CENTURION_RAG_CLAUDE_TEMPERATURE='0.2' && export CENTURION_EMAIL_HOST='smtp.gmail.com' && export CENTURION_EMAIL_PORT='587' && export API_PORT='9001' && export CENTURION_DB_HOST='localhost' && export CENTURION_DB_PORT='9003' && export CENTURION_DB_NAME='centurion_rag' && export CENTURION_DB_USER='postgres' && export CENTURION_DB_PASSWORD='superadmin1' && export KITE_DB_HOST='localhost' && export KITE_DB_PORT='9003' && export KITE_DB_NAME='livestocks_ind' && export KITE_DB_USER='postgres' && export KITE_DB_PASSWORD='superadmin1' && export KITE_POOL_MAXSIZE='40' && export MINIO_ENDPOINT='localhost:9004' && export MINIO_ACCESS_KEY='minioadmin' && export MINIO_SECRET_KEY='minioadmin123' && export MINIO_SECURE='false' && export MINIO_BUCKET='centurion-backtests' && export MINIO_ENABLED='true' && export MINIO_REGION='auto' && export CENTURION_DEFAULT_ADMIN_PASSWORD='admin123' && export CENTURION_DEFAULT_ANALYST_PASSWORD='analyst123' && export CENTURION_RAG_LLM_URL='http://localhost:11434' && export RAG_MODEL='qwen2.5:3b' && export CENTURION_RAG_LLM_FIRST_TOKEN_TIMEOUT='300' && export CENTURION_RAG_LLM_CHUNK_TIMEOUT='30' && export CENTURION_RAG_LLM_NUM_CTX='4096' && export CENTURION_RAG_LLM_NUM_PREDICT='500' && export CENTURION_RAG_LLM_MAX_TOKENS='500' && export CENTURION_RAG_LLM_TEMPERATURE='0.2' && export CENTURION_RAG_CHROMA_DIR='./data/chroma_db' && export CENTURION_RAG_EMBEDDING_MODEL='BAAI/bge-base-en-v1.5' && export CENTURION_RAG_CONTEXT_TOKEN_BUDGET='2000' && export CENTURION_RAG_MAX_CONTEXT_CHUNKS='8' && export CENTURION_RAG_TOP_K='15' && export CENTURION_RAG_SIMILARITY_THRESHOLD='0.70' && export CENTURION_RAG_QUERY_BUDGET='300' && export CENTURION_RAG_QUERY_REWRITE='false' && export CENTURION_RAG_STREAMING='true' && export CENTURION_RAG_CACHE_ENABLED='false' && export CENTURION_RAG_FAQ_ENABLED='false' && export RAG_FAST_MODE='false' && export SENTRY_TRACES_SAMPLE_RATE='0.2' && export SENTRY_ENVIRONMENT='development'
+export ZERODHA_API_KEY='YOUR_API_KEY' && export ZERODHA_API_SECRET='YOUR_API_SECRET' && export ANTHROPIC_API_KEY='YOUR_ANTHROPIC_API_KEY' && export CENTURION_EMAIL_USER='YOUR_GMAIL_ID' && export CENTURION_EMAIL_PASS='YOUR_GMAIL_APP_PASSWORD' && export CENTURION_DATABASE_URL='postgresql://user:pass@ep-xxx.neon.tech/neondb?sslmode=require' && export UPSTASH_REDIS_URL='rediss://default:token@host.upstash.io:6379' && export SENTRY_DSN='https://YOUR_KEY@YOUR_ORG.ingest.sentry.io/YOUR_PROJECT_ID' && export LOGTAIL_TOKEN='YOUR_LOGTAIL_SOURCE_TOKEN' && export CENTURION_RAG_LLM_PROVIDER='claude' && export CENTURION_RAG_CLAUDE_MODEL='claude-opus-4-20250514' && export CENTURION_RAG_CLAUDE_MAX_TOKENS='1024' && export CENTURION_RAG_CLAUDE_TEMPERATURE='0.2' && export CENTURION_EMAIL_HOST='smtp.gmail.com' && export CENTURION_EMAIL_PORT='587' && export API_PORT='9001' && export CENTURION_DB_HOST='localhost' && export CENTURION_DB_PORT='9003' && export CENTURION_DB_NAME='centurion_rag' && export CENTURION_DB_USER='postgres' && export CENTURION_DB_PASSWORD='superadmin1' && export KITE_DB_HOST='localhost' && export KITE_DB_PORT='9003' && export KITE_DB_NAME='livestocks_ind' && export KITE_DB_USER='postgres' && export KITE_DB_PASSWORD='superadmin1' && export KITE_POOL_MAXSIZE='40' && export MINIO_ENDPOINT='localhost:9004' && export MINIO_ACCESS_KEY='minioadmin' && export MINIO_SECRET_KEY='minioadmin123' && export MINIO_SECURE='false' && export MINIO_BUCKET='centurion-backtests' && export MINIO_ENABLED='true' && export MINIO_REGION='auto' && export CENTURION_DEFAULT_ADMIN_PASSWORD='admin123' && export CENTURION_DEFAULT_ANALYST_PASSWORD='analyst123' && export CENTURION_RAG_LLM_URL='http://localhost:11434' && export RAG_MODEL='qwen2.5:3b' && export CENTURION_RAG_LLM_FIRST_TOKEN_TIMEOUT='300' && export CENTURION_RAG_LLM_CHUNK_TIMEOUT='30' && export CENTURION_RAG_LLM_NUM_CTX='4096' && export CENTURION_RAG_LLM_NUM_PREDICT='500' && export CENTURION_RAG_LLM_MAX_TOKENS='500' && export CENTURION_RAG_LLM_TEMPERATURE='0.2' && export CENTURION_RAG_CHROMA_DIR='./data/chroma_db' && export CENTURION_RAG_EMBEDDING_MODEL='BAAI/bge-base-en-v1.5' && export CENTURION_RAG_CONTEXT_TOKEN_BUDGET='2000' && export CENTURION_RAG_MAX_CONTEXT_CHUNKS='8' && export CENTURION_RAG_TOP_K='15' && export CENTURION_RAG_SIMILARITY_THRESHOLD='0.70' && export CENTURION_RAG_QUERY_BUDGET='300' && export CENTURION_RAG_QUERY_REWRITE='false' && export CENTURION_RAG_STREAMING='true' && export CENTURION_RAG_CACHE_ENABLED='false' && export CENTURION_RAG_FAQ_ENABLED='false' && export RAG_FAST_MODE='false' && export SENTRY_TRACES_SAMPLE_RATE='0.2' && export SENTRY_ENVIRONMENT='development'
 ```
 
 > **Tip:** Instead of setting env vars inline, you can copy `.env.example` to `.env` in the project root. The app loads it via `python-dotenv` automatically. See **Section 11, Step 6** or **Section 16.8** for the complete `.env` reference.
@@ -363,8 +363,7 @@ scheduler.py (APScheduler)
   ├── Intraday (10:30, 12:30, 14:30) Score refresh + re-screen for new signals
   ├── Walk-forward audit (Sat 06:00)  Weekly walk-forward validation of all strategies
   ├── Reconciliation (Sat 07:00)      3-leg: backtest ↔ paper ↔ live parity check
-  ├── Nightly backup (23:00)          SQLite databases → R2/MinIO object storage
-  └── Auto-auth                       Kite TOTP auto-fill via pyotp (zero-touch)
+  └── Nightly backup (23:00)          SQLite databases → R2/MinIO object storage
 ```
 
 ### Services Layer
@@ -688,11 +687,10 @@ Real-time Indian equity monitoring, order management, option chain analysis, and
 | Module | Purpose |
 |--------|---------|
 | `zerodha_live.py` | Main dashboard — live quotes, order book, positions, holdings, RSI scanner |
-| `auth/kite_auth.py` | OAuth flow with Selenium auto-login + **automated TOTP** via `pyotp` (zero-touch 2FA when `ZERODHA_TOTP_SECRET` is set; falls back to visible browser for manual entry) |
+| `auth/kite_auth.py` | OAuth flow in your browser (you type the password and TOTP; nothing is auto-filled), captures the redirect token |
 | `auth/kite_session.py` | Reusable authenticated `KiteConnect` session |
 | `core/config.py` | API credentials, DB config, index groups (NIFTY50, BANKNIFTY, NIFTYIT, NIFTYENERGY) |
 | `core/database_service.py` | PostgreSQL connection pool for `livestocks_ind` database |
-| `core/selenium_service.py` | Chrome/Edge WebDriver lifecycle management (headless mode via `--headless=new`) |
 | `nse/screener.py` | **3-stage NSE screener** — liquidity filter → volatility filter → technical composite score (RSI + MACD + Bollinger + volume surge + price range) |
 | `nse/nse_universe.py` | NSE symbol list download (NIFTY50, BANKNIFTY, full NSE) |
 | `options/option_chain.py` | Concurrent option chain with OI, Greeks, and IV (ThreadPoolExecutor, 20 workers) |
@@ -745,7 +743,6 @@ Push-based tick distribution via Kite WebSocket (KiteTicker) with an internal ev
 | `GET` | `/stream/status` | Full streaming pipeline status |
 
 ### Key Features
-- **Automated TOTP 2FA** — when `ZERODHA_TOTP_SECRET` is set, Kite login is fully automated via `pyotp`: headless Chrome auto-fills credentials + TOTP, captures redirect token. Falls back to visible browser for manual entry if auto-fill fails
 - **Order database persistence** — every order (BUY/SELL, MARKET/LIMIT/AMO, success/failure) is automatically saved to the `order_records` PostgreSQL table with fill_price, filled_at, and status
 - **Email order confirmations** — styled HTML email sent via SMTP for every placed order (requires `CENTURION_EMAIL_*` env vars)
 - **Circuit breaker** — 3 consecutive API failures → order placement halted for 120 seconds; auto-recovers via half-open test; manual reset available via `reset_circuit_breaker()`
@@ -1127,8 +1124,8 @@ centurion_core/
 │   └── _output/                  # Analysis outputs (git-ignored)
 │
 ├── kite_connect/                 # Zerodha live trading (Indian markets)
-│   ├── auth/                     # OAuth + Selenium auto-login + TOTP auto-fill (pyotp)
-│   ├── core/                     # Config, PostgreSQL, Selenium (headless)
+│   ├── auth/                     # OAuth browser login (manual) + session
+│   ├── core/                     # Config, PostgreSQL
 │   ├── nse/                      # NSE universe download + 3-stage screener
 │   ├── options/                  # Concurrent option chain + Greeks
 │   ├── trading/                  # Order service (circuit breaker), auto-executor, risk manager,
@@ -1407,9 +1404,6 @@ MINIO_ENABLED=true
 # Obtain from Zerodha – https://kite.zerodha.com/app/settings/api
 ZERODHA_API_KEY=YOUR_KEY_HERE
 ZERODHA_API_SECRET=YOUR_SECRET_HERE
-ZERODHA_USER_ID=YOUR_USER_HERE
-ZERODHA_PASSWORD=YOUR_PASSWORD_HERE
-ZERODHA_TOTP_SECRET=YOUR_BASE32_TOTP_SECRET
 
 # ─── Email Notifications (Order Confirmations) ─────────────────────
 # Gmail: enable 2-Step Verification → https://myaccount.google.com/apppasswords
@@ -1848,8 +1842,8 @@ docker-compose down -v
 | **Data** | pandas, numpy, openpyxl |
 | **Financial Data** | yfinance |
 | **Crypto Data** | Binance public REST API (no key required) |
-| **Live Trading** | kiteconnect (Zerodha Kite Connect SDK), pyotp (TOTP auto-fill) |
-| **Scraping** | aiohttp, beautifulsoup4, lxml, requests, selenium, webdriver-manager |
+| **Live Trading** | kiteconnect (Zerodha Kite Connect SDK) |
+| **Scraping** | aiohttp, beautifulsoup4, lxml, requests, selenium |
 | **AI/ML** | transformers, torch, scikit-learn |
 | **LLM Providers** | anthropic, openai (Ollama via HTTP) |
 | **RAG / Embeddings** | chromadb, sentence-transformers, PyMuPDF, tiktoken |
