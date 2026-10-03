@@ -111,14 +111,26 @@ def _store_daily_token(data: dict) -> None:
         logger.warning("Kite token not stored for the live session: %s", exc)
 
 
-def _login_page(title: str, detail: str, ok: bool) -> str:
+# Closes the tab 3 s after a successful login.  Browsers allow it only for a tab
+# another page opened (Fly Kite, webmail) or one with a single history entry;
+# otherwise the note asks the user to close it.
+_AUTO_CLOSE = (
+    "<p id='autoclose' style='color:#666;font-size:13px;'>This tab closes in <span id='n'>3</span> seconds.</p>"
+    "<script>(function(){var n=3,el=document.getElementById('n');"
+    "var t=setInterval(function(){n-=1;if(n>0){el.textContent=n;return;}clearInterval(t);window.close();"
+    "setTimeout(function(){document.getElementById('autoclose').textContent="
+    "'Your browser kept this tab open. You can close it now.';},500);},1000);})();</script>"
+)
+
+
+def _login_page(title: str, detail: str, ok: bool, auto_close: bool = False) -> str:
     colour = "#15803d" if ok else "#dc2626"
     return ("<html><head><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
             "<body style='font-family:Segoe UI,Arial,sans-serif;background:#f9fafb;padding:24px;'>"
             "<div style='max-width:520px;margin:40px auto;background:#fff;border-radius:10px;"
             f"box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:24px;border-top:5px solid {colour};'>"
             f"<h2 style='margin-top:0;color:{colour};'>{title}</h2><p style='color:#444;'>{detail}</p>"
-            "</div></body></html>")
+            f"{_AUTO_CLOSE if auto_close else ''}</div></body></html>")
 
 
 @router.get("/auth/callback", response_class=HTMLResponse, include_in_schema=False)
@@ -141,8 +153,8 @@ async def kite_login_callback(request_token: str = "", status: str = "", action:
         when = datetime.fromisoformat(res["kite_login_at"]).strftime("%H:%M IST, %a %d %b")
         return HTMLResponse(_login_page(
             "Kite Login Successful",
-            f"{escape(res['user_id'])}, {when}. The session will be active until 0600 IST tomorrow; "
-            "You can close this page now.", True))
+            f"{escape(res['user_id'])}, {when}. The session will be active until 0600 IST tomorrow.",
+            True, auto_close=True))
     except PermissionError as exc:
         return HTMLResponse(_login_page("Login refused", escape(str(exc)), False), status_code=403)
     except Exception as exc:                              # noqa: BLE001
