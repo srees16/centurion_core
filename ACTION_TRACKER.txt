@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 03 Oct 2026, 17:41 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 03 Oct 2026, 18:03 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -225,8 +225,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
  OCT-NOV  research and housekeeping while the books accumulate (no trials)
    Measured 1 Oct: 147k lines of Python; the trading engine is 9k.  Two
    modules hold the daily path: scheduler.py 3,211 lines / 30 jobs, all
-   registered unconditionally (1,315 lines / 4 jobs after H1 + H3), and
-   api/routers/v1_gateway.py 2,978.
+   registered unconditionally (225 lines / 4 jobs after H1, H3, H4), and
+   api/routers/v1_gateway.py 2,978 (20 after H4: routes in api/routers/v1/).
    71 functions exceed 150 lines.  Order: safety, then removal, then
    structure - removal first, so refactoring has less to move.
 #H3b [ ] P3 H3b  Second dead-code pass, item by item, same keep rule: 67 of
@@ -234,10 +234,6 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                  from outside: the Kite redirect, the email link, monitors)
                  and ~360 unused-function candidates (vulture).
                                                               Prompt: do H3b
-#H4 [ ] P2  H4   Split scheduler.py and v1_gateway.py by domain (moves only,
-                 behaviour unchanged, routes and job ids identical).  Commit
-                 first; checked with the H5 safety net (compare.py), which is
-                 deleted once H4 passes.                      Prompt: do H4
  NOT DOING  leverage (L4/E3: 25% only with Sharpe < 1.2, Calmar down),
             parameter grids (near-duplicate trials), core risk share up
             (measured: Sharpe 1.03, MaxDD -34%), a NIFTY sleeve (R5: +0.5
@@ -266,6 +262,19 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+3 Oct   H4   Split by domain, moves only.  v1_gateway.py 2,930 -> 20 lines:
+             its 85 routes in api/routers/v1/, one module per path prefix
+             (auth, analysis, macro, backtest, verdict, history, screener,
+             kite, options, drivewealth, labs, rag, market, rl_bot; shared
+             helpers in common.py), included in the original order so paths,
+             tags and matching are identical.  scheduler.py 1,314 -> 225:
+             entry point, live dispatch jobs, start_scheduler; scheduling/
+             holds the run cache + job log, the walk-forward audit and the
+             retired strategy and F&O jobs; `from scheduler import ...` still
+             works.  Verified: all 149 definitions identical (only __file__
+             depths adjusted), no new lint, 103 tests (101 core-only), the
+             H5 safety net PASS on all 8 scenarios vs pre-H4 HEAD; the net
+             is deleted, as H5 said.
 3 Oct   H5   Safety net for H4, temporary and uncommitted: data/nse_engine/
              h5_safety_net/ (gitignored; README.txt says how to run it and
              when to delete it).  compare.py runs 8 scenarios in throwaway
