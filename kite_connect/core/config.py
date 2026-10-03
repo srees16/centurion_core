@@ -20,7 +20,6 @@ DB_PORT = int(os.getenv("KITE_DB_PORT", "9003"))
 DB_USER = os.getenv("KITE_DB_USER", "")
 DB_PASSWORD = os.getenv("KITE_DB_PASSWORD", "")
 DB_NAME = os.getenv("KITE_DB_NAME", "livestocks_ind")
-TABLE_NAME = os.getenv("KITE_DB_TABLE", "stocks")
 
 # ── Zerodha Kite Connect API ──────────────────────────────────
 API_KEY = os.getenv("ZERODHA_API_KEY", "")

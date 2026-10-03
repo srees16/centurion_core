@@ -136,7 +136,7 @@ Execute the following tasks in order:
 
 1. Knowledge Extraction
 - Parse and study: centurion_core/rag_pipeline/ingest_docs/Evidence-Based Technical Analysis - David R. Aronson.pdf
-- Extract ONLY actionable concepts relevant to:
+- Extract ONLY actionable concepts relevant to the below as applicable:
   a) technical indicators
   b) strategy validation (statistical significance, overfitting control)
   c) signal generation improvements
@@ -145,11 +145,10 @@ Execute the following tasks in order:
 2. Relevance Assessment
 - Evaluate applicability of extracted concepts to:
   a) Indian stocks module (Kite - automated execution)
-  b) US stocks module (DriveWealth via Vested/INDmoney - manual execution)
-- Output: docs/aronson_enhancements.md with concrete, implementable ideas
+- Output: docs/options_ideas.md with concrete, implementable ideas
 
 3. Gap Analysis
-- Compare current centurion_core pipeline vs Aronson concepts:
+- Compare current centurion_core pipeline vs options trading concepts:
   - signal generation
   - backtesting rigor
   - feature engineering
