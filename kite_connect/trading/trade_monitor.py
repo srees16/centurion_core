@@ -159,10 +159,6 @@ class TradeMonitor:
     def active_trades(self) -> List[MonitoredTrade]:
         return [t for t in self._trades.values() if t.is_active]
 
-    @property
-    def all_trades(self) -> List[MonitoredTrade]:
-        return list(self._trades.values())
-
     def poll(self) -> List[Dict]:
         """
         Poll the order book and update trade statuses.
@@ -1037,51 +1033,6 @@ class TradeMonitor:
         except Exception as exc:
             logger.warning("GTT delete failed for %s: %s", trade.symbol, exc)
         trade.sl_gtt_id = None
-
-    def reconcile_gtt_stops(self, exit_breached: bool = True) -> Dict:
-        """Daily reconciliation: every CNC holding has exactly one active stop GTT.
-
-        * Triggers come from monitored trades (``stop_loss``); holdings not
-          monitored keep their existing GTT trigger (or are reported as
-          ``missing_stop``).
-        * Quantity follows the actual held quantity (holdings + T1 + today's
-          CNC net), orphan stop GTTs are deleted, duplicates removed.
-        * Breached stops (trigger >= LTP) are exited at market when
-          ``exit_breached`` (order_service still enforces market hours).
-        """
-        if not self.kite:
-            return {}
-        from kite_connect.trading.gtt_stops import reconcile_stop_gtts, list_stop_gtts
-        stops = {t.symbol: t.stop_loss for t in self.active_trades
-                 if t.uses_gtt_stop and t.stop_loss and t.stop_loss > 0}
-        report = reconcile_stop_gtts(self.kite, stops=stops)
-        try:
-            ids = {g["symbol"]: str(g["id"]) for g in list_stop_gtts(self.kite)}
-            for t in self.active_trades:
-                if t.uses_gtt_stop:
-                    t.sl_gtt_id = ids.get(t.symbol, t.sl_gtt_id)
-        except Exception:
-            pass
-        if exit_breached:
-            by_sym = {t.symbol: t for t in self.active_trades if t.uses_gtt_stop}
-            for b in report.get("breached", []):
-                trade = by_sym.get(b["symbol"])
-                if trade is not None:
-                    self._exit_at_market(trade, "stop_breached")
-                else:
-                    # Not a monitored trade (e.g. manual holding) — alert only
-                    logger.error("GTT reconcile: unmonitored %s is below its stop %.2f — manual review",
-                                 b["symbol"], b["trigger"])
-        if report.get("missing_stop") or report.get("errors"):
-            try:
-                from services.notifications.manager import NotificationManager
-                NotificationManager().notify_critical(
-                    f"GTT reconcile: unprotected {report.get('missing_stop')} errors={report.get('errors')}"
-                )
-            except Exception:
-                pass
-        self._persist_state()
-        return report
 
     def _cancel_order(self, order_id: Optional[str], symbol: str, label: str):
         """Cancel an orphaned order (SL when TP fills, or vice versa)."""

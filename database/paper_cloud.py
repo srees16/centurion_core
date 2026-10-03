@@ -561,22 +561,6 @@ class PaperCloudSync:
             logger.debug("epoch lookup failed: %s", exc)
             return None
 
-    def book_owner(self) -> str:
-        """``"nse_engine"`` while the GitHub Actions engine job owns the book, else ``""``."""
-        try:
-            return str(self.read_state().get("book_owner") or "")
-        except Exception as exc:                          # noqa: BLE001 - reading only
-            logger.debug("book_owner lookup failed: %s", exc)
-            return ""
-
-    def book_writer(self) -> str:
-        """Which runner last wrote this book (``github_actions``, ``hf_scheduler``, ...)."""
-        try:
-            return str(self.read_state().get("book_writer") or "")
-        except Exception as exc:                          # noqa: BLE001 - reading only
-            logger.debug("book_writer lookup failed: %s", exc)
-            return ""
-
     def start_new_book(self, initial_capital: float, owner: str = "nse_engine",
                        force: bool = False) -> Dict[str, object]:
         """Open a fresh paper book at ``initial_capital`` without deleting history.

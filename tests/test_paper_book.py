@@ -105,34 +105,6 @@ class TestFillRecords:
         assert pt._flush_fills() == 0          # reported as not written, but no exception
 
 
-class TestWriterGuard:
-    """G7: a second runner must not write the book."""
-
-    @pytest.mark.parametrize("writer,allowed", [
-        ("github_actions", False), ("hf_scheduler", True), ("", False), ("other", False)])
-    def test_only_the_recorded_writer_may_run_a_paper_session(self, writer, allowed, monkeypatch):
-        scheduler = pytest.importorskip("scheduler")   # needs the full app dependencies
-        monkeypatch.setenv("CENTURION_NSE_ENGINE", "true")
-        monkeypatch.delenv("CENTURION_NSE_ENGINE_HF_PAPER", raising=False)
-        monkeypatch.setattr(pc, "get_paper_cloud", lambda: _cloud({"book_writer": writer}, []))
-        assert scheduler._hf_paper_session_allowed()[0] is allowed
-
-    def test_it_fails_closed_when_the_database_is_unreachable(self, monkeypatch):
-        scheduler = pytest.importorskip("scheduler")
-        monkeypatch.delenv("CENTURION_NSE_ENGINE_HF_PAPER", raising=False)
-
-        def boom():
-            raise RuntimeError("no database")
-
-        monkeypatch.setattr(pc, "get_paper_cloud", boom)
-        assert scheduler._hf_paper_session_allowed()[0] is False
-
-    def test_explicit_opt_in_overrides(self, monkeypatch):
-        scheduler = pytest.importorskip("scheduler")
-        monkeypatch.setenv("CENTURION_NSE_ENGINE_HF_PAPER", "true")
-        assert scheduler._hf_paper_session_allowed()[0] is True
-
-
 class TestWeeklyReport:
     """G11: week numbering survives a fresh runner, and a 2-day-old book is not judged."""
 

@@ -781,7 +781,6 @@ def _weekly_gate_verdict(pt) -> tuple:
 def _run_weekly_checkpoint(use_engine: bool = False):
     """Run weekly checkpoint + send weekly performance email.
 
-    Mirrors scheduler.py _run_paper_weekly_checkpoint + _send_paper_weekly_email.
     Called only on Saturdays via the Saturday GitHub Actions cron.
     """
     import sqlite3 as _sq3

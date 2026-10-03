@@ -225,32 +225,3 @@ class FreshnessRepository(BaseRepository[DataFreshness]):
             }
             for r in records
         ]
-    
-    def get_all_freshness_summary(self) -> Dict[str, Any]:
-        """
-        Get a summary of data freshness across all tickers.
-        
-        Returns:
-            Summary dict with counts per data type
-        """
-        from sqlalchemy import func
-        
-        rows = self.session.query(
-            DataFreshness.data_type,
-            func.count(DataFreshness.id).label('total'),
-            func.avg(
-                func.extract('epoch', func.now() - DataFreshness.last_fetched_at)
-            ).label('avg_age_seconds'),
-            func.sum(
-                func.cast(DataFreshness.consecutive_errors > 0, Integer)
-            ).label('error_count'),
-        ).group_by(DataFreshness.data_type).all()
-        
-        return {
-            r.data_type: {
-                'total_tickers': r.total,
-                'avg_age_minutes': round(float(r.avg_age_seconds or 0) / 60, 1),
-                'tickers_with_errors': int(r.error_count or 0),
-            }
-            for r in rows
-        }

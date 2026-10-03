@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 03 Oct 2026, 16:19 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 03 Oct 2026, 17:41 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -225,20 +225,19 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
  OCT-NOV  research and housekeeping while the books accumulate (no trials)
    Measured 1 Oct: 147k lines of Python; the trading engine is 9k.  Two
    modules hold the daily path: scheduler.py 3,211 lines / 30 jobs, all
-   registered unconditionally, and api/routers/v1_gateway.py 2,978.
+   registered unconditionally (1,315 lines / 4 jobs after H1 + H3), and
+   api/routers/v1_gateway.py 2,978.
    71 functions exceed 150 lines.  Order: safety, then removal, then
    structure - removal first, so refactoring has less to move.
-#H3 [ ] P1  H3   Dead code after H2, the C5 method: static reachability from
-                 the real entry points (API routes the frontend calls,
-                 scheduler, workflows, tests, research CLIs); inventory
-                 first, delete on your go.                    Prompt: do H3
+#H3b [ ] P3 H3b  Second dead-code pass, item by item, same keep rule: 67 of
+                 158 API routes no frontend code references (some are called
+                 from outside: the Kite redirect, the email link, monitors)
+                 and ~360 unused-function candidates (vulture).
+                                                              Prompt: do H3b
 #H4 [ ] P2  H4   Split scheduler.py and v1_gateway.py by domain (moves only,
-                 behaviour unchanged, routes and job ids identical).
-                 Needs H5's safety net first.                 Prompt: do H4
-#H5 [ ] P2  H5   Safety net for refactoring: characterisation tests of the
-                 daily path (paper session on SQLite, live dry run on a stub
-                 broker, the emails, the book loop).  Your standing rule is
-                 "no new test files": say whether H5 may add them.
+                 behaviour unchanged, routes and job ids identical).  Commit
+                 first; checked with the H5 safety net (compare.py), which is
+                 deleted once H4 passes.                      Prompt: do H4
  NOT DOING  leverage (L4/E3: 25% only with Sharpe < 1.2, Calmar down),
             parameter grids (near-duplicate trials), core risk share up
             (measured: Sharpe 1.03, MaxDD -34%), a NIFTY sleeve (R5: +0.5
@@ -263,12 +262,36 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              Sharpe within 0.05.
 [ ] P3  L2   NIFTY futures overlay: CLOSED on evidence.  Reopen only if L4
              finds MTF unusable and you accept MaxDD 40%+.        Prompt: do L2
-[ ] P3  G12  Book selector on the monitor: earlier books, and the candidate
-             book (Neon schema "candidate", D1).             Prompt: do G12
 
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+3 Oct   H5   Safety net for H4, temporary and uncommitted: data/nse_engine/
+             h5_safety_net/ (gitignored; README.txt says how to run it and
+             when to delete it).  compare.py runs 8 scenarios in throwaway
+             git worktrees of HEAD and of the working tree on the same store,
+             offline with captured email, and diffs them: the OpenAPI schema
+             and routes, every GET route offline, the scheduler (jobs, cache,
+             job log, both dispatches), each book's paper session over two
+             store sessions plus the weekly email, the live dry run on a stub
+             broker, the login reminder.  Verified: working tree vs itself
+             PASS (all 8); pre-H1 code vs now flags the scheduler DIFFERENT;
+             HEAD vs H3 PASS (H3 changed nothing H4 must keep).  ~5 min/run.
+3 Oct   H3   Dead code removed under your keep rule (picks 1-3): -3,579
+             lines, 17 files.  scheduler.py 2,824 -> 1,315: 31 legacy job
+             functions (pipeline, login refresh, paper / backup / email /
+             recon, the NSE-engine duplicate), 5 variables and the --once
+             flag; kept, unregistered: 9 options/futures and 6 strategy-
+             maintenance job functions.  Also gone: what only those jobs
+             used (PaperCloudSync.book_owner/book_writer, TradeMonitor.
+             reconcile_gtt_stops/all_trades, DatabaseManager.pre_warm, the
+             weekly-recon and go-live emails), the uncalled freshness
+             summary (its Integer bug), 3 unused scrapers, the DriveWealth
+             bridge, kite_connect/setup, analyze_paper_results.py, and the
+             tests of the removed HF writer guard.  Kept by your call: the
+             Azure compute chain, trade_returns_collector.py.  Verified:
+             same 4 jobs with the token, none without; API cache routes
+             200; 103 tests (101 core-only).
 3 Oct   U31  Stray tunnel key removed from centurion_core/ (kite_tunnel +
              .pub, SHA256:IM3/iPfy..., made 30 Sep 00:04, gitignored, never
              authorized).  The proxy accepts only ~/.ssh/kite_tunnel
