@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 03 Oct 2026, 18:27 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 03 Oct 2026, 20:17 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -180,6 +180,16 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              behaviour: tracking error <= 8%/yr, costs <= 1.5x model, MaxDD
              vs backtest: the G4 gate, in every daily email.  Mon 28 Sep is the first session
              with the weekly-report fixes (G15).
+[~] P2  O1   Varsity options toolkit (your spec, 3 Oct), kite_connect/options/.
+             Steps 1-2 done 3 Oct: CONCEPTS.md / STRATEGIES.md (PDF errors
+             and out-of-date facts flagged), theory.py (payoffs, Black-
+             Scholes + Greeks, IV, parity, vol, SD ranges, ch. 18 rules),
+             strategies.py (12 Module 6 strategies + arbitrage, max pain,
+             PCR; PDF formulas checked against summed legs), selector.py,
+             fno_costs.py (date-aware F&O charges + slippage), 95 tests in
+             tests/test_options_*.py.  Next: step 3, Kite integration and a
+             paper demo on the current NIFTY expiry after Mon 5 Oct's login;
+             step 4, README.  No automated login (U23).   Prompt: do O1
 
 --------------------------------------------------------------------------------
  6. QUEUE — do #1 first.  Every item: pass rule fixed before running, every
@@ -220,8 +230,17 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 #4  [ ] P2  U28  Short sleeve in single-stock futures (NSE F&O archive).
                  Largest potential (the route to Sharpe 1.5), longest lead
                  (weeks of build, no trial until then).  Your go/no-go.
-#5  [ ] P3  R6   R21A rules as signal groups (+/-0.1 Sharpe)    Prompt: do R6
-#6  [ ] P3  R9   Universe size 150 / 300 / 500 (+/-0.1)        Prompt: do R9
+#5  [ ] P2  O2   Options sleeve beside the book (needs O1).  Your go/no-go,
+                 then pass rules fixed before any run.  Data: NSE F&O
+                 bhavcopy 2013- (a new archive kind; Kite keeps no expired
+                 contracts).  2-4 fixed candidates from the PDF rules, costs
+                 from fno_costs.  Judged on the COMBINED book against E4
+                 alone: CAGR, Sharpe, MaxDD, Calmar, DSR at the full trial
+                 count, walk-forward OOS, CSCV PBO reported; every run in
+                 the trial registry, on Kaggle.  Open: does it draw on the
+                 1 configuration left, or count as a new family?  (you)
+#6  [ ] P3  R6   R21A rules as signal groups (+/-0.1 Sharpe)    Prompt: do R6
+#7  [ ] P3  R9   Universe size 150 / 300 / 500 (+/-0.1)        Prompt: do R9
  OCT-NOV  research and housekeeping while the books accumulate (no trials)
    Measured 1 Oct: 147k lines of Python; the trading engine is 9k.  Two
    modules hold the daily path: scheduler.py 3,211 lines / 30 jobs, all
