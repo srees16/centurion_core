@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
 import numpy as np
@@ -1499,6 +1499,7 @@ class CarverPipeline:
         try:
             from services.risk.monte_carlo_risk import TradeBootstrapMonteCarlo
             import json as _mc_json
+            import os
             _mc_trades_path = os.path.join(
                 os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                 "data", "recent_trade_returns.json"

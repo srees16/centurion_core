@@ -27,9 +27,7 @@ chromadb
 sentence-transformers
 PyMuPDF
 kiteconnect
-pyotp
 tiktoken
-webdriver-manager
 arch
 fastapi
 pydantic
