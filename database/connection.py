@@ -154,18 +154,6 @@ class DatabaseManager:
         
         return self._engine
     
-    def pre_warm(self):
-        """Pre-warm connection pool by executing a lightweight query.
-        
-        Useful for Neon auto-suspend: wakes compute before heavy queries.
-        """
-        try:
-            with self.get_session() as session:
-                session.execute(text("SELECT 1"))
-            logger.info("Database connection pre-warmed")
-        except Exception as e:
-            logger.warning(f"Database pre-warm failed: {e}")
-    
     @property
     def session_factory(self) -> sessionmaker:
         """Get session factory."""

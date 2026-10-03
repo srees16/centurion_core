@@ -1033,7 +1033,6 @@ centurion_core/
 ├── scrapers/                     # News scraping modules
 │   ├── us_aggregator.py          # US market concurrent coordinator (Semaphore, 3-layer cache)
 │   ├── ind_aggregator.py         # Indian market news aggregator
-│   ├── broader_sentiment.py      # Macro / broader market sentiment
 │   ├── morningstar.py            # Morningstar data scraper
 │   ├── cache.py                  # Rate limiter + content deduplicator
 │   ├── us_news/                  # US news source scrapers (Yahoo, Finviz, Investing, TradingView, WSB)
