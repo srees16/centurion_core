@@ -992,7 +992,8 @@ centurion_core/
 ├── config.py                     # Configuration (~140 settings, CENTURION_* env vars)
 ├── models.py                     # Data models (NewsItem, StockMetrics, TradingSignal)
 ├── utils.py                      # CSV parsing and ticker validation
-├── scheduler.py                  # APScheduler — 5 jobs (pre-market, intraday, walk-forward, reconciliation, backup)
+├── scheduler.py                  # APScheduler on the HF Space: the GitHub dispatch jobs (paper/live, login reminder)
+├── scheduling/                   # Its run cache + job log, walk-forward audit, retired strategy and F&O jobs
 ├── run_api.py                    # FastAPI server launcher (port 9001)
 ├── setup_database.py             # Database schema initialisation
 ├── requirements.txt              # Python dependencies
@@ -1201,7 +1202,8 @@ centurion_core/
 │       ├── us_stocks.py          # 9 endpoints
 │       ├── ind_stocks.py         # 11 endpoints
 │       ├── rag.py                # 10 endpoints
-│       ├── v1_gateway.py         # 50+ /api/v1/* endpoints (primary Next.js gateway)
+│       ├── v1_gateway.py         # /api/v1/* gateway for Next.js: includes the v1/ modules in order
+│       ├── v1/                   # The gateway's 85 routes, one module per path prefix
 │       ├── crypto.py             # 4 endpoints
 │       └── streaming.py          # 9 endpoints (SSE, WS, postback, OHLC, alerts, status)
 │
