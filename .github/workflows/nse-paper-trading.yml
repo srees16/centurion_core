@@ -119,6 +119,19 @@ jobs:
           done
           [ -z "$failed" ] || { echo "::error::weekly checkpoint failed for:$failed"; exit 1; }
 
+      # Tracker V4: every book against the deployed one, the forward gate per
+      # trial, the register attached; a cleared trial gets its promotion review.
+      - name: Paper books - comparison report
+        if: vars.CENTURION_NSE_ENGINE == 'true'
+        continue-on-error: true
+        env:
+          CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
+          CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
+          CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
+          CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
+          CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+        run: python -m tools.books_report
+
   # GitHub delivers scheduled runs 1-4 hours late (measured: a 22:05 IST cron
   # arrived at 01:20 IST). Snapshots are now dated by the trading session, not
   # the clock, so a late run is harmless - the window only stops a run so late

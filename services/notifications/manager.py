@@ -6,9 +6,10 @@ import logging
 import os
 import smtplib
 from datetime import datetime
+from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from config import Config
 from models import NewsItem
@@ -458,10 +459,13 @@ class NotificationManager:
         subject: str,
         html_body: str,
         recipients: Optional[List[str]] = None,
+        attachments: Optional[List[Tuple[str, bytes]]] = None,
     ) -> bool:
         """Send a generic HTML email via configured SMTP.
 
-        Returns True on success, False on failure or missing config.
+        ``attachments`` are (file name, bytes) pairs, e.g. the books register
+        CSV (tracker V4).  Returns True on success, False on failure or
+        missing config.
         """
         if recipients is None:
             recipients = ["s.srees@live.com"]
@@ -472,11 +476,15 @@ class NotificationManager:
             logger.debug("Email not configured — skipping")
             return False
 
-        msg = MIMEMultipart("alternative")
+        msg = MIMEMultipart("mixed" if attachments else "alternative")
         msg["Subject"] = subject
         msg["From"] = smtp_user
         msg["To"] = ", ".join(recipients)
         msg.attach(MIMEText(html_body, "html"))
+        for name, payload in attachments or []:
+            part = MIMEApplication(payload, Name=name)
+            part["Content-Disposition"] = f'attachment; filename="{name}"'
+            msg.attach(part)
 
         try:
             with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:

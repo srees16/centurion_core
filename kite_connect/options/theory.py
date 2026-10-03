@@ -1,5 +1,5 @@
 """
-Options theory engine: Zerodha Varsity Module 5 (see CONCEPTS.md).
+Options theory engine: Zerodha Varsity Module 5 (see docs/options/CONCEPTS.md).
 
 Payoffs and moneyness (ch. 3 to 8), Black-Scholes price and Greeks with an
 implied-volatility solver and put-call parity (ch. 9 to 14, 19 to 21),

@@ -136,6 +136,29 @@ python -m cloud.kaggle_local run --task configs --kernel-suffix ext \
 `push-store` without options still uploads `data/nse_engine/store` to the
 default dataset.
 
+## Options sleeves (tracker O2)
+
+The options family (U32) has its own store and its own registry. The F&O
+store holds index options and futures from the F&O bhavcopy, plus the index
+closes, so a kernel needs it alone:
+```bash
+python -m nse_engine.data.archive --start 2000-06-12 --kinds fo --no-reference
+python -m nse_engine.data.fo_store            # -> data/nse_engine/fo_store
+python -m cloud.kaggle_local push-store --store-dir data/nse_engine/fo_store \
+  --slug centurion-nse-fo-store
+python -m cloud.kaggle_local run --task options --kernel-suffix o2 --pin \
+  --store-slug centurion-nse-fo-store --args "--candidates A1,A2,B"
+# the reported 2007-25 check (plan 5q addendum) in the same way, after `pull`:
+#   --args "--candidates A1,A2,B --start 2007-01-02"
+python -m cloud.kaggle_local watch --kernel srees16/centurion-nse-research-o2
+python -m cloud.kaggle_local pull --kernel srees16/centurion-nse-research-o2
+python -m cloud.wf_stitch import-runs --src data/nse_engine/kaggle_out/latest/runs \
+  --dest data/nse_engine/runs_options
+python -m kite_connect.options.backtest evaluate   # gates 1 and 2 of plan § 5q
+```
+`evaluate` records the combined book (E4 plus the selected sleeve) in the
+book's registry, `data/nse_engine/runs`, as one configuration.
+
 ## Stage-A sweep
 
 ```bash

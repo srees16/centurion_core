@@ -1,5 +1,5 @@
 Realistically achievable target: Sharpe >= 1.5, CAGR >=30%, MaxDD<=35%, Calmar >= 1%, PBO <= 30%
-Goal is to have the best possible Sharpe and CAGR, lowest possible maxDD
+Goal is to have the best possible alpha, Sharpe and CAGR, lowest possible maxDD
 
 *success criterion should be highest Sharpe + lowest max DD, not a CAGR number. A config with 45%+ CAGR and 0.90 Sharpe is far better than 60% CAGR and 0.50 Sharpe, because the former will survive in live trading while the latter will blow up.*
 
@@ -189,4 +189,3 @@ prompt for code hygiene:
 
 1. Where are images stored currently wen i run analysis? Display location or url to access dem on ui pages
 2. Analyse n understand wats 3 emails doing? Give clear identifier and purpose of each of them
-how many trade books are running currently, what is their objective?

@@ -2,13 +2,16 @@
 Resumable downloader for NSE daily archives (survivorship-free raw data).
 
 ``BhavcopyArchive`` mirrors four daily file kinds plus a few reference lists
-into a local directory with deterministic names::
+into a local directory with deterministic names (``fo``, the F&O bhavcopy, is
+fetched only when asked for with ``--kinds fo``)::
 
     root/equity/2013/cm20130115.csv.zip          legacy bhavcopy (<= 2024-07-05)
     root/equity/2024/udiff20240708.csv.zip       UDiFF bhavcopy (>= 2024-07-08)
     root/delivery/2013/mto20130115.dat           security-wise delivery (MTO)
     root/indices/2013/ind20130115.csv            ind_close_all index closes
     root/corpact/2013/bc20130115.csv             corporate actions (Bc file of the PR zip)
+    root/fo/2013/fo20130115.csv.zip              F&O bhavcopy, legacy (<= 2024-07-05)
+    root/fo/2024/udiff_fo20240708.csv.zip        F&O bhavcopy, UDiFF (>= 2024-07-08)
     root/reference/{eq_etfseclist,symbolchange,EQUITY_L,ind_nifty500list}.csv
     root/manifest/missing.json                   weekday 404s (holidays) per kind
 
@@ -57,6 +60,8 @@ FORMAT_FALLBACK_WINDOW = timedelta(days=180)
 RECENT_GRACE = timedelta(days=3)
 
 KINDS = ("equity", "delivery", "indices", "corpact")
+#: Not in the default sync: the options research (tracker O2) asks for it.
+FO_KIND = "fo"
 
 REFERENCE_FILES: Dict[str, str] = {
     "eq_etfseclist.csv": "/content/equities/eq_etfseclist.csv",
@@ -121,6 +126,20 @@ def candidate_files(root: Path, kind: str, d: date) -> List[RemoteFile]:
         first, second = (udiff, legacy) if equity_format_for(d) == "udiff" else (legacy, udiff)
         near = abs(d - UDIFF_START) <= FORMAT_FALLBACK_WINDOW
         return [first, second] if near else [first]
+    if kind == FO_KIND:
+        mon = d.strftime("%b").upper()
+        legacy = RemoteFile(
+            kind, "legacy",
+            f"{ARCHIVE_HOST}/content/historical/DERIVATIVES/{y}/{mon}/fo{d:%d}{mon}{y}bhav.csv.zip",
+            root / "fo" / y / f"fo{ymd}.csv.zip",
+        )
+        udiff = RemoteFile(
+            kind, "udiff",
+            f"{ARCHIVE_HOST}/content/fo/BhavCopy_NSE_FO_0_0_0_{ymd}_F_0000.csv.zip",
+            root / "fo" / y / f"udiff_fo{ymd}.csv.zip",
+        )
+        first, second = (udiff, legacy) if equity_format_for(d) == "udiff" else (legacy, udiff)
+        return [first, second] if abs(d - UDIFF_START) <= FORMAT_FALLBACK_WINDOW else [first]
     if kind == "delivery":
         dmy = d.strftime("%d%m%Y")
         return [
@@ -383,7 +402,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p.add_argument("--start", required=True)
     p.add_argument("--end", default=date.today().isoformat())
     p.add_argument("--root", default="data/nse_engine/archive")
-    p.add_argument("--kinds", default=",".join(KINDS))
+    p.add_argument("--kinds", default=",".join(KINDS), help=f"comma list; also {FO_KIND!r} (F&O bhavcopy)")
     p.add_argument("--rps", type=float, default=2.0)
     p.add_argument("--no-reference", action="store_true")
     args = p.parse_args(argv)

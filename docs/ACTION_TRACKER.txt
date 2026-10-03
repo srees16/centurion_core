@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 03 Oct 2026, 20:17 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 04 Oct 2026, 00:31 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -164,10 +164,34 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
        (option 1).  Built the same day.                        -> U24, D3
   U6   Live capital Rs 30L.  Paper stays Rs 35L (resizing restarts the
        record; the cost gap is small).  Ladder Rs 6L / 12L / 21L / 30L. -> D3
+  U32  (3 Oct) Options strategies are a separate trial family: they will be
+       added periodically, so they do not draw on the book's budget of 2
+       configurations before January.  Their runs live in their own
+       registry (data/nse_engine/runs_options/), each pre-registered,
+       with their own PBO and DSR on the options returns.  Only a
+       combined book (E4 + options sleeve) enters the main registry, as
+       one configuration of the book's budget, its DSR counted at the
+       total trial count (book + options).                        -> O2
 
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
+[!] P2  V5   Promotion vs the go-live clock (3 Oct).  A promotion rewrites
+             the deployed file with paper start = that day, so the deployed
+             book's G4 reference and session count restart: a promotion ~24
+             Dec moves go-live from mid-Dec to ~March.  Proposed: go live
+             mid-Dec on 679cbd0c as planned; treat a promotion as its own
+             event timed before a ladder step-up; let readiness and the
+             ladder read the promoted config's trial-book record while the
+             deployed record is < 60 sessions (code change), after checking
+             the ladder's first 30 sessions after a config change.  Your
+             call; docs/paper_trade_strategy.md section 6.
+[!] P3  O3   Options round 2: your go/no-go and candidate list.  Round 1
+             (O2) failed on all three sleeves; the F&O data, store and
+             harness exist, so a round is one pre-registered set and one
+             Kaggle run.  Evidence points at a protective bear put spread
+             judged on the combined book's MaxDD / Calmar, or weekly-expiry
+             versions (history from 2019 only).  Plan 5q.
 [!] P1  U23  Log in to Kite once every trading day: tap the link in the
              09:00 / 17:30 IST email (valid until 06:00 next day).  The first
              live dry run is Thu 1 Oct 19:00 IST (Fri 2 Oct is a holiday);
@@ -222,7 +246,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 #2  [ ] P1  V3   Forward-gate decisions pick the live configuration: candidate
                  ~24 Dec, e4 ~early Jan ("promote --check").  R12's OOS says
                  exit rank 60 cuts MaxDD 20.9% -> 17.2% (Calmar 1.0 -> 1.27);
-                 the gate confirms it on paper before it goes live.
+                 the gate confirms it on paper before it goes live.  The
+                 Saturday books email (V4) shows each trial's three checks
+                 weekly and carries the promotion review once one clears;
+                 promotion itself stays your hand-run command.
 #3  [ ] P2  X1   Execution: limit-at-open / sliced fills.  Shrinks the
                  realised-vs-model cost gap (model 2.4-2.8%/yr of CAGR);
                  sized by G4's cost ratio.  Needs >= 30 real fills (~Jan).
@@ -230,17 +257,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 #4  [ ] P2  U28  Short sleeve in single-stock futures (NSE F&O archive).
                  Largest potential (the route to Sharpe 1.5), longest lead
                  (weeks of build, no trial until then).  Your go/no-go.
-#5  [ ] P2  O2   Options sleeve beside the book (needs O1).  Your go/no-go,
-                 then pass rules fixed before any run.  Data: NSE F&O
-                 bhavcopy 2013- (a new archive kind; Kite keeps no expired
-                 contracts).  2-4 fixed candidates from the PDF rules, costs
-                 from fno_costs.  Judged on the COMBINED book against E4
-                 alone: CAGR, Sharpe, MaxDD, Calmar, DSR at the full trial
-                 count, walk-forward OOS, CSCV PBO reported; every run in
-                 the trial registry, on Kaggle.  Open: does it draw on the
-                 1 configuration left, or count as a new family?  (you)
-#6  [ ] P3  R6   R21A rules as signal groups (+/-0.1 Sharpe)    Prompt: do R6
-#7  [ ] P3  R9   Universe size 150 / 300 / 500 (+/-0.1)        Prompt: do R9
+#5  [ ] P3  R6   R21A rules as signal groups (+/-0.1 Sharpe)    Prompt: do R6
+#6  [ ] P3  R9   Universe size 150 / 300 / 500 (+/-0.1)        Prompt: do R9
  OCT-NOV  research and housekeeping while the books accumulate (no trials)
    Measured 1 Oct: 147k lines of Python; the trading engine is 9k.  Two
    modules hold the daily path: scheduler.py 3,211 lines / 30 jobs, all
@@ -286,6 +304,56 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+4 Oct   O2   Options sleeve beside the book: FAIL, round 1 closed.  Pre-
+             registered 3 Oct 20:55 (plan 5q), before any options data: three
+             NIFTY monthly bear call spreads from the Varsity rules (A1 2/3
+             SD at 15 days, A2 1/2 SD at 4 days, B max pain + 5%), 25% of
+             the book, gate 1 each alone (DSR >= 0.95 at N = 3), gate 2 on
+             E4.  Both windows on Kaggle (pinned image), six runs in
+             runs_options/ (options family, U32).  2013-25 on Rs 7.5L:
+             A1 Sharpe 0.82 / CAGR +0.9% / MaxDD -2.1% / DSR 0.865; A2
+             -0.27 / -7.2% / -71.4%; B 0.26 / +2.2% / -26.1%: none passes
+             gate 1, so nothing entered the book's registry and the last
+             configuration stays unused.  2007-25 (reported): A1 0.19, A2
+             -0.17, B -0.11.  90-95% of months win small; rallies take it
+             back (A2 May 2016 -Rs 3.3L in one month, 2020 -4.0L; B Jan
+             2015, Mar 2009).  Charges Rs 5-13k over 13 years: not the
+             reason.  Not re-tuned.  Built and kept: archive kind fo
+             (NSE F&O bhavcopy 2000-2026, 6,522 files, 2.3 GB),
+             nse_engine/data/fo_store.py (27 years, 121 MB, lots implied
+             per contract, NIFTY from the equity stores' history), the
+             sleeve simulator and gates (kite_connect/options/backtest.py,
+             sleeves.py), the Kaggle task `options`, the dataset
+             centurion-nse-fo-store.  Two code fixes after registration,
+             before any result was read (plan 5q).  Suite 196 both envs.
+3 Oct   V4   Books register and the weekly comparison (your five points).
+             nse_engine/books.py: discovers every config/nse_engine_<book>.json,
+             scores each book over its whole paper record and each trial
+             against the deployed book over their common sessions (return,
+             alpha vs NIFTY 50, Sharpe, MaxDD, difference in points, t of
+             the daily differences, tracking error), applies the forward
+             gate's three checks as PASS / FAIL / PENDING, and writes the
+             promotion review (gate, backtest comparison, paper comparison,
+             rationale, what a promotion changes) for a cleared trial.
+             docs/books_register.csv (tracked): one row per book with
+             configuration, description (new optional key of the book
+             file), the registry's like-for-like run (cost model 3), its
+             backtest scores, WF OOS 2017-25 Sharpe, PBO / DSR, paper
+             scores, gate status and a summary; rebuilt by `books register`
+             here, paper columns filled by the Saturday job.  Today:
+             deployed 1.206 / 23.7% / -23.1% / OOS 1.38; candidate 1.213 /
+             22.6% / -23.0% / 1.43; e4 1.205 / 24.6% / -24.6% / 1.48.
+             tools/books_report.py runs in the Saturday job after the
+             weekly checkpoints and emails the report with the register
+             attached (READY FOR YOUR REVIEW in the subject once a trial
+             clears); `_send_html_email` takes attachments.  Checked on
+             synthetic paper data (pending / cleared / failed / stale G4)
+             and a captured SMTP message; suite 196 both envs.  Nothing
+             promotes automatically (your point 5).  docs/nse_engine.md.
+             4 Oct: docs/paper_trade_strategy.md, the operating
+             reference: books and their numbers, G4, the three checks,
+             candidate selection, promotion and what it changes, the
+             go-live checklist and ladder, where to look, adding a book.
 3 Oct   H4   Split by domain, moves only.  v1_gateway.py 2,930 -> 20 lines:
              its 85 routes in api/routers/v1/, one module per path prefix
              (auth, analysis, macro, backtest, verdict, history, screener,

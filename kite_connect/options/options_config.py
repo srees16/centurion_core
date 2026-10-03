@@ -1,5 +1,5 @@
 """
-Configuration for the Varsity options toolkit (CONCEPTS.md, STRATEGIES.md).
+Configuration for the Varsity options toolkit (docs/options/CONCEPTS.md, STRATEGIES.md).
 
 Every rate, threshold and limit the toolkit uses lives here as a frozen
 dataclass, as in ``nse_engine.config``.  Market facts that change (lot sizes,
@@ -44,31 +44,34 @@ class ChargesConfig:
 
     STT, exchange and stamp rates are on premium for options and on notional
     for futures.  The SEBI fee and GST/service tax are shared with the equity
-    model (``nse_engine.costs``).  Exchange charges before 1 Oct 2024 moved
-    between 0.0495% and 0.053% of premium; 0.05% is used throughout.  Stamp
-    duty before 1 Jul 2020 varied by state; the uniform rates are used.
+    model (``nse_engine.costs``).  The schedules start with STT on derivatives
+    (1 Oct 2004: 0.01%, then 0.0133% from Jun 2005 and 0.017% from Jun 2006,
+    Finance Acts 2004-06); the exercise levy exists only from 1 Jun 2008.
+    Exchange charges before 1 Oct 2024 moved between 0.0495% and 0.053% of
+    premium; 0.05% is used throughout.  Stamp duty before 1 Jul 2020 varied
+    by state; the uniform rates are used.
     """
 
     brokerage_per_order_inr: float = 20.0
     # Futures: the lower of the flat fee and this share of the order's notional.
     brokerage_futures_pct: float = 0.0003
     stt_option_sell: Schedule = (
-        ("2008-06-01", 0.00017), ("2016-06-01", 0.0005), ("2023-04-01", 0.000625),
-        ("2024-10-01", 0.001), ("2026-04-01", 0.0015),
+        ("2004-10-01", 0.0001), ("2005-06-01", 0.000133), ("2006-06-01", 0.00017), ("2016-06-01", 0.0005),
+        ("2023-04-01", 0.000625), ("2024-10-01", 0.001), ("2026-04-01", 0.0015),
     )
     # Exercised (or ITM-at-expiry) long options, paid by the buyer.  Before
     # 1 Sep 2019 the base was the full settlement value ("the STT trap", M5);
     # from then on it is the intrinsic value.
-    stt_option_exercise: Schedule = (("2008-06-01", 0.00125), ("2026-04-01", 0.0015))
+    stt_option_exercise: Schedule = (("2004-10-01", 0.0), ("2008-06-01", 0.00125), ("2026-04-01", 0.0015))
     stt_exercise_intrinsic_from: str = "2019-09-01"
     stt_futures_sell: Schedule = (
-        ("2008-06-01", 0.00017), ("2013-06-01", 0.0001), ("2023-04-01", 0.000125),
-        ("2024-10-01", 0.0002), ("2026-04-01", 0.0005),
+        ("2004-10-01", 0.0001), ("2005-06-01", 0.000133), ("2006-06-01", 0.00017), ("2013-06-01", 0.0001),
+        ("2023-04-01", 0.000125), ("2024-10-01", 0.0002), ("2026-04-01", 0.0005),
     )
-    exchange_option: Schedule = (("2008-06-01", 0.0005), ("2024-10-01", 0.0003503))
-    exchange_futures: Schedule = (("2008-06-01", 0.000019), ("2024-10-01", 0.0000173))
-    stamp_option_buy: Schedule = (("2008-06-01", 0.00003),)
-    stamp_futures_buy: Schedule = (("2008-06-01", 0.00002),)
+    exchange_option: Schedule = (("2004-10-01", 0.0005), ("2024-10-01", 0.0003503))
+    exchange_futures: Schedule = (("2004-10-01", 0.000019), ("2024-10-01", 0.0000173))
+    stamp_option_buy: Schedule = (("2004-10-01", 0.00003),)
+    stamp_futures_buy: Schedule = (("2004-10-01", 0.00002),)
 
 
 @dataclass(frozen=True)

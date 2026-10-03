@@ -1,4 +1,4 @@
-"""Varsity Module 6 worked examples and the selector (kite_connect/options/STRATEGIES.md, IDs M6.x.y)."""
+"""Varsity Module 6 worked examples and the selector (docs/options/STRATEGIES.md, IDs M6.x.y)."""
 
 import math
 
