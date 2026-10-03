@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 04 Oct 2026, 00:31 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 04 Oct 2026, 01:12 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -176,16 +176,6 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
-[!] P2  V5   Promotion vs the go-live clock (3 Oct).  A promotion rewrites
-             the deployed file with paper start = that day, so the deployed
-             book's G4 reference and session count restart: a promotion ~24
-             Dec moves go-live from mid-Dec to ~March.  Proposed: go live
-             mid-Dec on 679cbd0c as planned; treat a promotion as its own
-             event timed before a ladder step-up; let readiness and the
-             ladder read the promoted config's trial-book record while the
-             deployed record is < 60 sessions (code change), after checking
-             the ladder's first 30 sessions after a config change.  Your
-             call; docs/paper_trade_strategy.md section 6.
 [!] P3  O3   Options round 2: your go/no-go and candidate list.  Round 1
              (O2) failed on all three sleeves; the F&O data, store and
              harness exist, so a round is one pre-registered set and one
@@ -304,6 +294,30 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+4 Oct   V5   Promotion no longer restarts the go-live clock (your ask).
+             Verified first: `promote` writes paper start = that day, the
+             nightly job rebuilds the deployed book's G4 reference from it,
+             and go-live read only that book's G4, so a promotion ~24 Dec
+             would have moved go-live from mid-Dec to ~March.  Worse, found
+             on the way: the live G4 backtests the CURRENT deployed config
+             over the whole live record, so a promotion while live would read
+             the old config's weeks as tracking error, FAIL G4 and step the
+             ladder down automatically after 20 sessions.  Fixed:
+             capital_ladder.go_live_evidence - go-live reads the paper G4 of
+             the configuration about to trade: the deployed book's own once
+             it has 60 sessions, else the trial book of the same config
+             (PASS, 60+, current); an old config's report never counts.
+             capital_ladder.config_since + live_config state - the live G4
+             window starts at the first live session on the current config;
+             drawdown and kill criteria still read the whole record; the
+             email notes the change.  Each stored G4 report now carries the
+             config hash it judged (paper runner and live session).  So a
+             book that clears the 60 sessions, walk-forward and three checks
+             can go live that day, with the dry runs.  Keep a promoted
+             trial's book running until the deployed book has its own 60.
+             Checked with fakes through run_live_session's real gate
+             (refuses an old config's PASS, passes on the trial's record);
+             scratch checks deleted; suite 196 both envs.  Doc section 6-7.
 4 Oct   O2   Options sleeve beside the book: FAIL, round 1 closed.  Pre-
              registered 3 Oct 20:55 (plan 5q), before any options data: three
              NIFTY monthly bear call spreads from the Varsity rules (A1 2/3

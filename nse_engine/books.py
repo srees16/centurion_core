@@ -487,9 +487,11 @@ def review_sections(trial: str, register: pd.DataFrame, comparison: Optional[Dic
         f"To see the gate from the research machine: `python -m runners.run_nse_engine promote --check "
         f"--candidate config/nse_engine_{trial}.json --schema {trial}`. Without `--check` it rewrites "
         f"config/nse_engine_deployed.json with this configuration for your review and commit.",
-        "What a promotion changes: the deployed book trades the new configuration from its next session and "
-        "keeps its Neon record; its same-period reference restarts at the promotion date, so the G4 session "
-        "count restarts, and with it the 60 sessions go-live (D3) needs. Live trading is unaffected until then.",
+        "What a promotion changes: the deployed book (and the live book, once live) trades the new configuration "
+        "from its next session. It does not restart the go-live clock: go-live reads this trial book's own "
+        "record of the same configuration while the deployed book's is under 60 sessions, so keep this trial "
+        "book running until then. If already live, the live G4 restarts its window at the change, so the old "
+        "configuration's weeks never read as tracking error (tracker V5).",
     ]})
     return sections
 

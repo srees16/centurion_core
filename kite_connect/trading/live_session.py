@@ -262,7 +262,8 @@ def _series(df: Optional[pd.DataFrame], col: str) -> pd.Series:
 def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = None, as_of=None,
                      book=None, deployment=None, record: Optional[bool] = None, email: bool = True,
                      executor_factory: Optional[Callable] = None, extra_notes: Optional[List[str]] = None,
-                     once_per_session: bool = False, paper_book=None) -> dict:
+                     once_per_session: bool = False, paper_book=None,
+                     trial_gates: Optional[Dict[str, dict]] = None) -> dict:
     """One live session end to end (see the module docstring).  Returns a report dict."""
     from kite_connect.trading.nse_engine_executor import (EngineExecutor, kite_book, live_order_outcomes,
                                                           live_orders_allowed)
@@ -289,10 +290,12 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
         from nse_engine import capital_ladder as cl
         pstate = _paper_state(paper_book)
         try:
-            pgate = json.loads(pstate.get("paper_gate") or "null")
+            own_gate = json.loads(pstate.get("paper_gate") or "null")
         except ValueError:
-            pgate = None
-        checks = cl.readiness(pgate, json.loads(state.get(cl.DRY_RUNS_KEY) or "[]"))
+            own_gate = None
+        pgate, source = cl.go_live_evidence(own_gate, dep.engine.config_hash(),
+                                            trial_gates if trial_gates is not None else _trial_gates(dep))
+        checks = cl.readiness(pgate, json.loads(state.get(cl.DRY_RUNS_KEY) or "[]"), source=source)
         missing = [f"{n}: {d}" for n, ok, d in checks if not ok]
         if cl.rung_of(ledger["capital"]) is None:
             raise RuntimeError(f"live capital {ledger['capital']:,.0f} is not a ladder rung "
@@ -392,13 +395,22 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
                             prior_flows)                  # today's equity before any ladder flow
     today_flow = 0.0
     if record and not dry_run and session.date() >= dep.paper_start_date:
-        decision, gate = _ladder_step(ex, data, view, dep, ledger, state, book, session, history, marked)
+        from nse_engine import capital_ladder as cl
+        since, marker, replaced = cl.config_since(state.get(cl.LIVE_CONFIG_KEY), dep.engine.config_hash(),
+                                                  history.index[0].date().isoformat(), session.date().isoformat())
+        if marker:
+            book.sync_state({cl.LIVE_CONFIG_KEY: marker})
+        if replaced:
+            report["notes"].append(f"configuration {replaced[:8]} -> {dep.engine.config_hash()[:8]} from {since}: "
+                                   "the live G4 window restarts here (V5)")
+        decision, gate = _ladder_step(ex, data, view, dep, ledger, state, book, session, history, marked, since)
         report["ladder"] = decision.line()
         report["alerts"].extend(decision.alerts)
         if gate is not None:
             from nse_engine import paper_gate as pg
             report["gate"] = pg.one_line(gate)
-            book.sync_state({pg.STATE_KEY: pg.summary_json(gate, updated_at=datetime.now(timezone.utc).isoformat())})
+            book.sync_state({pg.STATE_KEY: pg.summary_json(gate, updated_at=datetime.now(timezone.utc).isoformat(),
+                                                           config_hash=dep.engine.config_hash())})
         if decision.flow:
             today_flow = float(decision.flow)
             ledger["capital"] = float(decision.capital)
@@ -486,6 +498,27 @@ def _equity_and_flows(snaps: Optional[pd.DataFrame]) -> Tuple[pd.Series, pd.Seri
     return eq, flows
 
 
+def _trial_gates(dep) -> Dict[str, dict]:
+    """Stored G4 reports of the trial books that paper-trade the deployed configuration (tracker V5)."""
+    try:
+        from database.connection import get_db_manager
+        from database.paper_cloud import PaperCloudSync
+        from nse_engine import forward_gate as fg
+        from nse_engine.books import discover_books
+
+        mgr, out = get_db_manager(), {}
+        for b in discover_books():
+            if b.is_deployed or b.config_hash != dep.engine.config_hash():
+                continue
+            gate = fg.stored_gate(PaperCloudSync(mgr, schema=b.schema).read_state())
+            if gate:
+                out[b.name] = gate
+        return out
+    except Exception as exc:                              # noqa: BLE001 - go-live then reads the deployed book only
+        logger.warning("trial books unavailable: %s", exc)
+        return {}
+
+
 def _paper_state(paper_book=None) -> Dict[str, str]:
     """State of the deployed paper book (default schema): its G4 report."""
     if paper_book is None:
@@ -500,20 +533,26 @@ def _paper_state(paper_book=None) -> Dict[str, str]:
 
 
 def _ladder_step(ex, data, view, dep, ledger: dict, state: Dict[str, str], book, session, history: pd.Series,
-                 marked: dict):
-    """G4 on the live book, then tonight's capital-ladder decision (``nse_engine.capital_ladder``)."""
+                 marked: dict, since: Optional[str] = None):
+    """G4 on the live book, then tonight's capital-ladder decision (``nse_engine.capital_ladder``).
+
+    G4 compares the sessions since ``since`` (the first on the current
+    configuration, ``capital_ladder.config_since``) with a backtest of that
+    configuration; drawdown and the kill criteria still read the whole book.
+    """
     from nse_engine import capital_ladder as cl
     from nse_engine import paper_gate as pg
     from nse_engine.engine import run_backtest
 
     gate = None
-    if len(history) >= 3:
+    window = history[history.index >= pd.Timestamp(since)] if since else history
+    if len(window) >= 3:
         try:
-            cfg = dep.reference_config().replace(start=history.index[0].date().isoformat(),
+            cfg = dep.reference_config().replace(start=window.index[0].date().isoformat(),
                                                  end=session.date().isoformat(),
                                                  initial_capital=float(ledger["capital"]))
             ref = run_backtest(data, cfg, record=False, tag="live-reference")
-            gate = pg.evaluate(history, ref.returns, fills=book.read_fills(), reference_trades=ref.trades,
+            gate = pg.evaluate(window, ref.returns, fills=book.read_fills(), reference_trades=ref.trades,
                                sessions=book.read_sessions())
         except Exception as exc:                          # noqa: BLE001 - the ladder then holds
             logger.warning("live G4 unavailable: %s", exc)
