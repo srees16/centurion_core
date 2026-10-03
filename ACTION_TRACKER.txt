@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 03 Oct 2026, 18:03 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 03 Oct 2026, 18:27 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -229,10 +229,15 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
    api/routers/v1_gateway.py 2,978 (20 after H4: routes in api/routers/v1/).
    71 functions exceed 150 lines.  Order: safety, then removal, then
    structure - removal first, so refactoring has less to move.
-#H3b [ ] P3 H3b  Second dead-code pass, item by item, same keep rule: 67 of
-                 158 API routes no frontend code references (some are called
-                 from outside: the Kite redirect, the email link, monitors)
-                 and ~360 unused-function candidates (vulture).
+#H3b [!] P3 H3b  ON HOLD (you, 3 Oct): nothing is removed without an in-depth
+                 study and validation of each item.  Inventory so far,
+                 nothing deleted: 70 of 167 routes have no frontend caller;
+                 34 look legacy (old /rag/* router, /stream/* except the Kite
+                 postback, 10 old /ind-stocks broker routes incl. an unused
+                 order endpoint, 7 legacy analysis routes); the rest are
+                 called from outside or are strategy / F&O.  Vulture flagged
+                 412 functions; after filters, 75 non-strategy candidates
+                 (1,083 lines); 17 strategy items and 2 ORM models kept.
                                                               Prompt: do H3b
  NOT DOING  leverage (L4/E3: 25% only with Sharpe < 1.2, Calmar down),
             parameter grids (near-duplicate trials), core risk share up
