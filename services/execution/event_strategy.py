@@ -206,9 +206,9 @@ def generate_event_forecasts(
         from services.market_data.event_calendar import get_upcoming_events
         events = get_upcoming_events(days_ahead=7)
     except Exception as exc:
-        if not getattr(get_event_forecasts, "_cal_warned", False):
+        if not getattr(generate_event_forecasts, "_cal_warned", False):
             logger.warning("Event calendar fetch failed (suppressing repeats): %s", exc)
-            get_event_forecasts._cal_warned = True
+            generate_event_forecasts._cal_warned = True
         return []
 
     iv_data = iv_data or {}

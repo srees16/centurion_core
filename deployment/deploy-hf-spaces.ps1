@@ -123,9 +123,6 @@ if (Test-Path $ENV_FILE) {
         "LOGTAIL_TOKEN",
         "ZERODHA_API_KEY",
         "ZERODHA_API_SECRET",
-        "ZERODHA_USER_ID",
-        "ZERODHA_PASSWORD",
-        "ZERODHA_TOTP_SECRET",
         "MINIO_ENDPOINT",
         "MINIO_ACCESS_KEY",
         "MINIO_SECRET_KEY",
@@ -174,7 +171,7 @@ except Exception as e:
     Write-Host "  WARNING: .env file not found at $ENV_FILE" -ForegroundColor Red
     Write-Host "  Secrets must be set manually in HF Spaces Settings > Repository secrets:" -ForegroundColor Yellow
     Write-Host "  CENTURION_DATABASE_URL, ANTHROPIC_API_KEY,"
-    Write-Host "  ZERODHA_API_KEY, ZERODHA_API_SECRET, ZERODHA_USER_ID, ZERODHA_PASSWORD, ZERODHA_TOTP_SECRET,"
+    Write-Host "  ZERODHA_API_KEY, ZERODHA_API_SECRET,"
     Write-Host "  MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MINIO_SECURE=true, MINIO_BUCKET=centurion-backtests, MINIO_ENABLED=true,"
     Write-Host "  CENTURION_DEFAULT_ADMIN_PASSWORD, CENTURION_DEFAULT_ANALYST_PASSWORD,"
     Write-Host "  CENTURION_ALLOWED_ORIGINS=https://centurion-core-fe.vercel.app,"

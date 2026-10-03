@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 01 Oct 2026, 21:28 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 03 Oct 2026, 16:19 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -168,23 +168,6 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
-[!] P0  U30  Rotate the Neon database password NOW.  README.md line 37 held
-             the real CENTURION_DATABASE_URL with its password, in a public
-             repo (removed in H1, but it stays in git history).  Neon
-             console -> Roles -> neondb_owner -> Reset password; then update
-             CENTURION_DATABASE_URL in GitHub secrets, the HF Space secrets
-             and your local env.  Never paste it in chat.
-[!] P0  U29  Delete ZERODHA_PASSWORD and ZERODHA_TOTP_SECRET from the HF
-             Space secrets (you confirmed both exist; CENTURION_PAPER_TRADE
-             is unset = paper).  Stops the headless logins at once; H1 stops
-             them in code once merged.  The daily login does not need them.
-[!] P0  U2   Rotate the Kaggle password and API token (both were pasted in
-             chat).  The token lives only in ~/.kaggle/access_token; no
-             GitHub/HF secret uses it.  kaggle.com/settings/api: revoke,
-             "Generate New Token", save over the file, chmod 600.  Test:
-             myenv/bin/python -m cloud.kaggle_local check  (shows
-             "authenticated_as": "srees16" when the new token works).
-             Wait until R13's 2007-25 Kaggle job has been pulled (1 Oct).
 [!] P1  U23  Log in to Kite once every trading day: tap the link in the
              09:00 / 17:30 IST email (valid until 06:00 next day).  The first
              live dry run is Thu 1 Oct 19:00 IST (Fri 2 Oct is a holiday);
@@ -286,6 +269,48 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+3 Oct   U31  Stray tunnel key removed from centurion_core/ (kite_tunnel +
+             .pub, SHA256:IM3/iPfy..., made 30 Sep 00:04, gitignored, never
+             authorized).  The proxy accepts only ~/.ssh/kite_tunnel
+             (SHA256:9uCn3Rr..., checked on the VM 3 Oct); left in place.
+3 Oct   U2   Kaggle password changed, old API tokens expired, new token in
+             ~/.kaggle/access_token (600).  Verified 16:07 IST: kaggle_local
+             check -> authenticated_as srees16.
+3 Oct   H7   Four undefined names fixed (latent, none on the paper/live
+             path): auto_executor's margin pre-check for non-CNC orders
+             always failed on Config and was silently skipped; carver_
+             pipeline's Monte Carlo Kelly cap always skipped on os (no
+             change today: data/recent_trade_returns.json does not exist)
+             and Any (type hint only); event_strategy raised NameError when
+             the event calendar failed instead of returning [].  109 tests
+             (107 core-only).  Also ndtv_profit.py:116 (active_host ->
+             self.base_url): NDTV articles with relative links were silently
+             dropped from the news feed; verified on a simulated page.  Not
+             fixed: freshness.py:245 Integer (method has no caller); four
+             "pd" hints are strings only, harmless.
+3 Oct   H6   No automated Kite login anywhere.  kite_auth opens the login
+             page in your browser; you type password + TOTP (the Selenium
+             auto-fill, core/selenium_service.py, pyotp and webdriver-manager
+             are gone).  ZERODHA_USER_ID / _PASSWORD / _TOTP_SECRET removed
+             from kite_connect/core/config.py, deploy-hf-spaces.ps1 (it still
+             pushed the password + TOTP to the Space), sync_hf_secrets.py and
+             the READMEs.  /kite/session/complete no longer writes the request
+             token into kite_token_store.py (response unchanged; /login page
+             unaffected).  GitHub runs use --stored-token, untouched.
+             Verified: simulated login captures the token; the route returns
+             200 and leaves the file alone; 109 tests (107 core-only).
+             You confirmed: no Zerodha password / TOTP in the GitHub secrets;
+             ZERODHA_USER_ID deleted from the HF Space.
+2 Oct   U30  Neon password rotated (it was public in README.md from 14 Apr
+             to 1 Oct).  New CENTURION_DATABASE_URL in GitHub and the HF
+             Space; verified 00:15 IST: the Space reads all three books
+             (deployed 11 sessions, candidate 4, e4 0 until 5 Oct) and the
+             login-reminder workflow reaches Neon.  First attempt failed
+             with "password authentication failed" (wrong password in both
+             secrets); fixed by copying the full string from Connect.
+1 Oct   U29  You deleted ZERODHA_PASSWORD and ZERODHA_TOTP_SECRET from the
+             HF Space (CENTURION_PAPER_TRADE unset = paper): the Space can no
+             longer log in to Kite, merged H1 or not.
 1 Oct   H1   Legacy scheduler retired; no automated Kite login.  start_
              scheduler registers only the 4 GitHub dispatches (behind
              CENTURION_GH_DISPATCH_TOKEN; none without it; verified with a

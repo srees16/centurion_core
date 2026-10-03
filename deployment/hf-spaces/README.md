@@ -20,7 +20,6 @@ Algorithmic trading platform backend powered by FastAPI.
 | `ANTHROPIC_API_KEY` | Yes | Claude API key for RAG |
 | `ZERODHA_API_KEY` | Yes | Kite Connect API key |
 | `ZERODHA_API_SECRET` | Yes | Kite Connect secret |
-| `ZERODHA_USER_ID` | Yes | Kite user ID |
 | `MINIO_ENDPOINT` | Yes | Cloudflare R2 endpoint |
 | `MINIO_ACCESS_KEY` | Yes | R2 access key |
 | `MINIO_SECRET_KEY` | Yes | R2 secret key |

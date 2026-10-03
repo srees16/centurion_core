@@ -1422,13 +1422,6 @@ async def kite_session_complete(body: KiteTokenRequest):
         kite.set_access_token(data["access_token"])
         set_kite_session(kite)
 
-        # Persist the new token so next restart can reuse it
-        try:
-            from kite_connect.auth.kite_auth import update_kite_app
-            update_kite_app(body.request_token)
-        except Exception:
-            pass
-
         profile = await kite_call(kite.profile)
         return {"success": True, "profile": profile}
     except HTTPException:
