@@ -11,10 +11,10 @@ they are included here in their original order, so route matching is unchanged.
 
 from fastapi import APIRouter
 
-from api.routers.v1 import (analysis, auth, backtest, drivewealth, history, kite, labs, macro, market,
-                            options, rag, rl_bot, screener, verdict)
+from api.routers.v1 import (analysis, auth, backtest, drivewealth, history, kite, kite_accounts, labs, macro,
+                            market, options, rag, rl_bot, screener, verdict)
 
 router = APIRouter(prefix="/api/v1", tags=["API v1"])
-for _module in (auth, analysis, macro, backtest, verdict, history, screener, kite, options, drivewealth,
-                labs, rag, market, rl_bot):
+for _module in (auth, analysis, macro, backtest, verdict, history, screener, kite, kite_accounts, options,
+                drivewealth, labs, rag, market, rl_bot):
     router.include_router(_module.router)

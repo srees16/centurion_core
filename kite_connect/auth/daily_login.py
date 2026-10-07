@@ -34,6 +34,7 @@ import argparse
 import logging
 import os
 from datetime import datetime, time, timedelta, timezone
+from html import escape
 from typing import Callable, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -160,23 +161,32 @@ def check_egress(proxy_url: Optional[str] = None, expected: Optional[str] = None
 
 
 def kite_from_stored_token(book=None, now: Optional[datetime] = None, proxy_url: Optional[str] = None,
-                           kite_factory: Optional[Callable] = None):
-    """A Kite session from today's stored token (through the proxy), or None."""
+                           kite_factory: Optional[Callable] = None, key: Optional[str] = None):
+    """A Kite session from today's stored token (through the proxy), or None.
+
+    ``key`` is the API key of the app the token belongs to (a family account's,
+    ``kite_connect.auth.accounts``); default the server's own.
+    """
     token = load_token(book, now)
     if token is None:
         return None
     if kite_factory is None:
         from kiteconnect import KiteConnect as kite_factory
-    kite = kite_factory(api_key=api_key(), proxies=proxies(proxy_url))
+    kite = kite_factory(api_key=key or api_key(), proxies=proxies(proxy_url))
     kite.set_access_token(token)
     return kite
 
 
 def remind(book=None, now: Optional[datetime] = None, force: bool = False,
-           send: Optional[Callable[[str, str], bool]] = None) -> str:
-    """Email the login link on a trading day when today's token is missing."""
+           send: Optional[Callable[[str, str], bool]] = None, url: Optional[str] = None,
+           mode: Optional[str] = None, holder: str = "") -> str:
+    """Email the login link on a trading day when today's token is missing.
+
+    A family account (``kite_connect.auth.accounts.remind``) passes its own
+    book, link, mode and holder's name, and a ``send`` addressed to the holder.
+    """
     now = (now or datetime.now(IST)).astimezone(IST)
-    mode = (os.environ.get(ENV_LIVE_MODE) or "off").strip().lower()
+    mode = (mode or os.environ.get(ENV_LIVE_MODE) or "off").strip().lower()
     if mode not in ("dry_run", "live") and not force:
         return f"live mode is {mode!r}: no reminder"
     from services.execution.carver_pipeline import is_nse_trading_day
@@ -185,22 +195,23 @@ def remind(book=None, now: Optional[datetime] = None, force: bool = False,
     status = token_status(book, now)
     if status["valid"] and not force:
         return f"already logged in at {status['login_at']}: no reminder"
-    url = login_url()
+    url = url or login_url()
     label = mode.replace("_", " ")
+    whose = f" for {escape(holder)}'s account" if holder else ""
     html = (
         "<html><body style=\"font-family:Segoe UI,Arial,sans-serif;background:#f9fafb;padding:20px;\">"
         "<div style=\"max-width:560px;margin:0 auto;background:#fff;border-radius:10px;"
         "box-shadow:0 2px 8px rgba(0,0,0,0.08);overflow:hidden;\">"
         "<div style=\"background:#1a1a2e;padding:14px 24px;color:#fff;font-size:17px;\">"
         f"Centurion &mdash; Kite login for {now:%A %d %b}</div><div style=\"padding:20px 24px;font-size:14px;\">"
-        f"<p>Tonight's live session ({label}) needs today's Kite login.</p>"
+        f"<p>Tonight's live session ({label}){whose} needs today's Kite login.</p>"
         f"<p style=\"margin:22px 0;\"><a href=\"{url}\" style=\"background:#387ed1;color:#fff;padding:10px 18px;"
         "border-radius:6px;text-decoration:none;font-weight:600;\">Log in to Kite</a></p>"
         "<p style=\"color:#555;\">Launches Zerodha login page: the password and authenticator code "
         "are typed there. Zerodha connects you to the Centurion server, which keeps the session until "
         "06:00 tomorrow.</p><p style=\"color:#555;\">No login, no orders tonight. Your GTT stops stay active "
         "at Zerodha either way.</p></div></div></body></html>")
-    subject = f"Kite Login Request {now:%a %d %b} ({label})"
+    subject = f"Kite Login Request {now:%a %d %b} ({label})" + (f" - {holder}" if holder else "")
     if send is None:
         from services.notifications.manager import NotificationManager
         send = lambda s, h: NotificationManager._send_html_email(s, h)   # noqa: E731

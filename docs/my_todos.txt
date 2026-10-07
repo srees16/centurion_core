@@ -161,16 +161,14 @@ audit the current order workflow beginning with user's ticker input until placin
 
 ~~~~~~~
 
-prompt for code hygiene:
-1. Touch **only** code required for this task; leave unrelated code untouched.
+1. Touch ONLY code required for this task; leave unrelated code untouched.
 2. Preserve existing behavior, APIs, and contracts unless explicitly required.
 3. Reuse existing utilities/patterns; avoid unnecessary duplication, or abstraction.
-4. Keep the diff **minimal, clean, and production-ready**.
+4. Keep the diff minimal, clean, and production-ready.
 5. Review the final diff and remove anything unrelated or unnecessary.
-
-Remove all temporary/test/debug scripts and implementation artifacts you created.
-Remove all unused/dead code, imports, methods, variables, and obsolete snippets.
-Keep production-ready, modular, well-documented code only.
+6. Remove all temporary/test/debug scripts and implementation artifacts you created.
+7. Remove all unused/dead code, imports, methods, variables, and obsolete snippets.
+8. Keep production-ready, modular, well-documented code only.
 
 1. Where are images stored currently wen i run analysis? Display location or url to access dem on ui pages
 2. Analyse n understand wats 3 emails doing? Give clear identifier and purpose of each of them

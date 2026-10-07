@@ -50,6 +50,12 @@ rehearsal book in Neon).
     python -m kite_connect.trading.live_session --dry-run --capital 600000
     python -m kite_connect.trading.live_session --capital 600000     # first real session
     python -m kite_connect.trading.live_session                       # later sessions
+
+A family account (tracker FA2, ``kite_connect.auth.accounts``) runs the same
+session in its own book (schema ``live_<id>``) with its own Kite app, token,
+capital and mode: ``--stored-token --account <id>``.  While it is being
+disconnected (FA3) its sessions only sell the ledger's positions
+(:func:`unwind_orders`), then it turns off.
 """
 
 from __future__ import annotations
@@ -232,6 +238,27 @@ def mark_book(holdings: Dict[str, dict], cash: float, closes: pd.Series) -> dict
     return {"equity": float(cash) + value, "cash": float(cash), "invested": value, "positions": marks}
 
 
+def unwind_orders(holdings: Dict[str, dict], closes: pd.Series, sessions_left: int) -> Tuple[list, List[str]]:
+    """(sell orders, symbols without a price) for a session of a disconnect (FA3).
+
+    Each held position sells ``ceil(quantity / sessions_left)``, everything
+    on the last session, as the engine's exits are placed (LIMIT inside the
+    order band below the close).
+    """
+    from kite_connect.trading.nse_engine_executor import ORDER_LIMIT_BAND_BPS, PlannedOrder, _tick
+
+    orders, unpriced = [], []
+    for sym, h in sorted(holdings.items()):
+        qty, px = int(h["quantity"]), float(closes.get(sym, 0.0) or 0.0)
+        if px <= 0 or math.isnan(px):
+            unpriced.append(sym)
+            continue
+        sell = qty if sessions_left <= 1 else math.ceil(qty / sessions_left)
+        orders.append(PlannedOrder(sym, "SELL", sell, px, _tick(px * (1 - ORDER_LIMIT_BAND_BPS / 1e4), "down"),
+                                   "exit:disconnect", qty, qty - sell))
+    return orders, unpriced
+
+
 def snapshot_row(session, marked: dict, history: pd.Series, capital: float, closed_today: int) -> dict:
     """A ``paper_daily_snapshots`` row for the live book."""
     day = pd.Timestamp(session).normalize()
@@ -263,8 +290,14 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
                      book=None, deployment=None, record: Optional[bool] = None, email: bool = True,
                      executor_factory: Optional[Callable] = None, extra_notes: Optional[List[str]] = None,
                      once_per_session: bool = False, paper_book=None,
-                     trial_gates: Optional[Dict[str, dict]] = None) -> dict:
-    """One live session end to end (see the module docstring).  Returns a report dict."""
+                     trial_gates: Optional[Dict[str, dict]] = None, requested_capital: Optional[float] = None,
+                     label: str = "", unwind_sessions: int = 0) -> dict:
+    """One live session end to end (see the module docstring).  Returns a report dict.
+
+    ``requested_capital`` is the ladder request (default ``CENTURION_LIVE_CAPITAL``);
+    ``label`` names a family account in the email; ``unwind_sessions`` > 0 is a
+    disconnect (FA3): tonight's orders only sell, over that many sessions.
+    """
     from kite_connect.trading.nse_engine_executor import (EngineExecutor, kite_book, live_order_outcomes,
                                                           live_orders_allowed)
     from nse_engine.deployment import load_deployment
@@ -403,7 +436,8 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
         if replaced:
             report["notes"].append(f"configuration {replaced[:8]} -> {dep.engine.config_hash()[:8]} from {since}: "
                                    "the live G4 window restarts here (V5)")
-        decision, gate = _ladder_step(ex, data, view, dep, ledger, state, book, session, history, marked, since)
+        decision, gate = _ladder_step(ex, data, view, dep, ledger, state, book, session, history, marked, since,
+                                      requested_capital, label)
         report["ladder"] = decision.line()
         report["alerts"].extend(decision.alerts)
         if gate is not None:
@@ -440,6 +474,16 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
         report["notes"].append(f"session {session.date()} is before the deployment's start {dep.paper_start_date}: no plan")
     else:
         plan = ex.plan(as_of=session, data=data)
+        if unwind_sessions:                              # FA3: sell out; the engine's stops stay on the rest
+            plan.orders, unpriced = unwind_orders(holdings, closes, unwind_sessions)
+            report["unwound"] = not holdings
+            report["notes"].append(
+                f"DISCONNECTING: selling {len(plan.orders)} position(s), "
+                f"{'all at the next open' if unwind_sessions <= 1 else f'1/{unwind_sessions} of each'}"
+                if holdings else "DISCONNECTED: the account holds none of the book's positions; Centurion "
+                                 "stops trading it")
+            if unpriced:
+                report["alerts"].append("disconnect: no price, not sold tonight: " + ", ".join(unpriced))
         report["plan"] = plan
         stale = any(s.get("reason") == "stale_data" for s in plan.skipped)
         if stale:
@@ -476,7 +520,7 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
     if shift_path.exists():
         shift_path.unlink()
     if email:
-        _email(report, dep, snap, float(ledger["capital"]))
+        _email(report, dep, snap, float(ledger["capital"]), getattr(book, "schema", None) or live_schema(), label)
     logger.info("LIVE session %s (%s): %d fills, %d external, %d orders %s, equity %.0f, alerts: %s",
                 report["session"], report["mode"], len(report["fills"]), len(report["external"]), len(orders),
                 "built" if dry_run else "sent", snap["equity"], "; ".join(report["alerts"]) or "none")
@@ -533,7 +577,7 @@ def _paper_state(paper_book=None) -> Dict[str, str]:
 
 
 def _ladder_step(ex, data, view, dep, ledger: dict, state: Dict[str, str], book, session, history: pd.Series,
-                 marked: dict, since: Optional[str] = None):
+                 marked: dict, since: Optional[str] = None, requested: Optional[float] = None, label: str = ""):
     """G4 on the live book, then tonight's capital-ladder decision (``nse_engine.capital_ladder``).
 
     G4 compares the sessions since ``since`` (the first on the current
@@ -563,11 +607,12 @@ def _ladder_step(ex, data, view, dep, ledger: dict, state: Dict[str, str], book,
     mults = (pd.to_numeric(sessions.sort_values("session_date")["shift_multiplier"], errors="coerce").fillna(1.0).tolist()
              if sessions is not None and not sessions.empty and "shift_multiplier" in sessions.columns else [])
     lstate = cl.LadderState.load(state.get(cl.STATE_KEY), float(ledger["capital"]), session.date().isoformat())
-    req = os.environ.get(ENV_LIVE_CAPITAL)
+    req = requested if requested is not None else os.environ.get(ENV_LIVE_CAPITAL)
     decision = cl.evaluate(lstate, session.date().isoformat(), gate=gate,
                            drawdown_state=getattr(dd, "state", "normal") if dd is not None else "normal",
                            book_dd=cl.current_drawdown(history), nifty_dd=cl.current_drawdown(nifty),
-                           shift_multipliers=mults, requested_capital=float(req) if req else None)
+                           shift_multipliers=mults, requested_capital=float(req) if req else None,
+                           capital_setting=f"{label}'s capital on Fly Kite" if label else ENV_LIVE_CAPITAL)
     book.sync_state({cl.STATE_KEY: lstate.dump()})
     return decision, gate
 
@@ -594,14 +639,14 @@ def _session_row(report: dict, plan, marked: dict, snap: dict, orders: List[dict
             "drawdown_pct": float(getattr(plan, "drawdown_pct", 0.0) or 0.0) if plan is not None else 0.0}
 
 
-def _email(report: dict, dep, snap: dict, capital: float) -> None:
+def _email(report: dict, dep, snap: dict, capital: float, schema: str, label: str = "") -> None:
     try:
         from services.notifications.manager import NotificationManager
         plan = report.get("plan")
         orders = [r for r in report["results"] if r.get("type") != "gtt_reconcile"]
         NotificationManager().email_engine_daily_report({
             "mode": report["mode"], "session": report["session"],
-            "deployment": f"{dep.status} {dep.engine.config_hash()[:8]} · live book, schema {live_schema()}, "
+            "deployment": f"{dep.status} {dep.engine.config_hash()[:8]} · live book, schema {schema}, "
                           f"capital {capital:,.0f}",
             "equity": snap["equity"], "initial_capital": capital, "cash": snap["cash"],
             "pnl": snap["cumulative_pnl"], "pnl_pct": snap["cumulative_pnl_pct"],
@@ -619,16 +664,17 @@ def _email(report: dict, dep, snap: dict, capital: float) -> None:
             "drawdown_state": getattr(plan, "drawdown_state", "normal") if plan is not None else "normal",
             "paper_gate": report.get("gate"),
             "ladder": report.get("ladder"),
+            "book_label": label or None,
         })
     except Exception as exc:                             # noqa: BLE001 - reporting only
         logger.warning("Live daily email failed: %s", exc)
 
 
-def _email_skip(message: str) -> None:
+def _email_skip(message: str, label: str = "") -> None:
     try:
         from services.notifications.manager import NotificationManager
         NotificationManager._send_html_email(
-            "Centurion live: no Kite login today, session skipped",
+            f"Centurion live{f' [{label}]' if label else ''}: no Kite login today, session skipped",
             f"<html><body style='font-family:Segoe UI,Arial,sans-serif;padding:20px;'><p>{message}</p></body></html>")
     except Exception as exc:                              # noqa: BLE001
         logger.warning("skip email failed: %s", exc)
@@ -645,25 +691,39 @@ def main(argv=None) -> int:
     ap.add_argument("--stored-token", action="store_true",
                     help="the scheduled run: today's token from the Kite login callback, calls through "
                          "CENTURION_KITE_PROXY (U23)")
+    ap.add_argument("--account", default="",
+                    help="a family account's id (kite_connect.auth.accounts, FA2): its own book, Kite app, "
+                         "capital and mode; needs --stored-token")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     notes: List[str] = []
+    acct, book, dry_run, capital = None, None, args.dry_run, args.capital
+    if args.account:
+        from kite_connect.auth import accounts
+        acct = accounts.get(args.account)
+        if acct.is_primary or not args.stored_token:
+            ap.error("--account names a family account (your own is the default) and needs --stored-token")
+        if acct.mode == "off":
+            print(f"{acct.name}: Centurion does not manage this account (mode off)")
+            return 0
+        dry_run = dry_run or acct.mode == "dry_run"      # never above the master switch (--dry-run)
+        capital = capital if capital is not None else acct.capital
     if args.stored_token:
         from kite_connect.auth import daily_login as dl
-        book = live_book()
-        kite = dl.kite_from_stored_token(book)
+        book = live_book(acct.schema if acct else None)
+        kite = dl.kite_from_stored_token(book, key=acct.api_key if acct else None)
         if kite is None:
-            msg = ("No Kite login today, so the live session was skipped: no orders were placed. "
-                   "GTT stops stay active at Zerodha. Log in tomorrow from the reminder email.")
+            msg = (f"No Kite login today{f' for {acct.name}' if acct else ''}, so the live session was skipped: "
+                   "no orders were placed. GTT stops stay active at Zerodha. Log in tomorrow from the reminder email.")
             logger.warning(msg)
             today = datetime.now(dl.IST).date().isoformat()
             if not args.no_email and book.read_state().get(LIVE_SKIP_NOTIFIED_KEY) != today:
-                _email_skip(msg)                         # once a day, not once per backup run
+                _email_skip(msg, acct.name if acct else "")   # once a day, not once per backup run
                 book.sync_state({LIVE_SKIP_NOTIFIED_KEY: today})
             print(msg)
             return 0
         proxy = os.environ.get(dl.ENV_PROXY, "")
-        if not args.dry_run and not proxy:
+        if not dry_run and not proxy:
             raise SystemExit(f"real orders need {dl.ENV_PROXY}: Zerodha accepts API orders only from the "
                              "registered static IP")
         if proxy:
@@ -672,15 +732,18 @@ def main(argv=None) -> int:
             if not ok:
                 msg = (f"egress IP {ip or 'unknown'} is not the IP registered with Zerodha "
                        f"({os.environ.get(dl.ENV_STATIC_IP)}): orders would be rejected")
-                if not args.dry_run:
+                if not dry_run:
                     raise SystemExit(f"real orders refused: {msg}")
                 notes.append("WARNING: " + msg)
     else:
         from kite_connect.auth.kite_session import create_kite_session
         kite = create_kite_session()
-    report = run_live_session(kite, dry_run=args.dry_run, capital=args.capital, as_of=args.as_of,
+    report = run_live_session(kite, dry_run=dry_run, capital=capital, as_of=args.as_of, book=book,
                               record=True if args.record else None, email=not args.no_email, extra_notes=notes,
-                              once_per_session=args.stored_token)
+                              once_per_session=args.stored_token, requested_capital=acct.capital if acct else None,
+                              label=acct.name if acct else "", unwind_sessions=acct.unwind_sessions if acct else 0)
+    if acct is not None and acct.unwind_sessions and not report.get("skipped"):
+        accounts.unwind_step(acct.id, report, dry_run)
     print(json.dumps({k: v for k, v in report.items() if k != "plan"}, default=str, indent=2)[:6000])
     return 0          # alerts are in the email; only an exception fails the run
 

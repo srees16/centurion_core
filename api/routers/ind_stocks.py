@@ -134,27 +134,35 @@ def _login_page(title: str, detail: str, ok: bool, auto_close: bool = False) -> 
 
 
 @router.get("/auth/callback", response_class=HTMLResponse, include_in_schema=False)
-async def kite_login_callback(request_token: str = "", status: str = "", action: str = ""):
+async def kite_login_callback(request_token: str = "", status: str = "", action: str = "", account: str = ""):
     """Kite Connect redirect URL (U23): Zerodha sends the browser here after login.
 
-    Exchanges the one-time request token for the day's access token, stores it
-    encrypted for the evening live session and opens the API's Kite session.
+    Exchanges the one-time request token for the day's access token and stores
+    it encrypted in the account's live book.  ``account`` (Kite's
+    ``redirect_params``) names a family account (U33), checked against its
+    Zerodha user id; without it the login is the primary's, which also opens
+    the API's Kite session.
     """
     from html import escape
     if status != "success" or not request_token:
         return HTMLResponse(_login_page("Kite login not completed",
                                         f"Zerodha returned status '{escape(status or 'none')}'. "
                                         "Open the login link from the email again.", False), status_code=400)
+    import asyncio
+    from kite_connect.auth import accounts
     try:
-        import asyncio
-        from kite_connect.auth.daily_login import exchange_and_store
-        res = await asyncio.to_thread(exchange_and_store, request_token)
-        set_kite_session(res["kite"])
+        acct = accounts.get(account)
+        res = await asyncio.to_thread(accounts.exchange, acct, request_token)
+        if acct.is_primary:
+            set_kite_session(res["kite"])
         when = datetime.fromisoformat(res["kite_login_at"]).strftime("%H:%M IST, %a %d %b")
+        who = escape(res["user_id"]) if acct.is_primary else f"{escape(acct.name)} ({escape(res['user_id'])})"
         return HTMLResponse(_login_page(
             "Kite Login Successful",
-            f"{escape(res['user_id'])}, {when}. The session will be active until 0600 IST tomorrow.",
+            f"{who}, {when}. The session will be active until 0600 IST tomorrow.",
             True, auto_close=True))
+    except accounts.AccountError as exc:
+        return HTMLResponse(_login_page("Unknown account", escape(str(exc)), False), status_code=404)
     except PermissionError as exc:
         return HTMLResponse(_login_page("Login refused", escape(str(exc)), False), status_code=403)
     except Exception as exc:                              # noqa: BLE001

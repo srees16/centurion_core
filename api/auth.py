@@ -135,6 +135,28 @@ def verify_session_token(token: str) -> Optional[Dict]:
         return None
 
 
+def session_from_request(request) -> Optional[Dict]:
+    """The signed-in session of a request, or None (tracker S1).
+
+    The frontend sends ``Authorization: Bearer <token>`` (``/api/v1/auth/login``);
+    the API docs use the session cookie, then the shared SSO cookie.
+    """
+    from auth.shared_session import SHARED_COOKIE_NAME, verify_shared_token
+
+    header = request.headers.get("authorization", "")
+    if header.startswith("Bearer "):
+        payload = verify_session_token(header[7:])
+        if payload:
+            return payload
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        payload = verify_session_token(token)
+        if payload:
+            return payload
+    shared = request.cookies.get(SHARED_COOKIE_NAME)
+    return verify_shared_token(shared) if shared else None
+
+
 # ---------------------------------------------------------------------------
 # Login page HTML
 # ---------------------------------------------------------------------------

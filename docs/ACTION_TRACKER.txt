@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 07 Oct 2026, 18:57 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 07 Oct 2026, 20:12 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -164,6 +164,14 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
        (option 1).  Built the same day.                        -> U24, D3
   U6   Live capital Rs 30L.  Paper stays Rs 35L (resizing restarts the
        record; the cost gap is small).  Ladder Rs 6L / 12L / 21L / 30L. -> D3
+  U33  (7 Oct) Accounts: yours and your family's only (spouse, dependent
+       children and parents, who may share your static IP under SEBI's
+       April 2026 rules); nobody else's (one static IP per trader, and
+       trading for others needs exchange empanelment and a SEBI licence).
+       Each family member uses their own Kite Connect app (API key +
+       secret); never a password or TOTP (U23).  On disconnect: ask each
+       time - keep, sell at the next open, or sell over N sessions; only
+       positions Centurion opened are touched.                   -> FA1-3
   U32  (3 Oct) Options strategies are a separate trial family: they will be
        added periodically, so they do not draw on the book's budget of 2
        configurations before January.  Their runs live in their own
@@ -233,15 +241,20 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                  Saturday books email (V4) shows each trial's three checks
                  weekly and carries the promotion review once one clears;
                  promotion itself stays your hand-run command.
-#3  [ ] P2  X1   Execution: limit-at-open / sliced fills.  Shrinks the
+#3  [ ] P1  S2   API reads.  Found with S1: GET routes still answer without a
+                 session, including the Kite account data (holdings,
+                 positions, orders, margins) while the Space holds a Kite
+                 login.  Require the session on those reads, and an admin
+                 role on writes once roles are defined.
+#4  [ ] P2  X1   Execution: limit-at-open / sliced fills.  Shrinks the
                  realised-vs-model cost gap (model 2.4-2.8%/yr of CAGR);
                  sized by G4's cost ratio.  Needs >= 30 real fills (~Jan).
                                                                   Prompt: do X1
-#4  [ ] P2  U28  Short sleeve in single-stock futures (NSE F&O archive).
+#5  [ ] P2  U28  Short sleeve in single-stock futures (NSE F&O archive).
                  Largest potential (the route to Sharpe 1.5), longest lead
                  (weeks of build, no trial until then).  Your go/no-go.
-#5  [ ] P3  R6   R21A rules as signal groups (+/-0.1 Sharpe)    Prompt: do R6
-#6  [ ] P3  R9   Universe size 150 / 300 / 500 (+/-0.1)        Prompt: do R9
+#6  [ ] P3  R6   R21A rules as signal groups (+/-0.1 Sharpe)    Prompt: do R6
+#7  [ ] P3  R9   Universe size 150 / 300 / 500 (+/-0.1)        Prompt: do R9
  OCT-NOV  research and housekeeping while the books accumulate (no trials)
    Measured 1 Oct: 147k lines of Python; the trading engine is 9k.  Two
    modules hold the daily path: scheduler.py 3,211 lines / 30 jobs, all
@@ -287,6 +300,75 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+7 Oct   FA3  Family accounts phase 3: disconnect (U33: ask each time).  Off
+             on a family account Centurion holds positions in asks: keep
+             them (trading stops now; their GTT stops stay at Zerodha until
+             deleted in Kite), sell at the next open, or sell over 2-20
+             sessions (about 1/N of each per session, the engine's stops
+             kept on the rest).  Only the account ledger's positions are
+             sold, through the engine's order path (LIMIT inside the band,
+             idempotent tags); no buys while it sells.  The account turns
+             off at the first session where it holds none of them, which
+             also deletes the leftover stops; a session that places no
+             sells (dry run, stale data) does not count.  A plain "off" is
+             refused while positions are held; setting a mode cancels a
+             disconnect; selling needs the account in Live.  Row shows
+             "Selling out, N sessions left".  Checked with fakes, including
+             a full session on a fake broker: sell sizes, stops kept, no
+             buys, the count, completion, a normal session unchanged, the
+             API (401 without a session).  Found and fixed in checking:
+             "next open" was refused by the 2-20 range.  Suite 213 myenv;
+             212 + 1 skipped core-only.
+7 Oct   FA2  Family accounts phase 2: per-account live sessions.  Each
+             family account on Fly Kite has a mode (Off / Dry run / Live)
+             and a capital (a ladder rung) in the registry.  Your
+             CENTURION_LIVE_MODE stays the master switch: no family session
+             while it is off, and Live places real orders only while yours
+             is live.  The evening live step runs your session, then
+             live_session --stored-token --account <id> for each managed
+             account in its own book (live_<id>: ledger, ladder, dry runs,
+             go-live gate) with its own app key and token, through the same
+             proxy; a family failure emails and the next still runs.
+             CENTURION_GO_LIVE_OVERRIDE is for your account only: a family
+             account goes live on its own checks (clean dry runs + the
+             configuration's G4).  Its capital is the first session's size,
+             later its ladder request; the ladder's advice names it ("Priya's
+             capital on Fly Kite"), not CENTURION_LIVE_CAPITAL.  The 09:00 /
+             17:30 reminder emails each managed holder their own login link
+             (the account's email, else you).  Emails tagged [name].  Checked
+             with fakes: mode / capital validation, the master-switch cap,
+             each account's book, key, capital and label, the skip email,
+             loop isolation, reminders with core-only dependencies.  Suite
+             213 myenv; 212 + 1 skipped core-only.
+7 Oct   S1   API authentication (found 7 Oct).  Every POST / PUT / PATCH /
+             DELETE needs the signed-in session: a middleware in api/main.py
+             checks the Bearer token, the session cookie or the shared SSO
+             cookie (api/auth.session_from_request) and answers 401 without
+             one.  Open by design: the two logins, logout and Kite's order
+             postback (checksum-verified).  /docs, /redoc and /openapi use
+             the same check.  Checked: no session or a forged token 401
+             (CORS headers kept), a signed-in write reaches its handler,
+             logins and postback reachable, preflight and /health fine.  Not
+             done: an admin role (none is defined, so any signed-in user may
+             write) and the reads (S2).
+7 Oct   FA1  Family accounts phase 1 (your ask; U33).  Fly Kite: the
+             Real-time Quotes / Market Status / Order Management cards
+             removed; a Zerodha accounts panel lists your account and your
+             family's, each with today's login and a Log in button, and adds
+             a family account (name, relation, Zerodha user id, Kite Connect
+             API key + secret, email) with the app settings it needs
+             (redirect URL, static IP).  Backend: kite_connect/auth/
+             accounts.py (registry in the primary live book's state; secret
+             encrypted with CENTURION_KITE_TOKEN_KEY, never returned; one
+             live-book schema per account), login links that carry the
+             account id back (Kite redirect_params), the callback storing
+             each login in that account's book after checking its Zerodha
+             user id, /api/v1/kite/accounts (list / add / update / remove,
+             all needing the signed-in session: api/dependencies.
+             require_session).  Your own login path is unchanged.  Checked
+             with fakes: wrong user refused, unknown account 404, no
+             session 401, secrets never in a response.  Nothing trades for
+             a family account yet (FA2).  Suite 211 both envs.
 7 Oct   O1   Varsity options toolkit complete (your spec, 3 Oct).  Steps 1-2
              (3 Oct): CONCEPTS / STRATEGIES docs, theory, strategies,
              selector, F&O costs, 95 tests from the PDFs.  Step 3 (7 Oct):

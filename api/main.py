@@ -30,13 +30,12 @@ from api.auth import (
     SESSION_COOKIE,
     authenticate_user,
     create_session_token,
-    verify_session_token,
+    session_from_request,
 )
 from auth.shared_session import (
     SHARED_COOKIE_MAX_AGE,
     SHARED_COOKIE_NAME,
     create_shared_token,
-    verify_shared_token,
 )
 
 # ---------------------------------------------------------------------------
@@ -110,22 +109,14 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Auth helper
+# Auth: every state-changing request needs a signed-in session (tracker S1)
 # ---------------------------------------------------------------------------
 
-def _get_authenticated_user(request: Request) -> dict | None:
-    """Return the decoded session payload or None if unauthenticated."""
-    # Check API-specific cookie first
-    token = request.cookies.get(SESSION_COOKIE)
-    if token:
-        result = verify_session_token(token)
-        if result:
-            return result
-    # Fall back to the shared SSO cookie (set at login, auth/shared_session.py)
-    shared = request.cookies.get(SHARED_COOKIE_NAME)
-    if shared:
-        return verify_shared_token(shared)
-    return None
+_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+#: The writes reached without a session: the two logins, logout, and Kite's
+#: order postback (which carries its own checksum).
+_PUBLIC_WRITES = frozenset({("POST", "/api/v1/auth/login"), ("POST", "/auth/login"),
+                            ("POST", "/api/v1/auth/logout"), ("POST", "/stream/postback")})
 
 
 # ---------------------------------------------------------------------------
@@ -187,6 +178,14 @@ def create_app() -> FastAPI:
         openapi_url=None,
     )
 
+    # --- Signed-in session for writes (S1); added before CORS so a 401 still carries CORS headers ---
+    @app.middleware("http")
+    async def require_session_for_writes(request: Request, call_next):
+        if (request.method in _WRITE_METHODS and (request.method, request.url.path) not in _PUBLIC_WRITES
+                and session_from_request(request) is None):
+            return JSONResponse(status_code=401, content={"detail": "sign in to do that"})
+        return await call_next(request)
+
     # --- CORS ---
     # Read allowed origins from env (comma-separated) or default to permissive for local dev
     _raw_origins = os.getenv("CENTURION_ALLOWED_ORIGINS", "")
@@ -230,7 +229,7 @@ def create_app() -> FastAPI:
     @app.get("/auth/login", include_in_schema=False)
     async def login_page(request: Request):
         """Serve the login form. If already authenticated, redirect to docs."""
-        if _get_authenticated_user(request):
+        if session_from_request(request):
             return RedirectResponse(url="/docs", status_code=302)
         return HTMLResponse(LOGIN_PAGE_HTML)
 
@@ -282,13 +281,13 @@ def create_app() -> FastAPI:
 
     @app.get("/openapi.json", include_in_schema=False)
     async def openapi_json(request: Request):
-        if not _get_authenticated_user(request):
+        if not session_from_request(request):
             return RedirectResponse(url="/auth/login", status_code=302)
         return JSONResponse(app.openapi())
 
     @app.get("/docs", include_in_schema=False)
     async def docs(request: Request):
-        if not _get_authenticated_user(request):
+        if not session_from_request(request):
             return RedirectResponse(url="/auth/login", status_code=302)
         return get_swagger_ui_html(
             openapi_url="/openapi.json",
@@ -297,7 +296,7 @@ def create_app() -> FastAPI:
 
     @app.get("/redoc", include_in_schema=False)
     async def redoc(request: Request):
-        if not _get_authenticated_user(request):
+        if not session_from_request(request):
             return RedirectResponse(url="/auth/login", status_code=302)
         return get_redoc_html(
             openapi_url="/openapi.json",
