@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 04 Oct 2026, 01:12 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 07 Oct 2026, 18:57 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -176,6 +176,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
+[!] P3  O1d  Run the options paper demo once: after a Kite login, GitHub
+             Actions > "Options paper demo" > Run (NIFTY, moderate_bull, 1
+             lot; paper only); read the artifact.  Commit + merge first.
 [!] P3  O3   Options round 2: your go/no-go and candidate list.  Round 1
              (O2) failed on all three sleeves; the F&O data, store and
              harness exist, so a round is one pre-registered set and one
@@ -194,16 +197,6 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              behaviour: tracking error <= 8%/yr, costs <= 1.5x model, MaxDD
              vs backtest: the G4 gate, in every daily email.  Mon 28 Sep is the first session
              with the weekly-report fixes (G15).
-[~] P2  O1   Varsity options toolkit (your spec, 3 Oct), kite_connect/options/.
-             Steps 1-2 done 3 Oct: CONCEPTS.md / STRATEGIES.md (PDF errors
-             and out-of-date facts flagged), theory.py (payoffs, Black-
-             Scholes + Greeks, IV, parity, vol, SD ranges, ch. 18 rules),
-             strategies.py (12 Module 6 strategies + arbitrage, max pain,
-             PCR; PDF formulas checked against summed legs), selector.py,
-             fno_costs.py (date-aware F&O charges + slippage), 95 tests in
-             tests/test_options_*.py.  Next: step 3, Kite integration and a
-             paper demo on the current NIFTY expiry after Mon 5 Oct's login;
-             step 4, README.  No automated login (U23).   Prompt: do O1
 
 --------------------------------------------------------------------------------
  6. QUEUE — do #1 first.  Every item: pass rule fixed before running, every
@@ -294,6 +287,24 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+7 Oct   O1   Varsity options toolkit complete (your spec, 3 Oct).  Steps 1-2
+             (3 Oct): CONCEPTS / STRATEGIES docs, theory, strategies,
+             selector, F&O costs, 95 tests from the PDFs.  Step 3 (7 Oct):
+             broker (stored token, throttles, autoslice through the client's
+             request layer since kiteconnect 5.1 cannot, JSON-lines order
+             log), instruments, live chain (own IV / Greeks, max pain, PCR),
+             pre-trade report (Kite basket margin + charges vs model, max
+             P/L, breakevens vs 1/2/3 SD, hard limits), basket executor
+             (buys first, every slice filled before the next leg, stop +
+             naked-short report; dry run / paper / live), monitor (P&L,
+             Greeks, breakeven, ch. 18 vol stop, max-loss alerts), cli
+             (live = --live + typed PLACE <n> ORDERS at a terminal), the
+             "Options paper demo" workflow (paper only), 15 Kite-mocked
+             tests.  Step 4 (7 Oct): docs/options/README.md (setup, login
+             flow, commands, safety, files, tests).  Cleanup: O2 Kaggle
+             outputs and staging (98 MB) removed, unused books.deployed_book
+             and an import removed, fo_store lambda named.  Suite 211 /
+             210+1 skipped core-only.  The demo run is yours (O1d).
 4 Oct   V5   Promotion no longer restarts the go-live clock (your ask).
              Verified first: `promote` writes paper start = that day, the
              nightly job rebuilds the deployed book's G4 reference from it,

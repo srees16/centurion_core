@@ -1,0 +1,57 @@
+name: Options paper demo
+
+# Tracker O1 step 3: the options toolkit end to end in PAPER mode on the
+# nearest expiry - live chain, strategy selector, pre-trade report (Kite's
+# basket margin and charges), a paper fill, and the position monitor.  It
+# reads quotes with today's stored token, so run it after the day's Kite
+# login (U23).  It never sends an order: the demo is paper only, and live
+# orders need a typed confirmation at a terminal, which CI does not have.
+# Market data works from any IP, so no static-IP proxy is needed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      underlying:
+        description: "Underlying"
+        required: false
+        default: "NIFTY"
+      view:
+        description: "Market view for the selector"
+        required: false
+        type: choice
+        options: [moderate_bull, moderate_bear]
+        default: moderate_bull
+      lots:
+        description: "Lots"
+        required: false
+        default: "1"
+
+permissions:
+  contents: read
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - run: pip install -r requirements-core.txt "kiteconnect==5.1.0"
+      - name: Paper demo
+        env:
+          CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
+          CENTURION_KITE_TOKEN_KEY: ${{ secrets.CENTURION_KITE_TOKEN_KEY }}
+          ZERODHA_API_KEY: ${{ secrets.ZERODHA_API_KEY }}
+        run: |
+          python -m kite_connect.options.cli demo --underlying "${{ inputs.underlying }}" \
+            --view "${{ inputs.view }}" --lots "${{ inputs.lots }}"
+      - name: Keep the demo output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: options-paper-demo
+          path: data/options/
+          if-no-files-found: ignore
