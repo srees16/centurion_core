@@ -40,9 +40,15 @@ from the equity history, so a withdrawal never reads as a drawdown and a
 deposit never as a gain (drawdown rule, G4, max drawdown).
 
 Go-live (``readiness``): the first real session is refused unless the
-deployed paper book's G4 is PASS with >= 60 sessions and >= 5 scheduled dry
-runs finished clean (no alert: token, tunnel, egress IP, broker reads and
-order building all worked).  Dry-run orders are not compared with the paper
+configuration about to trade has a paper G4 PASS with >= 60 sessions and
+>= 5 scheduled dry runs finished clean (no alert: token, tunnel, egress IP,
+broker reads and order building all worked).  The paper record is the
+deployed book's own, or, after a promotion, the trial book's that traded
+the same configuration (``go_live_evidence``, tracker V5), so promoting a
+trial that cleared the forward gate does not restart the go-live clock.
+After a configuration change while live, the live G4 restarts its window at
+the change (``config_since``), so the old configuration's weeks never read
+as tracking error.  Dry-run orders are not compared with the paper
 book's: a dry run records nothing, so every night it plans a fresh Rs 6 lakh
 book, while the paper book only trades changes to what it holds.
 ``CENTURION_GO_LIVE_OVERRIDE=true`` overrides, and the email says so.  U2
@@ -69,6 +75,7 @@ GO_LIVE_MIN_PAPER_SESSIONS = 60
 GO_LIVE_MIN_DRY_RUNS = 5
 STATE_KEY = "live_ladder"
 DRY_RUNS_KEY = "live_dry_runs"
+LIVE_CONFIG_KEY = "live_config"       # {"config_hash", "since"}: what the live book trades, since when (V5)
 GO, HOLD, STEP_DOWN = "GO", "HOLD", "STEP DOWN"
 GO_CHECKS = ("tracking error", "daily gap", "drawdown", "regime break")
 
@@ -249,12 +256,62 @@ def current_drawdown(series: pd.Series) -> float:
 
 # ── go-live ──────────────────────────────────────────────────────
 
-def readiness(paper_gate: Optional[Dict[str, Any]], dry_runs: Sequence[Dict[str, Any]]) -> List[Tuple[str, bool, str]]:
-    """Go-live checks: (name, ok, detail)."""
+def _gate_sessions(gate: Optional[Dict[str, Any]]) -> int:
+    return int((gate or {}).get("sessions") or 0)
+
+
+def go_live_evidence(own_gate: Optional[Dict[str, Any]], config_hash: str,
+                     trial_gates: Optional[Dict[str, Dict[str, Any]]] = None) -> Tuple[Optional[Dict[str, Any]], str]:
+    """(G4 report, its source): the paper record of the configuration that will trade live (tracker V5).
+
+    The deployed paper book's own report when it judged ``config_hash`` (a
+    report stored before reports carried the hash counts as the deployed
+    book's) and has the sessions.  Otherwise a trial book that paper-traded
+    the same configuration: PASS, the sessions, and current (its latest
+    session not older than the deployed book's).  A promotion rewrites the
+    deployed book's paper start, so its own count restarts; the promoted
+    configuration's trial sessions are the evidence go-live needs, and the
+    clock does not restart with it.  An old configuration's report never
+    counts for a new one.
+    """
+    own = own_gate if own_gate and own_gate.get("config_hash", config_hash) == config_hash else None
+    if own and _gate_sessions(own) >= GO_LIVE_MIN_PAPER_SESSIONS:
+        return own, "deployed paper book"
+    latest = str((own_gate or {}).get("book_last") or "")
+    for name, gate in sorted((trial_gates or {}).items()):
+        if (gate and gate.get("config_hash") == config_hash and gate.get("verdict") == "PASS"
+                and _gate_sessions(gate) >= GO_LIVE_MIN_PAPER_SESSIONS and str(gate.get("book_last") or "") >= latest):
+            return gate, f"trial book '{name}' (same configuration)"
+    return own, "deployed paper book"
+
+
+def config_since(raw: Optional[str], config_hash: str, first_session: str,
+                 session: str) -> Tuple[str, Optional[str], Optional[str]]:
+    """(first live session on ``config_hash``, marker to store or None, the configuration it replaces or None).
+
+    The live G4 compares only the sessions since the live book began trading
+    its current configuration with a backtest of that configuration (tracker
+    V5): after a promotion, the weeks traded on the old configuration would
+    otherwise read as tracking error and step the ladder down.  Without a
+    marker the configuration has traded since the book's first session.
+    """
+    try:
+        stored = json.loads(raw) if raw else {}
+    except ValueError:
+        stored = {}
+    if stored.get("config_hash") == config_hash and stored.get("since"):
+        return str(stored["since"]), None, None
+    since = session if stored.get("config_hash") else first_session
+    return since, json.dumps({"config_hash": config_hash, "since": since}), stored.get("config_hash")
+
+
+def readiness(paper_gate: Optional[Dict[str, Any]], dry_runs: Sequence[Dict[str, Any]],
+              source: str = "deployed paper book") -> List[Tuple[str, bool, str]]:
+    """Go-live checks: (name, ok, detail).  ``paper_gate`` comes from :func:`go_live_evidence`."""
     out = []
-    v, n = (paper_gate or {}).get("verdict"), int((paper_gate or {}).get("sessions") or 0)
+    v, n = (paper_gate or {}).get("verdict"), _gate_sessions(paper_gate)
     out.append(("paper book G4", v == "PASS" and n >= GO_LIVE_MIN_PAPER_SESSIONS,
-                f"{v or 'no report'}, {n} sessions (PASS at >= {GO_LIVE_MIN_PAPER_SESSIONS} needed)"))
+                f"{source}: {v or 'no report'}, {n} sessions (PASS at >= {GO_LIVE_MIN_PAPER_SESSIONS} needed)"))
     clean = [r for r in dry_runs if r.get("clean")]
     out.append(("live dry runs", len(clean) >= GO_LIVE_MIN_DRY_RUNS,
                 f"{len(clean)} clean of {len(dry_runs)} scheduled dry runs ({GO_LIVE_MIN_DRY_RUNS} needed)"))

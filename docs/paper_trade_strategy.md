@@ -132,24 +132,30 @@ choice is yours, from the promotion review in the Saturday email.
   overrides a failed gate and records that in the file's notes.
 - **What changes**: the deployed book trades the new configuration from its
   next session and keeps its Neon record; the live book (once live) trades
-  it too, because the live path loads only the deployed file. The deployed
-  book's same-period reference restarts at the promotion date, so its G4
-  session count restarts.
-- **Open decision (3 Oct)**: because of that restart, a promotion around
-  24 Dec would push go-live from mid-December to about March. The trial's
-  60 sessions are the evidence go-live wants, so the proposal is (a) go live
-  mid-December on `679cbd0c` as planned, (b) treat a promotion as a
-  separate event timed just before a ladder step-up, and (c) let the
-  go-live and ladder checks read the promoted configuration's trial-book
-  record while the deployed book's own record is younger than 60 sessions,
-  after verifying how the ladder behaves in the first 30 sessions after a
-  configuration change. Pending your answer.
+  it too, because the live path loads only the deployed file.
+- **It does not restart the go-live clock** (V5, 4 Oct). A promotion resets
+  the deployed book's paper start, so that book's own G4 count starts again
+  from zero. Go-live therefore reads the record of the *configuration about
+  to trade*: the deployed book's own G4 once it has 60 sessions on it, and
+  until then the trial book's G4 for the same configuration (PASS, 60+
+  sessions, current). A trial that clears the three checks is ready for
+  go-live the day it clears them, plus the dry runs. **Keep the promoted
+  trial's file and book running** until the deployed book has its own 60
+  sessions; its G4 is the evidence. An old configuration's G4 never counts
+  for a new one.
+- **Promoting while live** is safe for the ladder: the live G4 compares only
+  the sessions since the configuration changed with a backtest of the new
+  configuration, so the old configuration's weeks never read as tracking
+  error, and the email notes the change. Drawdown and the kill criteria
+  still read the whole live record, real money either way. In the first 30
+  sessions after a change G4 reads NOT ENOUGH DATA, as at go-live, so only
+  the drawdown rule and kill criteria guard the step-down side until then.
 
 ## 7. Go-live checklist (D3)
 
 Before the first real session, all of these:
 
-- [ ] Deployed paper book: G4 **PASS** with **≥ 60 sessions** (from 16 Sep → ~mid-Dec).
+- [ ] The configuration about to trade: paper G4 **PASS** with **≥ 60 sessions**: the deployed book's own (`679cbd0c` from 16 Sep → ~mid-Dec), or after a promotion the trial book's of that configuration (candidate ~24 Dec, e4 ~early Jan). The go-live email names which record it used.
 - [ ] **5 clean live dry runs** (`CENTURION_LIVE_MODE=dry_run`): token, tunnel, egress IP, broker reads and order building all worked, no alert. The first was scheduled for 1 Oct.
 - [ ] **Daily Kite login** on every trading day (U23): tap the link in the 09:00 / 17:30 IST email; the token lasts until 06:00 next day. A missed login is a missed session.
 - [ ] **Static IP**: orders go through the registered proxy (`CENTURION_KITE_PROXY`, checked against `CENTURION_KITE_STATIC_IP`); mandatory for API orders since April 2026.
