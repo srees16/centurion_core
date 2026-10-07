@@ -161,26 +161,37 @@ audit the current order workflow beginning with user's ticker input until placin
 
 ~~~~~~~
 
-prompt for code hygiene:
-1. Touch **only** code required for this task; leave unrelated code untouched.
+1. Touch ONLY code required for this task; leave unrelated code untouched.
 2. Preserve existing behavior, APIs, and contracts unless explicitly required.
 3. Reuse existing utilities/patterns; avoid unnecessary duplication, or abstraction.
-4. Keep the diff **minimal, clean, and production-ready**.
+4. Keep the diff minimal, clean, and production-ready.
 5. Review the final diff and remove anything unrelated or unnecessary.
-
-
-Cleanup
-- Remove all temporary/test/debug scripts and implementation artifacts you created
-- Keep production-ready, modular, well-documented code only
-- Remove all unused/dead code, imports, methods, variables, and obsolete snippets.
-
+6. Remove all temporary/test/debug scripts and implementation artifacts you created.
+7. Remove all unused/dead code, imports, methods, variables, and obsolete snippets.
+8. Keep production-ready, modular, well-documented code only.
 
 1. Where are images stored currently wen i run analysis? Display location or url to access dem on ui pages
 2. Analyse n understand wats 3 emails doing? Give clear identifier and purpose of each of them
 3. do security vulnerability analysis and plug any gaps identified
-4. make kite login easy from whichever Zerodha account user wants to hook with. give options on kite login for new user where he can plug-in his credentials and other relevant details like api key, TOTP password etc., ensure that whichever zerodha account is hooked in, the configuration strategies, alpha, CAGR and all parameters are active & applicable
+6. check if a dropdown can be enabled in kite account that can filter stocks in his portfolio via centurion vs kite similar to the dropdown present for stocks bought via smallcase
+7. design n implement kill switch
+
+Reorder per priority for final prod go-live:
+Ensure centurion is survivorship bias free
+Backtest is robust
+Forward walk is as expected
+Paper trade metrics are in line with goal
+Live dry run is as expected
+Out of sample is realistic
+Dates back to 2008 in both options n stocks do capture events like 2008 crash
 
 refer for applicable improvements: https://github.com/paperswithbacktest/awesome-systematic-trading
 https://github.com/QuantConnect/Lean
 
 https://github.com/PyPatel/Options-Trading-Strategies-in-Python
+
+
+1. make kite login easy from whichever Zerodha account user wants to plug-in to on https://centurion-core-fe.vercel.app/ind-stocks/fly-kite page. give option on "Indian Equities — Live Dashboard" UI for new user where he can plug-in his credentials and other relevant details like api key, TOTP password etc.,
+Remove Real-time Quotes, Market Status, Order Management sections so the UI would not look crowded with lot of irrelevant info.
+2. ensure that whichever zerodha account is plugged-in, the configuration strategies, alpha, CAGR and all parameters are active & applicable
+3. after user plugs-in his dmat account, give him option if he wants centurion to manage his available capital for buy/sell based on configuration that is implemented. user should also have the ability to disconnect centurion configuration to handling the stocks. give user option if he wants to dilute the buy/sell of stocks it made during the active phase
