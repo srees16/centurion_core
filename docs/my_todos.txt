@@ -72,9 +72,6 @@ Goal is to have the best possible alpha, Sharpe and CAGR, lowest possible maxDD
 
 ================================================================================
 
-refer for applicable improvements: https://github.com/paperswithbacktest/awesome-systematic-trading
-https://github.com/QuantConnect/Lean
-
 prompts:
 
 ~~~~~~
@@ -88,12 +85,7 @@ check backtest progress & analyze results thus far
 ~~~~~~
 R21a v27 validation backtest underway at 5pm 10Apr26
 ~~~~~~
-Plan for the R22 infusion quantification:
-1. Wait for the current R21a run to finish (it's at Day ~2050/3190, ~1h remaining)
-2. Capture the R21a final metrics as the no-infusion baseline
-3. Then launch a separate R22 run with _R22_BULL_INFUSION = True + _R22_INFUSION_AMOUNT = 50,000 using the same v27 weights
-4. Compare side-by-side: terminal equity, CAGR, Sharpe — to isolate the exact capital gain from bull-crossover infusions
-~~~~~~
+
 Ensure that centurion_core survives & even thrives in live trading and NOT blow up. Be more aggressive in sustained uptrends, and more defensive in downtrends. Verify that while the backtest performance is great, it does not fail in live Ind markets and backtest CAGR does not lead to overfitting
 ~~~~~~
 R19C benchmark: CAGR=48.78%, Sharpe=1.025, MaxDD=67.41%
@@ -110,12 +102,9 @@ Target: Sharpe >= 1.8, CAGR >= 55%, MaxDD<= 35%, PBO <= 35%
 4. finally, re-run full_pipeline_backtest
 ~~~~~~
 
-Here is the plan:
-1. if R19h proves to be better than R19c, declare it as winner. Update the configuration & weights wherever neccessary and initiate live paper test for the next 4 weeks
-2. if R19h fails to prove as better than R19c, consider weights & configuration of R19c as winner
-3. Utilize all available resources on the internet, github repos, PhD thesis, medium blogs, wikipedia, research papers on sites like arxiv.org etc., quant blogs and/or any other relevant media to perform deep research and understand the characteristics of trading systems that beat the above target consistently
-4. audit centurion_core and identify all the gaps (critical, high, medium, low) after compare & contrast with the best trading systems that were researched
-5. use the acquired knowledge to prepare a plan of action for implementation to reach the desired target stated above
+1. Utilize all available resources on the internet, github repos, PhD thesis, medium blogs, wikipedia, research papers on sites like arxiv.org etc., quant blogs and/or any other relevant media to perform deep research and understand the characteristics of trading systems that beat the above target consistently
+2. audit centurion_core and identify all the gaps (critical, high, medium, low) after compare & contrast with the best trading systems that were researched
+3. use the acquired knowledge to prepare a plan of action for implementation to reach the desired target stated above
 
 
 ~~~~~~
@@ -131,10 +120,6 @@ Task: you are the best quantitative trader, research analyst and strategist havi
 6. skip audit of intraday and automatic order setup (for US stocks only) since centurion_core is for swing, positional trades. Automated trading enabled for Ind stocks via Zerodha Kite
 
 ~~~~~~
-
-Cleanup
-- Remove all temporary/test scripts
-- Keep production-ready, modular, well-documented code only
 
 Final Goal:
 Upgrade centurion_core to a statistically robust, evidence-based trading system with improved signal reliability and reduced overfitting.
@@ -170,22 +155,32 @@ audit the current order workflow beginning with user's ticker input until placin
     code execution/implementation agent - enforcer
 
 
-1. integrate new scripts with workflow (UI & backend)
-2. Verify tables and results that can be saved in db
-3. Explore API implemention
-4. Explore Agentic implementation
-5. binance api https://www.youtube.com/watch?v=ZiBBVYB5PuU
+1. Explore feasibility for agentic implementation
+2. binance api https://www.youtube.com/watch?v=ZiBBVYB5PuU
                 https://www.youtube.com/watch?v=P_SIZDsI3Ro
+
+~~~~~~~
 
 prompt for code hygiene:
 1. Touch **only** code required for this task; leave unrelated code untouched.
 2. Preserve existing behavior, APIs, and contracts unless explicitly required.
-3. Remove all unused/dead code, imports, methods, variables, and obsolete snippets.
-4. Delete temporary test/debug scripts and implementation artifacts you created.
-5. Reuse existing utilities/patterns; avoid unnecessary refactoring, duplication, or abstraction.
-6. Keep the diff **minimal, clean, and production-ready**.
-7. Review the final diff and remove anything unrelated or unnecessary.
+3. Reuse existing utilities/patterns; avoid unnecessary duplication, or abstraction.
+4. Keep the diff **minimal, clean, and production-ready**.
+5. Review the final diff and remove anything unrelated or unnecessary.
+
+
+Cleanup
+- Remove all temporary/test/debug scripts and implementation artifacts you created
+- Keep production-ready, modular, well-documented code only
+- Remove all unused/dead code, imports, methods, variables, and obsolete snippets.
 
 
 1. Where are images stored currently wen i run analysis? Display location or url to access dem on ui pages
 2. Analyse n understand wats 3 emails doing? Give clear identifier and purpose of each of them
+3. do security vulnerability analysis and plug any gaps identified
+4. make kite login easy from whichever Zerodha account user wants to hook with. give options on kite login for new user where he can plug-in his credentials and other relevant details like api key, TOTP password etc., ensure that whichever zerodha account is hooked in, the configuration strategies, alpha, CAGR and all parameters are active & applicable
+
+refer for applicable improvements: https://github.com/paperswithbacktest/awesome-systematic-trading
+https://github.com/QuantConnect/Lean
+
+https://github.com/PyPatel/Options-Trading-Strategies-in-Python

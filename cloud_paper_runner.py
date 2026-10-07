@@ -499,20 +499,21 @@ def _run_engine_paper():
         msg += f" | {note}"
     logger.info("NSE engine paper run: %s", msg)
     _record_session_activity(pt, session, snapshot, plan, queued, fills)
-    gate = _paper_gate(pt)
+    gate = _paper_gate(pt, dep.engine.config_hash())
     if gate:
         msg += f" | gate {gate.get('verdict')}"
     _email_engine_session(pt, dep, session, snapshot, shift, gate)
     return "success", msg
 
 
-def _paper_gate(pt) -> Optional[dict]:
+def _paper_gate(pt, config_hash: Optional[str] = None) -> Optional[dict]:
     """Paper pass/fail gate (G4) for this book, best-effort.
 
     Compares the book's equity with the same-period reference backtest the
     job wrote before the session (CENTURION_SHIFT_REFERENCE_CSV, else
     data/shift_reference_returns.csv, with its _trades.csv) and its fills in
-    Neon.  The report is kept in the book's Neon state for the weekly email.
+    Neon.  The report is kept in the book's Neon state for the weekly email,
+    with the configuration it judged (go-live reads it, tracker V5).
     """
     try:
         from nse_engine import paper_gate
@@ -530,7 +531,7 @@ def _paper_gate(pt) -> Optional[dict]:
         logger.info("Paper gate (G4): %s", paper_gate.one_line(report))
         if cloud is not None and hasattr(cloud, "sync_state"):
             cloud.sync_state({paper_gate.STATE_KEY: paper_gate.summary_json(
-                report, updated_at=datetime.now(timezone.utc).isoformat())})
+                report, updated_at=datetime.now(timezone.utc).isoformat(), config_hash=config_hash)})
         return report
     except Exception as exc:                              # noqa: BLE001 - never block a session
         logger.warning("Paper gate failed: %s", exc)
