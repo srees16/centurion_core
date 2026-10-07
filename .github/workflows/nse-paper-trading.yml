@@ -359,6 +359,10 @@ jobs:
       # once per session across the backup crons.  Isolated like the candidate:
       # a failure emails and never touches the paper books.  It runs before the
       # candidate books, so a slow or failing paper book cannot hold it up.
+      # Then each family account Centurion manages (FA2, kite_connect/auth/
+      # accounts.py) in its own book, through the same proxy, at its own mode
+      # but never above this one; the go-live override is for your account
+      # only.  A family failure emails and the next account still runs.
       - name: Live book - session
         id: live
         if: vars.CENTURION_LIVE_MODE == 'dry_run' || vars.CENTURION_LIVE_MODE == 'live'
@@ -396,11 +400,19 @@ jobs:
                 -o BatchMode=yes -f -N -D 127.0.0.1:1080 "$CENTURION_PROXY_HOST"
             export CENTURION_KITE_PROXY="socks5h://127.0.0.1:1080"
           fi
-          if [ "$LIVE_MODE" = "live" ]; then
-            python -m kite_connect.trading.live_session --stored-token
-          else
-            python -m kite_connect.trading.live_session --stored-token --dry-run
-          fi
+          dry=""; [ "$LIVE_MODE" = "live" ] || dry="--dry-run"
+          status=0
+          python -m kite_connect.trading.live_session --stored-token $dry || status=$?
+          for ACCT in $(python -m kite_connect.auth.accounts managed); do
+            echo "::group::family account $ACCT"
+            CENTURION_GO_LIVE_OVERRIDE=false python -m kite_connect.trading.live_session --stored-token \
+                --account "$ACCT" $dry || {
+              echo "::error::live session of family account $ACCT failed"
+              python -m tools.session_failed "${{ github.run_id }} (live book $ACCT)" || true
+            }
+            echo "::endgroup::"
+          done
+          exit $status
 
       - name: Tell me when the live session fails
         if: steps.live.outcome == 'failure'

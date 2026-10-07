@@ -9,8 +9,28 @@ import logging
 import time
 from functools import lru_cache
 
+from fastapi import HTTPException, Request
+
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Signed-in user (the frontend's Bearer session token)
+# ---------------------------------------------------------------------------
+
+def require_session(request: Request) -> dict:
+    """FastAPI dependency: the signed-in user's session (``{"u", "r"}``), or 401.
+
+    For reads that need a session (the Kite accounts, tracker U33); every
+    write is already guarded by the middleware in ``api.main`` (tracker S1).
+    """
+    from api.auth import session_from_request
+
+    payload = session_from_request(request)
+    if payload is None:
+        raise HTTPException(status_code=401, detail="sign in to manage Kite accounts")
+    return payload
 
 
 # ---------------------------------------------------------------------------

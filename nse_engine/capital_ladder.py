@@ -140,8 +140,13 @@ def _status(gate: Optional[Dict[str, Any]], name: str) -> Optional[str]:
 
 def evaluate(state: LadderState, session: str, *, gate: Optional[Dict[str, Any]], drawdown_state: str,
              book_dd: float, nifty_dd: float, shift_multipliers: Sequence[float],
-             requested_capital: Optional[float], backtest_maxdd: Optional[float] = None) -> LadderDecision:
-    """Tonight's ladder decision; ``state`` is updated in place (call once per session)."""
+             requested_capital: Optional[float], backtest_maxdd: Optional[float] = None,
+             capital_setting: str = "CENTURION_LIVE_CAPITAL") -> LadderDecision:
+    """Tonight's ladder decision; ``state`` is updated in place (call once per session).
+
+    ``capital_setting`` names where the capital is set, in the advice (a
+    family account's is on the Fly Kite page, tracker FA2).
+    """
     backtest_maxdd = float(backtest_maxdd if backtest_maxdd is not None
                            else os.environ.get("CENTURION_BACKTEST_MAXDD", BACKTEST_MAXDD_DEFAULT))
     if state.last_session != session:
@@ -167,7 +172,7 @@ def evaluate(state: LadderState, session: str, *, gate: Optional[Dict[str, Any]]
 
     req = rung_of(requested_capital) if requested_capital else None
     if requested_capital and req is None:
-        d.alerts.append(f"CENTURION_LIVE_CAPITAL={requested_capital:,.0f} is not a ladder rung: ignored")
+        d.alerts.append(f"{capital_setting}={requested_capital:,.0f} is not a ladder rung: ignored")
 
     def move(to: int, action: str, why: str) -> None:
         d.flow = RUNGS[to] - state.capital
@@ -184,7 +189,7 @@ def evaluate(state: LadderState, session: str, *, gate: Optional[Dict[str, Any]]
         if state.rung > 0:
             move(state.rung - 1, STEP_DOWN, "G4 FAIL: " + "; ".join(fails))
             d.alerts.append(f"LADDER STEP DOWN to Rs {d.capital:,.0f}: {'; '.join(fails)}. "
-                            f"Set CENTURION_LIVE_CAPITAL={d.capital:.0f} to match.")
+                            f"Set {capital_setting}={d.capital:.0f} to match.")
         else:
             d.reasons.append("G4 FAIL at the lowest rung: " + "; ".join(fails))
             d.alerts.append("G4 FAIL at the lowest rung: consider the kill switch. " + "; ".join(fails))
@@ -218,11 +223,11 @@ def evaluate(state: LadderState, session: str, *, gate: Optional[Dict[str, Any]]
         d.reasons.append("; ".join(blockers))
     else:
         nxt = RUNGS[state.rung + 1]
-        d.reasons.append(f"GO allowed: set CENTURION_LIVE_CAPITAL={nxt:.0f} once the money is in the account")
+        d.reasons.append(f"GO allowed: set {capital_setting}={nxt:.0f} once the money is in the account")
         if not state.eligible_since:
             state.eligible_since = session
             d.alerts.append(f"Capital ladder: GO to Rs {nxt:,.0f} is allowed. Add the money to the account, "
-                            f"then set CENTURION_LIVE_CAPITAL={nxt:.0f}.")
+                            f"then set {capital_setting}={nxt:.0f}.")
     return d
 
 

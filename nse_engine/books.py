@@ -109,10 +109,6 @@ def discover_books(root: Path = REPO_ROOT) -> List[Book]:
     return books
 
 
-def deployed_book(books: Sequence[Book]) -> Optional[Book]:
-    return next((b for b in books if b.is_deployed), None)
-
-
 # ── backtest scores from the registry ────────────────────────────
 
 def latest_run(runs_dir: Path, config_hash: str, window: Sequence[str] = fg.VALIDATION_WINDOW) -> Optional[Dict[str, Any]]:

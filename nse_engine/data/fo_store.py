@@ -110,15 +110,19 @@ def parse_udiff_fo(text: str, symbols: Sequence[str] = SYMBOLS) -> Tuple[pd.Data
     return _split(df)
 
 
+def _to_lot(values: pd.Series) -> pd.Series:
+    """Nearest multiple of 5: every index lot size so far is one."""
+    return (values / 5).round() * 5
+
+
 def fill_implied_lots(options: pd.DataFrame, futures: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """Give legacy rows a lot size from futures turnover (rows that already have one keep it)."""
     fut = futures.copy()
     traded = (fut["contracts"] > 0) & (fut["close"] > 0)
     implied = fut["value_inr"] / (fut["contracts"] * fut["close"])
     known = fut["lot_size"].fillna(implied.where(traded))
-    snap = lambda s: (s / 5).round() * 5                                       # noqa: E731
-    per_expiry = snap(known.groupby([fut["symbol"], fut["expiry"]]).median())  # over the contract's traded days
-    per_day = snap(known.groupby([fut["date"], fut["symbol"]]).median())
+    per_expiry = _to_lot(known.groupby([fut["symbol"], fut["expiry"]]).median())  # over the contract's traded days
+    per_day = _to_lot(known.groupby([fut["date"], fut["symbol"]]).median())
     fut_lots = per_expiry.dropna().rename("lot").reset_index().sort_values("expiry", kind="stable")
 
     def lookup(df: pd.DataFrame) -> pd.Series:
