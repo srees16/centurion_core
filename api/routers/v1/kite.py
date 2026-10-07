@@ -14,6 +14,8 @@ from api.routers.v1.common import KITE_SESSION_INACTIVE, logger
 
 router = APIRouter()
 
+_CENTURION_POSITIONS_KEY = "kite:centurion_positions"
+
 
 # ─── Kite Connect ───────────────────────────────────────────────────────
 
@@ -152,14 +154,38 @@ async def kite_quotes(symbols: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _centurion_positions() -> Dict[str, int]:
+    """What Centurion bought in your account (the live book's ledger), by symbol; {} when unreadable.
+
+    Cached for 5 minutes: the ledger changes once per evening session.
+    """
+    from infrastructure.cache import cache
+    from kite_connect.auth import accounts
+
+    cached = cache.get(_CENTURION_POSITIONS_KEY)
+    if cached is not None:
+        return cached
+    try:
+        positions = accounts.ledger_positions(accounts.primary_account())
+    except Exception as exc:                              # noqa: BLE001 - the holdings still load, unmarked
+        logger.warning("Centurion's ledger unavailable: %s", exc)
+        return {}
+    cache.set(_CENTURION_POSITIONS_KEY, positions, ttl=300)
+    return positions
+
+
 @router.get("/kite/holdings")
 async def kite_holdings():
-    """Get portfolio holdings."""
+    """Get portfolio holdings, each with ``centurion_qty``: the shares Centurion bought (tracker FK1)."""
     kite = get_kite_session()
     if not kite:
         raise HTTPException(status_code=409, detail=KITE_SESSION_INACTIVE)
     try:
         holdings = await kite_call(kite.holdings)
+        mine = await asyncio.to_thread(_centurion_positions)
+        for h in holdings or []:
+            held = int(h.get("quantity") or 0) + int(h.get("t1_quantity") or 0)
+            h["centurion_qty"] = min(int(mine.get(h.get("tradingsymbol"), 0)), held)
         return holdings
     except HTTPException:
         raise

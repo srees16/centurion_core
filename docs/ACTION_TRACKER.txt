@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 07 Oct 2026, 20:12 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 07 Oct 2026, 21:01 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -300,6 +300,18 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+7 Oct   FK1  Holdings filter on Fly Kite (your ask).  Zerodha cannot list
+             Centurion in Kite's holdings: the Kite Web filter was removed
+             (Jul 2024, Console tags instead) and apps cannot tag holdings
+             (Kite Connect has no holding tags).  So Centurion's own
+             Holdings tab has All / Centurion / Others, with counts and the
+             view's P&L, and a "Centurion <qty>" badge in All.  The
+             holdings API marks each row with centurion_qty: the live
+             book's ledger, capped at the shares held incl. T1 (cached 5
+             min; holdings still load unmarked if Neon is down).  Empty
+             until the first real session.  Your account only (the Space's
+             Kite session).  Checked with fakes; suite 213 myenv, 212 + 1
+             skipped core-only.
 7 Oct   FA3  Family accounts phase 3: disconnect (U33: ask each time).  Off
              on a family account Centurion holds positions in asks: keep
              them (trading stops now; their GTT stops stay at Zerodha until
