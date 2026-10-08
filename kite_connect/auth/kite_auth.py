@@ -7,7 +7,8 @@ How it works:
 3. You log in with your Zerodha credentials (+ TOTP/2FA); nothing is
    auto-filled (no automated Kite login, tracker U23)
 4. Zerodha redirects back to the local server with the request_token
-5. The script captures it, updates kite_token_store.py, and returns the token
+5. The script captures it, stores it in data/kite/request_token.txt
+   (gitignored), and returns the token
 
 IMPORTANT: Set your Kite Connect app's redirect URL to:
     http://127.0.0.1:5000
@@ -17,7 +18,6 @@ IMPORTANT: Set your Kite Connect app's redirect URL to:
 import webbrowser
 import subprocess
 import tempfile
-import re
 import os
 import sys
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -60,29 +60,21 @@ class CallbackHandler(BaseHTTPRequestHandler):
 
 
 def update_kite_app(token):
-    """Update the request_token value in kite_token_store.py."""
+    """Store the request_token in ``KITE_APP_FILE`` (gitignored, owner-only)."""
     try:
-        with open(KITE_APP_FILE, 'r') as f:
-            content = f.read()
-
-        updated = re.sub(
-            r"(request_token\s*=\s*')[^']*(')",
-            rf"\g<1>{token}\g<2>",
-            content
-        )
-
-        with open(KITE_APP_FILE, 'w') as f:
-            f.write(updated)
-
-        print(f"  [OK] Updated request_token in kite_token_store.py")
+        os.makedirs(os.path.dirname(KITE_APP_FILE), exist_ok=True)
+        fd = os.open(KITE_APP_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'w') as f:
+            f.write(f"request_token='{token}'\n")
+        print(f"  [OK] Stored the request_token in {KITE_APP_FILE}")
     except Exception as e:
-        print(f"  [ERROR] Could not update kite_token_store.py: {e}")
+        print(f"  [ERROR] Could not store the request_token: {e}")
 
 
 def fetch_request_token():
     """
     Launch the Kite login flow, capture the request_token via local
-    HTTP redirect, update kite_token_store.py, and return the new token.
+    HTTP redirect, store it (``KITE_APP_FILE``), and return the new token.
 
     You type your user ID, password and TOTP in the browser yourself.
 
@@ -159,7 +151,7 @@ def fetch_request_token():
                 pass
 
     print("=" * 60)
-    print(f"  Request Token: {captured_token}")
+    print(f"  Request Token: {captured_token[:4]}... (stored, not shown)")
     print("=" * 60)
 
     update_kite_app(captured_token)

@@ -156,16 +156,20 @@ if (Test-Path $ENV_FILE) {
     $syncCount = 0
     foreach ($secret in $REQUIRED_SECRETS) {
         if ($envVars.ContainsKey($secret) -and $envVars[$secret]) {
-            $val = $envVars[$secret]
-            # Use huggingface_hub Python API to set secrets (CLI doesn't support it directly)
+            # The value travels in the environment, never on the command line (visible to `ps`; SEC2)
+            $env:HF_SECRET_NAME = $secret
+            $env:HF_SECRET_VALUE = $envVars[$secret]
             python -c "
+import os
 from huggingface_hub import add_space_secret
+name = os.environ['HF_SECRET_NAME']
 try:
-    add_space_secret('$HF_USERNAME/$SPACE_NAME', '$secret', '$val')
-    print(f'  Set {\"$secret\"} OK')
+    add_space_secret('$HF_USERNAME/$SPACE_NAME', name, os.environ['HF_SECRET_VALUE'])
+    print(f'  Set {name} OK')
 except Exception as e:
-    print(f'  WARN: Failed to set {\"$secret\"}: {e}')
+    print(f'  WARN: Failed to set {name}: {e}')
 "
+            Remove-Item Env:HF_SECRET_VALUE
             $syncCount++
         }
     }

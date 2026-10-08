@@ -47,15 +47,6 @@ async def health_check():
         pass
     components["rag_vector_store"] = rag_ok
 
-    # Kite session
-    kite_ok = False
-    try:
-        from api.dependencies import get_kite_session
-        kite_ok = get_kite_session() is not None
-    except Exception:
-        pass
-    components["kite_session"] = kite_ok
-
     # Cache backend
     cache_info = {}
     try:

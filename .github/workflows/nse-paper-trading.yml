@@ -363,6 +363,13 @@ jobs:
       # accounts.py) in its own book, through the same proxy, at its own mode
       # but never above this one; the go-live override is for your account
       # only.  A family failure emails and the next account still runs.
+      # Installed in a step of its own, so no package's install code runs beside the
+      # proxy key, the token key and the database URL (SEC2).
+      - name: Live book - install the Kite client
+        if: vars.CENTURION_LIVE_MODE == 'dry_run' || vars.CENTURION_LIVE_MODE == 'live'
+        continue-on-error: true
+        run: pip install "kiteconnect==5.1.0" "PySocks==1.7.1"
+
       - name: Live book - session
         id: live
         if: vars.CENTURION_LIVE_MODE == 'dry_run' || vars.CENTURION_LIVE_MODE == 'live'
@@ -389,11 +396,10 @@ jobs:
           CENTURION_NSE_ENGINE_LIVE: ${{ vars.CENTURION_LIVE_MODE == 'live' && 'true' || 'false' }}
           LIVE_MODE: ${{ vars.CENTURION_LIVE_MODE }}
         run: |
-          pip install "kiteconnect==5.1.0" "PySocks==1.7.1"
           if [ -n "$CENTURION_PROXY_HOST" ]; then
             # Kite calls leave from the Oracle VM's reserved IP (the one Zerodha has).
             install -d -m 700 ~/.ssh
-            printf '%s\n' "$CENTURION_PROXY_SSH_KEY" > ~/.ssh/kite_tunnel && chmod 600 ~/.ssh/kite_tunnel
+            (umask 077; printf '%s\n' "$CENTURION_PROXY_SSH_KEY" > ~/.ssh/kite_tunnel)
             printf '%s\n' "$CENTURION_PROXY_HOST_KEY" > ~/.ssh/known_hosts_kite
             ssh -i ~/.ssh/kite_tunnel -o UserKnownHostsFile="$HOME/.ssh/known_hosts_kite" \
                 -o StrictHostKeyChecking=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \

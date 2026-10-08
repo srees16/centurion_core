@@ -162,16 +162,40 @@ async def authenticate_user_async(username: str, password: str) -> Tuple[bool, s
 # ---------------------------------------------------------------------------
 
 def create_session_token(username: str, role: str) -> str:
-    """Create a signed, time-limited session token."""
-    return _SERIALIZER.dumps({"u": username, "r": role})
+    """Create a signed, time-limited session token, unique per sign-in (``n``), so signing
+    one session out never revokes another made in the same second."""
+    import secrets as _secrets
+
+    return _SERIALIZER.dumps({"u": username, "r": role, "n": _secrets.token_hex(8)})
+
+
+#: Signed-out tokens (digest -> monotonic expiry).  In this process only: a restart forgets them,
+#: and rotating CENTURION_API_SECRET_KEY revokes every token at once.
+_revoked: Dict[str, float] = {}
+
+
+def _digest(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def revoke_session_token(token: str) -> None:
+    """Sign a token out for the rest of its life (``TOKEN_MAX_AGE``)."""
+    now = time.monotonic()
+    with _login_lock:
+        for key in [k for k, until in _revoked.items() if until < now]:
+            del _revoked[key]
+        _revoked[_digest(token)] = now + TOKEN_MAX_AGE
 
 
 def verify_session_token(token: str) -> Optional[Dict]:
     """
     Verify and decode a session token.
 
-    Returns ``{"u": username, "r": role}`` on success, ``None`` on failure.
+    Returns ``{"u": username, "r": role}`` on success, ``None`` on failure
+    (including a token signed out with :func:`revoke_session_token`).
     """
+    if _revoked.get(_digest(token), 0.0) > time.monotonic():
+        return None
     try:
         return _SERIALIZER.loads(token, max_age=TOKEN_MAX_AGE)
     except SignatureExpired:
