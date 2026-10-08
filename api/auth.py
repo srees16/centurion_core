@@ -64,6 +64,17 @@ def _verify_password(password: str, hashed: str) -> bool:
         return False
 
 
+def _checked(data, source: str) -> Dict:
+    """``data`` when it has the ``users: {<name>: {password: <bcrypt hash>, role, name}}`` shape,
+    else no users: a malformed file or secret refuses every sign-in (401), with this logged."""
+    users = data.get("users") if isinstance(data, dict) else None
+    if isinstance(users, dict) and users and all(isinstance(u, dict) and u.get("password") for u in users.values()):
+        return data
+    logger.error("Credentials in %s are not 'users: <name>: {password: <bcrypt hash>, role: ..., name: ...}': "
+                 "nobody can sign in until it is fixed", source)
+    return {"users": {}}
+
+
 def _load_credentials_from_yaml() -> Dict:
     """Load credentials: ``auth/credentials.yaml`` locally, else the ``CENTURION_CREDENTIALS_YAML``
     secret (the deployed server).  Cached after first load."""
@@ -71,9 +82,9 @@ def _load_credentials_from_yaml() -> Dict:
         import yaml
         if CREDENTIALS_YAML.exists():
             with open(CREDENTIALS_YAML, "r") as fh:
-                return yaml.safe_load(fh) or {"users": {}}
+                return _checked(yaml.safe_load(fh), str(CREDENTIALS_YAML))
         if os.getenv(ENV_CREDENTIALS):
-            return yaml.safe_load(os.environ[ENV_CREDENTIALS]) or {"users": {}}
+            return _checked(yaml.safe_load(os.environ[ENV_CREDENTIALS]), ENV_CREDENTIALS)
         logger.warning("No credentials: set %s or create %s", ENV_CREDENTIALS, CREDENTIALS_YAML)
     except Exception as exc:
         logger.error("Failed to load credentials: %s", exc)

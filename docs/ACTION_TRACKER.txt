@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 08 Oct 2026, 13:09 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 08 Oct 2026, 13:37 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -361,6 +361,19 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+8 Oct   RR1  Registry refreshed (your ask) after the 7 Oct store rebuild:
+             hash 6c94f4f4 -> ba7c0982 (data from 2012-01-02, as D4).  The
+             60 same-window configurations re-run on Kaggle (kernel
+             centurion-nse-research-rr1, 12 min after a 45-min queue;
+             config hashes checked before the run), imported: every one
+             reproduces its returns exactly (0 days differ), so PBO 56.1%
+             and DSR 0.989 (deployed and candidate) are unchanged.  The
+             rebuild changed the fingerprint, not a result.  Fixed: the
+             build-store check and refresh-registry loaded data from
+             2011-01-01 while the registry's runs use the deployment's
+             anchor (2012-01-02), so every rebuild reported a change; both
+             now default to that anchor (runners/run_nse_engine.py) and
+             report "unchanged" today.
 8 Oct   OD1-3 Options data (your ask after SB1), all three items.
              OD1 IV history (kite_connect/options/iv_history.py): a 30-day
              ATM IV per session (the ATM call and put of the two expiries
@@ -385,10 +398,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              Scholes round trip, interpolation, realised volatility,
              thresholds, live IV with a fake chain, missing-data fallback;
              suite 213 both envs.
-             Note: refresh rebuilt the local equity store (to 7 Oct); the
-             validation window's hash moved 6c94f4f4 -> 0b693174 (60
-             configurations).  The registry refresh needs Kaggle, where its
-             runs are recorded (D4); due before the next recorded backtest.
+             Note: refresh rebuilt the local equity store (to 7 Oct), which
+             moved the validation window's hash: done as RR1, same day.
 8 Oct   SB1  Sensibull API studied (your ask): not used.  Sensibull has no
              public API; the wrappers (sensibull-quotes 0.1.0, one release,
              an individual's) mimic a browser against its internal oxide /
