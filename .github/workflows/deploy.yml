@@ -63,16 +63,25 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           CREDENTIALS_YAML: ${{ secrets.CREDENTIALS_YAML }}
+          # MU2: the sign-up emails use the same SMTP account as the paper emails
+          CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
+          CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+          CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
+          CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
         run: |
           # The Space is public: its repository must never hold the login
           # hashes. The API reads them from the CENTURION_CREDENTIALS_YAML
-          # secret (api/auth.py), set here from the GitHub secret.
+          # secret (api/auth.py), set here from the GitHub secret; the SMTP
+          # settings are copied the same way (those set in GitHub only).
           pip install -q huggingface_hub
           python - <<'PY'
           import os
           from huggingface_hub import add_space_secret
           add_space_secret("srees16/centurion-core", "CENTURION_CREDENTIALS_YAML",
                            os.environ["CREDENTIALS_YAML"], token=os.environ["HF_TOKEN"])
+          for name in ("CENTURION_EMAIL_HOST", "CENTURION_EMAIL_PORT", "CENTURION_EMAIL_USER", "CENTURION_EMAIL_PASS"):
+              if os.environ.get(name, "").strip():
+                  add_space_secret("srees16/centurion-core", name, os.environ[name], token=os.environ["HF_TOKEN"])
           PY
           rm -f /tmp/hf-space/auth/credentials.yaml
 

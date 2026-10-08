@@ -19,7 +19,7 @@ import logging
 from datetime import date, timedelta
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from api.dependencies import get_kite_session
@@ -151,8 +151,13 @@ async def run_screen(req: PipelineRequest):
 
 
 @router.post("/full", response_model=PipelineResponse)
-async def run_full_pipeline(req: PipelineRequest):
-    """Screen → IntegratedScorer → (optionally) place orders."""
+async def run_full_pipeline(req: PipelineRequest, request: Request):
+    """Screen → IntegratedScorer → (optionally) place orders: ``auto_place`` trades the
+    operator's own Kite account, so an admin only (MU2)."""
+    from api.auth import session_from_request
+
+    if req.auto_place and (session_from_request(request) or {}).get("r") != "admin":
+        raise HTTPException(status_code=403, detail="only an admin can place orders")
     try:
         from kite_connect.nse.nse_universe import get_nse_universe
         from kite_connect.trading.auto_executor import AutoExecutor

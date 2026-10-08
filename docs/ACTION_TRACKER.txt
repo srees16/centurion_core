@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 08 Oct 2026, 18:05 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 08 Oct 2026, 20:08 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -171,6 +171,11 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
        empanelment + SEBI) before any of them trades; read-only until
        then.  Gated build + a licensed-route plan for your lawyer (your
        choice).  Supersedes U33's family-only rule.                 -> MU1
+  U35  (8 Oct) Registration waiver, dry runs only (your choice of three):
+       a connected account runs Dry run once its holder accepts the
+       terms, without Centurion's registration, so every feature can be
+       tried; Live still needs the registration (no real orders for
+       other people from your static IP).                         -> MU1
   U33  (7 Oct) Accounts: yours and your family's only (spouse, dependent
        children and parents, who may share your static IP under SEBI's
        April 2026 rules); nobody else's (one static IP per trader, and
@@ -237,7 +242,13 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              strategies to run on the broker's servers (NSE/INVG/69255),
              so registration alone does not permit orders from Centurion's
              server; the route counsel picks decides the code.  Until then
-             every connected account is read-only, family included (U34).
+             no connected account places real orders, family included
+             (U34); dry runs are open after the holder's terms (U35).
+[!] P1  MU2  Self-service accounts: review and merge both repos (the deploy
+             copies the GitHub CENTURION_EMAIL_* secrets to the Space;
+             CENTURION_USER_DATA_KEY set on the Space 8 Oct, with a copy kept
+             off it), then sign up with a spare email to check the
+             activation email arrives.
 [!] P3  O1d  Run the options paper demo once: after a Kite login, GitHub
              Actions > "Options paper demo" > Run (NIFTY, moderate_bull, 1
              lot; paper only); read the artifact.  Commit + merge first.
@@ -389,6 +400,47 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+8 Oct   MU2b Sign-up details encrypted and "Delete my account" (your ask).
+             app.users keeps one Fernet-encrypted profile (email, name, DOB,
+             gender, mobile, city, state, country, experience; key
+             CENTURION_USER_DATA_KEY), found by a keyed hash of the email,
+             which also names the owner of their Zerodha account; password a
+             bcrypt hash; logs carry user ids.  Settings > Delete account
+             (password + typed DELETE) erases the row, the connected Zerodha
+             account's registry entry and its live_<id> schema, ends the
+             sessions and emails a confirmation.  Empty email host / port
+             secrets now fall back to Gmail's.  Checked on a throwaway
+             Postgres 16 through the real app (24 checks); suite 213 myenv,
+             212 + 1 skipped core-only.
+8 Oct   FK2  Fly Kite accounts panel redesign (your ask): Add account opens
+             a dialog (fade + zoom) with the app's redirect URL and IP as
+             copy fields, then the form; "Every account needs" cut to four
+             one-liners, Dry run / Live status chips and a View terms
+             dialog.  Each account is a card: initials, login and terms
+             chips, Log in, a menu (copy login link, remove), a segmented
+             mode control, capital, holdings that slide open.  Remove, Go
+             live, capital change and disconnect ask in dialogs, not
+             browser pop-ups.  New components/ui/dialog.tsx (Radix).
+             Type-check and production build pass.
+8 Oct   MU2  Self-service accounts (your ask).  /signup (name, email,
+             password, date of birth 18+, gender, city, country; mobile,
+             state, experience optional; consent box), stored in Neon
+             app.users (api/users.py).  Pending until the emailed link (24
+             h); forgot password emails a 1-hour, once-only reset link;
+             reset or change ends the account's other sessions.  Password
+             policy everywhere, your logins too: 12-64 characters, upper +
+             lower, digit, symbol, no name / email / common word.  Public
+             routes answer alike for any email, 20 per client and 3 emails
+             per address per hour.  Role "user" reaches everything but your
+             broker accounts (Kite / DriveWealth sessions, holdings,
+             positions, orders, P&L), Paper Validation, Daily Detail, the
+             G4 walk-forward audit and the shared alerts' writes: refused
+             by the API, hidden in the UI.  Fly Kite shows a user only
+             their own Zerodha account (optional, one, owner-scoped).  Also
+             found and fixed: /ind-stocks/pipeline/full auto_place let any
+             role place real orders in your account (now admin only).
+             Checked on a throwaway local Postgres 16 through the real app
+             (66 checks); suite 213 myenv, 212 + 1 skipped core-only.
 8 Oct   MU1  Multi-user accounts (your ask; U34).  Any user's Zerodha
              account connects on the same criteria; relation is gone (a
              stored one is ignored on load).  Fly Kite shows what every

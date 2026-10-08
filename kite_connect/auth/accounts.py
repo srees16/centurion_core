@@ -10,11 +10,10 @@ the server (``REGISTRATION_ENV``): SEBI's retail algo framework (April 2026)
 makes running a strategy for another person's account an empanelled algo
 provider's business through the broker (with a Research Analyst licence for
 a black-box strategy), and discretionary management of other people's money
-is portfolio management (PMS registration).  The registration check is
-waived for now (your call, 8 Oct 2026: every feature open for testing) and
-applies only once ``REGISTRATION_REQUIRED_ENV`` is true; then, until both
-settings hold, an account connects, logs in and is read, and Centurion
-places no orders in it.  The registration settings are set only on a
+is portfolio management (PMS registration).  Until both settings hold, an
+account connects, logs in, is read and runs dry runs (its orders built,
+none sent: decision U35, 8 Oct 2026, so every feature can be tried), and
+Centurion places no real orders in it.  The registration settings are set only on a
 lawyer's advice: NSE runs a provider's strategies on the broker's servers
 (NSE/INVG/69255), so holding the registrations may still not permit orders
 from this server.  Your own account (the primary) needs neither the terms
@@ -23,7 +22,8 @@ research and deployment tool are untouched by this module's lock.
 
 How an account connects: the holder's own Kite Connect app on
 developers.kite.trade with this server's callback as the redirect URL, whose
-API key and secret are entered here.  Centurion stores the key and the secret (encrypted with
+API key and secret are entered here.  A signed-up user (``api.users``, MU2)
+connects at most one account, their own (``owner``), and manages only it.  Centurion stores the key and the secret (encrypted with
 ``CENTURION_KITE_TOKEN_KEY``, as the daily tokens are) and never a password
 or a TOTP secret: the holder logs in on Zerodha's own page each trading day
 (decision U23), through a login link that carries the account's id back to
@@ -73,10 +73,8 @@ from kite_connect.auth import daily_login, terms
 
 PRIMARY = "primary"
 #: Set on the server once Centurion is registered: the exchange's algo / empanelment id (through the
-#: broker) and the SEBI registration number (RA or PMS).  Both unlock automatic trading in every account.
+#: broker) and the SEBI registration number (RA or PMS).  Both unlock live orders in every account.
 REGISTRATION_ENV = ("CENTURION_ALGO_PROVIDER_ID", "CENTURION_SEBI_REGISTRATION")
-#: "true" enforces the registration; unset or anything else waives it (for now, so every feature can be tested).
-REGISTRATION_REQUIRED_ENV = "CENTURION_REQUIRE_REGISTRATION"
 REGISTRY_KEY = "kite_accounts"
 ACCOUNT_PARAM = "account"                 # the redirect_params key the callback reads
 MODES = ("off", "dry_run", "live")        # least to most: an account never runs above the master switch
@@ -107,6 +105,7 @@ class Account:
     consent_version: str = ""             # MU1: the terms the holder accepted, when and as whom
     consent_at: str = ""
     consent_by: str = ""
+    owner: str = ""                       # MU2: its signed-up user (api.users.email_index); "" = yours
 
     @property
     def is_primary(self) -> bool:
@@ -167,26 +166,22 @@ def registration_missing() -> List[str]:
     return [name for name in REGISTRATION_ENV if not os.environ.get(name, "").strip()]
 
 
-def registration_required() -> bool:
-    """Is the registration enforced?  Waived unless ``REGISTRATION_REQUIRED_ENV`` is true."""
-    return os.environ.get(REGISTRATION_REQUIRED_ENV, "").strip().lower() == "true"
-
-
 def has_consent(acct: Account) -> bool:
     """Has the holder accepted the current terms?  Your own account (the primary) needs none here."""
     return acct.is_primary or acct.consent_version == terms.TERMS_VERSION
 
 
-def trading_lock(acct: Account) -> str:
-    """Why Centurion may not trade the account ("" when it may): the same for every connected account,
-    never for your own."""
-    if acct.is_primary:
+def trading_lock(acct: Account, mode: str = "live") -> str:
+    """Why Centurion may not run the account in ``mode`` ("" when it may): the same for every connected
+    account, never for your own.  A dry run needs the holder's terms; live orders also Centurion's
+    registration (U35)."""
+    if acct.is_primary or mode == "off":
         return ""
     if not has_consent(acct):
         return "the holder has not accepted the current terms: they do on the page their next Kite login returns to"
-    if registration_required() and registration_missing():
-        return ("automatic trading needs Centurion's exchange empanelment and SEBI registration ("
-                + ", ".join(registration_missing()) + " not set): the account is read-only until then")
+    if mode == "live" and registration_missing():
+        return ("live orders need Centurion's exchange empanelment and SEBI registration ("
+                + ", ".join(registration_missing()) + " not set): dry runs only until then")
     return ""
 
 
@@ -221,8 +216,8 @@ def _check(name: str, zerodha_user_id: str, api_key: str, api_secret: str, email
 
 
 def add(name: str, zerodha_user_id: str, api_key: str, api_secret: str, email: str = "",
-        book=None, now: Optional[datetime] = None) -> Account:
-    """Register an account (its secret is stored encrypted)."""
+        book=None, now: Optional[datetime] = None, owner: str = "") -> Account:
+    """Register an account (its secret is stored encrypted); a signed-up ``owner`` has at most one."""
     zerodha_user_id = zerodha_user_id.strip().upper()
     api_key, api_secret, email = api_key.strip(), api_secret.strip(), email.strip()
     _check(name, zerodha_user_id, api_key, api_secret, email)
@@ -232,9 +227,11 @@ def add(name: str, zerodha_user_id: str, api_key: str, api_secret: str, email: s
     if zerodha_user_id == primary_account().zerodha_user_id or any(
             a.zerodha_user_id == zerodha_user_id for a in accounts.values()):
         raise AccountError(f"{zerodha_user_id} is already connected")
+    if owner and any(a.owner == owner for a in accounts.values()):
+        raise AccountError("your Zerodha account is already connected: one account per user")
     acct = Account(_make_id(name, list(accounts)), name.strip(), zerodha_user_id, api_key, email,
                    daily_login._fernet().encrypt(api_secret.encode()).decode(),
-                   (now or datetime.now(daily_login.IST)).isoformat(timespec="seconds"))
+                   (now or datetime.now(daily_login.IST)).isoformat(timespec="seconds"), owner=owner)
     accounts[acct.id] = acct
     _save(accounts, book)
     return acct
@@ -269,8 +266,8 @@ def update(account_id: str, *, email: Optional[str] = None, api_key: Optional[st
             raise AccountError(f"mode must be one of {MODES}")
         if mode != "off" and not acct.capital:
             raise AccountError("choose the capital first: the first session sizes the book from it")
-        if mode != "off" and trading_lock(acct):
-            raise AccountError(trading_lock(acct))
+        if trading_lock(acct, mode):
+            raise AccountError(trading_lock(acct, mode))
         if mode == "off" and acct.mode != "off" and ledger_positions(acct):
             raise AccountError(f"Centurion holds positions in {acct.name}'s account: disconnect it and choose "
                                "to keep them, sell at the next open or sell over N sessions")
@@ -356,6 +353,26 @@ def remove(account_id: str, book=None, account_book=None) -> None:
         raise AccountError(f"{acct.name} has traded: disconnect it instead, which settles its positions")
     del accounts[account_id]
     _save(accounts, book)
+
+
+def erase(account_id: str, book=None) -> None:
+    """Forget an account and everything Centurion recorded for it: its registry entry, then its
+    live-book schema (daily token, ledger, dry runs).  For a holder who deletes their Centurion
+    account (MU2): trading stops at once; their holdings, and any GTT stops Centurion placed, stay
+    at Zerodha."""
+    from sqlalchemy import text
+
+    from database.connection import get_db_manager
+
+    accounts = load(book)
+    acct = accounts.pop(account_id, None)
+    if acct is None:
+        return
+    _save(accounts, book)
+    if not re.fullmatch(r"live_[a-z0-9_]+", acct.schema):
+        raise AccountError(f"refusing to drop schema {acct.schema!r}")
+    with get_db_manager().get_session() as session:
+        session.execute(text(f'DROP SCHEMA IF EXISTS "{acct.schema}" CASCADE'))
 
 
 def api_secret(acct: Account) -> str:

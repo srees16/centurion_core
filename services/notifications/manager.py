@@ -37,8 +37,8 @@ def _smtp_settings() -> tuple:
     def clean(value: str) -> str:
         return "".join(str(value or "").split())         # drops spaces, tabs, NBSP, newlines
 
-    return (clean(os.getenv("CENTURION_EMAIL_HOST", "smtp.gmail.com")),
-            int(clean(os.getenv("CENTURION_EMAIL_PORT", "587")) or 587),
+    return (clean(os.getenv("CENTURION_EMAIL_HOST")) or "smtp.gmail.com",   # a set-but-empty secret: the default
+            int(clean(os.getenv("CENTURION_EMAIL_PORT")) or 587),
             clean(os.getenv("CENTURION_EMAIL_USER", "")),
             clean(os.getenv("CENTURION_EMAIL_PASS", "")))
 
