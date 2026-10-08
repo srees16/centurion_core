@@ -12,8 +12,10 @@ import hashlib
 import hmac
 import logging
 import os
+import threading
+import time
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import bcrypt
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
@@ -43,6 +45,9 @@ TOKEN_MAX_AGE = int(os.getenv("CENTURION_API_TOKEN_MAX_AGE", 28800))
 # ---------------------------------------------------------------------------
 
 CREDENTIALS_YAML = Path(__file__).resolve().parent.parent / "auth" / "credentials.yaml"
+#: The credentials on a deployed server: the same YAML as a secret, never a file in the
+#: (public) Space repository.
+ENV_CREDENTIALS = "CENTURION_CREDENTIALS_YAML"
 
 
 def _is_legacy_sha256(hashed: str) -> bool:
@@ -60,17 +65,19 @@ def _verify_password(password: str, hashed: str) -> bool:
 
 
 def _load_credentials_from_yaml() -> Dict:
-    """Load credentials directly from YAML. Cached after first load."""
-    if not CREDENTIALS_YAML.exists():
-        logger.warning("Credentials file not found: %s", CREDENTIALS_YAML)
-        return {"users": {}}
+    """Load credentials: ``auth/credentials.yaml`` locally, else the ``CENTURION_CREDENTIALS_YAML``
+    secret (the deployed server).  Cached after first load."""
     try:
         import yaml
-        with open(CREDENTIALS_YAML, "r") as fh:
-            return yaml.safe_load(fh) or {"users": {}}
+        if CREDENTIALS_YAML.exists():
+            with open(CREDENTIALS_YAML, "r") as fh:
+                return yaml.safe_load(fh) or {"users": {}}
+        if os.getenv(ENV_CREDENTIALS):
+            return yaml.safe_load(os.environ[ENV_CREDENTIALS]) or {"users": {}}
+        logger.warning("No credentials: set %s or create %s", ENV_CREDENTIALS, CREDENTIALS_YAML)
     except Exception as exc:
         logger.error("Failed to load credentials: %s", exc)
-        return {"users": {}}
+    return {"users": {}}
 
 # Cache credentials at import time (avoids re-reading YAML on every login)
 _CACHED_CREDENTIALS: Optional[Dict] = None
@@ -89,18 +96,47 @@ def _get_credentials() -> Dict:
     return _CACHED_CREDENTIALS
 
 
+class LoginThrottled(Exception):
+    """Too many failed sign-ins for this username; refused until the window passes."""
+
+
+#: Failed sign-ins per username: MAX_LOGIN_FAILURES in LOGIN_WINDOW_S seconds lock it for the rest
+#: of the window, so passwords cannot be guessed online (an account's live tokens keep working).
+MAX_LOGIN_FAILURES, LOGIN_WINDOW_S = 10, 900
+_login_failures: Dict[str, List[float]] = {}
+_login_lock = threading.Lock()
+_dummy_hash: List[bytes] = []
+
+
 def authenticate_user(username: str, password: str) -> Tuple[bool, str, str]:
     """
     Verify username/password against the YAML credential store.
 
-    Returns (success, user_display_name, role).
+    Returns (success, user_display_name, role); raises :class:`LoginThrottled`
+    after too many recent failures for the username.
     """
+    now = time.monotonic()
+    with _login_lock:
+        recent = [t for t in _login_failures.get(username, []) if now - t < LOGIN_WINDOW_S]
+        _login_failures[username] = recent
+        if len(recent) >= MAX_LOGIN_FAILURES:
+            raise LoginThrottled(username)
     creds = _get_credentials()
     users = creds.get("users", {})
     user = users.get(username)
     if user is None:
-        return False, "", ""
-    if not _verify_password(password, user.get("password", "")):
+        if not _dummy_hash:                               # same bcrypt cost: no username probing by timing
+            _dummy_hash.append(bcrypt.hashpw(b"-", bcrypt.gensalt()))
+        bcrypt.checkpw(password.encode(), _dummy_hash[0])
+        ok = False
+    else:
+        ok = _verify_password(password, user.get("password", ""))
+    with _login_lock:
+        if ok:
+            _login_failures.pop(username, None)
+        else:
+            _login_failures.setdefault(username, []).append(now)
+    if not ok:
         return False, "", ""
     return True, user.get("name", username), user.get("role", "user")
 
@@ -138,14 +174,15 @@ def verify_session_token(token: str) -> Optional[Dict]:
 def session_from_request(request) -> Optional[Dict]:
     """The signed-in session of a request, or None (tracker S1).
 
-    The frontend sends ``Authorization: Bearer <token>`` (``/api/v1/auth/login``);
+    The frontend sends ``Authorization: Bearer <token>`` (``/api/v1/auth/login``),
+    or ``?token=`` where a browser cannot set headers (EventSource, WebSocket);
     the API docs use the session cookie, then the shared SSO cookie.
     """
     from auth.shared_session import SHARED_COOKIE_NAME, verify_shared_token
 
     header = request.headers.get("authorization", "")
-    if header.startswith("Bearer "):
-        payload = verify_session_token(header[7:])
+    for token in (header[7:] if header.startswith("Bearer ") else "", request.query_params.get("token", "")):
+        payload = verify_session_token(token) if token else None
         if payload:
             return payload
     token = request.cookies.get(SESSION_COOKIE)

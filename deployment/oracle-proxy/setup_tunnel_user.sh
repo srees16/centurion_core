@@ -43,6 +43,10 @@ Match User $USER_NAME
     X11Forwarding no
     AllowAgentForwarding no
     GatewayPorts no
+    AllowStreamLocalForwarding no
+    PermitTunnel no
+    PermitListen none
+    ForceCommand $NOLOGIN
 EOF
 grep -qE '^\s*Include\s+/etc/ssh/sshd_config\.d/\*\.conf' /etc/ssh/sshd_config || \
   echo "WARNING: /etc/ssh/sshd_config has no 'Include /etc/ssh/sshd_config.d/*.conf'; add it" >&2

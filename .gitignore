@@ -91,6 +91,10 @@ data/rl_models/
 secrets/
 auth/credentials.yaml
 credentials.txt
+id_rsa*
+id_ed25519*
+id_ecdsa*
+kite_tunnel*
 
 # ============ ChromaDB / Vector Stores (runtime-generated) ============
 chroma_store/

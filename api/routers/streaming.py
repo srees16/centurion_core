@@ -220,7 +220,14 @@ async def websocket_tick_stream(websocket: WebSocket):
     3. Server pushes ``{"event": "tick_batch", "data": [...]}`` messages.
     4. Client can send ``{"action": "ping"}`` and receives ``{"event": "pong"}``.
     5. Client sends ``{"action": "unsubscribe", "symbols": [...]}`` to stop.
+
+    Needs a signed-in session (``?token=``): the HTTP middleware does not see WebSockets.
     """
+    from api.auth import session_from_request
+
+    if session_from_request(websocket) is None:
+        await websocket.close(code=1008)                 # policy violation: no session
+        return
     await websocket.accept()
     logger.info("WebSocket client connected: %s", websocket.client)
 
@@ -380,15 +387,14 @@ async def kite_postback(payload: KitePostbackPayload, request: Request):
     Process an incoming Kite postback and dispatch the appropriate
     event through the WebhookDispatcher.
     """
-    # Optional: verify checksum
+    # The only proof the postback is Zerodha's (the route needs no session):
+    # SHA-256(order_id + order_timestamp + api_secret), required.
     api_secret = os.getenv("ZERODHA_API_SECRET", "")
-    if payload.checksum and api_secret:
-        # Zerodha checksum: SHA-256(order_id + order_timestamp + api_secret)
-        raw = f"{payload.order_id}{payload.order_timestamp}{api_secret}"
-        expected = hashlib.sha256(raw.encode()).hexdigest()
-        if not hmac.compare_digest(expected, payload.checksum):
-            logger.warning("Postback checksum mismatch for order %s", payload.order_id)
-            raise HTTPException(status_code=403, detail="Invalid checksum")
+    raw = f"{payload.order_id}{payload.order_timestamp}{api_secret}"
+    if not (api_secret and payload.checksum
+            and hmac.compare_digest(hashlib.sha256(raw.encode()).hexdigest(), payload.checksum)):
+        logger.warning("Postback refused for order %s: checksum missing or wrong", payload.order_id)
+        raise HTTPException(status_code=403, detail="Invalid checksum")
 
     # Map Kite status to our EventType
     from kite_connect.webhooks.events import EventType, WebhookEvent

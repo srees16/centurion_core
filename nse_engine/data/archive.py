@@ -3,7 +3,7 @@ Resumable downloader for NSE daily archives (survivorship-free raw data).
 
 ``BhavcopyArchive`` mirrors four daily file kinds plus a few reference lists
 into a local directory with deterministic names (``fo``, the F&O bhavcopy, is
-fetched only when asked for with ``--kinds fo``)::
+fetched only when asked for with ``--kinds fo``, as is ``participant``)::
 
     root/equity/2013/cm20130115.csv.zip          legacy bhavcopy (<= 2024-07-05)
     root/equity/2024/udiff20240708.csv.zip       UDiFF bhavcopy (>= 2024-07-08)
@@ -12,6 +12,7 @@ fetched only when asked for with ``--kinds fo``)::
     root/corpact/2013/bc20130115.csv             corporate actions (Bc file of the PR zip)
     root/fo/2013/fo20130115.csv.zip              F&O bhavcopy, legacy (<= 2024-07-05)
     root/fo/2024/udiff_fo20240708.csv.zip        F&O bhavcopy, UDiFF (>= 2024-07-08)
+    root/participant/2026/poi20261001.csv        participant-wise F&O open interest (from 2012)
     root/reference/{eq_etfseclist,symbolchange,EQUITY_L,ind_nifty500list}.csv
     root/manifest/missing.json                   weekday 404s (holidays) per kind
 
@@ -62,6 +63,8 @@ RECENT_GRACE = timedelta(days=3)
 KINDS = ("equity", "delivery", "indices", "corpact")
 #: Not in the default sync: the options research (tracker O2) asks for it.
 FO_KIND = "fo"
+#: Participant-wise open interest (client / DII / FII / pro), tracker OD2; also opt-in.
+PARTICIPANT_KIND = "participant"
 
 REFERENCE_FILES: Dict[str, str] = {
     "eq_etfseclist.csv": "/content/equities/eq_etfseclist.csv",
@@ -140,6 +143,10 @@ def candidate_files(root: Path, kind: str, d: date) -> List[RemoteFile]:
         )
         first, second = (udiff, legacy) if equity_format_for(d) == "udiff" else (legacy, udiff)
         return [first, second] if abs(d - UDIFF_START) <= FORMAT_FALLBACK_WINDOW else [first]
+    if kind == PARTICIPANT_KIND:
+        return [RemoteFile(kind, "participant",
+                           f"{ARCHIVE_HOST}/content/nsccl/fao_participant_oi_{d:%d%m%Y}.csv",
+                           root / "participant" / y / f"poi{ymd}.csv")]
     if kind == "delivery":
         dmy = d.strftime("%d%m%Y")
         return [
@@ -402,7 +409,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p.add_argument("--start", required=True)
     p.add_argument("--end", default=date.today().isoformat())
     p.add_argument("--root", default="data/nse_engine/archive")
-    p.add_argument("--kinds", default=",".join(KINDS), help=f"comma list; also {FO_KIND!r} (F&O bhavcopy)")
+    p.add_argument("--kinds", default=",".join(KINDS),
+                   help=f"comma list; also {FO_KIND!r} (F&O bhavcopy), {PARTICIPANT_KIND!r} (participant OI)")
     p.add_argument("--rps", type=float, default=2.0)
     p.add_argument("--no-reference", action="store_true")
     args = p.parse_args(argv)

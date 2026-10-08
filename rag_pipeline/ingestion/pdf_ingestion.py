@@ -1969,7 +1969,10 @@ class PDFIngestionService:
         """
         save_dir = Path(self._config.pdf_upload_dir)
         save_dir.mkdir(parents=True, exist_ok=True)
-        save_path = save_dir / file_name
+        name = Path(file_name).name                      # the client's name, never its path ("../")
+        if name in ("", ".", ".."):
+            raise ValueError(f"invalid file name: {file_name!r}")
+        save_path = save_dir / name
         save_path.write_bytes(file_bytes)
         logger.info("Saved uploaded file to %s", save_path)
         return self.ingest_pdf(

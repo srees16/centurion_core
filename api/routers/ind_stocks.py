@@ -114,9 +114,15 @@ def _store_daily_token(data: dict) -> None:
 # Closes the tab 3 s after a successful login.  Browsers allow it only for a tab
 # another page opened (Fly Kite, webmail) or one with a single history entry;
 # otherwise the note asks the user to close it.
+#: A page may close only a tab a script opened.  A phone's mail app opens the
+#: link as a fresh browser tab, which the browser keeps open, so on mobile the
+#: page promises nothing and still tries (a tab from Fly Kite's Log in closes).
 _AUTO_CLOSE = (
     "<p id='autoclose' style='color:#666;font-size:13px;'>This tab closes in <span id='n'>3</span> seconds.</p>"
-    "<script>(function(){var n=3,el=document.getElementById('n');"
+    "<script>(function(){if(/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)){"
+    "document.getElementById('autoclose').textContent='You can close this tab now.';"
+    "setTimeout(function(){window.close();},3000);return;}"
+    "var n=3,el=document.getElementById('n');"
     "var t=setInterval(function(){n-=1;if(n>0){el.textContent=n;return;}clearInterval(t);window.close();"
     "setTimeout(function(){document.getElementById('autoclose').textContent="
     "'Your browser kept this tab open. You can close it now.';},500);},1000);})();</script>"

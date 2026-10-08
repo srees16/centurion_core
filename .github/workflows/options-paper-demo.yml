@@ -45,9 +45,12 @@ jobs:
           CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
           CENTURION_KITE_TOKEN_KEY: ${{ secrets.CENTURION_KITE_TOKEN_KEY }}
           ZERODHA_API_KEY: ${{ secrets.ZERODHA_API_KEY }}
+          # Inputs reach the shell as data, never as script text (no injection)
+          UNDERLYING: ${{ inputs.underlying }}
+          VIEW: ${{ inputs.view }}
+          LOTS: ${{ inputs.lots }}
         run: |
-          python -m kite_connect.options.cli demo --underlying "${{ inputs.underlying }}" \
-            --view "${{ inputs.view }}" --lots "${{ inputs.lots }}"
+          python -m kite_connect.options.cli demo --underlying "$UNDERLYING" --view "$VIEW" --lots "$LOTS"
       - name: Keep the demo output
         if: always()
         uses: actions/upload-artifact@v4

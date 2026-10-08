@@ -29,12 +29,12 @@ cd ../centurion_core
 
 **Windows PowerShell:**
 ```powershell
-$env:ZERODHA_API_KEY='YOUR_API_KEY'; $env:ZERODHA_API_SECRET='YOUR_API_SECRET'; $env:ANTHROPIC_API_KEY='YOUR_ANTHROPIC_API_KEY'; $env:CENTURION_EMAIL_USER='YOUR_GMAIL_ID'; $env:CENTURION_EMAIL_PASS='YOUR_GMAIL_APP_PASSWORD'; $env:CENTURION_DATABASE_URL='postgresql://user:pass@ep-xxx.neon.tech/neondb?sslmode=require'; $env:UPSTASH_REDIS_URL='rediss://default:token@host.upstash.io:6379'; $env:SENTRY_DSN='https://YOUR_KEY@YOUR_ORG.ingest.sentry.io/YOUR_PROJECT_ID'; $env:LOGTAIL_TOKEN='YOUR_LOGTAIL_SOURCE_TOKEN'; $env:CENTURION_RAG_LLM_PROVIDER='claude'; $env:CENTURION_RAG_CLAUDE_MODEL='claude-opus-4-20250514'; $env:CENTURION_RAG_CLAUDE_MAX_TOKENS='1024'; $env:CENTURION_RAG_CLAUDE_TEMPERATURE='0.2'; $env:CENTURION_EMAIL_HOST='smtp.gmail.com'; $env:CENTURION_EMAIL_PORT='587'; $env:API_PORT='9001'; $env:CENTURION_DB_HOST='localhost'; $env:CENTURION_DB_PORT='9003'; $env:CENTURION_DB_NAME='centurion_rag'; $env:CENTURION_DB_USER='postgres'; $env:CENTURION_DB_PASSWORD='superadmin1'; $env:KITE_DB_HOST='localhost'; $env:KITE_DB_PORT='9003'; $env:KITE_DB_NAME='livestocks_ind'; $env:KITE_DB_USER='postgres'; $env:KITE_DB_PASSWORD='superadmin1'; $env:KITE_POOL_MAXSIZE='40'; $env:MINIO_ENDPOINT='localhost:9004'; $env:MINIO_ACCESS_KEY='minioadmin'; $env:MINIO_SECRET_KEY='minioadmin123'; $env:MINIO_SECURE='false'; $env:MINIO_BUCKET='centurion-backtests'; $env:MINIO_ENABLED='true'; $env:MINIO_REGION='auto'; $env:CENTURION_DEFAULT_ADMIN_PASSWORD='admin123'; $env:CENTURION_DEFAULT_ANALYST_PASSWORD='analyst123'; $env:CENTURION_RAG_LLM_URL='http://localhost:11434'; $env:RAG_MODEL='qwen2.5:3b'; $env:CENTURION_RAG_LLM_FIRST_TOKEN_TIMEOUT='300'; $env:CENTURION_RAG_LLM_CHUNK_TIMEOUT='30'; $env:CENTURION_RAG_LLM_NUM_CTX='4096'; $env:CENTURION_RAG_LLM_NUM_PREDICT='500'; $env:CENTURION_RAG_LLM_MAX_TOKENS='500'; $env:CENTURION_RAG_LLM_TEMPERATURE='0.2'; $env:CENTURION_RAG_CHROMA_DIR='./data/chroma_db'; $env:CENTURION_RAG_EMBEDDING_MODEL='BAAI/bge-base-en-v1.5'; $env:CENTURION_RAG_CONTEXT_TOKEN_BUDGET='2000'; $env:CENTURION_RAG_MAX_CONTEXT_CHUNKS='8'; $env:CENTURION_RAG_TOP_K='15'; $env:CENTURION_RAG_SIMILARITY_THRESHOLD='0.70'; $env:CENTURION_RAG_QUERY_BUDGET='300'; $env:CENTURION_RAG_QUERY_REWRITE='false'; $env:CENTURION_RAG_STREAMING='true'; $env:CENTURION_RAG_CACHE_ENABLED='false'; $env:CENTURION_RAG_FAQ_ENABLED='false'; $env:RAG_FAST_MODE='false'; $env:SENTRY_TRACES_SAMPLE_RATE='0.2'; $env:SENTRY_ENVIRONMENT='development'
+$env:ZERODHA_API_KEY='YOUR_API_KEY'; $env:ZERODHA_API_SECRET='YOUR_API_SECRET'; $env:ANTHROPIC_API_KEY='YOUR_ANTHROPIC_API_KEY'; $env:CENTURION_EMAIL_USER='YOUR_GMAIL_ID'; $env:CENTURION_EMAIL_PASS='YOUR_GMAIL_APP_PASSWORD'; $env:CENTURION_DATABASE_URL='postgresql://user:pass@ep-xxx.neon.tech/neondb?sslmode=require'; $env:UPSTASH_REDIS_URL='rediss://default:token@host.upstash.io:6379'; $env:SENTRY_DSN='https://YOUR_KEY@YOUR_ORG.ingest.sentry.io/YOUR_PROJECT_ID'; $env:LOGTAIL_TOKEN='YOUR_LOGTAIL_SOURCE_TOKEN'; $env:CENTURION_RAG_LLM_PROVIDER='claude'; $env:CENTURION_RAG_CLAUDE_MODEL='claude-opus-4-20250514'; $env:CENTURION_RAG_CLAUDE_MAX_TOKENS='1024'; $env:CENTURION_RAG_CLAUDE_TEMPERATURE='0.2'; $env:CENTURION_EMAIL_HOST='smtp.gmail.com'; $env:CENTURION_EMAIL_PORT='587'; $env:API_PORT='9001'; $env:CENTURION_DB_HOST='localhost'; $env:CENTURION_DB_PORT='9003'; $env:CENTURION_DB_NAME='centurion_rag'; $env:CENTURION_DB_USER='postgres'; $env:CENTURION_DB_PASSWORD='superadmin1'; $env:KITE_DB_HOST='localhost'; $env:KITE_DB_PORT='9003'; $env:KITE_DB_NAME='livestocks_ind'; $env:KITE_DB_USER='postgres'; $env:KITE_DB_PASSWORD='superadmin1'; $env:KITE_POOL_MAXSIZE='40'; $env:MINIO_ENDPOINT='localhost:9004'; $env:MINIO_ACCESS_KEY='minioadmin'; $env:MINIO_SECRET_KEY='minioadmin123'; $env:MINIO_SECURE='false'; $env:MINIO_BUCKET='centurion-backtests'; $env:MINIO_ENABLED='true'; $env:MINIO_REGION='auto'; $env:CENTURION_DEFAULT_ADMIN_PASSWORD='YOUR_ADMIN_PASSWORD'; $env:CENTURION_DEFAULT_ANALYST_PASSWORD='YOUR_ANALYST_PASSWORD'; $env:CENTURION_RAG_LLM_URL='http://localhost:11434'; $env:RAG_MODEL='qwen2.5:3b'; $env:CENTURION_RAG_LLM_FIRST_TOKEN_TIMEOUT='300'; $env:CENTURION_RAG_LLM_CHUNK_TIMEOUT='30'; $env:CENTURION_RAG_LLM_NUM_CTX='4096'; $env:CENTURION_RAG_LLM_NUM_PREDICT='500'; $env:CENTURION_RAG_LLM_MAX_TOKENS='500'; $env:CENTURION_RAG_LLM_TEMPERATURE='0.2'; $env:CENTURION_RAG_CHROMA_DIR='./data/chroma_db'; $env:CENTURION_RAG_EMBEDDING_MODEL='BAAI/bge-base-en-v1.5'; $env:CENTURION_RAG_CONTEXT_TOKEN_BUDGET='2000'; $env:CENTURION_RAG_MAX_CONTEXT_CHUNKS='8'; $env:CENTURION_RAG_TOP_K='15'; $env:CENTURION_RAG_SIMILARITY_THRESHOLD='0.70'; $env:CENTURION_RAG_QUERY_BUDGET='300'; $env:CENTURION_RAG_QUERY_REWRITE='false'; $env:CENTURION_RAG_STREAMING='true'; $env:CENTURION_RAG_CACHE_ENABLED='false'; $env:CENTURION_RAG_FAQ_ENABLED='false'; $env:RAG_FAST_MODE='false'; $env:SENTRY_TRACES_SAMPLE_RATE='0.2'; $env:SENTRY_ENVIRONMENT='development'
 ```
 
 **macOS / Linux:**
 ```bash
-export ZERODHA_API_KEY='YOUR_API_KEY' && export ZERODHA_API_SECRET='YOUR_API_SECRET' && export ANTHROPIC_API_KEY='YOUR_ANTHROPIC_API_KEY' && export CENTURION_EMAIL_USER='YOUR_GMAIL_ID' && export CENTURION_EMAIL_PASS='YOUR_GMAIL_APP_PASSWORD' && export CENTURION_DATABASE_URL='postgresql://user:pass@ep-xxx.neon.tech/neondb?sslmode=require' && export UPSTASH_REDIS_URL='rediss://default:token@host.upstash.io:6379' && export SENTRY_DSN='https://YOUR_KEY@YOUR_ORG.ingest.sentry.io/YOUR_PROJECT_ID' && export LOGTAIL_TOKEN='YOUR_LOGTAIL_SOURCE_TOKEN' && export CENTURION_RAG_LLM_PROVIDER='claude' && export CENTURION_RAG_CLAUDE_MODEL='claude-opus-4-20250514' && export CENTURION_RAG_CLAUDE_MAX_TOKENS='1024' && export CENTURION_RAG_CLAUDE_TEMPERATURE='0.2' && export CENTURION_EMAIL_HOST='smtp.gmail.com' && export CENTURION_EMAIL_PORT='587' && export API_PORT='9001' && export CENTURION_DB_HOST='localhost' && export CENTURION_DB_PORT='9003' && export CENTURION_DB_NAME='centurion_rag' && export CENTURION_DB_USER='postgres' && export CENTURION_DB_PASSWORD='superadmin1' && export KITE_DB_HOST='localhost' && export KITE_DB_PORT='9003' && export KITE_DB_NAME='livestocks_ind' && export KITE_DB_USER='postgres' && export KITE_DB_PASSWORD='superadmin1' && export KITE_POOL_MAXSIZE='40' && export MINIO_ENDPOINT='localhost:9004' && export MINIO_ACCESS_KEY='minioadmin' && export MINIO_SECRET_KEY='minioadmin123' && export MINIO_SECURE='false' && export MINIO_BUCKET='centurion-backtests' && export MINIO_ENABLED='true' && export MINIO_REGION='auto' && export CENTURION_DEFAULT_ADMIN_PASSWORD='admin123' && export CENTURION_DEFAULT_ANALYST_PASSWORD='analyst123' && export CENTURION_RAG_LLM_URL='http://localhost:11434' && export RAG_MODEL='qwen2.5:3b' && export CENTURION_RAG_LLM_FIRST_TOKEN_TIMEOUT='300' && export CENTURION_RAG_LLM_CHUNK_TIMEOUT='30' && export CENTURION_RAG_LLM_NUM_CTX='4096' && export CENTURION_RAG_LLM_NUM_PREDICT='500' && export CENTURION_RAG_LLM_MAX_TOKENS='500' && export CENTURION_RAG_LLM_TEMPERATURE='0.2' && export CENTURION_RAG_CHROMA_DIR='./data/chroma_db' && export CENTURION_RAG_EMBEDDING_MODEL='BAAI/bge-base-en-v1.5' && export CENTURION_RAG_CONTEXT_TOKEN_BUDGET='2000' && export CENTURION_RAG_MAX_CONTEXT_CHUNKS='8' && export CENTURION_RAG_TOP_K='15' && export CENTURION_RAG_SIMILARITY_THRESHOLD='0.70' && export CENTURION_RAG_QUERY_BUDGET='300' && export CENTURION_RAG_QUERY_REWRITE='false' && export CENTURION_RAG_STREAMING='true' && export CENTURION_RAG_CACHE_ENABLED='false' && export CENTURION_RAG_FAQ_ENABLED='false' && export RAG_FAST_MODE='false' && export SENTRY_TRACES_SAMPLE_RATE='0.2' && export SENTRY_ENVIRONMENT='development'
+export ZERODHA_API_KEY='YOUR_API_KEY' && export ZERODHA_API_SECRET='YOUR_API_SECRET' && export ANTHROPIC_API_KEY='YOUR_ANTHROPIC_API_KEY' && export CENTURION_EMAIL_USER='YOUR_GMAIL_ID' && export CENTURION_EMAIL_PASS='YOUR_GMAIL_APP_PASSWORD' && export CENTURION_DATABASE_URL='postgresql://user:pass@ep-xxx.neon.tech/neondb?sslmode=require' && export UPSTASH_REDIS_URL='rediss://default:token@host.upstash.io:6379' && export SENTRY_DSN='https://YOUR_KEY@YOUR_ORG.ingest.sentry.io/YOUR_PROJECT_ID' && export LOGTAIL_TOKEN='YOUR_LOGTAIL_SOURCE_TOKEN' && export CENTURION_RAG_LLM_PROVIDER='claude' && export CENTURION_RAG_CLAUDE_MODEL='claude-opus-4-20250514' && export CENTURION_RAG_CLAUDE_MAX_TOKENS='1024' && export CENTURION_RAG_CLAUDE_TEMPERATURE='0.2' && export CENTURION_EMAIL_HOST='smtp.gmail.com' && export CENTURION_EMAIL_PORT='587' && export API_PORT='9001' && export CENTURION_DB_HOST='localhost' && export CENTURION_DB_PORT='9003' && export CENTURION_DB_NAME='centurion_rag' && export CENTURION_DB_USER='postgres' && export CENTURION_DB_PASSWORD='superadmin1' && export KITE_DB_HOST='localhost' && export KITE_DB_PORT='9003' && export KITE_DB_NAME='livestocks_ind' && export KITE_DB_USER='postgres' && export KITE_DB_PASSWORD='superadmin1' && export KITE_POOL_MAXSIZE='40' && export MINIO_ENDPOINT='localhost:9004' && export MINIO_ACCESS_KEY='minioadmin' && export MINIO_SECRET_KEY='minioadmin123' && export MINIO_SECURE='false' && export MINIO_BUCKET='centurion-backtests' && export MINIO_ENABLED='true' && export MINIO_REGION='auto' && export CENTURION_DEFAULT_ADMIN_PASSWORD='YOUR_ADMIN_PASSWORD' && export CENTURION_DEFAULT_ANALYST_PASSWORD='YOUR_ANALYST_PASSWORD' && export CENTURION_RAG_LLM_URL='http://localhost:11434' && export RAG_MODEL='qwen2.5:3b' && export CENTURION_RAG_LLM_FIRST_TOKEN_TIMEOUT='300' && export CENTURION_RAG_LLM_CHUNK_TIMEOUT='30' && export CENTURION_RAG_LLM_NUM_CTX='4096' && export CENTURION_RAG_LLM_NUM_PREDICT='500' && export CENTURION_RAG_LLM_MAX_TOKENS='500' && export CENTURION_RAG_LLM_TEMPERATURE='0.2' && export CENTURION_RAG_CHROMA_DIR='./data/chroma_db' && export CENTURION_RAG_EMBEDDING_MODEL='BAAI/bge-base-en-v1.5' && export CENTURION_RAG_CONTEXT_TOKEN_BUDGET='2000' && export CENTURION_RAG_MAX_CONTEXT_CHUNKS='8' && export CENTURION_RAG_TOP_K='15' && export CENTURION_RAG_SIMILARITY_THRESHOLD='0.70' && export CENTURION_RAG_QUERY_BUDGET='300' && export CENTURION_RAG_QUERY_REWRITE='false' && export CENTURION_RAG_STREAMING='true' && export CENTURION_RAG_CACHE_ENABLED='false' && export CENTURION_RAG_FAQ_ENABLED='false' && export RAG_FAST_MODE='false' && export SENTRY_TRACES_SAMPLE_RATE='0.2' && export SENTRY_ENVIRONMENT='development'
 ```
 
 > **Tip:** Instead of setting env vars inline, you can copy `.env.example` to `.env` in the project root. The app loads it via `python-dotenv` automatically. See **Section 11, Step 6** or **Section 16.8** for the complete `.env` reference.
@@ -113,7 +113,7 @@ Open a new terminal:
 ```
 npm run dev
 ```
-Opens at: **http://localhost:3000** — login with `admin` / `admin123`
+Opens at: **http://localhost:3000** — sign in with a user from `auth/credentials.yaml`
 
 MinIO console at: **http://localhost:9002/login** — login with `minioadmin` / `minioadmin123`
 
@@ -966,7 +966,7 @@ A modern React-based frontend built with Next.js 14, Tailwind CSS, and TanStack 
 - JWT tokens via `itsdangerous` signed serializer (8-hour TTL)
 - Session timeout: 30 min inactivity, 8 hours absolute
 - Password change via Settings page (`POST /api/v1/auth/change-password`)
-- Default users: `admin`/`admin123`, `analyst`/`analyst123`
+- Users: `auth/credentials.yaml` locally, the `CENTURION_CREDENTIALS_YAML` secret on the server (bcrypt hashes, never committed); only the `admin` role may trade or change broker accounts
 
 ### Styling
 - Enterprise CSS: dark gradient theme with Centurion branding (dark mode default)
@@ -1475,8 +1475,8 @@ RAG_FAST_MODE=false
 CENTURION_RAG_CACHE_ENABLED=false
 
 # ─── Authentication ───────────────────────────────────────────────
-CENTURION_DEFAULT_ADMIN_PASSWORD=admin123
-CENTURION_DEFAULT_ANALYST_PASSWORD=analyst123
+CENTURION_DEFAULT_ADMIN_PASSWORD=YOUR_ADMIN_PASSWORD
+CENTURION_DEFAULT_ANALYST_PASSWORD=YOUR_ANALYST_PASSWORD
 
 # ─── Cloud LLM (Claude — default provider) ─────────────────────────
 CENTURION_RAG_LLM_PROVIDER=claude
@@ -1575,16 +1575,14 @@ cd centurion_core-fe
 npm run dev
 ```
 
-Opens at: **http://localhost:3000** — login with `admin` / `admin123`
+Opens at: **http://localhost:3000** — sign in with a user from `auth/credentials.yaml`
 
 ---
 
 ### Step 9: Login & Verify Application
 
 1. Open http://localhost:3000 in your browser
-2. Login with default credentials:
-   - **Username**: `admin`
-   - **Password**: `admin123`
+2. Sign in with a user from `auth/credentials.yaml`
 3. Navigate to **Main** page — ensure no error messages appear
 4. Try a quick analysis with 2-3 tickers (e.g., AAPL, MSFT, GOOGL)
 5. Check **History** **Analysis Runs** to verify database persistence
@@ -1735,7 +1733,7 @@ Tab-based sub-navigation per market section:
 
 A full REST API serves the Next.js frontend on a separate port (default `9001`).
 
-**Interactive docs** — **http://localhost:9001/docs** (Swagger UI) and **http://localhost:9001/redoc** (ReDoc) are available after authenticating. On first visit you are redirected to a login page; use the same credentials as the frontend (e.g. `admin` / `admin123`). A signed session cookie (8-hour TTL) keeps you logged in.
+**Interactive docs** — **http://localhost:9001/docs** (Swagger UI) and **http://localhost:9001/redoc** (ReDoc) are available after authenticating. On first visit you are redirected to a login page; use the same credentials as the frontend. A signed session cookie (8-hour TTL) keeps you logged in.
 
 | Module | Prefix | Endpoints | Examples |
 |--------|--------|-----------|----------|
@@ -1931,7 +1929,7 @@ User → Vercel (Next.js frontend)
 
 | Service | URL | Notes |
 |---------|-----|-------|
-| **Frontend (prod)** | https://centurion-core-fe.vercel.app | Next.js — login with `admin` / `admin123` |
+| **Frontend (prod)** | https://centurion-core-fe.vercel.app | Next.js — sign in with your credentials |
 | **Frontend (local)** | http://localhost:3000 | `npm run dev` from `centurion_core-fe/` |
 | **Backend API (prod)** | https://srees16-centurion-core.hf.space | HF Spaces — FastAPI |
 | **Backend API (local)** | http://localhost:9001 | `python run_api.py` |

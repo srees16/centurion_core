@@ -34,7 +34,7 @@ def main() -> int:
     try:
         from services.notifications.manager import NotificationManager
         sent = NotificationManager()._send_html_email(
-            f"🔴 Centurion paper session FAILED - {now}",
+            f"Centurion paper session FAILED - {now}",
             f"<p>The paper trading run did not complete at {now}.</p>"
             f"<p><a href=\"{where}\">Open the failed run</a> to see why.</p>"
             "<p>Orders queued at the previous close fill only at the next session's open, "
