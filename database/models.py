@@ -873,7 +873,7 @@ class PaperSessionRecord(Base):
     """What the engine decided in one session, whether or not it traded.
 
     Without this, a day with no trades looks identical to a day that never ran:
-    the trade monitor showed four empty "Daily Detail" tabs in a row while the
+    the Trade Center showed four empty "Daily Detail" tabs in a row while the
     book was simply holding inside its no-trade buffer.
     """
     __tablename__ = 'paper_sessions'

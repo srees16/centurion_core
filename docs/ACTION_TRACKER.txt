@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 08 Oct 2026, 22:21 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 08 Oct 2026, 22:37 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -86,7 +86,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
    Session 19:00 IST Mon-Fri (HF dispatch; GitHub backups 19:05-22:05;
    heartbeat alarm 00:15).  Drawdown rule 20/30/35 (G3) is on main and runs
    from Mon 28 Sep; the book is ~0.3% below its peak, so: normal.
-   Watch: centurion-core-fe.vercel.app/ind-stocks/trade-monitor.  Research
+   Watch: centurion-core-fe.vercel.app/ind-stocks/trade-center.  Research
    runs in ProjectX/myenv (pinned = paper book).
 
 --------------------------------------------------------------------------------
@@ -202,7 +202,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              file is gone; you signed in with the new password), 2 (Space
              secrets), 5 (Space history squashed: 1 commit, 14:34) and 6
              (Kite API secret regenerated, Space updated; confirm with the
-             next login); 7a not needed (Trade Monitor reads Neon through
+             next login); 7a not needed (Trade Center reads Neon through
              Vercel: its DATABASE_URL is current) and 7b (Neon clean:
              roles neondb_owner + Neon's own, schemas candidate / e4 /
              live / public + Neon Auth's neon_auth, one branch) and 8 (VM
@@ -235,11 +235,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                 book equity).
 [!] P1  MU2  Self-service accounts: merged and live 8 Oct (sign-up on the
              login page; email secrets copied by the deploy; the data key on
-             the Space with a copy kept off it).  Left: (a) merge the
-             frontend branch (Fly Kite panel one-liner) and check Vercel
-             makes a Production deployment (on 8 Oct it made none for main:
-             promoted by hand); (b) sign up with a spare email: activation
-             email, sign-in, Fly Kite, Settings > Delete account.
+             the Space with a copy kept off it); frontend in production
+             (NX1 merge deployed 22:33 IST).  Left: sign up with a spare
+             email: activation email, sign-in, Fly Kite, Settings > Delete
+             account.
 [!] P3  O1d  Run the options paper demo once: after a Kite login, GitHub
              Actions > "Options paper demo" > Run (NIFTY, moderate_bull, 1
              lot; paper only); read the artifact.  Commit + merge first.
@@ -390,6 +389,13 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+8 Oct   UI1  Trade Monitor page renamed Trade Center (your ask): route
+             /ind-stocks/trade-center, sidebar, heading; /ind-stocks/
+             trade-monitor redirects permanently (308) with its ?tab= and
+             ?book=, so old links and bookmarks still work.  Docs and code
+             comments that meant the page follow; the backend TradeMonitor
+             service (SL/TP lifecycle), its /screener/monitor API and its
+             SQLite file keep their names, as do past DONE entries.
 8 Oct   NX1  Next.js 14.2 -> 15.5.27, React 18 -> 19.3, Tailwind 3 -> 4.3.3,
              tailwind-merge 2 -> 3 (your ask).  npm advisories 12 (1
              critical) -> 2 (moderate/high in the PostCSS bundled inside
@@ -406,7 +412,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              Tailwind 4 identical but for Tailwind's own palette (status
              chips a shade more vivid) and the closed ticker list no longer
              leaving a 4 px gap (v3 showed a hidden flex box).  tsc and
-             production build pass.
+             production build pass.  You merged it; Vercel production
+             deployment succeeded 8 Oct 22:33 IST.
 8 Oct   CI2  Workflows pinned to ubuntu-24.04 (8 runners in 6 files; your
              ask): ubuntu-latest becomes Ubuntu 26 from 19 Oct 2026.
 8 Oct   CI1  Paper session stalled (no emails at 19:30): GitHub evicted the

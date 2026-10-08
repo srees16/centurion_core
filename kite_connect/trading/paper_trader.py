@@ -1490,7 +1490,7 @@ class PaperTrader:
 
         current_capital = self.cash
         # Mark-to-market open positions (the marks also go into the snapshot, so
-        # the trade monitor can show per-position P&L: tracker G10)
+        # the Trade Center can show per-position P&L: tracker G10)
         marks: Dict[str, float] = {}
         for pos_dict in open_positions:
             ltp = self._get_ltp(pos_dict["symbol"])

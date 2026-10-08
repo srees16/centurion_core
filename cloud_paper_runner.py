@@ -151,7 +151,7 @@ def _update_run_status(status: str, message: str):
 
     if os.environ.get("CENTURION_PAPER_SCHEMA"):
         # The switch row is shared: a second book (tracker D1) must not overwrite
-        # the deployed book's run status on the trade monitor.
+        # the deployed book's run status on the Trade Center.
         logger.info("Run status not written for book '%s' (the switch row belongs to the deployed book): [%s] %s",
                     _book_label() or os.environ.get("CENTURION_PAPER_SCHEMA"), status, message[:200])
         return
@@ -567,7 +567,7 @@ def _drawdown_prefix(plan) -> str:
 
 
 def _session_outcome(plan, queued: int, fills: dict, stops: int, rebalance: bool) -> str:
-    """One sentence for the trade monitor: what this session did, or why it did nothing."""
+    """One sentence for the Trade Center: what this session did, or why it did nothing."""
     return (_drawdown_prefix(plan) + _session_outcome_body(plan, queued, fills, stops, rebalance))[:200]
 
 
