@@ -1,8 +1,9 @@
 """/api/v1/kite/accounts: the Zerodha accounts Centurion connects (trackers U33, MU1).
 
 Your own account (the primary) and any user's, all on the same criteria:
-each holder's acceptance of the current terms and Centurion's registration
-before it trades (``kite_connect.auth.accounts`` explains the rule).  Every
+each holder's acceptance of the current terms, and Centurion's registration
+where it is enforced, before it trades (``kite_connect.auth.accounts``
+explains the rule).  Every
 route needs a signed-in session, and another holder's holdings an admin; the
 app secret is accepted, stored encrypted and never returned.
 """
@@ -88,7 +89,8 @@ async def list_accounts(request: Request, user: dict = Depends(require_session))
                       "static_ip": os.environ.get(daily_login.ENV_STATIC_IP) or None,
                       "rungs": list(RUNGS),
                       "terms": {"version": terms.TERMS_VERSION, "items": list(terms.TERMS)},
-                      "registration_missing": accounts.registration_missing()}}
+                      "registration_missing": accounts.registration_missing(),
+                      "registration_required": accounts.registration_required()}}
 
 
 @router.post("/kite/accounts")
