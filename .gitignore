@@ -49,6 +49,8 @@ mywinenv/
 !sample_tickers.csv
 # Reference data that results depend on must be versioned
 !data/nse_sector_map.json
+!data/nse_sector_maps/
+!data/nse_sector_maps/*.json
 !data/nifty500_historical_constituents.json
 !data/nifty500_wayback_raw.json
 !data/shift_reference_returns.csv

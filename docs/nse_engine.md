@@ -15,6 +15,15 @@ Scope: NSE equities and NSE-listed metal ETFs only. No BTC, US stocks or options
 - **Survivorship-free data.** Prices come from NSE bhavcopy archives (every
   traded security, including later-delisted ones). The universe is chosen
   point-in-time by liquidity, so no index-membership file is needed.
+- **No current lists in history.** Nothing a backtest reads may come from a
+  list of today's names (index members, sectors, ETFs) unless it is dated:
+  the sector map is kept as dated snapshots (`data/nse_sector_maps/<date>.json`,
+  written by `build-store` whenever the NIFTY 500 list changes) and a decision
+  uses the latest snapshot dated on or before it, none before the first
+  (14 Sep 2026). So the 25% sector cap acts in the paper and live books and
+  never in a 2013-2025 backtest (SB2, 8 Oct 2026: before this, a Mac run
+  capped only the companies that survived into today's NIFTY 500; Kaggle runs
+  never had the map). `tests/test_survivorship.py` guards these rules.
 - **Realistic execution.** Decide after close `t`; fill at open `t+1` plus
   impact; stops fill at `min(open, stop)`. Participation is capped at a share
   of median traded value. Per-side statutory costs follow the historical
@@ -106,7 +115,7 @@ nse_engine/
     benchmarks.py      equal-weight hold, naive momentum, NIFTY; benchmark_gate
     diagnostics.py     Aronson detrending, date-aligned alpha/beta, lag test
 kite_connect/trading/nse_engine_executor.py   targets -> CNC orders + GTT stops
-runners/run_nse_engine.py                      CLI: sync | backtest | validate | holdout
+runners/run_nse_engine.py                      CLI: sync | backtest | validate | holdout | scorecard
 ```
 
 ## Contracts
@@ -333,3 +342,20 @@ orders at this session's open with the backtest's impact and statutory costs
 shift multiplier for new risk) → queue orders for the next open. See
 `docs/nse_engine_validation_plan.md` for gates and monitoring.
 
+## Scorecard (tracker SC1)
+
+`python -m runners.run_nse_engine scorecard --book all` writes one report per
+book (`docs/scorecards/<as-of>_<book>.md`, JSON under
+`data/nse_engine/scorecard/`) from the book's latest recorded run on the
+current cost model: return and risk (Sharpe, Sortino, information ratio vs
+NIFTY 50 TRI, Calmar, MaxDD, volatility, CVaR, skew, kurtosis, beta),
+attribution (style factors built point in time from the store, the alpha
+left after them, alpha decay by horizon and by year), trading (turnover,
+hit rate, win/loss, profit factor, P&L per round trip, modelled impact by
+participation), capacity (the capital at which impact eats half the gross
+edge), robustness (walk-forward OOS, deflated Sharpe and PBO from the
+registry, one-setting neighbours, NIFTY-trend and VIX regimes), correlation
+with the other books, the options sleeves and the metal ETFs, and the paper
+book's G4 gate when `CENTURION_DATABASE_URL` is set (`--paper-schema` for a
+second book).  Pass rules are section 1's targets of the tracker, fixed before
+the data is read; everything else is reported.  `nse_engine/scorecard.py`.

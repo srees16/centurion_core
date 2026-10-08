@@ -88,6 +88,7 @@ class EngineCache:
         self.name_rank = np.argsort(np.argsort(np.array(self.symbols, dtype=object)))
         self._data_id = id(data.close)
         self.sectors: Dict[str, str] = dict(data.sectors or {})
+        self.sector_history = data.sector_history
         self.data_hash = data.data_hash
 
         close_df = data.close.astype("float64")
@@ -141,6 +142,18 @@ class EngineCache:
 
     def first_position_on_or_after(self, date: pd.Timestamp) -> int:
         return int(np.searchsorted(self._dates_i8, _ts_i8(date), side="left"))
+
+    def sectors_on(self, pos: int) -> Dict[str, str]:
+        """The sector map a decision at row ``pos`` may use: the latest dated snapshot on or before
+        that day, none before the first (SB2); without snapshots, ``data.sectors`` for every day."""
+        if self.sector_history is None:
+            return self.sectors
+        found: Dict[str, str] = {}
+        for date, sectors in self.sector_history:
+            if date > self.dates[pos]:
+                break
+            found = sectors
+        return found
 
     def matches(self, data: MarketData, config: EngineConfig) -> bool:
         if not (config is self.config or config == self.config):
@@ -290,7 +303,8 @@ def generate_targets(
     def allocate_book(core_names: List[str], sleeve_names: List[str]) -> Tuple[Dict[str, float], Dict[str, float]]:
         idx = [cache.sym_index[s] for s in core_names]
         rel = core_weights(
-            pd.Series(fc[idx], index=core_names), pd.Series(cache.vol_ann[pos, idx], index=core_names), pcfg, cache.sectors
+            pd.Series(fc[idx], index=core_names), pd.Series(cache.vol_ann[pos, idx], index=core_names), pcfg,
+            cache.sectors_on(pos)
         ) if core_names else pd.Series(dtype="float64")
         s_k = [cache.sleeve_syms.index(s) for s in sleeve_names]
         rel_s = sleeve_weights(

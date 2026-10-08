@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
-from typing import Dict, FrozenSet, List, Mapping, Optional
+from typing import Dict, FrozenSet, List, Mapping, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -49,6 +49,10 @@ class MarketData:
     close_unadj: Optional[pd.DataFrame] = None
     etfs: FrozenSet[str] = frozenset()
     sectors: Dict[str, str] = field(default_factory=dict)
+    #: Dated snapshots of ``sectors``, oldest first (tracker SB2).  When set, a decision uses
+    #: the latest one dated on or before it and none before the first, so history is never
+    #: capped by today's index members; None: ``sectors`` holds for every date.
+    sector_history: Optional[List[Tuple[pd.Timestamp, Dict[str, str]]]] = None
     source: str = "unknown"
     data_hash: str = ""
 
@@ -89,7 +93,7 @@ class MarketData:
             open=cut(self.open), high=cut(self.high), low=cut(self.low),
             close=cut(self.close), volume=cut(self.volume), value=cut(self.value),
             index_close=cut(self.index_close), delivery_pct=cut(self.delivery_pct),
-            etfs=self.etfs, sectors=self.sectors, source=self.source,
+            etfs=self.etfs, sectors=self.sectors, sector_history=self.sector_history, source=self.source,
             data_hash=self.data_hash,
         )
 
