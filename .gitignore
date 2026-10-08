@@ -91,6 +91,7 @@ data/rl_models/
 secrets/
 auth/credentials.yaml
 credentials.txt
+data/kite/
 id_rsa*
 id_ed25519*
 id_ecdsa*

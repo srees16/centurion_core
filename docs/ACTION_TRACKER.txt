@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 08 Oct 2026, 13:37 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 08 Oct 2026, 17:06 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -184,7 +184,18 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
-[!] P0  SEC1 Security (audit 7 Oct), in this order:
+[!] P0  SEC1 Security (audit 7 Oct), in this order.  Done 8 Oct: 1 (new
+             passwords), 3 (merged, deployed) and 4 (checked 14:16: the old
+             passwords are refused, reads need a session, the published
+             file is gone; you signed in with the new password), 2 (Space
+             secrets), 5 (Space history squashed: 1 commit, 14:34) and 6
+             (Kite API secret regenerated, Space updated; confirm with the
+             next login); 7a not needed (Trade Monitor reads Neon through
+             Vercel: its DATABASE_URL is current) and 7b (Neon clean:
+             roles neondb_owner + Neon's own, schemas candidate / e4 /
+             live / public + Neon Auth's neon_auth, one branch) and 8 (VM
+             sshd re-run, same IP and host key).  Left: confirm 6 at the
+             next Kite login ("Kite login complete"), then SEC1 is done.
              1. TODAY: the production logins are admin/admin123 and
                 analyst/analyst123, published in docs/README.md and in the
                 public Space's auth/credentials.yaml; anyone can sign in.
@@ -361,6 +372,33 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+8 Oct   SEC2 Residual security items (your ask), all closed or reasoned:
+             - a 500's message (exception text in ~93 handlers) goes to the
+               log and Sentry; the caller gets "Internal server error";
+             - signing out revokes that token (API and docs); tokens are
+               unique per sign-in, so it never signs out another session;
+             - heavy work (backtests, LLM, training, ingestion; 31 routes)
+               at most 60 per user per 10 min (429); RL training bounded;
+             - one Zerodha user check (daily_login.check_user) for the
+               callback and both manual routes (/ind-stocks/auth is also
+               broken by an old import, no caller: left for H3b);
+             - /health no longer says whether Kite is logged in;
+             - the local login flow's request token moved out of the
+               tracked kite_token_store.py into data/kite/ (gitignored,
+               owner-only); the stale token line is gone;
+             - Fly Kite quick trade: one confirmation before any real order;
+             - CI: the Kite client installs in its own step, without the
+               secrets; the tunnel key is written under umask 077; the
+               options demo artifact is kept 3 days; deploy-hf-spaces.ps1
+               passes secrets by environment, not the command line; the
+               engine's plan log carries counts, not rupees.
+             Kept, with reason: bearer tokens in localStorage and ?token=
+             in stream URLs (cross-site cookies would meet HF's open CORS;
+             EventSource sends no headers); GitHub's own actions pinned to
+             tags (SHAs without Dependabot would freeze their fixes).  Your
+             option: a fine-grained HF token, write to this Space only, as
+             the HF_TOKEN secret.  Checked with a test client; suite 213
+             myenv, 212 + 1 skipped core-only; no new lint findings.
 8 Oct   RR1  Registry refreshed (your ask) after the 7 Oct store rebuild:
              hash 6c94f4f4 -> ba7c0982 (data from 2012-01-02, as D4).  The
              60 same-window configurations re-run on Kaggle (kernel

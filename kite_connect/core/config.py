@@ -140,6 +140,7 @@ NSE_STATUS_CHECK_INTERVAL = int(os.getenv("NSE_STATUS_CHECK_INTERVAL", "60"))
 WS_RECONNECT_MAX_TRIES = int(os.getenv("WS_RECONNECT_MAX_TRIES", "50"))
 
 # ── Paths ──────────────────────────────────────────────────────
+#: The local login flow's last request token: a gitignored file, never a tracked one (SEC2).
 KITE_APP_FILE = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)), "auth", "kite_token_store.py"
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "kite", "request_token.txt"
 )

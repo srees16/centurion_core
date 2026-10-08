@@ -118,6 +118,13 @@ def load_token(book=None, now: Optional[datetime] = None, key: Optional[str] = N
     return _fernet(key).decrypt(b.read_state()[KEY_TOKEN].encode()).decode()
 
 
+def check_user(user: str, expected: Optional[str] = None) -> None:
+    """Refuse a login by any Zerodha user but ``expected`` (default ``CENTURION_KITE_USER_ID``)."""
+    expected = expected if expected is not None else os.environ.get(ENV_USER, "")
+    if expected and str(user or "") != expected:
+        raise PermissionError(f"logged in as {user}, but this app accepts only {expected}")
+
+
 def exchange_and_store(request_token: str, *, key: Optional[str] = None, secret: Optional[str] = None,
                        expected_user: Optional[str] = None, book=None, kite_factory: Optional[Callable] = None) -> dict:
     """Request token -> access token (Kite), checked against the expected user, stored."""
@@ -130,9 +137,7 @@ def exchange_and_store(request_token: str, *, key: Optional[str] = None, secret:
     kite = kite_factory(api_key=key)
     data = kite.generate_session(request_token, api_secret=secret)
     user = str(data.get("user_id") or "")
-    expected = expected_user if expected_user is not None else os.environ.get(ENV_USER, "")
-    if expected and user != expected:
-        raise PermissionError(f"logged in as {user}, but this app accepts only {expected}")
+    check_user(user, expected_user)
     kite.set_access_token(data["access_token"])
     stored = save_token(data["access_token"], user, book=book)
     return {"kite": kite, "user_id": user, **stored}

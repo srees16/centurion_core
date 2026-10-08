@@ -7,7 +7,7 @@ import asyncio
 from typing import List
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.routers.v1.common import _sanitize_floats, logger
 
@@ -21,7 +21,7 @@ class RLTrainRequest(BaseModel):
     tickers: List[str]
     algorithm: str = "PPO"
     reward_type: str = "hybrid"
-    total_timesteps: int = 500000
+    total_timesteps: int = Field(500000, ge=1_000, le=5_000_000)   # bounded: one request, not hours of CPU
     lookback: int = 60
     train_days: int = 504
     test_days: int = 63

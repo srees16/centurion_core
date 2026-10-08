@@ -21,20 +21,23 @@ logger = logging.getLogger(__name__)
 
 
 def _read_request_token():
-    """Read the latest request_token value stored in kite_token_store.py."""
-    with open(KITE_APP_FILE, "r") as f:
-        for line in f:
-            if line.strip().startswith("request_token"):
-                # Handle both request_token='...' and request_token = '...'
-                return line.strip().split("=", 1)[1].strip().strip("'\"")
-    return None
+    """Read the latest request_token stored by the login flow ("" when there is none yet)."""
+    try:
+        with open(KITE_APP_FILE, "r") as f:
+            for line in f:
+                if line.strip().startswith("request_token"):
+                    # Handle both request_token='...' and request_token = '...'
+                    return line.strip().split("=", 1)[1].strip().strip("'\"")
+    except FileNotFoundError:
+        pass
+    return ""
 
 
 def create_kite_session():
     """
     Create and return an authenticated ``KiteConnect`` instance.
 
-    Reads the stored *request_token* from ``kite_token_store.py``, attempts
+    Reads the stored *request_token* (``KITE_APP_FILE``, gitignored), attempts
     to generate a session.  If the token has expired, the interactive login
     flow (``kite_auth.fetch_request_token``) is launched automatically to
     obtain a fresh token.

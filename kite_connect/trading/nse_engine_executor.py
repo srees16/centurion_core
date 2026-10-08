@@ -678,10 +678,10 @@ class EngineExecutor:
             q = int(post_qty.get(sym, 0))
             if q > 0 and trig and trig > 0:
                 plan.stop_instructions.append(StopInstruction(sym, q, round(float(trig), 2)))
-        logger.info("EngineExecutor plan %s: equity=%.0f cash=%.0f sells=%d buys=%d stops=%d skipped=%d "
-                    "shift_multiplier=%.2f drawdown=%s",
-                    as_of.date(), equity, cash, len(sells), len(kept),
-                    len(plan.stop_instructions), len(plan.skipped), plan.shift_multiplier, plan.drawdown_state)
+        logger.info("EngineExecutor plan %s: sells=%d buys=%d stops=%d skipped=%d shift_multiplier=%.2f "
+                    "drawdown=%s (amounts in the email: Actions logs are public)",
+                    as_of.date(), len(sells), len(kept), len(plan.stop_instructions), len(plan.skipped),
+                    plan.shift_multiplier, plan.drawdown_state)
         return plan
 
     def _apply_shift_multiplier(self, plan: ExecutionPlan, target, holdings, prices, equity, view) -> Dict[str, float]:

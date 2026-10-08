@@ -93,6 +93,8 @@ async def kite_session_complete(body: KiteTokenRequest):
         data = await asyncio.to_thread(
             kite.generate_session, body.request_token, API_SECRET,
         )
+        from kite_connect.auth.daily_login import check_user
+        check_user(str(data.get("user_id") or ""))          # the same user check as the login callback
         kite.set_access_token(data["access_token"])
         set_kite_session(kite)
 

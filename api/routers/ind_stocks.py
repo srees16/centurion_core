@@ -84,6 +84,8 @@ async def kite_login(request: KiteLoginRequest):
             pool={"pool_maxsize": int(os.getenv("KITE_POOL_MAXSIZE", "20"))},
         )
         data = kite.generate_session(request.request_token, api_secret=ZERODHA_API_SECRET)
+        from kite_connect.auth.daily_login import check_user
+        check_user(str(data.get("user_id") or ""))          # the same user check as the login callback
         kite.set_access_token(data["access_token"])
 
         set_kite_session(kite)

@@ -55,8 +55,13 @@ async def api_auth_me(request: Request):
 
 
 @router.post("/auth/logout")
-async def api_logout():
-    """Logout — client clears tokens; server acknowledges."""
+async def api_logout(request: Request):
+    """Logout: the client clears its tokens and the server revokes the one it sent."""
+    from api.auth import revoke_session_token
+
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        revoke_session_token(auth_header[7:])
     return {"ok": True}
 
 

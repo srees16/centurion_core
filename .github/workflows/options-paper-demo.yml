@@ -58,3 +58,4 @@ jobs:
           name: options-paper-demo
           path: data/options/
           if-no-files-found: ignore
+          retention-days: 3          # the repository is public, so is the artifact (SEC2)
