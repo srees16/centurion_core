@@ -866,6 +866,12 @@ def load_market_data(
     sector_paths = [sector_map_path] if sector_map_path else [DEFAULT_SECTOR_MAP, store / "reference" / "nse_sector_map.json"]
     sector_map = reference.load_sector_map(sector_paths)
     sectors: Dict[str, str] = {s: sector_map[s] for s in keep if s in sector_map}
+    # Dated snapshots next to the map (SB2): a decision only sees the map of its own day or earlier
+    found = next((Path(p) for p in sector_paths if Path(p).exists()), None)
+    history = reference.load_sector_history(found.parent / reference.SECTOR_SNAPSHOTS) if found else []
+    if sector_map and not history:
+        logger.warning("sector map %s has no dated snapshots: the sector cap is not applied (point-in-time)", found)
+    sector_history = [(d, {s: m[s] for s in keep if s in m}) for d, m in history]
 
     data = MarketData(
         dates=dates,
@@ -876,6 +882,7 @@ def load_market_data(
         close_unadj=close_unadj,
         etfs=etf_symbols(store, rows, keep),
         sectors=sectors,
+        sector_history=sector_history,
         source=f"nse_bhavcopy:{store}" + ("" if adjust_dividends else ":price_only"),
     )
     data.data_hash = data.compute_hash()
