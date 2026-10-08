@@ -11,7 +11,7 @@ again at their next login, and until then Centurion does not trade their
 account.
 """
 
-TERMS_VERSION = "2026-10-08-draft"
+TERMS_VERSION = "2026-10-08-draft2"
 
 TERMS = (
     ("Centurion places buy and sell orders for Indian stocks in my Zerodha account automatically, using its "
@@ -23,7 +23,8 @@ TERMS = (
      "for or stores my Zerodha password or TOTP."),
     ("Centurion records my account's orders, holdings and results, which its operator can see; I can ask for them "
      "to be deleted when the account is disconnected."),
-    ("Automatic trading starts only after Centurion holds the exchange empanelment and SEBI registration the law "
-     "requires; until then Centurion only reads my account."),
+    ("Centurion does not yet hold an exchange algo-provider empanelment or a SEBI registration. I use it at my own "
+     "risk, and its operator may stop automatic trading in my account at any time, including when the law or "
+     "Zerodha requires it."),
     "My taxes, my Zerodha charges and the funds in my account remain my responsibility.",
 )

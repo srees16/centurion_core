@@ -361,8 +361,8 @@ jobs:
       # candidate books, so a slow or failing paper book cannot hold it up.
       # Then each connected account Centurion manages (FA2, MU1, kite_connect/
       # auth/accounts.py) in its own book, through the same proxy, at its own
-      # mode but never above this one, and none whose trading is locked (terms
-      # or registration); the go-live override is for your account only.  An
+      # mode but never above this one, and none whose trading is locked (terms,
+      # or registration where enforced); the go-live override is for your account only.  An
       # account's failure emails and the next still runs.  Their names, ids and
       # emails are masked first: this repo's logs are public.
       # Installed in a step of its own, so no package's install code runs beside the
@@ -391,7 +391,9 @@ jobs:
           CENTURION_PROXY_HOST_KEY: ${{ secrets.CENTURION_PROXY_HOST_KEY }}
           CENTURION_KITE_STATIC_IP: ${{ vars.CENTURION_KITE_STATIC_IP }}
           CENTURION_LIVE_CAPITAL: ${{ vars.CENTURION_LIVE_CAPITAL }}
-          # MU1: Centurion's registration, which unlocks the connected accounts' trading
+          # MU1: Centurion's registration, which unlocks the connected accounts' trading where it is
+          # enforced (CENTURION_REQUIRE_REGISTRATION 'true'; waived for now)
+          CENTURION_REQUIRE_REGISTRATION: ${{ vars.CENTURION_REQUIRE_REGISTRATION }}
           CENTURION_ALGO_PROVIDER_ID: ${{ vars.CENTURION_ALGO_PROVIDER_ID }}
           CENTURION_SEBI_REGISTRATION: ${{ vars.CENTURION_SEBI_REGISTRATION }}
           # D3: the first real session needs the go-live checks, or this set to 'true'
