@@ -10,11 +10,16 @@ the server (``REGISTRATION_ENV``): SEBI's retail algo framework (April 2026)
 makes running a strategy for another person's account an empanelled algo
 provider's business through the broker (with a Research Analyst licence for
 a black-box strategy), and discretionary management of other people's money
-is portfolio management (PMS registration).  Until both hold, an account
-connects, logs in and is read, and Centurion places no orders in it.  The
-registration settings are set only on a lawyer's advice: NSE runs a
-provider's strategies on the broker's servers (NSE/INVG/69255), so holding
-the registrations may still not permit orders from this server.
+is portfolio management (PMS registration).  The registration check is
+waived for now (your call, 8 Oct 2026: every feature open for testing) and
+applies only once ``REGISTRATION_REQUIRED_ENV`` is true; then, until both
+settings hold, an account connects, logs in and is read, and Centurion
+places no orders in it.  The registration settings are set only on a
+lawyer's advice: NSE runs a provider's strategies on the broker's servers
+(NSE/INVG/69255), so holding the registrations may still not permit orders
+from this server.  Your own account (the primary) needs neither the terms
+nor any registration: its book, dry runs, go-live checks and every
+research and deployment tool are untouched by this module's lock.
 
 How an account connects: the holder's own Kite Connect app on
 developers.kite.trade with this server's callback as the redirect URL, whose
@@ -70,6 +75,8 @@ PRIMARY = "primary"
 #: Set on the server once Centurion is registered: the exchange's algo / empanelment id (through the
 #: broker) and the SEBI registration number (RA or PMS).  Both unlock automatic trading in every account.
 REGISTRATION_ENV = ("CENTURION_ALGO_PROVIDER_ID", "CENTURION_SEBI_REGISTRATION")
+#: "true" enforces the registration; unset or anything else waives it (for now, so every feature can be tested).
+REGISTRATION_REQUIRED_ENV = "CENTURION_REQUIRE_REGISTRATION"
 REGISTRY_KEY = "kite_accounts"
 ACCOUNT_PARAM = "account"                 # the redirect_params key the callback reads
 MODES = ("off", "dry_run", "live")        # least to most: an account never runs above the master switch
@@ -160,18 +167,24 @@ def registration_missing() -> List[str]:
     return [name for name in REGISTRATION_ENV if not os.environ.get(name, "").strip()]
 
 
+def registration_required() -> bool:
+    """Is the registration enforced?  Waived unless ``REGISTRATION_REQUIRED_ENV`` is true."""
+    return os.environ.get(REGISTRATION_REQUIRED_ENV, "").strip().lower() == "true"
+
+
 def has_consent(acct: Account) -> bool:
     """Has the holder accepted the current terms?  Your own account (the primary) needs none here."""
     return acct.is_primary or acct.consent_version == terms.TERMS_VERSION
 
 
 def trading_lock(acct: Account) -> str:
-    """Why Centurion may not trade the account ("" when it may): the same for every connected account."""
+    """Why Centurion may not trade the account ("" when it may): the same for every connected account,
+    never for your own."""
     if acct.is_primary:
         return ""
     if not has_consent(acct):
         return "the holder has not accepted the current terms: they do on the page their next Kite login returns to"
-    if registration_missing():
+    if registration_required() and registration_missing():
         return ("automatic trading needs Centurion's exchange empanelment and SEBI registration ("
                 + ", ".join(registration_missing()) + " not set): the account is read-only until then")
     return ""
