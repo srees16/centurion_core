@@ -21,10 +21,12 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
+      # No pip cache: setup-python saved ~3 GiB per branch and pull request, which
+      # pushed the repository past GitHub's 10 GB and evicted the paper job's NSE
+      # archive cache (8 Oct 2026); installing afresh costs about a minute.
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-          cache: pip
       - name: Install the test dependencies
         run: |
           python -m pip install --upgrade pip
