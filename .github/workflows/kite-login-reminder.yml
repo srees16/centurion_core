@@ -9,8 +9,9 @@ name: Kite login reminder
 # GitHub delivered these crons 5-7 hours late (29-30 Sep 2026), so the HF
 # Space's scheduler dispatches this workflow at 09:00 and 17:30 IST on time;
 # the crons stay as backups (no email once today's login exists).  Each
-# family account Centurion manages (FA2) gets its own link, sent to its
-# holder; --force tests your email only.
+# connected account Centurion manages (FA2, MU1) gets its own link, sent to
+# its holder, their details masked in this public log; --force tests your
+# email only.
 
 on:
   schedule:
@@ -54,4 +55,4 @@ jobs:
           else
             python -m kite_connect.auth.daily_login remind
           fi
-          python -m kite_connect.auth.accounts remind
+          python -m kite_connect.auth.accounts mask && python -m kite_connect.auth.accounts remind

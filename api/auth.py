@@ -206,6 +206,24 @@ def verify_session_token(token: str) -> Optional[Dict]:
         return None
 
 
+#: A public page's one step back to the server (the Kite terms form, tracker MU1): signed, short-lived,
+#: bound to its purpose, so a ticket for one step is never a session or a ticket for another.
+_TICKETS = URLSafeTimedSerializer(_SECRET_KEY, salt="centurion-ticket")
+
+
+def sign_ticket(purpose: str, data: Dict) -> str:
+    return _TICKETS.dumps({"p": purpose, "d": data})
+
+
+def read_ticket(ticket: str, purpose: str, max_age: int) -> Optional[Dict]:
+    """The data of a valid, unexpired ticket for ``purpose``, else None."""
+    try:
+        payload = _TICKETS.loads(ticket, max_age=max_age)
+    except BadSignature:                                  # SignatureExpired included
+        return None
+    return payload.get("d") if isinstance(payload, dict) and payload.get("p") == purpose else None
+
+
 def session_from_request(request) -> Optional[Dict]:
     """The signed-in session of a request, or None (tracker S1).
 

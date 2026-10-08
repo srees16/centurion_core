@@ -359,10 +359,12 @@ jobs:
       # once per session across the backup crons.  Isolated like the candidate:
       # a failure emails and never touches the paper books.  It runs before the
       # candidate books, so a slow or failing paper book cannot hold it up.
-      # Then each family account Centurion manages (FA2, kite_connect/auth/
-      # accounts.py) in its own book, through the same proxy, at its own mode
-      # but never above this one; the go-live override is for your account
-      # only.  A family failure emails and the next account still runs.
+      # Then each connected account Centurion manages (FA2, MU1, kite_connect/
+      # auth/accounts.py) in its own book, through the same proxy, at its own
+      # mode but never above this one, and none whose trading is locked (terms
+      # or registration); the go-live override is for your account only.  An
+      # account's failure emails and the next still runs.  Their names, ids and
+      # emails are masked first: this repo's logs are public.
       # Installed in a step of its own, so no package's install code runs beside the
       # proxy key, the token key and the database URL (SEC2).
       - name: Live book - install the Kite client
@@ -389,6 +391,9 @@ jobs:
           CENTURION_PROXY_HOST_KEY: ${{ secrets.CENTURION_PROXY_HOST_KEY }}
           CENTURION_KITE_STATIC_IP: ${{ vars.CENTURION_KITE_STATIC_IP }}
           CENTURION_LIVE_CAPITAL: ${{ vars.CENTURION_LIVE_CAPITAL }}
+          # MU1: Centurion's registration, which unlocks the connected accounts' trading
+          CENTURION_ALGO_PROVIDER_ID: ${{ vars.CENTURION_ALGO_PROVIDER_ID }}
+          CENTURION_SEBI_REGISTRATION: ${{ vars.CENTURION_SEBI_REGISTRATION }}
           # D3: the first real session needs the go-live checks, or this set to 'true'
           CENTURION_GO_LIVE_OVERRIDE: ${{ vars.CENTURION_GO_LIVE_OVERRIDE || 'false' }}
           CENTURION_KILL_SWITCH: ${{ vars.CENTURION_KILL_SWITCH || 'false' }}
@@ -409,11 +414,12 @@ jobs:
           dry=""; [ "$LIVE_MODE" = "live" ] || dry="--dry-run"
           status=0
           python -m kite_connect.trading.live_session --stored-token $dry || status=$?
+          python -m kite_connect.auth.accounts mask || { echo "::error::accounts skipped: log masks not set"; exit 1; }
           for ACCT in $(python -m kite_connect.auth.accounts managed); do
-            echo "::group::family account $ACCT"
+            echo "::group::account $ACCT"
             CENTURION_GO_LIVE_OVERRIDE=false python -m kite_connect.trading.live_session --stored-token \
                 --account "$ACCT" $dry || {
-              echo "::error::live session of family account $ACCT failed"
+              echo "::error::live session of account $ACCT failed"
               python -m tools.session_failed "${{ github.run_id }} (live book $ACCT)" || true
             }
             echo "::endgroup::"

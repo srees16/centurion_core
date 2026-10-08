@@ -1,10 +1,10 @@
-"""/api/v1/kite/accounts: the Zerodha accounts Centurion may connect (decision U33).
+"""/api/v1/kite/accounts: the Zerodha accounts Centurion connects (trackers U33, MU1).
 
-Your own account (the primary) and your family's: a spouse, dependent
-children and dependent parents, who may share your registered static IP
-(``kite_connect.auth.accounts`` explains the rule).  Every route needs a
-signed-in session; the app secret is accepted, stored encrypted and never
-returned.
+Your own account (the primary) and any user's, all on the same criteria:
+each holder's acceptance of the current terms and Centurion's registration
+before it trades (``kite_connect.auth.accounts`` explains the rule).  Every
+route needs a signed-in session, and another holder's holdings an admin; the
+app secret is accepted, stored encrypted and never returned.
 """
 
 import asyncio
@@ -22,7 +22,6 @@ router = APIRouter()
 
 class AddAccount(BaseModel):
     name: str
-    relation: str
     zerodha_user_id: str
     api_key: str
     api_secret: str
@@ -51,7 +50,8 @@ def _callback_url(request: Request) -> str:
 def _view(acct) -> dict:
     from kite_connect.auth import accounts
 
-    row = {**acct.public(), "login_url": accounts.login_url(acct)}
+    row = {**acct.public(), "login_url": accounts.login_url(acct), "consented": accounts.has_consent(acct),
+           "trading_lock": accounts.trading_lock(acct)}
     try:
         book = accounts.account_book(acct)
         status = accounts.login_status(acct, book)
@@ -76,7 +76,7 @@ def _refuse(exc: Exception):
 @router.get("/kite/accounts")
 async def list_accounts(request: Request, user: dict = Depends(require_session)):
     """Every account with today's login state and its login link, plus what a new account's app needs."""
-    from kite_connect.auth import accounts, daily_login
+    from kite_connect.auth import accounts, daily_login, terms
     from nse_engine.capital_ladder import RUNGS
 
     try:
@@ -86,20 +86,22 @@ async def list_accounts(request: Request, user: dict = Depends(require_session))
     return {"accounts": rows,
             "setup": {"redirect_url": _callback_url(request),
                       "static_ip": os.environ.get(daily_login.ENV_STATIC_IP) or None,
-                      "relations": list(accounts.RELATIONS), "rungs": list(RUNGS)}}
+                      "rungs": list(RUNGS),
+                      "terms": {"version": terms.TERMS_VERSION, "items": list(terms.TERMS)},
+                      "registration_missing": accounts.registration_missing()}}
 
 
 @router.post("/kite/accounts")
 async def add_account(body: AddAccount, user: dict = Depends(require_session)):
-    """Register a family member's account: their Kite Connect app's key and secret, never a password."""
+    """Register a user's account: their Kite Connect app's key and secret, never a password."""
     from kite_connect.auth import accounts
 
     try:
-        acct = await asyncio.to_thread(accounts.add, body.name, body.relation, body.zerodha_user_id,
+        acct = await asyncio.to_thread(accounts.add, body.name, body.zerodha_user_id,
                                        body.api_key, body.api_secret, body.email)
     except Exception as exc:                              # noqa: BLE001
         _refuse(exc)
-    logger.info("Kite account %s (%s, %s) added by %s", acct.id, acct.relation, acct.zerodha_user_id, user.get("u"))
+    logger.info("Kite account %s (%s) added by %s", acct.id, acct.zerodha_user_id, user.get("u"))
     return await asyncio.to_thread(_view, acct)
 
 
@@ -119,7 +121,7 @@ async def update_account(account_id: str, body: UpdateAccount, user: dict = Depe
 
 @router.post("/kite/accounts/{account_id}/disconnect")
 async def disconnect_account(account_id: str, body: Disconnect, user: dict = Depends(require_session)):
-    """Stop Centurion trading a family account: keep its positions, or sell them at the next open or over N sessions."""
+    """Stop Centurion trading an account: keep its positions, or sell them at the next open or over N sessions."""
     from kite_connect.auth import accounts
 
     try:
@@ -132,7 +134,7 @@ async def disconnect_account(account_id: str, body: Disconnect, user: dict = Dep
 
 @router.post("/kite/accounts/{account_id}/remove")
 async def remove_account(account_id: str, user: dict = Depends(require_session)):
-    """Forget a family account that has never traded."""
+    """Forget an account that has never traded."""
     from kite_connect.auth import accounts
 
     try:
@@ -141,3 +143,38 @@ async def remove_account(account_id: str, user: dict = Depends(require_session))
         _refuse(exc)
     logger.info("Kite account %s removed by %s", account_id, user.get("u"))
     return {"removed": account_id}
+
+
+@router.get("/kite/accounts/{account_id}/holdings")
+async def account_holdings(account_id: str, user: dict = Depends(require_session)):
+    """A connected account's holdings (each with ``centurion_qty``, as on Holdings) and available funds,
+    read with its holder's login today: an admin only, as it is someone else's portfolio."""
+    from kiteconnect.exceptions import KiteException
+
+    from kite_connect.auth import accounts, daily_login
+
+    if user.get("r") != "admin":
+        raise HTTPException(status_code=403, detail="only an admin can see another account's holdings")
+
+    def read() -> dict:
+        acct = accounts.get(account_id)
+        if acct.is_primary:
+            raise accounts.AccountError("your own holdings are on the Holdings tab")
+        book = accounts.account_book(acct)
+        kite = daily_login.kite_from_stored_token(book, key=acct.api_key)
+        if kite is None:
+            raise accounts.AccountError(f"{acct.name} has not logged in to Kite today")
+        mine = accounts.ledger_positions(acct, book)
+        try:
+            holdings, margins = kite.holdings() or [], kite.margins("equity") or {}
+        except KiteException as exc:                      # Kite's own message: a revoked token, a disabled app
+            raise accounts.AccountError(f"Kite refused the read: {exc}")
+        for h in holdings:
+            held = int(h.get("quantity") or 0) + int(h.get("t1_quantity") or 0)
+            h["centurion_qty"] = min(int(mine.get(h.get("tradingsymbol"), 0)), held)
+        return {"holdings": holdings, "available_funds": margins.get("net")}
+
+    try:
+        return await asyncio.to_thread(read)
+    except Exception as exc:                              # noqa: BLE001
+        _refuse(exc)
