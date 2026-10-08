@@ -31,7 +31,7 @@ permissions:
 jobs:
   remind:
     if: github.event_name == 'workflow_dispatch' || vars.CENTURION_LIVE_MODE == 'dry_run' || vars.CENTURION_LIVE_MODE == 'live'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # pinned: ubuntu-latest becomes Ubuntu 26 from 19 Oct 2026
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
