@@ -28,6 +28,11 @@ REQUIRED_SECRETS = [
     "CENTURION_DB_ENABLED",
     "UPSTASH_REDIS_REST_URL",
     "UPSTASH_REDIS_REST_TOKEN",
+    "CENTURION_EMAIL_HOST",          # SMTP for sign-up activation and password reset emails (MU2)
+    "CENTURION_EMAIL_PORT",
+    "CENTURION_EMAIL_USER",
+    "CENTURION_EMAIL_PASS",
+    "CENTURION_USER_DATA_KEY",       # encrypts signed-up users' details (MU2); keep a copy off the Space
 ]
 
 

@@ -119,19 +119,35 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
-#: Reached without a session: the logins and logout, Kite's login callback, the
+#: Reached without a session: the logins and logout, self-service sign-up, activation and
+#: password reset (MU2, rate-limited in api.routers.v1.auth), Kite's login callback, the
 #: terms the holder accepts there (a signed ticket from that page, MU1) and the
 #: order postback (which carries its own checksum), the health check the uptime
 #: monitor pings, and the docs pages (which redirect to their own login).
 _PUBLIC = frozenset({("POST", "/api/v1/auth/login"), ("POST", "/auth/login"), ("POST", "/api/v1/auth/logout"),
                      ("POST", "/stream/postback"), ("GET", "/ind-stocks/auth/callback"),
                      ("POST", "/ind-stocks/auth/consent"),
+                     *(("POST", f"/api/v1/auth/{p}") for p in ("signup", "activate", "resend-activation",
+                                                                "forgot-password", "reset-password")),
                      ("GET", "/"), ("HEAD", "/"), ("GET", "/health"), ("HEAD", "/health"), ("GET", "/favicon.ico"),
                      ("GET", "/auth/login"), ("GET", "/auth/logout"),
                      ("GET", "/docs"), ("GET", "/redoc"), ("GET", "/openapi.json")})
 #: Writes that trade or change a broker account: the admin role only.
 _ADMIN_WRITE_PREFIXES = ("/api/v1/kite/", "/api/v1/screener/execute", "/api/v1/drivewealth/",
                          "/ind-stocks/orders", "/ind-stocks/auth")
+#: Never reached by a signed-up user (role "user", MU2): the operator's own broker accounts
+#: (the Kite and DriveWealth sessions: holdings, positions, orders, P&L), the trade monitor's
+#: paper-validation and daily-detail data, and the G4 audit that rewrites the deployed
+#: parameters.  The user's own Zerodha account is the exception (_USER_OWN_PREFIXES), which
+#: its router scopes to them.
+_USER_DENIED_PREFIXES = (
+    "/api/v1/kite/", "/api/v1/drivewealth/", "/api/v1/screener/execute", "/ind-stocks/auth",
+    "/ind-stocks/orders", "/ind-stocks/positions", "/ind-stocks/holdings", "/ind-stocks/pipeline/walk-forward",
+    *(f"/api/v1/screener/monitor/{p}" for p in ("paper-dashboard", "daily-snapshots", "sessions", "signal-log",
+                                                 "weekly-checkpoints", "daily-detail")))
+_USER_OWN_PREFIXES = ("/api/v1/kite/accounts",)
+#: Shared state a signed-up user reads but does not change: the operator's price alerts.
+_USER_DENIED_WRITES = ("/stream/alerts",)
 #: Work that costs minutes of CPU or an LLM call, limited per signed-in user (SEC2): at most
 #: HEAVY_LIMIT requests in HEAVY_WINDOW_S seconds, so a stolen session cannot run up the bill.
 _HEAVY = frozenset({("GET", "/api/v1/rag/query")} | {("POST", p) for p in (
@@ -232,8 +248,13 @@ def create_app() -> FastAPI:
         session = session_from_request(request)
         if session is None:
             return JSONResponse(status_code=401, content={"detail": "sign in to do that"})
-        if (request.method in _WRITE_METHODS and request.url.path.startswith(_ADMIN_WRITE_PREFIXES)
-                and session.get("r") != "admin"):
+        path, role = request.url.path, session.get("r")
+        own = role == "user" and path.startswith(_USER_OWN_PREFIXES)
+        if role == "user" and not own and (path.startswith(_USER_DENIED_PREFIXES) or (
+                request.method in _WRITE_METHODS and path.startswith(_USER_DENIED_WRITES))):
+            return JSONResponse(status_code=403, content={"detail": "not available to your account"})
+        if (request.method in _WRITE_METHODS and path.startswith(_ADMIN_WRITE_PREFIXES)
+                and role != "admin" and not own):
             return JSONResponse(status_code=403, content={"detail": "only an admin can trade or change broker accounts"})
         if (request.method, request.url.path) in _HEAVY and not _heavy_allowed(str(session.get("u", ""))):
             return JSONResponse(status_code=429, content={

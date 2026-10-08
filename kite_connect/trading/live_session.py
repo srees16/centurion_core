@@ -54,7 +54,8 @@ rehearsal book in Neon).
 A connected account (trackers FA2, MU1, ``kite_connect.auth.accounts``) runs
 the same session in its own book (schema ``live_<id>``) with its own Kite app,
 token, capital and mode: ``--stored-token --account <id>``, and none while
-its trading is locked (``accounts.trading_lock``).  While it is being
+its mode is locked (``accounts.trading_lock``: a dry run needs the holder's
+terms, live orders also Centurion's registration).  While it is being
 disconnected (FA3) its sessions only sell the ledger's positions
 (:func:`unwind_orders`), then it turns off.
 """
@@ -709,11 +710,11 @@ def main(argv=None) -> int:
         if acct.mode == "off":
             print(f"{acct.id}: Centurion does not manage this account (mode off)")
             return 0
-        lock = accounts.trading_lock(acct)
+        dry_run = dry_run or acct.mode == "dry_run"      # never above the master switch (--dry-run)
+        lock = accounts.trading_lock(acct, "dry_run" if dry_run else "live")
         if lock:
             print(f"{acct.id}: session skipped: {lock}")
             return 0
-        dry_run = dry_run or acct.mode == "dry_run"      # never above the master switch (--dry-run)
         capital = capital if capital is not None else acct.capital
     if args.stored_token:
         from kite_connect.auth import daily_login as dl

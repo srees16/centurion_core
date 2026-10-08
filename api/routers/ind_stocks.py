@@ -245,9 +245,9 @@ async def kite_terms_consent(request: Request):
                                         "link again shortly to accept.", False), status_code=503)
     logger.info("Kite account %s: terms %s accepted by %s", acct.id, acct.consent_version, acct.consent_by)
     when = datetime.fromisoformat(acct.consent_at).strftime("%H:%M IST, %a %d %b")
-    next_step = ("Automatic trading starts once Centurion's registration is in place; until then it only reads "
-                 "this account." if accounts.trading_lock(acct) else
-                 "Centurion trades this account once its operator sets its mode and capital.")
+    next_step = ("Dry runs (orders built, none sent) can start now; live orders start once Centurion's "
+                 "registration is in place." if accounts.trading_lock(acct, "live") else
+                 "Centurion trades this account once its mode and capital are set.")
     return HTMLResponse(_login_page(
         "Terms accepted", f"{escape(acct.name)} ({escape(acct.consent_by)}), {when}. {next_step}", True,
         auto_close=True))
