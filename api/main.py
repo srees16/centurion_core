@@ -136,7 +136,7 @@ _PUBLIC = frozenset({("POST", "/api/v1/auth/login"), ("POST", "/auth/login"), ("
 _ADMIN_WRITE_PREFIXES = ("/api/v1/kite/", "/api/v1/screener/execute", "/api/v1/drivewealth/",
                          "/ind-stocks/orders", "/ind-stocks/auth")
 #: Never reached by a signed-up user (role "user", MU2): the operator's own broker accounts
-#: (the Kite and DriveWealth sessions: holdings, positions, orders, P&L), the trade monitor's
+#: (the Kite and DriveWealth sessions: holdings, positions, orders, P&L), the Trade Center's
 #: paper-validation and daily-detail data, and the G4 audit that rewrites the deployed
 #: parameters.  The user's own Zerodha account is the exception (_USER_OWN_PREFIXES), which
 #: its router scopes to them.
