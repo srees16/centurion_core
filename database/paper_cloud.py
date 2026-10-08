@@ -53,7 +53,7 @@ def _book_start_from_state(state) -> Optional[pd.Timestamp]:
     Not the epoch itself: engine fills are stamped at the session open, so a
     book started during a trading day (epoch 10:46 IST) fills its first orders
     at that day's 09:15 IST open, before the epoch. Filtering positions on the
-    epoch hid all 21 fills of the 17 Sep 2026 book from the trade monitor and
+    epoch hid all 21 fills of the 17 Sep 2026 book from the Trade Center and
     would have dropped them on the next restore. ``start_new_book`` records
     ``book_start``; a book started before that key existed begins at the NSE
     open of its epoch's day, or at the epoch if that is earlier.

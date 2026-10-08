@@ -1019,7 +1019,7 @@ Setup:
    same-period shift reference → decide after close → fill pending orders at
    the next session's open → GTT-style stops at min(open, stop) → snapshot.
 4. The job runs only while the paper switch in Neon (`paper_trading_state`,
-   toggled from the trade-monitor page or `POST /api/paper-trading
+   toggled from the Trade Center page or `POST /api/paper-trading
    {"action":"start","weeks":20}`) is active and unexpired — the page's
    default is 4 weeks, which is why the first engine runs on 16 Sep 2026
    skipped with "Paper trading is NOT active". 90 sessions need ~20 weeks.
@@ -1040,7 +1040,7 @@ informative from the first day: the regime read neutral on 74% of 2026's
 sessions and on all of the last 20, and in neutral the candidate holds 60%
 of the core book where the deployed book holds 100%.
 
-Where to watch: https://centurion-core-fe.vercel.app/ind-stocks/trade-monitor —
+Where to watch: https://centurion-core-fe.vercel.app/ind-stocks/trade-center —
 active positions and orders pending for the next open, closed trades with
 exit reason, the metrics grid (Sharpe/Sortino/Calmar/MaxDD from the daily
 equity curve), daily P&L bars, the equity curve, weekly checkpoints, and a

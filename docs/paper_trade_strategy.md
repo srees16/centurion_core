@@ -198,7 +198,7 @@ the haircut: Sharpe ~1.0, CAGR ~20%, MaxDD ~23%.
 
 | Need | Where |
 |---|---|
-| A book's day | its daily email; `/ind-stocks/trade-monitor?book=<book>` |
+| A book's day | its daily email; `/ind-stocks/trade-center?book=<book>` |
 | All books, gate status, promotion review | Saturday "Paper books" email |
 | Every book's configuration and scores in one place | `docs/books_register.csv` (rebuild backtest columns: `python -m nse_engine.books register`) |
 | A review without waiting for Saturday | `python -m nse_engine.books review --book <book>` |

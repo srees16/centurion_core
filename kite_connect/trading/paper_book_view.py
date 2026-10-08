@@ -1,4 +1,4 @@
-"""Read-only views of the cloud paper book, for the API and the trade-monitor page.
+"""Read-only views of the cloud paper book, for the API and the Trade Center page.
 
 The GitHub Actions engine job writes the paper book to Neon (positions, daily
 snapshots, pending orders, signals). The API process on Hugging Face must not
@@ -7,7 +7,7 @@ from the cloud and then read in preference to it, so the page would freeze on
 the first day's numbers. Everything here reads Neon on every call and writes
 nothing.
 
-Shapes match what ``app/(dashboard)/ind-stocks/trade-monitor`` renders:
+Shapes match what ``app/(dashboard)/ind-stocks/trade-center`` renders:
 ``MonitoredTradeDetail`` rows for the trades tab and ``PaperDashboard`` fields
 for the metrics grid.
 """

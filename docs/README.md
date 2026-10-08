@@ -155,7 +155,7 @@ Jump to **Section 15: Troubleshooting** or **Section 12: Installation** for deta
 
 **CLI Runners** — New `runners/` folder consolidating entry points: `run_backtest.py`, `run_r21a.py`, `run_extract_forecasts.py`, `run_r21a_pipeline.py`, `run_contra_v4.py`.
 
-**Paper Trading Frontend** — Trade Monitor page (`/ind-stocks/trade-monitor`) with Paper Validation tab showing cumulative performance metrics (Sharpe, Sortino, Calmar, CAGR, Max DD, Win Rate), equity curve, daily P&L, weekly checkpoints, signal audit, and pass/fail verdict. Daily Detail tab for per-day drill-down. Automated via GitHub Actions.
+**Paper Trading Frontend** — Trade Center page (`/ind-stocks/trade-center`) with Paper Validation tab showing cumulative performance metrics (Sharpe, Sortino, Calmar, CAGR, Max DD, Win Rate), equity curve, daily P&L, weekly checkpoints, signal audit, and pass/fail verdict. Daily Detail tab for per-day drill-down. Automated via GitHub Actions.
 
 **Single frontend** — Next.js 15 is the sole frontend; the legacy Python UI is removed.
 
@@ -990,7 +990,7 @@ Anyone can create an account at **/signup** (`api/users.py`, stored in Neon as `
 - **Abuse limits:** the public routes answer the same whether an email is registered or not. They allow 20 requests per client and 3 emails per address per hour.
 - **What a user can reach:** everything except:
   - your broker accounts: the Kite and DriveWealth sessions, holdings, positions, orders and P&L;
-  - the trade monitor's **Paper Validation** and **Daily Detail** tabs;
+  - the Trade Center's **Paper Validation** and **Daily Detail** tabs;
   - the G4 walk-forward audit;
   - changing the shared price alerts.
 

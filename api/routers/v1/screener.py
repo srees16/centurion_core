@@ -395,7 +395,7 @@ async def screener_daily_snapshots(book: Optional[str] = Depends(_book_param)):
 async def screener_sessions(book: Optional[str] = Depends(_book_param)):
     """What each session decided, for the current book.
 
-    The trade monitor uses this to mark the days the portfolio actually
+    The Trade Center uses this to mark the days the portfolio actually
     changed: a rebalance decides orders at the close, and they fill at the
     next session's open, so the two are different days.
     """
