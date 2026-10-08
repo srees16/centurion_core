@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 08 Oct 2026, 20:51 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 08 Oct 2026, 22:21 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -233,22 +233,13 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              7. Consider a private GitHub repo: Actions logs are public (the
                 live step now prints counts only; the executor still logs
                 book equity).
-[!] P1  MU1  Multi-user accounts: review and merge both repos.  Then take
-             the draft terms (kite_connect/auth/terms.py) and the plan
-             (Claude doc "Centurion multi-user: licensed-route plan",
-             claude.ai/code/artifact/4daefe67-cb1c-4321-8a8a-54316638a742)
-             to a securities lawyer.  Leave CENTURION_ALGO_PROVIDER_ID and
-             CENTURION_SEBI_REGISTRATION unset: NSE requires a provider's
-             strategies to run on the broker's servers (NSE/INVG/69255),
-             so registration alone does not permit orders from Centurion's
-             server; the route counsel picks decides the code.  Until then
-             no connected account places real orders, family included
-             (U34); dry runs are open after the holder's terms (U35).
-[!] P1  MU2  Self-service accounts: review and merge both repos (the deploy
-             copies the GitHub CENTURION_EMAIL_* secrets to the Space;
-             CENTURION_USER_DATA_KEY set on the Space 8 Oct, with a copy kept
-             off it), then sign up with a spare email to check the
-             activation email arrives.
+[!] P1  MU2  Self-service accounts: merged and live 8 Oct (sign-up on the
+             login page; email secrets copied by the deploy; the data key on
+             the Space with a copy kept off it).  Left: (a) merge the
+             frontend branch (Fly Kite panel one-liner) and check Vercel
+             makes a Production deployment (on 8 Oct it made none for main:
+             promoted by hand); (b) sign up with a spare email: activation
+             email, sign-in, Fly Kite, Settings > Delete account.
 [!] P3  O1d  Run the options paper demo once: after a Kite login, GitHub
              Actions > "Options paper demo" > Run (NIFTY, moderate_bull, 1
              lot; paper only); read the artifact.  Commit + merge first.
@@ -338,23 +329,18 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                  Saturday books email (V4) shows each trial's three checks
                  weekly and carries the promotion review once one clears;
                  promotion itself stays your hand-run command.
-#4  [ ] P2  NX1  Next.js 14 -> 15.5.24+ (or 16): 14.x gets no more fixes; 2026
-                 advisories are fixed only there (two critical ones are in
-                 the image optimizer, now switched off, and on Windows hosts).
-                 Breaking: React 19 and async request APIs.  Tailwind 4 for
-                 the build-time advisories at the same time.
-#5  [ ] P2  X1   Execution: limit-at-open / sliced fills.  Shrinks the
+#4  [ ] P2  X1   Execution: limit-at-open / sliced fills.  Shrinks the
                  realised-vs-model cost gap (model 2.4-2.8%/yr of CAGR);
                  sized by G4's cost ratio.  Needs >= 30 real fills (~Jan).
                                                                   Prompt: do X1
-#6  [ ] P2  U28  Short sleeve in single-stock futures (NSE F&O archive).
+#5  [ ] P2  U28  Short sleeve in single-stock futures (NSE F&O archive).
                  R15 (1 Oct): a naked short loses (-11%/yr, Sharpe -0.30);
                  beside E4 it is a hedge (MaxDD -23% -> -18%, CAGR -2.3
                  pts).  The real edge is a market-neutral spread, which needs
                  a Rs 2-3 crore book (lots Rs 3-17 L).  Not now; your
                  go/no-go.  Plan 5p.
-#7  [ ] P3  R6   R21A rules as signal groups (+/-0.1 Sharpe)    Prompt: do R6
-#8  [ ] P3  R9   Universe size 150 / 300 / 500 (+/-0.1)        Prompt: do R9
+#6  [ ] P3  R6   R21A rules as signal groups (+/-0.1 Sharpe)    Prompt: do R6
+#7  [ ] P3  R9   Universe size 150 / 300 / 500 (+/-0.1)        Prompt: do R9
  OCT-NOV  research and housekeeping while the books accumulate (no trials)
    Measured 1 Oct: 147k lines of Python; the trading engine is 9k.  Two
    modules hold the daily path: scheduler.py 3,211 lines / 30 jobs, all
@@ -381,6 +367,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  7. BACKLOG (after the queue)
 --------------------------------------------------------------------------------
+[ ] P3  NX2  Next.js 15.5 -> 16: clears the last 2 npm advisories (the PostCSS
+             bundled inside Next; build-time, our own CSS only).  Breaking:
+             middleware.ts becomes proxy.ts, sync request APIs removed (none
+             used), next lint gone (ESLint already removed in NX1).
 [ ] P3  U20  Refill exits: now tested through E4 / D5 in the queue (was a
              decision due ~24 Dec).  Drop it if E4 fails.
 [ ] P3  E3   MTF-levered variant: only after U20 (b), ~24 Dec.   Prompt: do E3
@@ -400,6 +390,25 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+8 Oct   NX1  Next.js 14.2 -> 15.5.27, React 18 -> 19.3, Tailwind 3 -> 4.3.3,
+             tailwind-merge 2 -> 3 (your ask).  npm advisories 12 (1
+             critical) -> 2 (moderate/high in the PostCSS bundled inside
+             Next, fixed only in 16: NX2).  No async request APIs or dynamic
+             routes to migrate; React 19 types needed no change.  Tailwind 4
+             via @config (the JS config kept), the class dark mode, 26
+             renames (shadow-sm / backdrop-blur-sm / outline-none to their
+             v4 names), v3's button cursor and placeholder colour, and v3's
+             space-x/y rules for the values in use (v4's skip an inline
+             <label>: fields lost their label gap).  ESLint removed: no
+             config existed and it carried 5 of the advisories.  Checked by
+             screenshots of 12 pages (17 shots, desktop + phone, mock API,
+             built CSS) against the Next 14 build: Next 15 pixel-identical;
+             Tailwind 4 identical but for Tailwind's own palette (status
+             chips a shade more vivid) and the closed ticker list no longer
+             leaving a 4 px gap (v3 showed a hidden flex box).  tsc and
+             production build pass.
+8 Oct   CI2  Workflows pinned to ubuntu-24.04 (8 runners in 6 files; your
+             ask): ubuntu-latest becomes Ubuntu 26 from 19 Oct 2026.
 8 Oct   CI1  Paper session stalled (no emails at 19:30): GitHub evicted the
              NSE archive cache (repository over its 10 GB cache limit: the
              Tests workflow saved a 3.11 GiB pip cache per branch and pull
@@ -444,6 +453,11 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              shrinks to the panel (minmax(0, 1fr)) and the redirect URL
              wraps.  Measured in headless Chrome with the built CSS: content
              668 px in a 574 px dialog before, fits after; same on a phone.
+             Then (your call): your own account is no longer listed (the
+             Fly Kite dashboard is it); with nobody else's account the panel
+             is one line, "Other Zerodha accounts: none connected" + Add
+             account, the full panel once one is added; Add is shown to the
+             admin only (analysts were refused by the API).
 8 Oct   MU2  Self-service accounts (your ask).  /signup (name, email,
              password, date of birth 18+, gender, city, country; mobile,
              state, experience optional; consent box), stored in Neon
@@ -463,7 +477,13 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              role place real orders in your account (now admin only).
              Checked on a throwaway local Postgres 16 through the real app
              (66 checks); suite 213 myenv, 212 + 1 skipped core-only.
-8 Oct   MU1  Multi-user accounts (your ask; U34).  Any user's Zerodha
+8 Oct   MU1  Multi-user accounts (your ask; U34).  Closed 8 Oct (your call):
+             merged and live; the terms (kite_connect/auth/terms.py, a
+             draft) and the plan doc go to your lawyer outside the tracker.
+             Keep CENTURION_ALGO_PROVIDER_ID / CENTURION_SEBI_REGISTRATION
+             unset until counsel picks a route (NSE runs a provider's
+             strategies on the broker's servers); dry runs only (U35).
+             Any user's Zerodha
              account connects on the same criteria; relation is gone (a
              stored one is ignored on load).  Fly Kite shows what every
              account needs (demat with funds, own Kite Connect app with the
