@@ -23,8 +23,9 @@ TERMS = (
      "for or stores my Zerodha password or TOTP."),
     ("Centurion records my account's orders, holdings and results, which its operator can see; I can ask for them "
      "to be deleted when the account is disconnected."),
-    ("Centurion does not yet hold an exchange algo-provider empanelment or a SEBI registration. I use it at my own "
-     "risk, and its operator may stop automatic trading in my account at any time, including when the law or "
-     "Zerodha requires it."),
+    ("Centurion does not yet hold an exchange algo-provider empanelment or a SEBI registration; until it does, it "
+     "places no real orders in my account: it reads the account and runs dry runs, which build orders and send "
+     "none. I use it at my own risk, and its operator may stop automatic trading in my account at any time, "
+     "including when the law or Zerodha requires it."),
     "My taxes, my Zerodha charges and the funds in my account remain my responsibility.",
 )

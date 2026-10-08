@@ -768,7 +768,7 @@ Centurion can connect any user's Zerodha account and trade the deployed configur
 2. The holder's own Kite Connect app (step 1 below).
 3. A Kite login on Zerodha's page each trading day, from the emailed link. Tokens lapse at 06:00 IST.
 4. The holder's acceptance of Centurion's terms: after their first login, Zerodha returns them to a page listing the terms (`kite_connect/auth/terms.py`), where they tick the box and click **I agree**. Centurion records the terms version, the time and their Zerodha user ID. A new terms version asks again at the next login.
-5. Centurion's registration on the server. Until both `CENTURION_ALGO_PROVIDER_ID` (the exchange empanelment through the broker) and `CENTURION_SEBI_REGISTRATION` (RA or PMS number) are set, **every connected account is read-only**. Accounts connect, log in and show their holdings and funds (admin only), but Centurion builds and places no orders in them. Why: under SEBI's retail algo framework, running a strategy for another person's account is an empanelled algo provider's business, and managing their money at Centurion's discretion is portfolio management. Set the two values (HF Space variables for the API, GitHub repository variables for the evening session) only on a securities lawyer's advice: NSE requires a provider's strategies to run on the broker's servers (circular NSE/INVG/69255), so registration alone may not permit orders from Centurion's own server.
+5. Centurion's registration on the server, **for live orders only** (decision U35). Until both `CENTURION_ALGO_PROVIDER_ID` (the exchange empanelment through the broker) and `CENTURION_SEBI_REGISTRATION` (RA or PMS number) are set, a connected account can do everything except Live. It connects, logs in, shows its holdings and funds, and runs **Dry run** once its holder has accepted the terms (orders built, none sent). Centurion places no real orders in it. Why: under SEBI's retail algo framework, running a strategy for another person's account is an empanelled algo provider's business, and managing their money at Centurion's discretion is portfolio management. Set the two values (HF Space variables for the API, GitHub repository variables for the evening session) only on a securities lawyer's advice: NSE requires a provider's strategies to run on the broker's servers (circular NSE/INVG/69255), so registration alone may not permit orders from Centurion's own server.
 
 **1. The holder creates their own Kite Connect app.** They sign in at [developers.kite.trade](https://developers.kite.trade) and create an app with:
 
@@ -786,14 +786,14 @@ Once the app is created, they share its **API key** and **API secret** with you.
 
 **3. First login and the terms.** Click **Copy link** on their row and send it to the holder. They type their password and TOTP on Zerodha's own page. Centurion keeps the login only if it is for the Zerodha user ID entered in step 2. Then they accept the terms. The row shows **Logged in** and **terms accepted**, and **Holdings** shows their holdings and available funds.
 
-**4. Choose the capital, then Dry run** (once trading is unlocked). Pick a ladder rung in **Choose capital** (start at ₹6,00,000), then press **Dry run**. From the next trading evening:
+**4. Choose the capital, then Dry run** (once the holder has accepted the terms). Pick a ladder rung in **Choose capital** (start at ₹6,00,000), then press **Dry run**. From the next trading evening:
 - each evening's session builds the account's orders and sends none;
 - the holder gets the 09:00 login email (again at 17:30 if they haven't logged in);
 - you get a session email tagged with their name.
 
-Runs need your own `CENTURION_LIVE_MODE` to be `dry_run` or `live`. A day without a login is skipped, and so is an account whose trading is locked (terms or registration). Holders' names, account IDs and emails are masked in the workflows' public logs.
+Runs need your own `CENTURION_LIVE_MODE` to be `dry_run` or `live`. A day without a login is skipped, and so is an account whose mode is locked (the terms; for Live, the registration too). Holders' names, account IDs and emails are masked in the workflows' public logs.
 
-**Going live later.** Press **Live** only after the account has finished 5 clean dry runs and the configuration's paper G4 check has passed. Real orders go out only while your own mode is `live`, and the first real session re-checks this. `CENTURION_GO_LIVE_OVERRIDE` applies to your account only. After that, the capital moves one ladder rung at a time.
+**Going live later.** **Live** needs Centurion's registration (step 5 of the list above). Press it only after the account has finished 5 clean dry runs and the configuration's paper G4 check has passed. Real orders go out only while your own mode is `live`, and the first real session re-checks this. `CENTURION_GO_LIVE_OVERRIDE` applies to your account only. After that, the capital moves one ladder rung at a time.
 
 **Stopping.** Pressing **Off** on an account where Centurion holds positions asks what to do with them:
 - **keep them** (their GTT stops stay until deleted in Kite);
@@ -975,6 +975,27 @@ A modern React-based frontend built with Next.js 14, Tailwind CSS, and TanStack 
 - Session timeout: 30 min inactivity, 8 hours absolute
 - Password change via Settings page (`POST /api/v1/auth/change-password`)
 - Users: `auth/credentials.yaml` locally, the `CENTURION_CREDENTIALS_YAML` secret on the server (bcrypt hashes, never committed); only the `admin` role may trade or change broker accounts
+
+### Self-service accounts (sign-up)
+
+Anyone can create an account at **/signup** (`api/users.py`, stored in Neon as `app.users`). Your own `admin` and `analyst` logins are unchanged.
+
+- **Storage:** every personal detail (email, name, date of birth, gender, mobile, city, state, country, experience) is a single encrypted field, encrypted with `CENTURION_USER_DATA_KEY`. The row is found by a keyed hash of the email, so no detail is readable in the database, and the password is kept only as a bcrypt hash. Server logs carry user IDs, not emails. **Keep a copy of the key outside the Space:** losing it makes every profile unreadable.
+- **Delete my account** (Settings, signed-up users only) asks for the password and a typed `DELETE`. It erases the user's row and their connected Zerodha account's records (registry entry and its `live_<id>` schema), ends their sessions and emails a confirmation. Their holdings stay at Zerodha, as do any stop-loss orders Centurion placed, until deleted in Kite.
+
+- **Sign-up** asks for name, email, password, date of birth (18 or over), gender, city and country. Mobile number, state and trading experience are optional. A required box records consent to storing these details.
+- **Activation:** the account starts pending. Sign-in is refused until the user opens the emailed link, which lasts 24 hours. A pending account can ask for a new link.
+- **Forgot password** emails a reset link that lasts 1 hour and works once. A reset, or a password change, signs out the account's other sessions.
+- **Password policy** (sign-up, reset, change; the same for your logins): 12 to 64 characters, upper and lower case, a digit and a symbol. It must not contain the person's name, email or common words such as "password" or "centurion".
+- **Abuse limits:** the public routes answer the same whether an email is registered or not. They allow 20 requests per client and 3 emails per address per hour.
+- **What a user can reach:** everything except:
+  - your broker accounts: the Kite and DriveWealth sessions, holdings, positions, orders and P&L;
+  - the trade monitor's **Paper Validation** and **Daily Detail** tabs;
+  - the G4 walk-forward audit;
+  - changing the shared price alerts.
+
+  The API refuses these for the `user` role, not just the UI. On Fly Kite a user sees only their own Zerodha account. Connecting it is optional, one account per user. The same rules apply as for any connected account: Dry run after the terms, Live only with Centurion's registration.
+- **Space settings:** `CENTURION_USER_DATA_KEY` (a Fernet key; sign-up refuses without it) as an HF Space secret. The emails use the same SMTP account as the paper emails: the deploy workflow copies the `CENTURION_EMAIL_*` GitHub secrets to the Space. Links point at `CENTURION_FRONTEND_URL` (default `https://centurion-core-fe.vercel.app`).
 
 ### Styling
 - Enterprise CSS: dark gradient theme with Centurion branding (dark mode default)

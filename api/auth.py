@@ -111,6 +111,10 @@ class LoginThrottled(Exception):
     """Too many failed sign-ins for this username; refused until the window passes."""
 
 
+class NotActivated(Exception):
+    """The right password for a signed-up account whose activation link is not yet used (MU2)."""
+
+
 #: Failed sign-ins per username: MAX_LOGIN_FAILURES in LOGIN_WINDOW_S seconds lock it for the rest
 #: of the window, so passwords cannot be guessed online (an account's live tokens keep working).
 MAX_LOGIN_FAILURES, LOGIN_WINDOW_S = 10, 900
@@ -119,13 +123,43 @@ _login_lock = threading.Lock()
 _dummy_hash: List[bytes] = []
 
 
+def _dummy_check(password: str) -> None:
+    """The same bcrypt cost as a real check: no username or email probing by timing."""
+    if not _dummy_hash:
+        _dummy_hash.append(bcrypt.hashpw(b"-", bcrypt.gensalt()))
+    bcrypt.checkpw(password.encode(), _dummy_hash[0])
+
+
+def _authenticate_signed_up(email: str, password: str) -> Tuple[bool, str, str]:
+    """A signed-up user (``api.users``, MU2): active, with this password."""
+    from api import users
+
+    try:
+        user = users.get(email)
+    except Exception as exc:                              # noqa: BLE001 - the store being down refuses, never 500s
+        logger.error("User store unavailable for sign-in: %s", exc)
+        user = None
+    if user is None:
+        _dummy_check(password)
+        return False, "", ""
+    if not _verify_password(password, user["password_hash"]) or user["status"] == "disabled":
+        return False, "", ""
+    if user["status"] != "active":
+        raise NotActivated(email)
+    users.touch_login(email)
+    return True, user["full_name"], user["role"]
+
+
 def authenticate_user(username: str, password: str) -> Tuple[bool, str, str]:
     """
-    Verify username/password against the YAML credential store.
+    Verify username/password against the YAML credential store, then (an
+    email) against the signed-up users in Neon.
 
     Returns (success, user_display_name, role); raises :class:`LoginThrottled`
-    after too many recent failures for the username.
+    after too many recent failures for the username, and :class:`NotActivated`
+    for a signed-up account not yet activated.
     """
+    username = username.strip().lower() if "@" in username else username
     now = time.monotonic()
     with _login_lock:
         recent = [t for t in _login_failures.get(username, []) if now - t < LOGIN_WINDOW_S]
@@ -135,13 +169,14 @@ def authenticate_user(username: str, password: str) -> Tuple[bool, str, str]:
     creds = _get_credentials()
     users = creds.get("users", {})
     user = users.get(username)
-    if user is None:
-        if not _dummy_hash:                               # same bcrypt cost: no username probing by timing
-            _dummy_hash.append(bcrypt.hashpw(b"-", bcrypt.gensalt()))
-        bcrypt.checkpw(password.encode(), _dummy_hash[0])
-        ok = False
-    else:
+    if user is not None:
         ok = _verify_password(password, user.get("password", ""))
+        name, role = user.get("name", username), user.get("role", "user")
+    elif "@" in username:
+        ok, name, role = _authenticate_signed_up(username, password)
+    else:
+        _dummy_check(password)
+        ok, name, role = False, "", ""
     with _login_lock:
         if ok:
             _login_failures.pop(username, None)
@@ -149,7 +184,7 @@ def authenticate_user(username: str, password: str) -> Tuple[bool, str, str]:
             _login_failures.setdefault(username, []).append(now)
     if not ok:
         return False, "", ""
-    return True, user.get("name", username), user.get("role", "user")
+    return True, name, role
 
 
 async def authenticate_user_async(username: str, password: str) -> Tuple[bool, str, str]:
@@ -161,12 +196,13 @@ async def authenticate_user_async(username: str, password: str) -> Tuple[bool, s
 # Token helpers
 # ---------------------------------------------------------------------------
 
-def create_session_token(username: str, role: str) -> str:
+def create_session_token(username: str, role: str, name: str = "") -> str:
     """Create a signed, time-limited session token, unique per sign-in (``n``), so signing
-    one session out never revokes another made in the same second."""
+    one session out never revokes another made in the same second; ``nm`` is the display name."""
     import secrets as _secrets
 
-    return _SERIALIZER.dumps({"u": username, "r": role, "n": _secrets.token_hex(8)})
+    payload = {"u": username, "r": role, "n": _secrets.token_hex(8)}
+    return _SERIALIZER.dumps({**payload, "nm": name} if name else payload)
 
 
 #: Signed-out tokens (digest -> monotonic expiry).  In this process only: a restart forgets them,
@@ -187,17 +223,32 @@ def revoke_session_token(token: str) -> None:
         _revoked[_digest(token)] = now + TOKEN_MAX_AGE
 
 
+#: Username -> wall-clock time of their last password change or reset (MU2): their tokens signed
+#: before it are refused.  In this process only, like ``_revoked``.
+_sessions_from: Dict[str, float] = {}
+
+
+def end_sessions(username: str) -> None:
+    """Sign every existing session of ``username`` out (after a password change or reset)."""
+    with _login_lock:                                      # whole seconds, as the tokens' own timestamps
+        _sessions_from[username] = float(int(time.time()))
+
+
 def verify_session_token(token: str) -> Optional[Dict]:
     """
     Verify and decode a session token.
 
     Returns ``{"u": username, "r": role}`` on success, ``None`` on failure
-    (including a token signed out with :func:`revoke_session_token`).
+    (including a token signed out with :func:`revoke_session_token` or by
+    :func:`end_sessions`).
     """
     if _revoked.get(_digest(token), 0.0) > time.monotonic():
         return None
     try:
-        return _SERIALIZER.loads(token, max_age=TOKEN_MAX_AGE)
+        payload, signed_at = _SERIALIZER.loads(token, max_age=TOKEN_MAX_AGE, return_timestamp=True)
+        if signed_at.timestamp() < _sessions_from.get(payload.get("u", ""), 0.0):
+            return None
+        return payload
     except SignatureExpired:
         logger.debug("Session token expired")
         return None
