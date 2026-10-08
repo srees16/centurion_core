@@ -70,7 +70,7 @@ def _refuse(exc: Exception):
     if isinstance(exc, AccountError):
         raise HTTPException(status_code=400, detail=str(exc))
     logger.exception("Kite accounts request failed")
-    raise HTTPException(status_code=503, detail=f"account store unavailable: {exc}")
+    raise HTTPException(status_code=503, detail="account store unavailable: try again shortly")
 
 
 @router.get("/kite/accounts")

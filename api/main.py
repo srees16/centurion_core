@@ -16,9 +16,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Form, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 # Ensure project root is on sys.path so all internal imports resolve
 _PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
@@ -31,6 +33,7 @@ from api.auth import (
     LoginThrottled,
     authenticate_user_async,
     create_session_token,
+    revoke_session_token,
     session_from_request,
 )
 from auth.shared_session import (
@@ -127,6 +130,34 @@ _PUBLIC = frozenset({("POST", "/api/v1/auth/login"), ("POST", "/auth/login"), ("
 #: Writes that trade or change a broker account: the admin role only.
 _ADMIN_WRITE_PREFIXES = ("/api/v1/kite/", "/api/v1/screener/execute", "/api/v1/drivewealth/",
                          "/ind-stocks/orders", "/ind-stocks/auth")
+#: Work that costs minutes of CPU or an LLM call, limited per signed-in user (SEC2): at most
+#: HEAVY_LIMIT requests in HEAVY_WINDOW_S seconds, so a stolen session cannot run up the bill.
+_HEAVY = frozenset({("GET", "/api/v1/rag/query")} | {("POST", p) for p in (
+    "/api/v1/analysis/run", "/api/v1/backtest/run", "/api/v1/verdict/run", "/api/v1/screener/run",
+    "/api/v1/fml/run", "/api/v1/tts/run", "/api/v1/aronson/run", "/api/v1/ehlers/run", "/api/v1/vince/run",
+    "/api/v1/rl-bot/train", "/api/v1/rl-bot/evaluate", "/api/v1/options/overlay/scan", "/rag/query",
+    "/rag/evaluate", "/rag/ingest", "/rag/ingest/directory", "/rag/reingest", "/api/v1/rag/upload",
+    "/us-stocks/analysis", "/us-stocks/backtest", "/us-stocks/carver/pipeline", "/us-stocks/news",
+    "/us-stocks/sentiment", "/us-stocks/decision", "/crypto/backtest", "/portfolio/backtest", "/r22/backtest",
+    "/ind-stocks/pipeline/full", "/ind-stocks/pipeline/walk-forward", "/ind-stocks/pipeline/screen",
+    "/ind-stocks/penfold/calibrate")})
+HEAVY_LIMIT, HEAVY_WINDOW_S = 60, 600
+_heavy_calls: dict = {}
+
+
+def _heavy_allowed(user: str) -> bool:
+    """Record one heavy request for ``user``; False when the window is already full."""
+    import time
+
+    now = time.monotonic()
+    recent = [t for t in _heavy_calls.get(user, []) if now - t < HEAVY_WINDOW_S]
+    if len(recent) >= HEAVY_LIMIT:
+        _heavy_calls[user] = recent
+        return False
+    _heavy_calls[user] = recent + [now]
+    return True
+
+
 #: CORS origins when CENTURION_ALLOWED_ORIGINS is unset: the production frontend
 #: and local development (never "*", which with credentials reflects any origin).
 _DEFAULT_ORIGINS = ["https://centurion-core-fe.vercel.app", "http://localhost:3000"]
@@ -202,6 +233,10 @@ def create_app() -> FastAPI:
         if (request.method in _WRITE_METHODS and request.url.path.startswith(_ADMIN_WRITE_PREFIXES)
                 and session.get("r") != "admin"):
             return JSONResponse(status_code=403, content={"detail": "only an admin can trade or change broker accounts"})
+        if (request.method, request.url.path) in _HEAVY and not _heavy_allowed(str(session.get("u", ""))):
+            return JSONResponse(status_code=429, content={
+                "detail": f"Too many heavy requests (at most {HEAVY_LIMIT} in {HEAVY_WINDOW_S // 60} minutes): "
+                          "try again shortly"})
         return await call_next(request)
 
     # --- CORS ---
@@ -292,8 +327,11 @@ def create_app() -> FastAPI:
         return response
 
     @app.get("/auth/logout", include_in_schema=False)
-    async def logout():
-        """Clear session cookies and redirect to the login page."""
+    async def logout(request: Request):
+        """Revoke the docs session, clear its cookies and redirect to the login page."""
+        token = request.cookies.get(SESSION_COOKIE)
+        if token:
+            revoke_session_token(token)
         response = RedirectResponse(url="/auth/login", status_code=302)
         response.delete_cookie(SESSION_COOKIE)
         response.delete_cookie(SHARED_COOKIE_NAME, path="/")
@@ -327,6 +365,15 @@ def create_app() -> FastAPI:
             title=app.title + " — ReDoc",
         )
 
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_errors(request: Request, exc: StarletteHTTPException):
+        """An HTTPException's own message, except a 500's: that is an exception's text (paths,
+        hosts, connection details), so it goes to the log and Sentry, not to the caller."""
+        if exc.status_code == 500:
+            logger.error("500 on %s %s: %s", request.method, request.url.path, exc.detail)
+            return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+        return await http_exception_handler(request, exc)
 
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
