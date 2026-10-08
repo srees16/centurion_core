@@ -6,6 +6,7 @@ import logging
 import os
 import smtplib
 from datetime import datetime
+from html import escape as html_escape
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -317,8 +318,7 @@ class NotificationManager:
 </div>
 </body></html>"""
 
-        side_emoji = "🟢" if side == "BUY" else "🔴"
-        subject = f"{side_emoji} {side} {symbol} x{quantity} @ ₹{fill_price:,.2f} — {status}"
+        subject = f"{side} {symbol} x{quantity} @ ₹{fill_price:,.2f} — {status}"
 
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
@@ -398,10 +398,11 @@ class NotificationManager:
                     if item.sentiment_label
                     else "N/A"
                 )
+                title = html_escape(item.title[:80])          # scraped text: data, never markup
                 link = (
-                    f"<a href='{item.url}'>{item.title[:80]}</a>"
-                    if item.url
-                    else item.title[:80]
+                    f"<a href='{html_escape(item.url)}'>{title}</a>"
+                    if item.url and item.url.startswith(("https://", "http://"))
+                    else title
                 )
                 rows += (
                     f"<tr>"
@@ -588,8 +589,7 @@ class NotificationManager:
   </div>
 </div></body></html>"""
 
-        emoji = "🟢" if buy_count > 0 else "⚪"
-        subject = f"{emoji} Centurion Daily — {buy_count} BUY, {sell_count} SELL — {now}"
+        subject = f"Centurion Daily — {buy_count} BUY, {sell_count} SELL — {now}"
         return self._send_html_email(subject, html)
 
     # ── NSE Engine Daily Paper Email ─────────────────────────────────
@@ -612,7 +612,7 @@ class NotificationManager:
             "<div style=\"padding:10px 24px;background:#f3f4f6;font-size:12px;color:#6b7280;\">"
             "Centurion paper book &mdash; automatic alert</div></div></body></html>"
         )
-        return self._send_html_email(f"🔴 Centurion alert — {subject}", html)
+        return self._send_html_email(f"Centurion alert — {subject}", html)
 
     def email_engine_daily_report(self, report: dict) -> bool:
         """Send the NSE engine's EOD paper session: book, fills, stops, queued orders.
@@ -726,11 +726,11 @@ class NotificationManager:
   </div>
 </div></body></html>"""
 
-        flag = "🔴" if alerts else ("🟢" if pnl >= 0 else "🟠")
         dd_state = str(report.get("drawdown_state", "normal") or "normal")
         dd_tag = f" [drawdown {dd_state}]" if dd_state != "normal" else ""
+        alert_tag = " [alerts]" if alerts else ""
         book = f" [{report['book_label']}]" if report.get("book_label") else ""
-        subject = (f"{flag} Centurion {mode}{book} {session}{dd_tag} — equity {inr(report.get('equity'))[:-3]} "
+        subject = (f"Centurion {mode}{book} {session}{dd_tag}{alert_tag} — equity {inr(report.get('equity'))[:-3]} "
                    f"({pnl_pct:+.2f}%) — {len(filled)} filled, {len(stops)} stops, {len(queued)} queued")
         return self._send_html_email(subject, html)
 
@@ -800,5 +800,5 @@ class NotificationManager:
   </div>
 </div></body></html>"""
 
-        subject = f"★ Bull Run Alert — Infuse ₹{suggested_amount:,.0f} into Compounder ({date_str})"
+        subject = f"Bull Run Alert — Infuse ₹{suggested_amount:,.0f} into Compounder ({date_str})"
         return self._send_html_email(subject, html, recipients=recipients)

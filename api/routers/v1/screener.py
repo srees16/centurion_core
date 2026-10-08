@@ -495,6 +495,10 @@ async def screener_weekly_checkpoints(book: Optional[str] = Depends(_book_param)
 async def screener_daily_detail(date: str, book: Optional[str] = Depends(_book_param)):
     """Get full drill-down for a single trading day."""
     import json as _json
+    import re
+
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):   # it reaches the SQLite fallback's SQL text
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
     try:
         # 1. Snapshot for this date
         cloud = _cloud_or_none(book)

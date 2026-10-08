@@ -171,8 +171,9 @@ audit the current order workflow beginning with user's ticker input until placin
 8. Keep production-ready, modular, well-documented code only.
 
 1. Where are images stored currently wen i run analysis? Display location or url to access dem on ui pages
-2. Analyse n understand wats 3 emails doing? Give clear identifier and purpose of each of them
-3. do security vulnerability analysis and plug any gaps identified
+2. Implement same configuration n strategy to give a list of US stocks
+3. Can paper trading for US stocks be possible if not automating buy sell signals?
+1. Create pipelines to enable multiple paper trade runs based on future enhancements without affecting live trade underway
 7. design n implement kill switch
 
 Reorder per priority for final prod go-live:

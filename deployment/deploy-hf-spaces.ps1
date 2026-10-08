@@ -5,7 +5,8 @@
 #   1. pip install huggingface_hub
 #   2. huggingface-cli login (paste your HF token)
 #   3. Fill in your HF username below
-#   4. auth/credentials.yaml must exist locally (it's in .gitignore on GitHub)
+#   4. auth/credentials.yaml must exist locally: it becomes the CENTURION_CREDENTIALS_YAML
+#      Space secret, never a file in the (public) Space repo
 #   5. .env file at project root with all secrets (CENTURION_DATABASE_URL, etc.)
 
 $HF_USERNAME = "srees16"
@@ -49,13 +50,13 @@ robocopy $GITHUB_DIR $TEMP_DIR /S /XD `
 
 # Step 5: Inject files not in GitHub (gitignored secrets + HF-specific files)
 Write-Host "[4/7] Injecting deployment files..." -ForegroundColor Yellow
-# auth/credentials.yaml is in .gitignore on GitHub — copy from local project
+# The Space is public: the login hashes go in as a Space secret (read by api/auth.py), never as a file
 $CRED_SRC = Join-Path $PROJECT_ROOT "auth\credentials.yaml"
-$CRED_DST = Join-Path $TEMP_DIR "auth"
 if (Test-Path $CRED_SRC) {
-    if (-not (Test-Path $CRED_DST)) { New-Item -ItemType Directory -Path $CRED_DST -Force | Out-Null }
-    Copy-Item $CRED_SRC "$CRED_DST\credentials.yaml" -Force
-    Write-Host "  Injected auth/credentials.yaml from local project" -ForegroundColor Green
+    $env:CRED_SRC = $CRED_SRC
+    python -c "import os; from huggingface_hub import add_space_secret; add_space_secret('$HF_USERNAME/$SPACE_NAME', 'CENTURION_CREDENTIALS_YAML', open(os.environ['CRED_SRC']).read())"
+    Remove-Item -Force (Join-Path $TEMP_DIR "auth\credentials.yaml") -ErrorAction SilentlyContinue
+    Write-Host "  Set the CENTURION_CREDENTIALS_YAML Space secret from auth/credentials.yaml" -ForegroundColor Green
 } else {
     Write-Host "ERROR: auth/credentials.yaml not found at $CRED_SRC" -ForegroundColor Red
     Write-Host "  This file is required for authentication. Create it first." -ForegroundColor Yellow
@@ -88,8 +89,8 @@ Write-Host "  All files under 10 MB - OK" -ForegroundColor Green
 Write-Host "[6/7] Pushing to HF Spaces..." -ForegroundColor Yellow
 Push-Location $TEMP_DIR
 
-# Minimal .gitignore so auth/credentials.yaml gets included
-Set-Content -Path ".gitignore" -Value "__pycache__/`n*.pyc`n.env`n.env.*"
+# Minimal .gitignore; credentials never go into the Space repo
+Set-Content -Path ".gitignore" -Value "__pycache__/`n*.pyc`n.env`n.env.*`nauth/credentials.yaml"
 
 git add -A
 git commit -m "Deploy Centurion Core backend (from GitHub $GITHUB_BRANCH)"
@@ -132,6 +133,8 @@ if (Test-Path $ENV_FILE) {
         "CENTURION_DEFAULT_ADMIN_PASSWORD",
         "CENTURION_DEFAULT_ANALYST_PASSWORD",
         "CENTURION_ALLOWED_ORIGINS",
+        "CENTURION_API_SECRET_KEY",
+        "CENTURION_KITE_USER_ID",
         "CENTURION_RAG_LLM_PROVIDER",
         "CENTURION_DB_ENABLED",
         "CENTURION_REDIS_URL",

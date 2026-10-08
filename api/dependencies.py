@@ -120,10 +120,11 @@ def kite_token_remaining_seconds() -> int:
 
 
 def _persist_kite_token(access_token: str):
-    """Save the access token + timestamp to the unified cache."""
+    """Save the access token (encrypted, as in Neon) + timestamp to the unified cache."""
     try:
         from infrastructure.cache import cache
-        cache.set(_CACHE_KEY_KITE_TOKEN, access_token, ttl=_KITE_TOKEN_LIFETIME)
+        from kite_connect.auth.daily_login import _fernet
+        cache.set(_CACHE_KEY_KITE_TOKEN, _fernet().encrypt(access_token.encode()).decode(), ttl=_KITE_TOKEN_LIFETIME)
         cache.set(_CACHE_KEY_KITE_TS, time.time(), ttl=_KITE_TOKEN_LIFETIME)
     except Exception as exc:
         logger.debug("Failed to persist Kite token to cache: %s", exc)
@@ -144,10 +145,12 @@ def _restore_kite_from_cache():
     global _kite_access_token, _kite_token_ts
     try:
         from infrastructure.cache import cache
+        from kite_connect.auth.daily_login import _fernet
         token = cache.get(_CACHE_KEY_KITE_TOKEN)
         ts = cache.get(_CACHE_KEY_KITE_TS)
         if not token:
             return None
+        token = _fernet().decrypt(token.encode()).decode()   # a plaintext entry fails here and is cleared
 
         # Check if token is still valid (not expired)
         ts = float(ts) if ts else 0.0

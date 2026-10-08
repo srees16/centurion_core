@@ -3,7 +3,9 @@ Options toolkit command line: chain, strategy selection, pre-trade report,
 execution and monitoring on NSE options through Kite Connect.
 
     python -m kite_connect.options.cli chain --underlying NIFTY
-    python -m kite_connect.options.cli select --view moderate_bull --dte 6
+    python -m kite_connect.options.cli context --underlying NIFTY          # IV history + positioning (OD1, OD2)
+    python -m kite_connect.options.cli select --view moderate_bull --dte 6 --underlying NIFTY
+    python -m kite_connect.options.cli refresh                             # bring the local data up to date
     python -m kite_connect.options.cli report --underlying NIFTY --legs "BUY CE 25000, SELL CE 25150"
     python -m kite_connect.options.cli trade  --underlying NIFTY --legs "BUY CE 25000, SELL CE 25150"   # paper
     python -m kite_connect.options.cli trade  ... --dry-run      # log the orders, send nothing
@@ -11,8 +13,10 @@ execution and monitoring on NSE options through Kite Connect.
     python -m kite_connect.options.cli monitor
     python -m kite_connect.options.cli demo --underlying NIFTY --view moderate_bull
 
-Everything except ``select`` needs today's Kite token (the daily email-link
-login, U23).  Safety, in order:
+Everything except ``select``, ``context`` and ``refresh`` needs today's Kite
+token (the daily email-link login, U23).  ``context``, and ``select`` with
+``--underlying``, read the local F&O store: today's IV against its history
+sets the selector's IV level instead of a typed guess.  Safety, in order:
 
 1. Paper is the default; ``--live`` is the only way to send real orders.
 2. ``--live`` prints the pre-trade report and needs ``PLACE <n> ORDERS``
@@ -27,17 +31,20 @@ from __future__ import annotations
 import argparse
 import logging
 import math
+import subprocess
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Tuple
 
 from kite_connect.options.basket_executor import BasketExecutor, ExecutionReport
 from kite_connect.options.broker import Broker, connect
 from kite_connect.options.instruments import InstrumentResolver
+from kite_connect.options.iv_history import iv_context, iv_history, live_iv30
 from kite_connect.options.live_chain import IST, chain_summary, days_to_expiry, fetch_chain
 from kite_connect.options.options_config import OptionsConfig, SelectorConfig, load_config
 from kite_connect.options.position_monitor import PositionLedger, monitor
+from kite_connect.options.positioning import positioning
 from kite_connect.options.pretrade import LegSpec, PreTradeReport, build_report, order_legs, parse_legs
 from kite_connect.options.selector import VIEWS, Candidate, MarketContext, select, strike_for
 from kite_connect.options.theory import BUY, CALL, PUT, SELL
@@ -71,6 +78,31 @@ def prepare(broker: Broker, resolver: InstrumentResolver, underlying: str, expir
         margins = None
     return build_report(legs, spot, days_to_expiry(expiry, now), chain_summary(chain, spot)["atm_iv"], lots,
                         now.date(), cfg, margins)
+
+
+def market_context(underlying: str, cfg: OptionsConfig, broker: Optional[Broker] = None,
+                   resolver: Optional[InstrumentResolver] = None,
+                   now: Optional[datetime] = None) -> Tuple[List[str], Optional[str]]:
+    """Today's IV against its history and the market's positioning (OD1, OD2), and the IV level
+    for the selector (None when unavailable).  Live IV with a broker, else the store's last session.
+    Never fails the caller: missing data becomes a line saying so."""
+    from nse_engine.data.fo_store import load_participant_oi
+
+    lines: List[str] = []
+    level = None
+    try:
+        live = live_iv30(broker, resolver, underlying, now, cfg) if broker is not None else None
+        ctx = iv_context(underlying, cfg, live)
+        lines += ctx.lines()
+        level = ctx.level
+    except Exception as exc:                              # noqa: BLE001 - context only
+        lines.append(f"IV context unavailable for {underlying}: {exc} (run the refresh command)")
+    try:
+        pos = positioning(load_participant_oi(cfg.data.fo_store), cfg.data.lookback_sessions)
+        lines += pos.lines() if pos else ["Positioning unavailable: no participant data in the store"]
+    except Exception as exc:                              # noqa: BLE001 - context only
+        lines.append(f"Positioning unavailable: {exc}")
+    return lines, level
 
 
 def confirm_live(report: PreTradeReport, stdin=sys.stdin, ask=input) -> bool:
@@ -133,13 +165,48 @@ def cmd_chain(args, cfg: OptionsConfig) -> int:
     s = chain_summary(chain, spot)
     print(f"{args.underlying} {expiry} ({days_to_expiry(expiry, now):.1f} days): spot {spot:,.2f}, ATM {s['atm_strike']:g}, "
           f"ATM IV {s['atm_iv']:.1%}, max pain {s['max_pain']:g}, PCR {s['pcr']:.2f}")
+    print("\n".join(market_context(args.underlying.upper(), cfg, broker, resolver, now)[0]))
     print(chain.round(4).to_string(index=False))
     return 0
 
 
+def cmd_context(args, cfg: OptionsConfig) -> int:
+    """Today's IV read against its history, and positioning (offline unless ``--live``)."""
+    broker = resolver = now = None
+    if args.live:
+        now = datetime.now(IST)
+        broker = connect()
+        resolver = InstrumentResolver(broker.instruments())
+    lines, level = market_context(args.underlying.upper(), cfg, broker, resolver, now)
+    print("\n".join(lines))
+    return 0 if level else 1
+
+
+def cmd_refresh(args, cfg: OptionsConfig) -> int:
+    """Bring the local data up to date: the archive's last ``--days``, the equity store (which runs
+    the trial registry's dry-run check), the F&O store, then the IV histories."""
+    start = (date.today() - timedelta(days=args.days)).isoformat()
+    steps = [["-m", "nse_engine.data.archive", "--start", start, "--no-reference",
+              "--kinds", "equity,delivery,indices,corpact,fo,participant"],
+             ["-m", "runners.run_nse_engine", "build-store"],
+             ["-m", "nse_engine.data.fo_store", "--store", cfg.data.fo_store]]
+    for step in steps:
+        print("$ python " + " ".join(step), flush=True)
+        subprocess.run([sys.executable, *step], check=True)
+    for symbol in args.symbols:
+        h = iv_history(symbol, cfg)
+        print(f"IV history {symbol}: {len(h)} sessions to {str(h['date'].iloc[-1])[:10]}")
+    return 0
+
+
 def cmd_select(args, cfg: OptionsConfig) -> int:
+    iv_level = args.iv_level
+    if args.underlying:
+        lines, level = market_context(args.underlying.upper(), cfg)
+        print("\n".join(lines) + "\n")
+        iv_level = iv_level or level
     ctx = MarketContext(view=args.view, days_to_expiry=args.dte, vol_view=args.vol_view, days_to_target=args.target_days,
-                        iv_level=args.iv_level, rich_side=args.rich_side, event=args.event,
+                        iv_level=iv_level or "normal", rich_side=args.rich_side, event=args.event,
                         event_vs_consensus=args.event_vs_consensus, range_bound=args.range_bound,
                         cost_sensitive=args.cost_sensitive)
     for i, c in enumerate(select(ctx, cfg.selector), 1):
@@ -196,7 +263,10 @@ def cmd_demo(args, cfg: OptionsConfig) -> int:
     dte = days_to_expiry(expiry, now)
     say(f"1. CHAIN {underlying} {expiry} ({dte:.1f} days): spot {spot:,.2f}, ATM {s['atm_strike']:g}, "
         f"ATM IV {s['atm_iv']:.1%}, max pain {s['max_pain']:g}, PCR {s['pcr']:.2f}, {len(chain)} contracts quoted")
-    ranked = select(MarketContext(view=args.view, days_to_expiry=max(int(math.floor(dte)), 1)), cfg.selector)
+    context, level = market_context(underlying, cfg, broker, resolver, now)
+    say("\n".join(context))
+    ranked = select(MarketContext(view=args.view, days_to_expiry=max(int(math.floor(dte)), 1),
+                                  iv_level=level or "normal"), cfg.selector)
     spreads = [c for c in ranked if c.strategy in ("Bull Call Spread", "Bull Put Spread", "Bear Put Spread",
                                                     "Bear Call Spread")]
     if not spreads:
@@ -232,12 +302,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     c.add_argument("--expiry", help="YYYY-MM-DD (default: nearest a day or more away)")
     c.add_argument("--strikes", type=int, default=CHAIN_STRIKES_EACH_SIDE, help="strikes each side of ATM")
 
+    x = sub.add_parser("context", help="today's IV against its history, and FII / DII positioning (OD1, OD2)")
+    x.add_argument("--underlying", default="NIFTY")
+    x.add_argument("--live", action="store_true", help="today's IV from live Kite quotes (default: the store's last session)")
+
+    r = sub.add_parser("refresh", help="bring the archive, the equity and F&O stores and the IV histories up to date")
+    r.add_argument("--days", type=int, default=14, help="archive days to (re)check")
+    r.add_argument("--symbols", nargs="*", default=["NIFTY", "BANKNIFTY"], help="IV histories to update")
+
     s = sub.add_parser("select", help="rank Module 6 strategies for a view (no Kite needed)")
     s.add_argument("--view", required=True, choices=VIEWS)
     s.add_argument("--dte", type=int, required=True, help="days to expiry")
     s.add_argument("--vol-view", default="flat", choices=("rising", "falling", "flat"))
     s.add_argument("--target-days", type=int)
-    s.add_argument("--iv-level", default="normal", choices=("low", "normal", "high", "very_high"))
+    s.add_argument("--underlying", help="read today's IV level from its history (the store) instead of --iv-level")
+    s.add_argument("--iv-level", choices=("low", "normal", "high", "very_high"),
+                   help="your own IV level; default: from --underlying's history, else normal")
     s.add_argument("--rich-side", choices=("puts", "calls"))
     s.add_argument("--event", action="store_true")
     s.add_argument("--event-vs-consensus", choices=("differs", "matches"))
@@ -269,6 +349,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return cmd_chain(args, cfg)
     if args.cmd == "select":
         return cmd_select(args, cfg)
+    if args.cmd == "context":
+        return cmd_context(args, cfg)
+    if args.cmd == "refresh":
+        return cmd_refresh(args, cfg)
     if args.cmd in ("report", "trade"):
         return cmd_report_or_trade(args, cfg, trade=args.cmd == "trade")
     if args.cmd == "monitor":

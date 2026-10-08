@@ -28,7 +28,8 @@ if _PROJECT_ROOT not in sys.path:
 from api.auth import (
     LOGIN_PAGE_HTML,
     SESSION_COOKIE,
-    authenticate_user,
+    LoginThrottled,
+    authenticate_user_async,
     create_session_token,
     session_from_request,
 )
@@ -52,13 +53,14 @@ _SENTRY_DROP_PATTERNS = (
 
 
 def _sentry_before_send(event, hint):
-    """Drop noisy yfinance / ticker-not-found events from Sentry."""
+    """Drop noisy yfinance / ticker-not-found events from Sentry; never send query strings (``?token=``)."""
     message = (event.get("logentry") or {}).get("message", "")
     if not message:
         message = event.get("message", "")
     for pattern in _SENTRY_DROP_PATTERNS:
         if pattern in message:
             return None  # drop the event
+    (event.get("request") or {}).pop("query_string", None)
     return event
 
 
@@ -78,6 +80,7 @@ def _init_sentry() -> None:
             environment=os.getenv("SENTRY_ENVIRONMENT", "development"),
             traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.2")),
             send_default_pii=False,
+            include_local_variables=False,     # frames hold Kite tokens and secrets
             integrations=[
                 FastApiIntegration(transaction_style="endpoint"),
                 StarletteIntegration(transaction_style="endpoint"),
@@ -109,14 +112,24 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Auth: every state-changing request needs a signed-in session (tracker S1)
+# Auth: every request needs a signed-in session (trackers S1, S2)
 # ---------------------------------------------------------------------------
 
 _WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
-#: The writes reached without a session: the two logins, logout, and Kite's
-#: order postback (which carries its own checksum).
-_PUBLIC_WRITES = frozenset({("POST", "/api/v1/auth/login"), ("POST", "/auth/login"),
-                            ("POST", "/api/v1/auth/logout"), ("POST", "/stream/postback")})
+#: Reached without a session: the logins and logout, Kite's login callback and
+#: order postback (which carries its own checksum), the health check the uptime
+#: monitor pings, and the docs pages (which redirect to their own login).
+_PUBLIC = frozenset({("POST", "/api/v1/auth/login"), ("POST", "/auth/login"), ("POST", "/api/v1/auth/logout"),
+                     ("POST", "/stream/postback"), ("GET", "/ind-stocks/auth/callback"),
+                     ("GET", "/"), ("HEAD", "/"), ("GET", "/health"), ("HEAD", "/health"), ("GET", "/favicon.ico"),
+                     ("GET", "/auth/login"), ("GET", "/auth/logout"),
+                     ("GET", "/docs"), ("GET", "/redoc"), ("GET", "/openapi.json")})
+#: Writes that trade or change a broker account: the admin role only.
+_ADMIN_WRITE_PREFIXES = ("/api/v1/kite/", "/api/v1/screener/execute", "/api/v1/drivewealth/",
+                         "/ind-stocks/orders", "/ind-stocks/auth")
+#: CORS origins when CENTURION_ALLOWED_ORIGINS is unset: the production frontend
+#: and local development (never "*", which with credentials reflects any origin).
+_DEFAULT_ORIGINS = ["https://centurion-core-fe.vercel.app", "http://localhost:3000"]
 
 
 # ---------------------------------------------------------------------------
@@ -178,18 +191,23 @@ def create_app() -> FastAPI:
         openapi_url=None,
     )
 
-    # --- Signed-in session for writes (S1); added before CORS so a 401 still carries CORS headers ---
+    # --- Signed-in session for every request (S1, S2); added before CORS so a 401 still carries CORS headers ---
     @app.middleware("http")
-    async def require_session_for_writes(request: Request, call_next):
-        if (request.method in _WRITE_METHODS and (request.method, request.url.path) not in _PUBLIC_WRITES
-                and session_from_request(request) is None):
+    async def require_session(request: Request, call_next):
+        if request.method == "OPTIONS" or (request.method, request.url.path) in _PUBLIC:
+            return await call_next(request)
+        session = session_from_request(request)
+        if session is None:
             return JSONResponse(status_code=401, content={"detail": "sign in to do that"})
+        if (request.method in _WRITE_METHODS and request.url.path.startswith(_ADMIN_WRITE_PREFIXES)
+                and session.get("r") != "admin"):
+            return JSONResponse(status_code=403, content={"detail": "only an admin can trade or change broker accounts"})
         return await call_next(request)
 
     # --- CORS ---
-    # Read allowed origins from env (comma-separated) or default to permissive for local dev
+    # Allowed origins from env (comma-separated), else the production frontend and local dev
     _raw_origins = os.getenv("CENTURION_ALLOWED_ORIGINS", "")
-    _cors_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()] if _raw_origins else ["*"]
+    _cors_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()] if _raw_origins else _DEFAULT_ORIGINS
 
     app.add_middleware(
         CORSMiddleware,
@@ -239,7 +257,11 @@ def create_app() -> FastAPI:
         password: str = Form(...),
     ):
         """Validate credentials, set a session cookie, redirect to docs."""
-        ok, display_name, role = authenticate_user(username, password)
+        try:
+            ok, display_name, role = await authenticate_user_async(username, password)
+        except LoginThrottled:
+            return JSONResponse(status_code=429, content={"success": False,
+                                                          "detail": "Too many failed sign-ins: try again later"})
         if not ok:
             return JSONResponse(
                 status_code=401,
@@ -252,6 +274,7 @@ def create_app() -> FastAPI:
             key=SESSION_COOKIE,
             value=token,
             httponly=True,
+            secure=True,
             samesite="lax",
             max_age=28800,
         )
@@ -259,7 +282,8 @@ def create_app() -> FastAPI:
         response.set_cookie(
             key=SHARED_COOKIE_NAME,
             value=shared_token,
-            httponly=False,
+            httponly=True,
+            secure=True,
             samesite="lax",
             path="/",
             max_age=SHARED_COOKIE_MAX_AGE,
@@ -307,12 +331,12 @@ def create_app() -> FastAPI:
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
         logger.exception("Unhandled exception on %s %s", request.method, request.url)
-        return JSONResponse(
+        return JSONResponse(                               # the cause is in the log and Sentry, not the response
             status_code=500,
             content={
                 "success": False,
                 "error": "Internal server error",
-                "detail": str(exc),
+                "detail": "Internal server error",
             },
         )
 

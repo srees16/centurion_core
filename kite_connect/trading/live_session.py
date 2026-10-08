@@ -521,9 +521,9 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
         shift_path.unlink()
     if email:
         _email(report, dep, snap, float(ledger["capital"]), getattr(book, "schema", None) or live_schema(), label)
-    logger.info("LIVE session %s (%s): %d fills, %d external, %d orders %s, equity %.0f, alerts: %s",
+    logger.info("LIVE session %s (%s): %d fills, %d external, %d orders %s, %d alert(s) (detail in the email)",
                 report["session"], report["mode"], len(report["fills"]), len(report["external"]), len(orders),
-                "built" if dry_run else "sent", snap["equity"], "; ".join(report["alerts"]) or "none")
+                "built" if dry_run else "sent", len(report["alerts"]))
     return report
 
 
@@ -671,11 +671,13 @@ def _email(report: dict, dep, snap: dict, capital: float, schema: str, label: st
 
 
 def _email_skip(message: str, label: str = "") -> None:
+    import html
+
     try:
         from services.notifications.manager import NotificationManager
         NotificationManager._send_html_email(
             f"Centurion live{f' [{label}]' if label else ''}: no Kite login today, session skipped",
-            f"<html><body style='font-family:Segoe UI,Arial,sans-serif;padding:20px;'><p>{message}</p></body></html>")
+            f"<html><body style='font-family:Segoe UI,Arial,sans-serif;padding:20px;'><p>{html.escape(message)}</p></body></html>")
     except Exception as exc:                              # noqa: BLE001
         logger.warning("skip email failed: %s", exc)
 
@@ -744,7 +746,9 @@ def main(argv=None) -> int:
                               label=acct.name if acct else "", unwind_sessions=acct.unwind_sessions if acct else 0)
     if acct is not None and acct.unwind_sessions and not report.get("skipped"):
         accounts.unwind_step(acct.id, report, dry_run)
-    print(json.dumps({k: v for k, v in report.items() if k != "plan"}, default=str, indent=2)[:6000])
+    # Counts only: Actions logs of the public repo are public; the detail is in the email
+    print(json.dumps({"session": report.get("session"), "mode": report.get("mode"), "skipped": report.get("skipped"),
+                      **{k: len(report.get(k) or []) for k in ("fills", "external", "results", "alerts")}}))
     return 0          # alerts are in the email; only an exception fails the run
 
 

@@ -24,8 +24,11 @@ class ChangePasswordRequest(BaseModel):
 @router.post("/auth/login")
 async def api_login(req: LoginRequest):
     """JWT login for the frontend."""
-    from api.auth import authenticate_user_async, create_session_token
-    ok, display_name, role = await authenticate_user_async(req.username, req.password)
+    from api.auth import LoginThrottled, authenticate_user_async, create_session_token
+    try:
+        ok, display_name, role = await authenticate_user_async(req.username, req.password)
+    except LoginThrottled:
+        raise HTTPException(status_code=429, detail="Too many failed sign-ins: try again later")
     if not ok:
         raise HTTPException(status_code=401, detail="Invalid credentials")
     token = create_session_token(req.username, role)
@@ -75,7 +78,8 @@ async def api_change_password(req: ChangePasswordRequest, request: Request):
     # Load credentials
     import yaml
     if not CREDENTIALS_YAML.exists():
-        raise HTTPException(status_code=500, detail="Credentials file not found")
+        raise HTTPException(status_code=409, detail="Passwords on this server are set in the "
+                                                    "CENTURION_CREDENTIALS_YAML secret: change them there")
     with open(CREDENTIALS_YAML, "r") as fh:
         creds = yaml.safe_load(fh) or {}
     users = creds.get("users", {})

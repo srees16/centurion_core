@@ -4,6 +4,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   deploy-hf-spaces:
     name: Deploy to Hugging Face Spaces
@@ -56,13 +59,22 @@ jobs:
           find /tmp/hf-space -not -path '*/.git/*' -name '*_original.png' -type f -delete
           find /tmp/hf-space -not -path '*/.git/*' -name '*_original.jpg' -type f -delete
 
-      - name: Inject credentials and HF-specific files
+      - name: Credentials as a Space secret, and HF-specific files
         env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
           CREDENTIALS_YAML: ${{ secrets.CREDENTIALS_YAML }}
         run: |
-          # auth/credentials.yaml is in .gitignore — inject from GitHub secret
-          mkdir -p /tmp/hf-space/auth
-          echo "$CREDENTIALS_YAML" > /tmp/hf-space/auth/credentials.yaml
+          # The Space is public: its repository must never hold the login
+          # hashes. The API reads them from the CENTURION_CREDENTIALS_YAML
+          # secret (api/auth.py), set here from the GitHub secret.
+          pip install -q huggingface_hub
+          python - <<'PY'
+          import os
+          from huggingface_hub import add_space_secret
+          add_space_secret("srees16/centurion-core", "CENTURION_CREDENTIALS_YAML",
+                           os.environ["CREDENTIALS_YAML"], token=os.environ["HF_TOKEN"])
+          PY
+          rm -f /tmp/hf-space/auth/credentials.yaml
 
           # HF-specific Dockerfile and README
           cp deployment/Dockerfile.hf /tmp/hf-space/Dockerfile
@@ -81,8 +93,8 @@ jobs:
       - name: Push to HF Spaces
         run: |
           cd /tmp/hf-space
-          # Minimal .gitignore so credentials.yaml gets included
-          printf '__pycache__/\n*.pyc\n.env\n.env.*\n' > .gitignore
+          # Minimal .gitignore; credentials never go into the Space repo
+          printf '__pycache__/\n*.pyc\n.env\n.env.*\nauth/credentials.yaml\n' > .gitignore
 
           git config user.email "ci@centurion.dev"
           git config user.name "Centurion CI"

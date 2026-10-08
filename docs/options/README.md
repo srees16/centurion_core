@@ -22,6 +22,8 @@ All code is in `kite_connect/options/`.
 | `broker.py` | Kite session from the stored token, throttled quotes, basket margins, autoslice orders, the order log |
 | `instruments.py` | Underlying + expiry + strike + CE/PE → contract, lot size and tick from Kite's live dump |
 | `live_chain.py` | Option chain from live quotes with our own IV and Greeks, ATM IV, max pain, PCR |
+| `iv_history.py` | 30-day ATM IV per session from the F&O store, IV rank / percentile, the IV level for the selector, the realised-vs-implied record (OD1) |
+| `positioning.py` | FII / DII / client positioning from NSE's participant-wise open interest (OD2) |
 | `pretrade.py` | The pre-trade report and the hard-limit check |
 | `basket_executor.py` | Places a basket: buys first, every slice filled before the next leg, stops and reports on failure |
 | `position_monitor.py` | Ledger of filled baskets; live P&L, Greeks, breakeven / stop-loss / max-loss alerts |
@@ -93,7 +95,15 @@ through `CENTURION_KITE_PROXY` with the egress check.
 python -m kite_connect.options.cli chain --underlying NIFTY
 python -m kite_connect.options.cli chain --underlying BANKNIFTY --expiry 2026-10-27 --strikes 10
 
-# Strategy selector, offline
+# Market context: today's IV against its history, and positioning (offline; --live for IV from quotes)
+python -m kite_connect.options.cli context --underlying NIFTY
+python -m kite_connect.options.cli context --underlying RELIANCE --live
+
+# Bring the local data up to date: archive, equity store (with the registry check), F&O store, IV histories
+python -m kite_connect.options.cli refresh
+
+# Strategy selector, offline; --underlying reads the IV level from history instead of --iv-level
+python -m kite_connect.options.cli select --view moderate_bull --dte 6 --underlying NIFTY
 python -m kite_connect.options.cli select --view moderate_bull --dte 6
 python -m kite_connect.options.cli select --view neutral_big_move --dte 20 --iv-level low --vol-view rising --cost-sensitive
 
@@ -123,6 +133,46 @@ Run workflow (underlying, view, lots). It runs `demo` in paper mode with
 the repository's secrets and keeps the report, the paper fill, the monitor
 output and the order log as the `options-paper-demo` artifact. Run it after
 the day's login.
+
+## Market context (OD1, OD2)
+
+`chain`, `demo`, `context` and `select --underlying` print what history says
+about today, and `demo` and `select --underlying` hand the IV level to the
+selector instead of assuming "normal":
+
+```
+IV NIFTY 30-day 13.3% (eod 2026-10-07): 1-year rank 22, percentile 68; level normal (21-session realised cone: mean 12.3%, +/-1 SD 7.6% to 17.0%)
+At IV percentile 60-80 (879 sessions since 2007-01-09): the next 30 days' realised volatility came in below IV 72% of the time, by a median +2.9 vol points (...)
+Positioning 2026-10-07 (NSE participant-wise open interest; context, not a signal):
+  FII index futures: 9% long (+0.6 pts on the day), 1-year percentile 17
+  FII index calls: net -400k contracts (-53k on the day), 1-year percentile 1; near the year's extreme
+  Client index futures: 84% long (+0.9 pts on the day), 1-year percentile 96; near the year's extreme
+```
+
+- **30-day IV**: each session's ATM call and put IVs of the two expiries
+  around 30 days (at least 7 days away), interpolated in total variance, as
+  India VIX does; the same construction from live quotes. NIFTY's tracks
+  India VIX with correlation 0.92 (2015-26, 1.2 vol points median gap; VIX
+  also prices the out-of-the-money skew). History: NIFTY from 2006,
+  BANKNIFTY from 2012, stocks from 2013 (OD3).
+- **IV level**: the selector's own rule (M5 ch. 20, M6 ch. 4) against the
+  21-session realised-volatility cone over two years, annualised over
+  trading days (sqrt 252), because implied volatility accrues only on them.
+- **Realised vs implied**: on past sessions in today's IV-percentile bucket,
+  how often the next 30 days' realised volatility came in below the IV.
+  Overlapping windows: a description of the past, not a test.
+- **Positioning**: FII index and stock futures (% long), FII index calls and
+  puts (net contracts), client index futures, each with its 1-year
+  percentile. It is context for your view; the selector never scores it.
+
+The data is local (`data/nse_engine/`): run `refresh` before trading on a
+new day. It rebuilds the local equity store through `run_nse_engine
+build-store`, which checks the trial registry: when it prints STORE
+FINGERPRINT CHANGED, refresh the registry (on Kaggle, where its runs live)
+before recording any backtest.  Options are stored under the symbol they
+traded as, so after a rename or demerger the IV history starts at the new
+symbol (TATAMOTORS became TMPV on 24 Oct 2025). In CI (the *Options paper demo* workflow) there is no store, so the
+context lines say "unavailable" and the selector keeps "normal".
 
 ## The pre-trade report
 
@@ -183,6 +233,7 @@ It alerts; it never trades.
 | `data/options/orders.jsonl` | every order request and response (all modes) |
 | `data/options/positions.json` | filled baskets: legs, fill prices, entry spot and IV |
 | `data/options/demo/` | the demo's report and its own ledger |
+| `data/nse_engine/fo_store/iv/` | the IV histories (`<SYMBOL>_v1.parquet`), refreshed on use |
 
 `data/` is not tracked by git.
 

@@ -22,6 +22,8 @@ REQUIRED_SECRETS = [
     "CENTURION_DEFAULT_ADMIN_PASSWORD",
     "CENTURION_DEFAULT_ANALYST_PASSWORD",
     "CENTURION_ALLOWED_ORIGINS",
+    "CENTURION_API_SECRET_KEY",      # signs sign-in tokens; without it they end at every restart
+    "CENTURION_KITE_USER_ID",        # the only Zerodha user the server's Kite login accepts
     "CENTURION_RAG_LLM_PROVIDER",
     "CENTURION_DB_ENABLED",
     "UPSTASH_REDIS_REST_URL",
