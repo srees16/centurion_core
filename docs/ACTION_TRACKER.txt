@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 08 Oct 2026, 20:08 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 08 Oct 2026, 20:51 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -400,6 +400,15 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+8 Oct   CI1  Paper session stalled (no emails at 19:30): GitHub evicted the
+             NSE archive cache (repository over its 10 GB cache limit: the
+             Tests workflow saved a 3.11 GiB pip cache per branch and pull
+             request, four today), so the 19:00 run re-downloaded the archive
+             from 2012 and ran into the 150-minute sync limit.  Deleted the
+             four test caches (the rest ~0.6 GB); tests.yml no longer caches
+             pip (merge it).  The rebuild resumes run to run (the cache saves
+             even on timeout).  gh CLI installed (~/.local/bin/gh, your web
+             login) to read Actions logs.
 8 Oct   MU2b Sign-up details encrypted and "Delete my account" (your ask).
              app.users keeps one Fernet-encrypted profile (email, name, DOB,
              gender, mobile, city, state, country, experience; key
