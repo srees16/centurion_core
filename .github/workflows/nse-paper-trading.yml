@@ -52,7 +52,7 @@ jobs:
     if: >-
       (vars.CENTURION_NSE_ENGINE != 'true' && github.event.schedule != '0 2 * * 6')
       || (vars.CENTURION_NSE_ENGINE == 'true' && github.event.schedule == '0 2 * * 6')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # pinned: ubuntu-latest becomes Ubuntu 26 from 19 Oct 2026
     timeout-minutes: 20
 
     steps:
@@ -140,7 +140,7 @@ jobs:
   # re-plan. Manual dispatches always run.
   engine-window:
     if: vars.CENTURION_NSE_ENGINE == 'true' && github.event.schedule != '' && github.event.schedule != '0 2 * * 6' 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # pinned: ubuntu-latest becomes Ubuntu 26 from 19 Oct 2026
     timeout-minutes: 2
     outputs:
       in_window: ${{ steps.clock.outputs.in_window }}
@@ -182,7 +182,7 @@ jobs:
       && (github.event_name == 'workflow_dispatch'
           || (github.event.schedule != '' && github.event.schedule != '0 2 * * 6'
               && needs.engine-window.outputs.in_window == 'true'))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # pinned: ubuntu-latest becomes Ubuntu 26 from 19 Oct 2026
     timeout-minutes: 180
     env:
       ARCHIVE_DIR: data/nse_engine/archive
