@@ -111,14 +111,17 @@ async def ingest_pdf(
 async def ingest_directory(
     directory: Optional[str] = Query(
         None,
-        description="Absolute path to the PDF directory. "
-                    "Defaults to the configured upload directory.",
+        description="A directory inside the configured upload directory "
+                    "(the default).",
     ),
     recursive: bool = Query(False),
 ):
     """Batch-ingest all PDFs in a directory."""
     svc = _get_ingestion_service()
-    target = directory or svc._config.pdf_upload_dir
+    base = os.path.realpath(svc._config.pdf_upload_dir)
+    target = os.path.realpath(directory or base)
+    if os.path.commonpath([base, target]) != base:     # never another part of the server's disk
+        raise HTTPException(status_code=400, detail="directory must be inside the upload directory")
     if not os.path.isdir(target):
         raise HTTPException(status_code=400, detail=f"Not a valid directory: {target}")
 

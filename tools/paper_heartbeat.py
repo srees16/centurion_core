@@ -109,7 +109,7 @@ def main() -> int:
     try:
         from services.notifications.manager import NotificationManager
         NotificationManager()._send_html_email(
-            f"🔴 Centurion paper book has not traded since {result.get('latest_session')}",
+            f"Centurion paper book has not traded since {result.get('latest_session')}",
             f"<p>The paper book is {result.get('weekdays_behind')} weekdays behind "
             f"(today {result.get('today_ist')} IST).</p><p>{result.get('reason')}</p>"
             f"<p>Last run recorded: {result.get('last_run_at') or 'never'}.</p>"

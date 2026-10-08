@@ -24,6 +24,7 @@ Algorithmic trading platform backend powered by FastAPI.
 | `MINIO_ACCESS_KEY` | Yes | R2 access key |
 | `MINIO_SECRET_KEY` | Yes | R2 secret key |
 | `UPSTASH_REDIS_URL` | Optional | Upstash Redis URL |
-| `CENTURION_DEFAULT_ADMIN_PASSWORD` | Yes | Admin login password |
-| `CENTURION_DEFAULT_ANALYST_PASSWORD` | Yes | Analyst login password |
+| `CENTURION_CREDENTIALS_YAML` | Yes | Login users and bcrypt hashes (the `auth/credentials.yaml` format); set by the deploy workflow from the `CREDENTIALS_YAML` GitHub secret, never committed here |
+| `CENTURION_API_SECRET_KEY` | Yes | 32+ random bytes (hex) signing sign-in tokens; unset, tokens end at every restart |
+| `CENTURION_KITE_USER_ID` | Yes | Your Zerodha user ID: the Kite login callback accepts no other |
 | `CENTURION_ALLOWED_ORIGINS` | Yes | Comma-separated frontend URLs for CORS |

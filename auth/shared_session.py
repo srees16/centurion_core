@@ -5,7 +5,8 @@ FastAPI uses this module to create and verify signed session tokens,
 enabling single sign-on via a shared browser cookie.
 
 IMPORTANT: Both apps must be accessed via ``localhost`` (not
-``127.0.0.1``) for the cookie to be shared across ports.
+``127.0.0.1``) for the cookie to be shared across ports, and share
+``CENTURION_API_SECRET_KEY``.
 """
 
 import logging
@@ -21,10 +22,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _SECRET_KEY = os.getenv("CENTURION_API_SECRET_KEY", "")
 if not _SECRET_KEY:
-    # Deterministic fallback so both processes agree without config.
-    # Safe for local development; set the env var in production.
-    _SECRET_KEY = "centurion-local-dev-shared-secret"
-    logger.debug("Using default shared session secret (set CENTURION_API_SECRET_KEY for production)")
+    # Never a fixed fallback: a secret in the source lets anyone sign a cookie.
+    # Without the env var the key is per process, so cookies end with a restart.
+    import secrets as _secrets
+    _SECRET_KEY = _secrets.token_hex(32)
+    logger.debug("Generated ephemeral shared session secret (set CENTURION_API_SECRET_KEY to keep cookies across restarts)")
 
 _SERIALIZER = URLSafeTimedSerializer(_SECRET_KEY, salt="centurion-shared-session")
 

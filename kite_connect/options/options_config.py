@@ -8,7 +8,7 @@ Kite instruments dump and margins APIs at runtime.
 
 ``load_config(path)`` overrides the defaults from a TOML file whose tables
 are named after the fields of :class:`OptionsConfig` (``[market]``,
-``[charges]``, ``[slippage]``, ``[limits]``, ``[selector]``).  Without a path
+``[charges]``, ``[slippage]``, ``[limits]``, ``[selector]``, ``[data]``).  Without a path
 it reads ``CENTURION_OPTIONS_CONFIG`` when set.
 """
 
@@ -135,12 +135,35 @@ class SelectorConfig:
 
 
 @dataclass(frozen=True)
+class DataConfig:
+    """The market context from history (trackers OD1, OD2): IV history and positioning."""
+
+    fo_store: str = "data/nse_engine/fo_store"
+    equity_store: str = "data/nse_engine/store"
+    # IV is quoted at a constant 30 calendar days, interpolated between the two expiries
+    # around it; an expiry closer than min_dte is skipped (expiry-week noise).
+    iv_tenor_days: int = 30
+    iv_min_dte: int = 7
+    # ATM strikes searched within this fraction of spot; the IV needs a traded call or put there.
+    iv_strike_band: float = 0.10
+    # IV rank / percentile and positioning percentiles look back this many sessions (a year).
+    lookback_sessions: int = 252
+    # The realised-volatility cone the IV level reads (M5 ch. 20): a 21-session window
+    # (about 30 calendar days, like the IV) over the last two years.
+    cone_window: int = 21
+    cone_lookback_sessions: int = 504
+    # Realised vs implied is reported for the IV-percentile bucket of this width.
+    premium_bucket_width: float = 20.0
+
+
+@dataclass(frozen=True)
 class OptionsConfig:
     market: MarketConfig = field(default_factory=MarketConfig)
     charges: ChargesConfig = field(default_factory=ChargesConfig)
     slippage: SlippageConfig = field(default_factory=SlippageConfig)
     limits: LimitsConfig = field(default_factory=LimitsConfig)
     selector: SelectorConfig = field(default_factory=SelectorConfig)
+    data: DataConfig = field(default_factory=DataConfig)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

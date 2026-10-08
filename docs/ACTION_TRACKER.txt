@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 07 Oct 2026, 21:01 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 08 Oct 2026, 13:09 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -184,6 +184,32 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
+[!] P0  SEC1 Security (audit 7 Oct), in this order:
+             1. TODAY: the production logins are admin/admin123 and
+                analyst/analyst123, published in docs/README.md and in the
+                public Space's auth/credentials.yaml; anyone can sign in.
+                Make new strong passwords, put their bcrypt hashes in the
+                CREDENTIALS_YAML GitHub secret, then commit + merge (the
+                deploy now sends them to the Space as a secret and deletes
+                the published file).
+             2. Space secrets: CENTURION_API_SECRET_KEY (python -c "import
+                secrets; print(secrets.token_hex(32))") and
+                CENTURION_KITE_USER_ID (your Zerodha id).
+             3. Wipe the Space's history (old credentials.yaml, the old
+                Neon password): HfApi().super_squash_history(
+                "srees16/centurion-core", repo_type="space").
+             4. A Kite API key + secret are in public GitHub history
+                (commit 9e6e7b7, 21 Feb; key starts "hzcj").  If your key
+                starts so, regenerate the API secret at developers.kite.trade
+                and update ZERODHA_API_SECRET in GitHub and on the Space.
+             5. Vercel's DATABASE_URL: still the pre-U30 Neon password?
+                Update it.  In Neon, check pg_roles and schemas for anything
+                you did not create (owner access was public 14 Apr-1 Oct).
+             6. Re-run deployment/oracle-proxy/setup_tunnel_user.sh on the
+                VM (stricter sshd: no socket/tunnel forwarding).
+             7. Consider a private GitHub repo: Actions logs are public (the
+                live step now prints counts only; the executor still logs
+                book equity).
 [!] P3  O1d  Run the options paper demo once: after a Kite login, GitHub
              Actions > "Options paper demo" > Run (NIFTY, moderate_bull, 1
              lot; paper only); read the artifact.  Commit + merge first.
@@ -234,27 +260,62 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
         cannot be checked from outside (the Space's /auth/status is its
         own session, cleared by every redeploy) - the dry-run email says
         "no login today" if the token is missing.
-#2  [ ] P1  V3   Forward-gate decisions pick the live configuration: candidate
+#2  [ ] P1  SC1  Strategy scorecard when paper trading completes (your ask,
+                 8 Oct).  Due at 60 paper sessions (~mid Dec): before D3
+                 sizes the first rung, and it feeds V3.  One report per
+                 book (deployed, candidate 2d64ba4c, e4) answering: does
+                 the Sharpe survive costs, out-of-sample testing and live
+                 trading at the size we mean to run?  Centurion trades
+                 non-HFT, so robustness and overfitting weigh most.
+                 Return / risk: Sharpe, Sortino, information ratio (vs
+                   NIFTY 50 TRI), Calmar, MaxDD, volatility, CVaR 95%
+                   (expected shortfall), skew, kurtosis.
+                 Attribution: beta and factor exposures (market, size,
+                   value, momentum, low-vol; IIM-A's India factors or our
+                   own from the store), the alpha left after them, alpha
+                   decay (rolling alpha; returns by holding horizon).
+                 Trading: implementation shortfall and slippage vs the
+                   cost model (G4's fills), market impact by order size /
+                   ADV, turnover, hit rate, win/loss ratio, profit factor,
+                   average P&L per trade.
+                 Robustness: walk-forward OOS (K5, R12), deflated Sharpe
+                   and PBO (the registry, RR1), parameter sensitivity (the
+                   grid's neighbours), regime stability (bull / bear /
+                   sideways, high / low VIX), live vs backtest tracking
+                   error (G4).
+                 Capacity: the capital at which modelled impact eats half
+                   the edge, across the ladder (Rs 6L-30L) and beyond.
+                 Correlation: daily returns vs Centurion's other books and
+                   sleeves (metal, options): a mediocre uncorrelated Sharpe
+                   can be worth more than a great correlated one.
+                 Pass rules fixed before the data is read: section 1's
+                   targets (net Sharpe > 1.2, MaxDD <= 30%, Calmar >= 1,
+                   DSR >= 0.95, OOS Sharpe >= 1.2) plus any you add; the
+                   rest is reported.                     Prompt: do SC1
+#3  [ ] P1  V3   Forward-gate decisions pick the live configuration: candidate
                  ~24 Dec, e4 ~early Jan ("promote --check").  R12's OOS says
                  exit rank 60 cuts MaxDD 20.9% -> 17.2% (Calmar 1.0 -> 1.27);
                  the gate confirms it on paper before it goes live.  The
                  Saturday books email (V4) shows each trial's three checks
                  weekly and carries the promotion review once one clears;
                  promotion itself stays your hand-run command.
-#3  [ ] P1  S2   API reads.  Found with S1: GET routes still answer without a
-                 session, including the Kite account data (holdings,
-                 positions, orders, margins) while the Space holds a Kite
-                 login.  Require the session on those reads, and an admin
-                 role on writes once roles are defined.
-#4  [ ] P2  X1   Execution: limit-at-open / sliced fills.  Shrinks the
+#4  [ ] P2  NX1  Next.js 14 -> 15.5.24+ (or 16): 14.x gets no more fixes; 2026
+                 advisories are fixed only there (two critical ones are in
+                 the image optimizer, now switched off, and on Windows hosts).
+                 Breaking: React 19 and async request APIs.  Tailwind 4 for
+                 the build-time advisories at the same time.
+#5  [ ] P2  X1   Execution: limit-at-open / sliced fills.  Shrinks the
                  realised-vs-model cost gap (model 2.4-2.8%/yr of CAGR);
                  sized by G4's cost ratio.  Needs >= 30 real fills (~Jan).
                                                                   Prompt: do X1
-#5  [ ] P2  U28  Short sleeve in single-stock futures (NSE F&O archive).
-                 Largest potential (the route to Sharpe 1.5), longest lead
-                 (weeks of build, no trial until then).  Your go/no-go.
-#6  [ ] P3  R6   R21A rules as signal groups (+/-0.1 Sharpe)    Prompt: do R6
-#7  [ ] P3  R9   Universe size 150 / 300 / 500 (+/-0.1)        Prompt: do R9
+#6  [ ] P2  U28  Short sleeve in single-stock futures (NSE F&O archive).
+                 R15 (1 Oct): a naked short loses (-11%/yr, Sharpe -0.30);
+                 beside E4 it is a hedge (MaxDD -23% -> -18%, CAGR -2.3
+                 pts).  The real edge is a market-neutral spread, which needs
+                 a Rs 2-3 crore book (lots Rs 3-17 L).  Not now; your
+                 go/no-go.  Plan 5p.
+#7  [ ] P3  R6   R21A rules as signal groups (+/-0.1 Sharpe)    Prompt: do R6
+#8  [ ] P3  R9   Universe size 150 / 300 / 500 (+/-0.1)        Prompt: do R9
  OCT-NOV  research and housekeeping while the books accumulate (no trials)
    Measured 1 Oct: 147k lines of Python; the trading engine is 9k.  Two
    modules hold the daily path: scheduler.py 3,211 lines / 30 jobs, all
@@ -300,6 +361,87 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+8 Oct   OD1-3 Options data (your ask after SB1), all three items.
+             OD1 IV history (kite_connect/options/iv_history.py): a 30-day
+             ATM IV per session (the ATM call and put of the two expiries
+             around 30 days, interpolated in total variance), NIFTY from
+             2006, BANKNIFTY from 2012, stocks from 2013; NIFTY's tracks
+             India VIX with correlation 0.92 (2015-26, median gap 1.2 vol
+             points).  1-year IV rank and percentile; the selector's IV
+             level from the 21-session realised cone (sqrt 252, as IV
+             accrues on trading days) instead of a typed guess; and how
+             often realised volatility then came in below implied at
+             today's percentile (NIFTY at 60-80: 72% of 879 sessions).
+             OD2 positioning (positioning.py): NSE participant-wise open
+             interest archived from Jan 2012 (3,657 sessions); FII index
+             and stock futures % long, FII index calls / puts net, client
+             futures, with 1-year percentiles.  Context only: never scored.
+             OD3: stock options and futures from 2013 in the F&O store
+             (traded or open rows, 0.9-4.0M a year; lots snapped to the
+             stock lot grid), outside the O2 data hash.  CLI: context,
+             refresh, select --underlying; chain and demo print the
+             context, demo feeds the IV level to the selector.  Live IV
+             from quotes, same construction.  Checked: India VIX, Black-
+             Scholes round trip, interpolation, realised volatility,
+             thresholds, live IV with a fake chain, missing-data fallback;
+             suite 213 both envs.
+             Note: refresh rebuilt the local equity store (to 7 Oct); the
+             validation window's hash moved 6c94f4f4 -> 0b693174 (60
+             configurations).  The registry refresh needs Kaggle, where its
+             runs are recorded (D4); due before the next recorded backtest.
+8 Oct   SB1  Sensibull API studied (your ask): not used.  Sensibull has no
+             public API; the wrappers (sensibull-quotes 0.1.0, one release,
+             an individual's) mimic a browser against its internal oxide /
+             api endpoints, which its Terms of Use forbid (no automated
+             access, no reproducing data); Kite data is personal-use only.
+             Unreliable for orders and stops, and a supply-chain risk on the
+             server holding the Kite token.  Everything it shows Centurion
+             has (O1 toolkit) except IV rank / percentile, FII participant
+             OI and stock options in the F&O store, all buildable from
+             NSE's own files.  sensibull-quotes in requirements.txt is
+             unused.
+7 Oct   S2   Security audit and fixes (your ask; 4 parallel audits: API
+             access, injection, secrets / CI, frontend; pip-audit, npm audit).
+             Found live: the logins are the published defaults (SEC1).
+             Fixed in code:
+             - every API request needs a session (S2), except the logins,
+               logout, health, docs login pages, Kite callback and postback;
+               WebSocket too; ?token= accepted where a browser cannot send
+               headers (EventSource, WebSocket);
+             - trading / broker-account writes: admin role only;
+             - the SSO cookie's fixed fallback secret (public in source:
+               anyone could sign an admin cookie) -> random per process;
+             - credentials from the CENTURION_CREDENTIALS_YAML secret, never
+               a file in the public Space (deploy.yml, deploy-hf-spaces.ps1);
+               README passwords removed;
+             - sign-in throttled (10 failures / 15 min per user), bcrypt off
+               the event loop, no username timing leak; cookies Secure +
+               HttpOnly; CORS no longer "*" when unset; 500s say "Internal
+               server error" (detail in logs / Sentry); Sentry gets no
+               locals or query strings;
+             - Kite postback needs a valid checksum; SQL text in the paper
+               daily-detail fallback (date validated); RAG upload path
+               traversal (basename only); RAG directory ingest confined to
+               the upload dir;
+             - Kite token in Redis encrypted (Fernet, as in Neon); live
+               session prints counts only to the public Actions logs;
+             - workflow injection in options-paper-demo.yml (inputs via
+               env); deploy.yml read-only token; proxy sshd hardening;
+               .gitignore covers keys and every .env;
+             - frontend: /api/paper-trading needed no login (anyone could
+               stop every paper book) -> verified session; security
+               headers (no framing), image optimizer off, no X-Powered-By;
+               news links http(s) only; no images in RAG answers; logout
+               clears every token and the query cache; npm audit fix
+               (12 -> 9 advisories, the rest need NX1);
+             - requirements.txt floors: starlette, python-multipart,
+               aiohttp, cryptography, pillow, transformers,
+               sentence-transformers (pinned core: no advisories).
+             Not changed: kiteconnect pins autobahn 19.11.2 (client to
+             Zerodha only); chromadb has no fix (embedded, not its server).
+             Checked with a test client (12 groups) and a local production
+             build of the frontend; suite 213 myenv, 212 + 1 skipped
+             core-only; ruff: only findings already in HEAD.
 7 Oct   FK1  Holdings filter on Fly Kite (your ask).  Zerodha cannot list
              Centurion in Kite's holdings: the Kite Web filter was removed
              (Jul 2024, Console tags instead) and apps cannot tag holdings
