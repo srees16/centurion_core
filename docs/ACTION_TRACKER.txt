@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 08 Oct 2026, 17:06 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 08 Oct 2026, 18:05 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -164,6 +164,13 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
        (option 1).  Built the same day.                        -> U24, D3
   U6   Live capital Rs 30L.  Paper stays Rs 35L (resizing restarts the
        record; the cost gap is small).  Ladder Rs 6L / 12L / 21L / 30L. -> D3
+  U34  (8 Oct) Accounts: any user's, on one set of criteria (your words:
+       "remove the concept of relation altogether"): their own Kite
+       Connect app, a daily Kite login, their "I agree" to the current
+       terms (recorded), and Centurion's registration (exchange
+       empanelment + SEBI) before any of them trades; read-only until
+       then.  Gated build + a licensed-route plan for your lawyer (your
+       choice).  Supersedes U33's family-only rule.                 -> MU1
   U33  (7 Oct) Accounts: yours and your family's only (spouse, dependent
        children and parents, who may share your static IP under SEBI's
        April 2026 rules); nobody else's (one static IP per trader, and
@@ -221,6 +228,16 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              7. Consider a private GitHub repo: Actions logs are public (the
                 live step now prints counts only; the executor still logs
                 book equity).
+[!] P1  MU1  Multi-user accounts: review and merge both repos.  Then take
+             the draft terms (kite_connect/auth/terms.py) and the plan
+             (Claude doc "Centurion multi-user: licensed-route plan",
+             claude.ai/code/artifact/4daefe67-cb1c-4321-8a8a-54316638a742)
+             to a securities lawyer.  Leave CENTURION_ALGO_PROVIDER_ID and
+             CENTURION_SEBI_REGISTRATION unset: NSE requires a provider's
+             strategies to run on the broker's servers (NSE/INVG/69255),
+             so registration alone does not permit orders from Centurion's
+             server; the route counsel picks decides the code.  Until then
+             every connected account is read-only, family included (U34).
 [!] P3  O1d  Run the options paper demo once: after a Kite login, GitHub
              Actions > "Options paper demo" > Run (NIFTY, moderate_bull, 1
              lot; paper only); read the artifact.  Commit + merge first.
@@ -372,6 +389,25 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+8 Oct   MU1  Multi-user accounts (your ask; U34).  Any user's Zerodha
+             account connects on the same criteria; relation is gone (a
+             stored one is ignored on load).  Fly Kite shows what every
+             account needs (demat with funds, own Kite Connect app with the
+             redirect URL and IP, daily login, terms, Centurion's
+             registration and whether it is in place) and the terms; rows
+             show terms accepted / not yet and why trading is locked, with
+             Copy link and Holdings (holdings + available funds, admin
+             only).  After a holder's Kite login, the callback shows the
+             terms with a required box and I agree; a signed 15-minute
+             ticket posts to /ind-stocks/auth/consent (public), which
+             records version, time and Zerodha user id.  Dry run / Live are
+             refused, and the evening session skips the account, until the
+             current terms are accepted and both registration settings
+             are set.  The workflows mask holders' names, ids and emails in
+             the public logs (accounts mask).  README section rewritten.
+             Checked with fakes (30 checks: gate, consent, tampered /
+             other-purpose / oversized posts, API, holdings roles, mask,
+             session skip); suite 213 myenv, 212 + 1 skipped core-only.
 8 Oct   SEC2 Residual security items (your ask), all closed or reasoned:
              - a 500's message (exception text in ~93 handlers) goes to the
                log and Sentry; the caller gets "Internal server error";
@@ -398,7 +434,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              tags (SHAs without Dependabot would freeze their fixes).  Your
              option: a fine-grained HF token, write to this Space only, as
              the HF_TOKEN secret.  Checked with a test client; suite 213
-             myenv, 212 + 1 skipped core-only; no new lint findings.
+             myenv, 212 + 1 skipped core-only; no new lint findings.  You
+             merged both repos; live 17:23 IST (checked: /health without
+             the Kite flag, reads 401, the login form's new message).
 8 Oct   RR1  Registry refreshed (your ask) after the 7 Oct store rebuild:
              hash 6c94f4f4 -> ba7c0982 (data from 2012-01-02, as D4).  The
              60 same-window configurations re-run on Kaggle (kernel

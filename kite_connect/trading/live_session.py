@@ -51,9 +51,10 @@ rehearsal book in Neon).
     python -m kite_connect.trading.live_session --capital 600000     # first real session
     python -m kite_connect.trading.live_session                       # later sessions
 
-A family account (tracker FA2, ``kite_connect.auth.accounts``) runs the same
-session in its own book (schema ``live_<id>``) with its own Kite app, token,
-capital and mode: ``--stored-token --account <id>``.  While it is being
+A connected account (trackers FA2, MU1, ``kite_connect.auth.accounts``) runs
+the same session in its own book (schema ``live_<id>``) with its own Kite app,
+token, capital and mode: ``--stored-token --account <id>``, and none while
+its trading is locked (``accounts.trading_lock``).  While it is being
 disconnected (FA3) its sessions only sell the ledger's positions
 (:func:`unwind_orders`), then it turns off.
 """
@@ -295,7 +296,7 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
     """One live session end to end (see the module docstring).  Returns a report dict.
 
     ``requested_capital`` is the ladder request (default ``CENTURION_LIVE_CAPITAL``);
-    ``label`` names a family account in the email; ``unwind_sessions`` > 0 is a
+    ``label`` names a connected account in the email; ``unwind_sessions`` > 0 is a
     disconnect (FA3): tonight's orders only sell, over that many sessions.
     """
     from kite_connect.trading.nse_engine_executor import (EngineExecutor, kite_book, live_order_outcomes,
@@ -694,7 +695,7 @@ def main(argv=None) -> int:
                     help="the scheduled run: today's token from the Kite login callback, calls through "
                          "CENTURION_KITE_PROXY (U23)")
     ap.add_argument("--account", default="",
-                    help="a family account's id (kite_connect.auth.accounts, FA2): its own book, Kite app, "
+                    help="a connected account's id (kite_connect.auth.accounts, FA2): its own book, Kite app, "
                          "capital and mode; needs --stored-token")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -704,9 +705,13 @@ def main(argv=None) -> int:
         from kite_connect.auth import accounts
         acct = accounts.get(args.account)
         if acct.is_primary or not args.stored_token:
-            ap.error("--account names a family account (your own is the default) and needs --stored-token")
+            ap.error("--account names a connected account (your own is the default) and needs --stored-token")
         if acct.mode == "off":
-            print(f"{acct.name}: Centurion does not manage this account (mode off)")
+            print(f"{acct.id}: Centurion does not manage this account (mode off)")
+            return 0
+        lock = accounts.trading_lock(acct)
+        if lock:
+            print(f"{acct.id}: session skipped: {lock}")
             return 0
         dry_run = dry_run or acct.mode == "dry_run"      # never above the master switch (--dry-run)
         capital = capital if capital is not None else acct.capital

@@ -129,7 +129,7 @@ Jump to **Section 15: Troubleshooting** or **Section 12: Installation** for deta
 2. [Carver Systematic Trading Framework](#2-carver-systematic-trading-framework)
 3. [Core Analysis Engine](#3-core-analysis-engine)
 4. [Strategy Backtesting](#4-strategy-backtesting)
-5. [Live Trading — Zerodha Kite Connect](#5-live-trading--zerodha-kite-connect) — incl. [connecting a family member's account](#connecting-a-family-members-account)
+5. [Live Trading — Zerodha Kite Connect](#5-live-trading--zerodha-kite-connect) — incl. [connecting a Zerodha account](#connecting-a-zerodha-account)
 6. [RAG Document Intelligence](#6-rag-document-intelligence)
 7. [Database Layer](#7-database-layer)
 8. [Object Storage (MinIO / Cloudflare R2)](#8-object-storage-minio--cloudflare-r2)
@@ -758,11 +758,19 @@ Push-based tick distribution via Kite WebSocket (KiteTicker) with an internal ev
 - **Portfolio Analyzer** — sector weights, allocation drift analysis from live Kite holdings
 - **SELL Pipeline** — automated exit for SELL/STRONG_SELL verdicts on existing holdings
 
-### Connecting a family member's account
+### Connecting a Zerodha account
 
-Centurion can trade the deployed configuration in a family member's Zerodha account, each in its own book (`kite_connect/auth/accounts.py`). Only a **spouse, dependent child or dependent parent** may share your registered static IP under SEBI's retail algo rules, so no one else can be added. At most 6 family accounts. Centurion stores the app's API key and secret (encrypted), **never a password or TOTP**.
+Centurion can connect any user's Zerodha account and trade the deployed configuration in it, each in its own book (`kite_connect/auth/accounts.py`). **Every account meets the same criteria**: there is no family or relation tier. At most 20 accounts. Centurion stores the app's API key and secret (encrypted), **never a password or TOTP**. Fly Kite → Zerodha accounts shows this list.
 
-**1. The family member creates their own Kite Connect app.** They sign in at [developers.kite.trade](https://developers.kite.trade) and create an app with:
+**What every account needs**
+
+1. A Zerodha trading and demat account, holding the funds Centurion may use.
+2. The holder's own Kite Connect app (step 1 below).
+3. A Kite login on Zerodha's page each trading day, from the emailed link. Tokens lapse at 06:00 IST.
+4. The holder's acceptance of Centurion's terms: after their first login, Zerodha returns them to a page listing the terms (`kite_connect/auth/terms.py`), where they tick the box and click **I agree**. Centurion records the terms version, the time and their Zerodha user ID. A new terms version asks again at the next login.
+5. Centurion's registration on the server. Until both `CENTURION_ALGO_PROVIDER_ID` (the exchange empanelment through the broker) and `CENTURION_SEBI_REGISTRATION` (RA or PMS number) are set, **every connected account is read-only**. Accounts connect, log in and show their holdings and funds (admin only), but Centurion builds and places no orders in them. Why: under SEBI's retail algo framework, running a strategy for another person's account is an empanelled algo provider's business, and managing their money at Centurion's discretion is portfolio management. Set the two values (HF Space variables for the API, GitHub repository variables for the evening session) only on a securities lawyer's advice: NSE requires a provider's strategies to run on the broker's servers (circular NSE/INVG/69255), so registration alone may not permit orders from Centurion's own server.
+
+**1. The holder creates their own Kite Connect app.** They sign in at [developers.kite.trade](https://developers.kite.trade) and create an app with:
 
 | Field | Value |
 |-------|-------|
@@ -770,20 +778,20 @@ Centurion can trade the deployed configuration in a family member's Zerodha acco
 | Zerodha Client ID | their own user ID, e.g. `AB1234` |
 | Redirect URL | `https://srees16-centurion-core.hf.space/ind-stocks/auth/callback` (the panel shows it) |
 | Postback URL | leave empty |
-| IP whitelist (static IP) | the IP shown in the panel: your Oracle proxy's reserved IP (`CENTURION_KITE_STATIC_IP`) |
+| IP whitelist (static IP) | the IP shown in the panel (`CENTURION_KITE_STATIC_IP`); Kite uses it only for orders, which start once trading is unlocked |
 
-Once the app is created, they copy its **API key** and **API secret**.
+Once the app is created, they share its **API key** and **API secret** with you.
 
-**2. Add the account in Centurion.** Go to **Fly Kite → Zerodha accounts → Add family account**. Enter their name, relation, Zerodha user ID, the app's API key and secret, and optionally an email for their daily login link. Without an email, the link comes to you.
+**2. Add the account in Centurion.** Go to **Fly Kite → Zerodha accounts → Add account**. Enter their name, Zerodha user ID, the app's API key and secret, and optionally an email for their daily login link. Without an email, the link comes to you.
 
-**3. Log in once.** Click **Log in** on their row. The holder types their password and TOTP on Zerodha's own page. Centurion keeps the login only if it is for the Zerodha user ID entered in step 2. The row then shows **Logged in**.
+**3. First login and the terms.** Click **Copy link** on their row and send it to the holder. They type their password and TOTP on Zerodha's own page. Centurion keeps the login only if it is for the Zerodha user ID entered in step 2. Then they accept the terms. The row shows **Logged in** and **terms accepted**, and **Holdings** shows their holdings and available funds.
 
-**4. Choose the capital, then Dry run.** Pick a ladder rung in **Choose capital** (start at ₹6,00,000), then press **Dry run**. From the next trading evening:
+**4. Choose the capital, then Dry run** (once trading is unlocked). Pick a ladder rung in **Choose capital** (start at ₹6,00,000), then press **Dry run**. From the next trading evening:
 - each evening's session builds the account's orders and sends none;
 - the holder gets the 09:00 login email (again at 17:30 if they haven't logged in);
 - you get a session email tagged with their name.
 
-Runs need your own `CENTURION_LIVE_MODE` to be `dry_run` or `live`. A day without a login is skipped.
+Runs need your own `CENTURION_LIVE_MODE` to be `dry_run` or `live`. A day without a login is skipped, and so is an account whose trading is locked (terms or registration). Holders' names, account IDs and emails are masked in the workflows' public logs.
 
 **Going live later.** Press **Live** only after the account has finished 5 clean dry runs and the configuration's paper G4 check has passed. Real orders go out only while your own mode is `live`, and the first real session re-checks this. `CENTURION_GO_LIVE_OVERRIDE` applies to your account only. After that, the capital moves one ladder rung at a time.
 

@@ -169,7 +169,7 @@ def kite_from_stored_token(book=None, now: Optional[datetime] = None, proxy_url:
                            kite_factory: Optional[Callable] = None, key: Optional[str] = None):
     """A Kite session from today's stored token (through the proxy), or None.
 
-    ``key`` is the API key of the app the token belongs to (a family account's,
+    ``key`` is the API key of the app the token belongs to (a connected account's,
     ``kite_connect.auth.accounts``); default the server's own.
     """
     token = load_token(book, now)
@@ -187,7 +187,7 @@ def remind(book=None, now: Optional[datetime] = None, force: bool = False,
            mode: Optional[str] = None, holder: str = "") -> str:
     """Email the login link on a trading day when today's token is missing.
 
-    A family account (``kite_connect.auth.accounts.remind``) passes its own
+    A connected account (``kite_connect.auth.accounts.remind``) passes its own
     book, link, mode and holder's name, and a ``send`` addressed to the holder.
     """
     now = (now or datetime.now(IST)).astimezone(IST)
