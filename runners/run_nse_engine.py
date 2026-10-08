@@ -108,6 +108,15 @@ def cmd_build_store(args) -> None:
     registry_check_after_rebuild(cfg)
 
 
+def _registry_anchor() -> str:
+    """The data anchor the registry's same-window runs are recorded on: the deployment's
+    validated anchor (D4 and RR1 refreshed every run from it).  The data hash covers the
+    loaded rows, so a check from any other anchor reports a change that is not there."""
+    from nse_engine.deployment import load_deployment
+
+    return load_deployment().data_start().isoformat()
+
+
 def registry_check_after_rebuild(cfg: EngineConfig) -> dict:
     """Did the rebuild change the data fingerprint the trial registry sits on?
 
@@ -121,7 +130,7 @@ def registry_check_after_rebuild(cfg: EngineConfig) -> dict:
     registry = TrialRegistry(cfg.runs_dir)
     window = (cfg.start, cfg.end)
     try:
-        data = _load_data(cfg)
+        data = _load_data(cfg, data_start=_registry_anchor())
         status = fingerprint_status(registry, window, data.data_hash)
     except Exception as exc:  # noqa: BLE001 - report, do not fail the rebuild
         print(f"registry fingerprint check could not run: {exc}")
@@ -235,7 +244,7 @@ def cmd_refresh_registry(args) -> None:
         if not from_hash:
             raise SystemExit(f"no recorded runs on {cfg.start}..{cfg.end}")
         print(f"from-hash not given: using {from_hash}, the hash of the latest recorded run on this window")
-    data = _load_data(cfg, data_start=getattr(args, "data_start", None))
+    data = _load_data(cfg, data_start=getattr(args, "data_start", None) or _registry_anchor())
     print(f"store fingerprint now {data.data_hash}; recorded runs carry {from_hash}")
     if data.data_hash == from_hash:
         print("the fingerprint has not changed; the registry is continuous, nothing to refresh")

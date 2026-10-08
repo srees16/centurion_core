@@ -176,10 +176,10 @@ audit the current order workflow beginning with user's ticker input until placin
 1. Create pipelines to enable multiple paper trade runs based on future enhancements without affecting live trade underway
 7. design n implement kill switch
 
-Reorder per priority for final prod go-live:
+Reorder per priority for final go-live applicable to all the strategies, both current and future:
 Ensure centurion is survivorship bias free
 Backtest is robust
-Forward walk is as expected
+out of sample Forward walk is as expected
 Paper trade metrics are in line with goal
 Live dry run is as expected
 Out of sample is realistic
