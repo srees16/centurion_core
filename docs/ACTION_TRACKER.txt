@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 08 Oct 2026, 22:37 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 08 Oct 2026, 23:33 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -289,38 +289,14 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
         cannot be checked from outside (the Space's /auth/status is its
         own session, cleared by every redeploy) - the dry-run email says
         "no login today" if the token is missing.
-#2  [ ] P1  SC1  Strategy scorecard when paper trading completes (your ask,
-                 8 Oct).  Due at 60 paper sessions (~mid Dec): before D3
-                 sizes the first rung, and it feeds V3.  One report per
-                 book (deployed, candidate 2d64ba4c, e4) answering: does
-                 the Sharpe survive costs, out-of-sample testing and live
-                 trading at the size we mean to run?  Centurion trades
-                 non-HFT, so robustness and overfitting weigh most.
-                 Return / risk: Sharpe, Sortino, information ratio (vs
-                   NIFTY 50 TRI), Calmar, MaxDD, volatility, CVaR 95%
-                   (expected shortfall), skew, kurtosis.
-                 Attribution: beta and factor exposures (market, size,
-                   value, momentum, low-vol; IIM-A's India factors or our
-                   own from the store), the alpha left after them, alpha
-                   decay (rolling alpha; returns by holding horizon).
-                 Trading: implementation shortfall and slippage vs the
-                   cost model (G4's fills), market impact by order size /
-                   ADV, turnover, hit rate, win/loss ratio, profit factor,
-                   average P&L per trade.
-                 Robustness: walk-forward OOS (K5, R12), deflated Sharpe
-                   and PBO (the registry, RR1), parameter sensitivity (the
-                   grid's neighbours), regime stability (bull / bear /
-                   sideways, high / low VIX), live vs backtest tracking
-                   error (G4).
-                 Capacity: the capital at which modelled impact eats half
-                   the edge, across the ladder (Rs 6L-30L) and beyond.
-                 Correlation: daily returns vs Centurion's other books and
-                   sleeves (metal, options): a mediocre uncorrelated Sharpe
-                   can be worth more than a great correlated one.
-                 Pass rules fixed before the data is read: section 1's
-                   targets (net Sharpe > 1.2, MaxDD <= 30%, Calmar >= 1,
-                   DSR >= 0.95, OOS Sharpe >= 1.2) plus any you add; the
-                   rest is reported.                     Prompt: do SC1
+#2  [ ] P1  SC1b Re-run the scorecard with the paper books at 60 sessions
+                 (~mid Dec, before D3 sizes the first rung; feeds V3):
+                 python -m runners.run_nse_engine scorecard --book all
+                 [--paper-schema candidate | e4] with CENTURION_DATABASE_URL
+                 set, which fills the live section (G4 tracking error, fill
+                 cost ratio = implementation shortfall vs the model, drawdown
+                 vs backtest) and the paper books' own Sharpe / turnover /
+                 hit rate.  Built 8 Oct (SC1 in DONE).         Prompt: do SC1b
 #3  [ ] P1  V3   Forward-gate decisions pick the live configuration: candidate
                  ~24 Dec, e4 ~early Jan ("promote --check").  R12's OOS says
                  exit rank 60 cuts MaxDD 20.9% -> 17.2% (Calmar 1.0 -> 1.27);
@@ -389,6 +365,95 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+8 Oct   SC1  Strategy scorecard built and run (your ask, brought forward
+             from mid Dec).  nse_engine/scorecard.py + `run_nse_engine
+             scorecard`: one report per book from its latest recorded run
+             (docs/scorecards/2026-10-08_{deployed,candidate,e4}.md, JSON
+             under data/nse_engine/scorecard/).  New metrics: information
+             ratio vs NIFTY 50 TRI, CVaR 95/99, style factors built point in
+             time from the store (market, size by traded value, 12-1
+             momentum, low vol; value needs fundamentals the store lacks)
+             with the alpha left after them, alpha decay (forecast rank IC
+             by horizon, alpha by year and trend, P&L by holding period),
+             win/loss ratio, profit factor, P&L per round trip, impact by
+             participation, capacity (fills of the last 2 years re-sized:
+             the capital where impact eats half the gross edge), one-setting
+             neighbours from the registry, NIFTY-trend / VIX regime splits,
+             correlation with the other books, the options sleeves and the
+             metal ETFs; DSR / PBO / walk-forward reuse the validation code.
+             Pass rules = section 1's targets, fixed first.
+             Deployed 679cbd0c: Sharpe 1.21 PASS, MaxDD -23.1% PASS, Calmar
+             1.03 PASS, DSR 0.989 PASS, walk-forward OOS 1.15 FAIL (R12 A).
+             IR 0.55, Sortino 1.67, CVaR95 -2.0%/day, skew -0.86, kurtosis
+             4.9, beta 0.40 (0.42 on down days).  After the style factors
+             alpha 11.9%/yr (t 3.5): 73% of the excess return; momentum
+             beta 0.31 explains 3.7 pts, low-vol -0.26.  No alpha decay:
+             forecast IC rises with horizon (0.03 at 5 d -> 0.09 at a year),
+             alpha trend +0.5 pt/yr (p 0.70), second half 14.9% vs 7.2%.
+             Trading: hit rate 43%, win/loss 2.4, profit factor 1.81, Rs
+             2.5k (14 bp) per round trip; trips under 2 months lose (23-40%
+             hit), over 2 months win (86-100%).  Impact 10 bp of traded
+             value, 1.4%/yr of the 2.8% cost drag.  Capacity: impact eats
+             half the edge at ~Rs 320 cr; at Rs 30 L it costs 0.6%/yr.  PBO
+             57.7% over 61 configs (56.1% before SB2's extra trial).  14
+             neighbours: fragile = stop ATR 6 -> 3 (-0.22) and any third
+             signal group (-0.07 to -0.38); the rest within +/-0.06.
+             Regimes: NIFTY bear -22%/yr (Sharpe -1.9, 19% of days), bull
+             +39%, VIX > 25 -21%.  Correlation: candidate 0.97, E4 0.96 (one
+             family, no diversification), options ~0, gold 0.23, NIFTY 0.48.
+             Candidate 2d64ba4c: Calmar 0.98 FAIL, OOS 1.15 FAIL, rest PASS.
+             E4 93cf6c4d: all 5 PASS (OOS 1.27, R12 B), capacity ~Rs 470
+             cr.  Live section pending Neon (2 real fills so far).  Suite
+             220 myenv; 215 + 1 skipped core-only (fast set).
+8 Oct   SB2  Survivorship-bias audit (your ask).  Engine clean: the
+             store holds every traded symbol (2,602; 125 of the 820 that
+             were ever in the top-300 universe stopped trading later); the
+             universe reads rows <= t; the load filter (peak 126-day median
+             >= Rs 25 L) can drop nothing the Rs 1 cr universe could pick;
+             delisting exits at the last close were 4 in 2013-25, all
+             mergers or delisting offers (RANBAXY, SHASUNPHAR, ESSAROIL,
+             HEXAWARE), close to what holders got; one universe member left
+             EQ/BE for BZ (JETAIRWAYS 2019, ~same price); no stray ETFs.
+             Biased: the 25% sector cap's map is today's NIFTY 500, so
+             names that dropped out are never capped (32-36% of the book's
+             equity weight in 2013-17 had no sector; 1-3% in 2024-25; a
+             sector at the cap on 15% of days).  Outside the engine (US /
+             Ind backtest pages, labs, RL bot): yfinance on today's tickers,
+             research only.
+             MEASUREMENT, pre-registered 08 Oct 2026, 22:57 IST before running: one Kaggle
+             job on store ba7c0982, 2013-01-01..2025-12-31, anchor
+             2012-01-02, cost model 3: the deployed 679cbd0c as the
+             same-job control, and the same with portfolio.sector_cap null.
+             Recorded and counted as one trial; a bias check, not a
+             candidate.  Remove or keep is your decision afterwards, on the
+             bias and the measured size, not on which run looks better.
+             RESULT (8 Oct, 23:05): both runs identical to 4 decimals and to
+             the RR1 run (CAGR 23.74%, Sharpe 1.206, MaxDD -23.06%; runs
+             ..._679cbd0c and ..._5fab0468 recorded).  Why: Kaggle has no
+             sector map (the code upload leaves data/ out and the store's
+             reference/ holds no nse_sector_map.json), so the cap never
+             acted in any Kaggle run: the registry is free of this bias.
+             The map acts in local Mac backtests (biased there) and in the
+             paper / live books (correct there: today's map, today's
+             decisions), so the live book runs a cap no recorded backtest
+             had.  FIX (your choice, point-in-time map): dated snapshots
+             data/nse_sector_maps/<date>.json (2026-09-14 and 2026-09-30 from
+             git; build-store adds one when the NIFTY 500 list changes); a
+             decision uses the latest snapshot on or before it, none before
+             the first.  So no 2013-25 backtest caps by sector (Mac now runs
+             as Kaggle; no recorded result changes), and paper / live keep
+             the cap from 16 Sep (checked: 0 sectors before 14 Sep, 499 on
+             16 Sep, 497 from 30 Sep).  Data hash unaffected (sectors are
+             not hashed).  Guardrails: the rule in docs/nse_engine.md and
+             tests/test_survivorship.py (5 fast: a delisted stock stays
+             selectable until its last day, the load filter keeps it, the
+             cap reads only dated snapshots, build keeps one snapshot per
+             change; 2 slow on the store: >= 100 symbols stop trading
+             before its end, a 2025 backtest has no sector map).  Suite
+             220 myenv; 215 + 1 skipped core-only (fast set).
+             R6 / R9 not run (your question): neither is needed before the
+             January decisions, and they would take 6 configurations
+             against the 1 left.
 8 Oct   UI1  Trade Monitor page renamed Trade Center (your ask): route
              /ind-stocks/trade-center, sidebar, heading; /ind-stocks/
              trade-monitor redirects permanently (308) with its ?tab= and

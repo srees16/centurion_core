@@ -469,6 +469,18 @@ def cmd_paper_gate(args) -> None:
         print(paper_gate.format_report(report, title=f"Paper gate (G4) - {label}"))
 
 
+def cmd_scorecard(args) -> None:
+    """SC1: the strategy scorecard of a book's latest recorded run (docs/scorecards/)."""
+    from nse_engine.scorecard import main as scorecard_main
+
+    argv = ["--book", args.book, "--md-dir", args.md_dir, "--json-dir", args.json_dir]
+    if args.run:
+        argv += ["--run", args.run]
+    if args.paper_schema:
+        argv += ["--paper-schema", args.paper_schema]
+    scorecard_main(argv)
+
+
 def cmd_anchor_check(args) -> None:
     """Run the same window from two load starts and report whether the results agree.
 
@@ -552,6 +564,15 @@ def main(argv=None) -> None:
     p.add_argument("--tag", default="")
     p.add_argument("--lag-days", type=int, default=0)
     p.set_defaults(func=cmd_backtest)
+
+    p = sub.add_parser("scorecard", help="SC1 strategy scorecard of a book's latest recorded run: return/risk, "
+                                         "factors, alpha decay, trading, capacity, robustness, correlation, paper G4")
+    p.add_argument("--book", default="all", choices=["all", "deployed", "candidate", "e4"])
+    p.add_argument("--run", help="a recorded run id (default: the book's latest on the current cost model)")
+    p.add_argument("--paper-schema", help="the paper book's Neon schema (needs CENTURION_DATABASE_URL)")
+    p.add_argument("--md-dir", default="docs/scorecards")
+    p.add_argument("--json-dir", default="data/nse_engine/scorecard")
+    p.set_defaults(func=cmd_scorecard)
 
     p = sub.add_parser("validate", help="DSR, PBO and benchmark gate for a recorded run")
     p.add_argument("--run-id")

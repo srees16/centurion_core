@@ -1,6 +1,12 @@
 """
 NSE reference data: ETF list, date-aware symbol changes, sector map.
 
+The sector map lists the NIFTY 500 of the day it was built, so it is dated
+(tracker SB2): each build also keeps a snapshot ``nse_sector_maps/<date>.json``
+when the map changed, and a decision uses the latest snapshot dated on or
+before it (none before the first).  A backtest of 2013 therefore never caps
+by today's index members, which would cap only the companies that survived.
+
 Symbol linking
 --------------
 NSE renames symbols (ZOMATO -> ETERNAL, TATAMOTORS -> TMPV) and changes
@@ -27,7 +33,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Dict, FrozenSet, Iterable, Optional, Union
+from typing import Dict, FrozenSet, Iterable, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -40,6 +46,8 @@ ETF_LIST = "eq_etfseclist.csv"
 SYMBOL_CHANGES = "symbolchange.csv"
 EQUITY_LIST = "EQUITY_L.csv"
 NIFTY500_LIST = "ind_nifty500list.csv"
+#: Dated sector-map snapshots, next to the map: ``<map dir>/nse_sector_maps/YYYY-MM-DD.json``.
+SECTOR_SNAPSHOTS = "nse_sector_maps"
 
 CHANGE_COLUMNS = ["old", "new", "date", "valid_from", "source"]
 
@@ -268,11 +276,29 @@ def build_sector_map(archive_root: PathLike, out_path: PathLike = "data/nse_sect
     sectors = dict(sorted(sectors.items()))
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(sectors, indent=2, sort_keys=True) + "\n"
     tmp = out.with_name(f".{out.name}.tmp{os.getpid()}")
-    tmp.write_text(json.dumps(sectors, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp.write_text(text, encoding="utf-8")
     os.replace(tmp, out)
+    history = load_sector_history(out.parent / SECTOR_SNAPSHOTS)
+    if not history or history[-1][1] != sectors:          # a new map: valid from today on
+        snap = out.parent / SECTOR_SNAPSHOTS / f"{pd.Timestamp.today().date().isoformat()}.json"
+        snap.parent.mkdir(parents=True, exist_ok=True)
+        snap.write_text(text, encoding="utf-8")
+        logger.info("sector map snapshot -> %s", snap)
     logger.info("sector map: %d symbols -> %s", len(sectors), out)
     return sectors
+
+
+def load_sector_history(directory: PathLike) -> List[Tuple[pd.Timestamp, Dict[str, str]]]:
+    """The dated sector-map snapshots in ``directory``, oldest first ([] if none)."""
+    out = []
+    for p in sorted(Path(directory).glob("*.json")) if Path(directory).is_dir() else []:
+        try:
+            out.append((pd.Timestamp(p.stem), {str(k).upper(): str(v) for k, v in json.loads(p.read_text()).items()}))
+        except ValueError:
+            logger.warning("invalid sector-map snapshot %s", p)
+    return out
 
 
 def load_sector_map(paths: Iterable[PathLike]) -> Dict[str, str]:
