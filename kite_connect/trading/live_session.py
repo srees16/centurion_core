@@ -672,13 +672,26 @@ def _email(report: dict, dep, snap: dict, capital: float, schema: str, label: st
         logger.warning("Live daily email failed: %s", exc)
 
 
+def _login_accepted(kite) -> bool:
+    """Does Kite still accept the stored login?  One issued before the app's API secret was
+    regenerated, or logged out since, is refused (TokenException): the session then skips as it
+    does without a login, rather than failing."""
+    from kiteconnect.exceptions import TokenException
+
+    try:
+        kite.profile()
+    except TokenException:
+        return False
+    return True
+
+
 def _email_skip(message: str, label: str = "") -> None:
     import html
 
     try:
         from services.notifications.manager import NotificationManager
         NotificationManager._send_html_email(
-            f"Centurion live{f' [{label}]' if label else ''}: no Kite login today, session skipped",
+            f"Centurion live{f' [{label}]' if label else ''}: no valid Kite login today, session skipped",
             f"<html><body style='font-family:Segoe UI,Arial,sans-serif;padding:20px;'><p>{html.escape(message)}</p></body></html>")
     except Exception as exc:                              # noqa: BLE001
         logger.warning("skip email failed: %s", exc)
@@ -720,9 +733,14 @@ def main(argv=None) -> int:
         from kite_connect.auth import daily_login as dl
         book = live_book(acct.schema if acct else None)
         kite = dl.kite_from_stored_token(book, key=acct.api_key if acct else None)
-        if kite is None:
-            msg = (f"No Kite login today{f' for {acct.name}' if acct else ''}, so the live session was skipped: "
-                   "no orders were placed. GTT stops stay active at Zerodha. Log in tomorrow from the reminder email.")
+        rejected = kite is not None and not _login_accepted(kite)
+        if kite is None or rejected:
+            whose = f" for {acct.name}" if acct else ""
+            msg = (f"Kite rejected today's login{whose} (made before the API secret was regenerated, or logged out "
+                   "since), so the live session was skipped: no orders were placed. GTT stops stay active at "
+                   "Zerodha. Log in again from the reminder email or Fly Kite." if rejected else
+                   f"No Kite login today{whose}, so the live session was skipped: no orders were placed. "
+                   "GTT stops stay active at Zerodha. Log in tomorrow from the reminder email.")
             logger.warning(msg)
             today = datetime.now(dl.IST).date().isoformat()
             if not args.no_email and book.read_state().get(LIVE_SKIP_NOTIFIED_KEY) != today:

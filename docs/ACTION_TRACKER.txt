@@ -406,9 +406,18 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              request, four today), so the 19:00 run re-downloaded the archive
              from 2012 and ran into the 150-minute sync limit.  Deleted the
              four test caches (the rest ~0.6 GB); tests.yml no longer caches
-             pip (merge it).  The rebuild resumes run to run (the cache saves
-             even on timeout).  gh CLI installed (~/.local/bin/gh, your web
-             login) to read Actions logs.
+             pip (merged 8 Oct, 21:00).  The rebuild finished inside the
+             limit (135 min, mode=bootstrap, 4,628 sessions); paper emails
+             sent 21:19-21:21 IST; the archive cache is saved again.  The
+             live dry run failed on a Kite token issued before the 8 Oct API
+             secret regeneration (TokenException): a fresh login fixes it.
+             Since then (your report of the two 21:20 / 21:27 alerts): a login
+             Kite rejects skips the session with the once-a-day "no valid
+             Kite login" email instead of failing, and a live-book failure
+             alert says "live book FAILED" with a working run link and
+             without the paper books' stale-order warning.
+             gh CLI installed (~/.local/bin/gh, your web login) to read
+             Actions logs.
 8 Oct   MU2b Sign-up details encrypted and "Delete my account" (your ask).
              app.users keeps one Fernet-encrypted profile (email, name, DOB,
              gender, mobile, city, state, country, experience; key
@@ -430,7 +439,11 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              mode control, capital, holdings that slide open.  Remove, Go
              live, capital change and disconnect ask in dialogs, not
              browser pop-ups.  New components/ui/dialog.tsx (Radix).
-             Type-check and production build pass.
+             Type-check and production build pass.  Fixed the same day (your
+             report): the add dialog scrolled sideways; its grid column now
+             shrinks to the panel (minmax(0, 1fr)) and the redirect URL
+             wraps.  Measured in headless Chrome with the built CSS: content
+             668 px in a 574 px dialog before, fits after; same on a phone.
 8 Oct   MU2  Self-service accounts (your ask).  /signup (name, email,
              password, date of birth 18+, gender, city, country; mobile,
              state, experience optional; consent box), stored in Neon
