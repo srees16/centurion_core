@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 
 from api.dependencies import get_kite_session, set_kite_session
@@ -131,14 +131,37 @@ _AUTO_CLOSE = (
 )
 
 
-def _login_page(title: str, detail: str, ok: bool, auto_close: bool = False) -> str:
+def _login_page(title: str, detail: str, ok: bool, auto_close: bool = False, extra: str = "") -> str:
     colour = "#15803d" if ok else "#dc2626"
     return ("<html><head><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
             "<body style='font-family:Segoe UI,Arial,sans-serif;background:#f9fafb;padding:24px;'>"
             "<div style='max-width:520px;margin:40px auto;background:#fff;border-radius:10px;"
             f"box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:24px;border-top:5px solid {colour};'>"
             f"<h2 style='margin-top:0;color:{colour};'>{title}</h2><p style='color:#444;'>{detail}</p>"
-            f"{_AUTO_CLOSE if auto_close else ''}</div></body></html>")
+            f"{extra}{_AUTO_CLOSE if auto_close else ''}</div></body></html>")
+
+
+CONSENT_PURPOSE, CONSENT_MAX_AGE_S, CONSENT_MAX_BODY = "kite-consent", 15 * 60, 4096
+
+
+def _terms_form(acct, user_id: str) -> str:
+    """The current terms with a box to tick and an I agree button (MU1), for the holder just logged in."""
+    from html import escape
+
+    from api.auth import sign_ticket
+    from kite_connect.auth import terms
+
+    ticket = sign_ticket(CONSENT_PURPOSE, {"a": acct.id, "u": user_id, "v": terms.TERMS_VERSION})
+    items = "".join(f"<li style='margin-bottom:8px;'>{escape(t)}</li>" for t in terms.TERMS)
+    return (f"<ol style='color:#333;font-size:14px;padding-left:20px;'>{items}</ol>"
+            "<form method='post' action='/ind-stocks/auth/consent'>"
+            f"<input type='hidden' name='ticket' value='{escape(ticket)}'>"
+            "<label style='display:block;margin:12px 0;color:#111;'><input type='checkbox' name='agree' value='yes' "
+            "required> I have read and accept these terms</label>"
+            "<button type='submit' style='background:#15803d;color:#fff;border:0;border-radius:6px;"
+            "padding:10px 20px;font-size:15px;cursor:pointer;'>I agree</button></form>"
+            f"<p style='color:#666;font-size:13px;'>Terms version {escape(terms.TERMS_VERSION)}. Not now? Close this "
+            "tab: today's login still counts, and Centurion places no orders in this account until you accept.</p>")
 
 
 @router.get("/auth/callback", response_class=HTMLResponse, include_in_schema=False)
@@ -147,9 +170,10 @@ async def kite_login_callback(request_token: str = "", status: str = "", action:
 
     Exchanges the one-time request token for the day's access token and stores
     it encrypted in the account's live book.  ``account`` (Kite's
-    ``redirect_params``) names a family account (U33), checked against its
+    ``redirect_params``) names a connected account (MU1), checked against its
     Zerodha user id; without it the login is the primary's, which also opens
-    the API's Kite session.
+    the API's Kite session.  A holder who has not accepted the current terms
+    gets them next, to accept with I agree (:func:`kite_terms_consent`).
     """
     from html import escape
     if status != "success" or not request_token:
@@ -165,6 +189,11 @@ async def kite_login_callback(request_token: str = "", status: str = "", action:
             set_kite_session(res["kite"])
         when = datetime.fromisoformat(res["kite_login_at"]).strftime("%H:%M IST, %a %d %b")
         who = escape(res["user_id"]) if acct.is_primary else f"{escape(acct.name)} ({escape(res['user_id'])})"
+        if not accounts.has_consent(acct):
+            return HTMLResponse(_login_page(
+                "Kite login successful: one more step",
+                f"{who}, {when}. Before Centurion uses the funds in this account to place buy and sell orders, "
+                "read and accept its terms.", True, extra=_terms_form(acct, res["user_id"])))
         return HTMLResponse(_login_page(
             "Kite Login Successful",
             f"{who}, {when}. The session will be active until 0600 IST tomorrow.",
@@ -178,6 +207,50 @@ async def kite_login_callback(request_token: str = "", status: str = "", action:
         return HTMLResponse(_login_page("Kite login failed", escape(str(exc))[:300] +
                                         ". Request tokens work once and expire in minutes: log in again.",
                                         False), status_code=401)
+
+
+@router.post("/auth/consent", response_class=HTMLResponse, include_in_schema=False)
+async def kite_terms_consent(request: Request):
+    """The holder's I agree on the terms the login callback showed (MU1): records version, time and user id.
+
+    Public, like the callback: the signed ticket from that page (15 minutes,
+    bound to the account, its Zerodha user id and the terms version) is the
+    proof that the holder has just logged in.
+    """
+    import asyncio
+    from html import escape
+    from urllib.parse import parse_qs
+
+    from api.auth import read_ticket
+    from kite_connect.auth import accounts
+
+    body = b""
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > CONSENT_MAX_BODY:
+            return HTMLResponse(_login_page("Terms not accepted", "The request is too large.", False), status_code=413)
+    form = parse_qs(body.decode(errors="replace"))
+    ticket = read_ticket((form.get("ticket") or [""])[0], CONSENT_PURPOSE, CONSENT_MAX_AGE_S)
+    if not isinstance(ticket, dict) or (form.get("agree") or [""])[0] != "yes":
+        return HTMLResponse(_login_page("Terms not accepted", "This page has expired or the box was not ticked. "
+                                        "Open the login link again to see the terms.", False), status_code=400)
+    try:
+        acct = await asyncio.to_thread(accounts.record_consent, str(ticket.get("a")), str(ticket.get("u")),
+                                       str(ticket.get("v")))
+    except accounts.AccountError as exc:
+        return HTMLResponse(_login_page("Terms not accepted", escape(str(exc)), False), status_code=400)
+    except Exception:
+        logger.exception("Recording the terms acceptance failed")
+        return HTMLResponse(_login_page("Terms not recorded", "The account store is unavailable. Open the login "
+                                        "link again shortly to accept.", False), status_code=503)
+    logger.info("Kite account %s: terms %s accepted by %s", acct.id, acct.consent_version, acct.consent_by)
+    when = datetime.fromisoformat(acct.consent_at).strftime("%H:%M IST, %a %d %b")
+    next_step = ("Automatic trading starts once Centurion's registration is in place; until then it only reads "
+                 "this account." if accounts.registration_missing() else
+                 "Centurion trades this account once its operator sets its mode and capital.")
+    return HTMLResponse(_login_page(
+        "Terms accepted", f"{escape(acct.name)} ({escape(acct.consent_by)}), {when}. {next_step}", True,
+        auto_close=True))
 
 
 @router.get(

@@ -1,18 +1,24 @@
 """
-The Zerodha accounts Centurion may connect: yours (the primary) and your
-family's (decision U33, 7 Oct 2026).
+The Zerodha accounts Centurion connects: yours (the primary, the server's
+own credentials) and any user's (tracker MU1, 8 Oct 2026), all on the same
+criteria: there is no relation or family tier.
 
-Why only family: SEBI's retail algo framework (April 2026) ties a static IP
-to one trader at a broker, except that a spouse, dependent children and
-dependent parents may share it; and running a strategy for anyone else needs
-exchange empanelment through the broker and, for a black-box strategy, a
-SEBI Research Analyst licence.  So a family account may trade through the
-same registered proxy as yours; nobody else's may.
+Every connected account needs (``trading_lock``) its holder's acceptance of
+the current terms (``kite_connect.auth.terms``), given on the page their own
+Kite login returns to (``record_consent``), and Centurion's registration on
+the server (``REGISTRATION_ENV``): SEBI's retail algo framework (April 2026)
+makes running a strategy for another person's account an empanelled algo
+provider's business through the broker (with a Research Analyst licence for
+a black-box strategy), and discretionary management of other people's money
+is portfolio management (PMS registration).  Until both hold, an account
+connects, logs in and is read, and Centurion places no orders in it.  The
+registration settings are set only on a lawyer's advice: NSE runs a
+provider's strategies on the broker's servers (NSE/INVG/69255), so holding
+the registrations may still not permit orders from this server.
 
-How an account connects: the account holder creates their own Kite Connect
-app on developers.kite.trade with this server's callback as the redirect URL
-and the registered static IP in its IP whitelist, then enters the app's API
-key and secret here.  Centurion stores the key and the secret (encrypted with
+How an account connects: the holder's own Kite Connect app on
+developers.kite.trade with this server's callback as the redirect URL, whose
+API key and secret are entered here.  Centurion stores the key and the secret (encrypted with
 ``CENTURION_KITE_TOKEN_KEY``, as the daily tokens are) and never a password
 or a TOTP secret: the holder logs in on Zerodha's own page each trading day
 (decision U23), through a login link that carries the account's id back to
@@ -20,15 +26,15 @@ the callback (Kite's ``redirect_params``), where the login is checked
 against the account's Zerodha user id.
 
 Storage: the registry is one JSON value in the primary live book's state
-(``REGISTRY_KEY``).  Each family account has its own live-book schema,
+(``REGISTRY_KEY``).  Each registered account has its own live-book schema,
 ``live_<id>``, which holds its daily token, ledger, capital ladder and dry
 runs.  The primary account is not in the registry: it is the existing live
 book with the server's own credentials, unchanged.
 
-Management (tracker FA2): each family account has a mode and a capital.
+Management (tracker FA2): each registered account has a mode and a capital.
 ``off`` leaves it alone; ``dry_run`` builds its orders each evening and sends
 none; ``live`` places them.  Your own ``CENTURION_LIVE_MODE`` is the master
-switch: no family session runs while it is off, and a ``live`` account
+switch: no other account's session runs while it is off, and a ``live`` account
 places real orders only while it is ``live``, after its own go-live checks
 (the first real session needs clean dry runs on that account).  The capital
 is a ladder rung (``nse_engine.capital_ladder.RUNGS``): the first session's
@@ -53,15 +59,17 @@ import argparse
 import json
 import os
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from datetime import datetime
 from typing import Dict, List, Optional
 from urllib.parse import quote
 
-from kite_connect.auth import daily_login
+from kite_connect.auth import daily_login, terms
 
 PRIMARY = "primary"
-RELATIONS = ("spouse", "child", "parent")
+#: Set on the server once Centurion is registered: the exchange's algo / empanelment id (through the
+#: broker) and the SEBI registration number (RA or PMS).  Both unlock automatic trading in every account.
+REGISTRATION_ENV = ("CENTURION_ALGO_PROVIDER_ID", "CENTURION_SEBI_REGISTRATION")
 REGISTRY_KEY = "kite_accounts"
 ACCOUNT_PARAM = "account"                 # the redirect_params key the callback reads
 MODES = ("off", "dry_run", "live")        # least to most: an account never runs above the master switch
@@ -70,7 +78,7 @@ MAX_UNWIND_SESSIONS = 20
 _USER_ID = re.compile(r"^[A-Z0-9]{4,12}$")
 _KEY = re.compile(r"^[A-Za-z0-9]{8,64}$")
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-MAX_FAMILY_ACCOUNTS = 6
+MAX_ACCOUNTS = 20
 
 
 class AccountError(ValueError):
@@ -81,15 +89,17 @@ class AccountError(ValueError):
 class Account:
     id: str
     name: str
-    relation: str
     zerodha_user_id: str
     api_key: str
     email: str = ""
     api_secret_enc: str = ""
     created_at: str = ""
-    mode: str = "off"                     # MODES; family accounts only
+    mode: str = "off"                     # MODES; registered accounts only
     capital: float = 0.0                  # a ladder rung; 0 until chosen
     unwind_sessions: int = 0              # FA3: sessions left to sell out over; 0 = not disconnecting
+    consent_version: str = ""             # MU1: the terms the holder accepted, when and as whom
+    consent_at: str = ""
+    consent_by: str = ""
 
     @property
     def is_primary(self) -> bool:
@@ -108,7 +118,7 @@ class Account:
 
 def primary_account() -> Account:
     """Your own account: the existing live book and the server's credentials."""
-    return Account(PRIMARY, "You", "self", os.environ.get(daily_login.ENV_USER, ""), daily_login.api_key())
+    return Account(PRIMARY, "You", os.environ.get(daily_login.ENV_USER, ""), daily_login.api_key())
 
 
 def _registry_book(book=None):
@@ -119,13 +129,14 @@ def _registry_book(book=None):
 
 
 def load(book=None) -> Dict[str, Account]:
-    """The family accounts, by id."""
+    """The registered accounts, by id."""
     raw = _registry_book(book).read_state().get(REGISTRY_KEY) or "{}"
     try:
         data = json.loads(raw)
     except ValueError:
         data = {}
-    return {k: Account(**v) for k, v in data.items()}
+    known = {f.name for f in fields(Account)}           # a stored account may carry a retired field (relation)
+    return {k: Account(**{f: x for f, x in v.items() if f in known}) for k, v in data.items()}
 
 
 def _save(accounts: Dict[str, Account], book=None) -> None:
@@ -135,13 +146,35 @@ def _save(accounts: Dict[str, Account], book=None) -> None:
 
 
 def all_accounts(book=None) -> List[Account]:
-    """The primary, then the family accounts by name."""
+    """The primary, then the registered accounts by name."""
     return [primary_account()] + sorted(load(book).values(), key=lambda a: a.name.lower())
 
 
 def managed(book=None) -> List[Account]:
-    """The family accounts Centurion trades (mode not ``off``), by name."""
+    """The registered accounts Centurion trades (mode not ``off``), by name."""
     return sorted((a for a in load(book).values() if a.mode != "off"), key=lambda a: a.name.lower())
+
+
+def registration_missing() -> List[str]:
+    """The registration settings the server lacks (empty once Centurion is registered)."""
+    return [name for name in REGISTRATION_ENV if not os.environ.get(name, "").strip()]
+
+
+def has_consent(acct: Account) -> bool:
+    """Has the holder accepted the current terms?  Your own account (the primary) needs none here."""
+    return acct.is_primary or acct.consent_version == terms.TERMS_VERSION
+
+
+def trading_lock(acct: Account) -> str:
+    """Why Centurion may not trade the account ("" when it may): the same for every connected account."""
+    if acct.is_primary:
+        return ""
+    if not has_consent(acct):
+        return "the holder has not accepted the current terms: they do on the page their next Kite login returns to"
+    if registration_missing():
+        return ("automatic trading needs Centurion's exchange empanelment and SEBI registration ("
+                + ", ".join(registration_missing()) + " not set): the account is read-only until then")
+    return ""
 
 
 def get(account_id: str, book=None) -> Account:
@@ -156,18 +189,16 @@ def get(account_id: str, book=None) -> Account:
 def _make_id(name: str, taken: List[str]) -> str:
     base = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")[:20] or "account"
     if base == PRIMARY:
-        base = "family"
+        base = "account"
     candidate, n = base, 2
     while candidate in taken:
         candidate, n = f"{base}_{n}", n + 1
     return candidate
 
 
-def _check(name: str, relation: str, zerodha_user_id: str, api_key: str, api_secret: str, email: str) -> None:
+def _check(name: str, zerodha_user_id: str, api_key: str, api_secret: str, email: str) -> None:
     if not name.strip() or len(name) > 40:
         raise AccountError("name: 1 to 40 characters")
-    if relation not in RELATIONS:
-        raise AccountError(f"relation must be one of {RELATIONS}: only family may share the static IP (SEBI)")
     if not _USER_ID.match(zerodha_user_id):
         raise AccountError("Zerodha user id: 4 to 12 letters and digits, e.g. AB1234")
     if not _KEY.match(api_key) or not _KEY.match(api_secret):
@@ -176,19 +207,19 @@ def _check(name: str, relation: str, zerodha_user_id: str, api_key: str, api_sec
         raise AccountError("email is not valid")
 
 
-def add(name: str, relation: str, zerodha_user_id: str, api_key: str, api_secret: str, email: str = "",
+def add(name: str, zerodha_user_id: str, api_key: str, api_secret: str, email: str = "",
         book=None, now: Optional[datetime] = None) -> Account:
-    """Register a family account (its secret is stored encrypted)."""
+    """Register an account (its secret is stored encrypted)."""
     zerodha_user_id = zerodha_user_id.strip().upper()
     api_key, api_secret, email = api_key.strip(), api_secret.strip(), email.strip()
-    _check(name, relation, zerodha_user_id, api_key, api_secret, email)
+    _check(name, zerodha_user_id, api_key, api_secret, email)
     accounts = load(book)
-    if len(accounts) >= MAX_FAMILY_ACCOUNTS:
-        raise AccountError(f"at most {MAX_FAMILY_ACCOUNTS} family accounts")
+    if len(accounts) >= MAX_ACCOUNTS:
+        raise AccountError(f"at most {MAX_ACCOUNTS} accounts")
     if zerodha_user_id == primary_account().zerodha_user_id or any(
             a.zerodha_user_id == zerodha_user_id for a in accounts.values()):
         raise AccountError(f"{zerodha_user_id} is already connected")
-    acct = Account(_make_id(name, list(accounts)), name.strip(), relation, zerodha_user_id, api_key, email,
+    acct = Account(_make_id(name, list(accounts)), name.strip(), zerodha_user_id, api_key, email,
                    daily_login._fernet().encrypt(api_secret.encode()).decode(),
                    (now or datetime.now(daily_login.IST)).isoformat(timespec="seconds"))
     accounts[acct.id] = acct
@@ -199,7 +230,7 @@ def add(name: str, relation: str, zerodha_user_id: str, api_key: str, api_secret
 def update(account_id: str, *, email: Optional[str] = None, api_key: Optional[str] = None,
            api_secret: Optional[str] = None, mode: Optional[str] = None, capital: Optional[float] = None,
            book=None) -> Account:
-    """Change a family account's email, rotate its app credentials, or set its mode and capital."""
+    """Change an account's email, rotate its app credentials, or set its mode and capital."""
     accounts = load(book)
     acct = accounts.get(account_id)
     if acct is None:
@@ -225,10 +256,29 @@ def update(account_id: str, *, email: Optional[str] = None, api_key: Optional[st
             raise AccountError(f"mode must be one of {MODES}")
         if mode != "off" and not acct.capital:
             raise AccountError("choose the capital first: the first session sizes the book from it")
+        if mode != "off" and trading_lock(acct):
+            raise AccountError(trading_lock(acct))
         if mode == "off" and acct.mode != "off" and ledger_positions(acct):
             raise AccountError(f"Centurion holds positions in {acct.name}'s account: disconnect it and choose "
                                "to keep them, sell at the next open or sell over N sessions")
         acct.mode, acct.unwind_sessions = mode, 0          # setting the mode also cancels a disconnect
+    _save(accounts, book)
+    return acct
+
+
+def record_consent(account_id: str, user_id: str, version: str, book=None,
+                   now: Optional[datetime] = None) -> Account:
+    """The holder's acceptance of the terms, given right after their own Kite login as ``user_id``."""
+    accounts = load(book)
+    acct = accounts.get(account_id)
+    if acct is None:
+        raise AccountError(f"no account {account_id!r}")
+    if version != terms.TERMS_VERSION:
+        raise AccountError("these terms have changed: log in again to see the current ones")
+    if user_id != acct.zerodha_user_id:
+        raise AccountError(f"the terms are accepted by {acct.zerodha_user_id} only")
+    acct.consent_version, acct.consent_by = version, user_id
+    acct.consent_at = (now or datetime.now(daily_login.IST)).isoformat(timespec="seconds")
     _save(accounts, book)
     return acct
 
@@ -242,7 +292,7 @@ def ledger_positions(acct: Account, book=None) -> Dict[str, int]:
 
 
 def disconnect(account_id: str, how: str, sessions: int = 0, book=None) -> Account:
-    """Stop managing a family account (FA3): ``keep`` its positions, or sell them at the
+    """Stop managing an account (FA3): ``keep`` its positions, or sell them at the
     ``next_open`` or over ``sessions`` sessions.  Without positions it is simply off."""
     if how not in DISCONNECT:
         raise AccountError(f"choose one of {DISCONNECT}")
@@ -281,7 +331,7 @@ def unwind_step(account_id: str, report: dict, dry_run: bool, book=None) -> None
 
 
 def remove(account_id: str, book=None, account_book=None) -> None:
-    """Forget a family account that has never traded (one with a ledger is disconnected instead)."""
+    """Forget an account that has never traded (one with a ledger is disconnected instead)."""
     from kite_connect.trading.live_session import LIVE_LEDGER_KEY, live_book
 
     accounts = load(book)
@@ -303,7 +353,7 @@ def api_secret(acct: Account) -> str:
 
 
 def login_url(acct: Account) -> str:
-    """Zerodha's login page for the account's app; a family login carries its id back to the callback."""
+    """Zerodha's login page for the account's app; a registered account's carries its id back to the callback."""
     url = daily_login.login_url(acct.api_key)
     return url if acct.is_primary else f"{url}&redirect_params={quote(f'{ACCOUNT_PARAM}={acct.id}', safe='')}"
 
@@ -342,14 +392,22 @@ def exchange(acct: Account, request_token: str, book=None, kite_factory=None) ->
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Family Kite accounts (tracker FA2)")
+    ap = argparse.ArgumentParser(description="Connected Kite accounts (trackers FA2, MU1)")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("managed", help="the ids of the family accounts Centurion trades, one per line")
+    sub.add_parser("managed", help="the ids of the accounts Centurion manages, one per line")
     sub.add_parser("remind", help="email each managed account's holder the login link when it is missing")
+    sub.add_parser("mask", help="GitHub Actions: hide every account's name, id, user id and email in the "
+                                "job's public log (run it before any account's output)")
     args = ap.parse_args(argv)
     if args.cmd == "managed":
         for acct in managed():
             print(acct.id)
+        return 0
+    if args.cmd == "mask":
+        for acct in load().values():
+            for value in {acct.id, acct.name, acct.zerodha_user_id, acct.email}:
+                if len(value) >= 4:                       # a shorter mask would blank ordinary words
+                    print(f"::add-mask::{value}")
         return 0
     failed = 0
     for acct in managed():
