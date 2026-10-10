@@ -44,10 +44,12 @@ logger = logging.getLogger(__name__)
 
 OPTIONS_RUNS_DIR = "data/nse_engine/runs_options"
 BOOK_RUNS_DIR = "data/nse_engine/runs"
-#: E4's recorded 2013-25 run (cost model 3), the base of gate 2 (§ 5q).
-E4_RUN_ID = "20261001T104724595094Z_93cf6c4d"
-#: E4's 2007-25 run on store_ext2006, the base of the reported extended check (§ 5q addendum).
-E4_EXT_RUN_ID = "20261001T070903385179Z_93cf6c4d"
+#: E4's recorded 2013-25 run on the current equity data, cost model 4, the base of gate 2 (§ 5q;
+#: § 5q used the model-3 run 20261001T104724595094Z_93cf6c4d; tracker IC1).
+E4_RUN_ID = "20261009T185901820673Z_93cf6c4d"
+#: E4's 2007-25 run on store_ext2006, cost model 4, the base of the reported extended check
+#: (§ 5q addendum used the model-3 run 20261001T070903385179Z_93cf6c4d; tracker IC1).
+E4_EXT_RUN_ID = "20261009T191853176431Z_93cf6c4d"
 BOOK_RF = 0.065
 
 
@@ -346,7 +348,8 @@ def evaluate(options_runs: str = OPTIONS_RUNS_DIR, book_runs: str = BOOK_RUNS_DI
     n_opt = int(mat.shape[1])
     report: Dict[str, Any] = {"options_configurations": n_opt, "gate1": {}}
     if n_opt >= 2:
-        report["options_pbo"] = {k: v for k, v in cscv_pbo(mat, n_splits=16).items() if k != "logits"}
+        report["options_pbo"] = {k: v for k, v in cscv_pbo(mat, n_splits=16, rf_annual=0.0).items()   # sleeve P&L
+                                 if k != "logits"}
     passing = []
     order = {cfg.name: i for i, cfg in enumerate(CANDIDATES.values())}
     by_tag = trials.set_index("run_id")["tag"]
@@ -398,7 +401,7 @@ def evaluate(options_runs: str = OPTIONS_RUNS_DIR, book_runs: str = BOOK_RUNS_DI
             book_configurations=int(book_mat.shape[1]), total_trials=n_total,
             dsr_total=deflated_sharpe(book_mat[combined_id], trials_matrix=book_mat, n_trials=n_total,
                                       rf_annual=BOOK_RF)["dsr"],
-            book_pbo=float(cscv_pbo(book_mat, n_splits=16)["pbo"]))
+            book_pbo=float(cscv_pbo(book_mat, n_splits=16, rf_annual=BOOK_RF)["pbo"]))
     report["verdict"] = ("PASS: paper-trade the sleeve beside E4" if report["gate2"]["pass"]
                          else "FAIL: round 1 closed without re-tuning")
     report["extended"] = _extended(reg, by_tag, sleeve_manifest["config_hash"], options_runs, book_runs,
@@ -415,12 +418,18 @@ def _combine(book_reg, book_run_id: str, sleeve: pd.Series, start: str, end: str
 
 def _record_combined(combined: pd.Series, metrics: Dict[str, Any], book_manifest: Dict[str, Any],
                      sleeve_manifest: Dict[str, Any], sleeve_run: str, tag: str, book_runs: str,
-                     window: Tuple[str, str]) -> str:
-    from nse_engine.validation.trials import record_result
+                     window: Tuple[str, str], label: str = "O2", weight: float = SLEEVE_WEIGHT) -> str:
+    from nse_engine.costs import COST_MODEL_VERSION
+    from nse_engine.validation.trials import LEGACY_COST_MODEL, record_result
 
-    cfg = CombinedConfig(book_manifest["config_hash"], sleeve_manifest["config_hash"], SLEEVE_WEIGHT, *window)
+    # The combined run is stamped with today's cost model, so its book half must be on it too (tracker IC1).
+    book_model = int(book_manifest.get("cost_model") or LEGACY_COST_MODEL)
+    if book_model != COST_MODEL_VERSION:
+        raise ValueError(f"E4's base run is on cost model {book_model}, not {COST_MODEL_VERSION}: point "
+                         "E4_RUN_ID / E4_EXT_RUN_ID at runs recorded under the current cost model")
+    cfg = CombinedConfig(book_manifest["config_hash"], sleeve_manifest["config_hash"], weight, *window)
     rec = _Recorded(cfg, combined, metrics, book_manifest["data_hash"], run_id=_run_id(cfg.config_hash()))
-    return record_result(rec, tag=f"O2 combined: E4 + {tag}", runs_dir=book_runs, window=window,
+    return record_result(rec, tag=f"{label} combined: E4 + {tag}", runs_dir=book_runs, window=window,
                          extra={"family": "book", "options_run": sleeve_run,
                                 "fo_data_hash": sleeve_manifest.get("data_hash")})
 

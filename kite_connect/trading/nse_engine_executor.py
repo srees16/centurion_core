@@ -47,7 +47,11 @@ Planning rules (see docs/nse_engine.md):
   * trades below ``portfolio.min_trade_value_inr`` are skipped (full exits are
     never skipped);
   * integer shares; buys never exceed available cash (cash + expected sell
-    proceeds x ``SELL_PROCEEDS_CREDIT``, net of estimated costs).
+    proceeds x ``SELL_PROCEEDS_CREDIT``, net of estimated costs).  Every NSE
+    share settles T+1, and Zerodha credits a sale in full the same day, except
+    a sale of shares still unsettled (bought the session before, T1 holdings):
+    that credit comes the next day, so a holding's ``t1_quantity`` is left
+    out of the proceeds the buys may spend.
 """
 
 from __future__ import annotations
@@ -56,6 +60,7 @@ import json
 import logging
 import math
 import os
+import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -70,6 +75,16 @@ _IST = timezone(timedelta(hours=5, minutes=30))
 
 # Limit orders are placed this far through the reference (last close) price.
 ORDER_LIMIT_BAND_BPS = float(os.environ.get("CENTURION_ENGINE_LIMIT_BAND_BPS", "100"))
+# Reduce-only SELLs (exits, trims, a disconnect's unwind) sit this far under the close, never below the next
+# session's lower circuit (tracker LN-T14: over 2013-25, 500 bp clamped left the fewest sells unfilled, at the
+# model's CAGR; 100 bp left all 19 sells of 24 Aug 2015 unfilled).  BUYs keep ORDER_LIMIT_BAND_BPS.
+EXIT_LIMIT_BAND_BPS = float(os.environ.get("CENTURION_ENGINE_EXIT_BAND_BPS", "500"))
+# ... and this far when tonight's quotes (the circuit) cannot be read: inside every 2% band.
+EXIT_FALLBACK_BAND_BPS = 190.0
+#: NSE's price bands; a band read from a quote snaps to the nearest.
+PRICE_BANDS = (0.02, 0.05, 0.10, 0.20)
+# Reads of today's order book before placing (each failure waits before the next).
+ORDER_BOOK_READS, ORDER_BOOK_RETRY_SECONDS = 3, 2.0
 # Share of same-day sell proceeds treated as available for buys.
 SELL_PROCEEDS_CREDIT = float(os.environ.get("CENTURION_ENGINE_SELL_CREDIT", "1.0"))
 # Cost allowance when checking cash for buys (statutory + slippage).
@@ -165,19 +180,28 @@ def kite_book(kite) -> Tuple[Dict[str, object], float]:
     """The broker's view of the book: CNC holdings with their stop GTT triggers, and cash."""
     from kite_connect.trading.gtt_stops import get_held_quantities, list_stop_gtts
 
-    qty = get_held_quantities(kite)
-    avg = {h.get("tradingsymbol"): float(h.get("average_price") or 0.0)
-           for h in (kite.holdings() or [])}
+    from kite_connect.trading.nse_instruments import to_engine
+
+    qty: Dict[str, int] = {}                             # in engine names: SYM-BE is SYM (LN-T5)
+    for sym, q in get_held_quantities(kite).items():
+        qty[to_engine(sym)] = qty.get(to_engine(sym), 0) + q
+    rows = kite.holdings() or []
+    avg = {to_engine(h.get("tradingsymbol")): float(h.get("average_price") or 0.0) for h in rows}
+    isin = {to_engine(h.get("tradingsymbol")): h.get("isin") for h in rows if h.get("isin")}
+    unknown = False
     try:
-        stops = {g["symbol"]: g["trigger"] for g in list_stop_gtts(kite)}
+        stops = {}
+        for g in list_stop_gtts(kite):
+            sym = to_engine(g["symbol"])
+            stops[sym] = max(stops.get(sym, 0.0), float(g["trigger"]))
     except Exception as exc:
         logger.warning("EngineExecutor: GTT stop lookup failed (%s) — holdings without stop prices", exc)
-        stops = {}
+        stops, unknown = {}, True                       # the live ledger then keeps its last stops (LS1)
     margins = kite.margins("equity") or {}
     cash = float((margins.get("available") or {}).get("live_balance",
                  (margins.get("available") or {}).get("cash", 0.0)) or 0.0)
-    return {s: {"quantity": q, "avg_price": avg.get(s, 0.0), "stop_price": stops.get(s)}
-            for s, q in qty.items()}, cash
+    return {s: {"quantity": q, "avg_price": avg.get(s, 0.0), "stop_price": stops.get(s), "stops_unknown": unknown,
+                "isin": isin.get(s)} for s, q in qty.items()}, cash
 
 
 def live_order_outcomes(kite, as_of) -> List[dict]:
@@ -212,7 +236,9 @@ def live_order_outcomes(kite, as_of) -> List[dict]:
             kind = "partial"
         else:
             kind = "open"
-        out.append({"tag": tag, "order_id": o.get("order_id"), "symbol": o.get("tradingsymbol"),
+        from kite_connect.trading.nse_instruments import to_engine
+
+        out.append({"tag": tag, "order_id": o.get("order_id"), "symbol": to_engine(o.get("tradingsymbol")),
                     "side": o.get("transaction_type"), "quantity": qty, "filled": filled,
                     "average_price": float(o.get("average_price") or 0.0), "status": status,
                     "outcome": kind, "variety": o.get("variety"),
@@ -563,6 +589,7 @@ class EngineExecutor:
                     h["entry_date"] = str(h["entry_date"])[:10]
                 plain[sym] = h
         holdings.update(holdings_from_mapping(plain))
+        unsettled = {s: int(h.get("t1_quantity") or 0) for s, h in plain.items() if h.get("t1_quantity")}
 
         end = pd.Timestamp(as_of) if as_of is not None else pd.Timestamp(datetime.now(_IST).date())
         if data is None:
@@ -656,7 +683,13 @@ class EngineExecutor:
 
         # Cash budget: never exceed available cash
         est_sell_costs = sum(o.value * 0.0011 + 16.0 for o in sells)
-        budget = float(cash) + SELL_PROCEEDS_CREDIT * (sum(o.value for o in sells) - est_sell_costs)
+        # a sale of T1 shares is credited only the day after (Zerodha), so tomorrow's buys cannot use it
+        t1_sold = {o.symbol: min(o.quantity, unsettled.get(o.symbol, 0)) for o in sells if unsettled.get(o.symbol)}
+        t1_value = sum(q * prices.get(s, 0.0) for s, q in t1_sold.items())
+        if t1_value > 0:
+            plan.notes.append("unsettled shares sold, their proceeds kept for the next session: "
+                              + ", ".join(f"{s} x{q}" for s, q in sorted(t1_sold.items())))
+        budget = float(cash) + SELL_PROCEEDS_CREDIT * (sum(o.value for o in sells) - t1_value - est_sell_costs)
         buys.sort(key=lambda o: (-o.target_weight, o.symbol))
         kept: List[PlannedOrder] = []
         for o in buys:
@@ -833,7 +866,9 @@ class EngineExecutor:
         5. plan from the close (shift multiplier applied) and queue the orders.
 
         Steps 1-3 run once per session (``engine_last_session``), so a re-run
-        on the same day only re-plans (superseding that day's pending orders).
+        on the same day only re-plans (superseding that day's pending orders);
+        sessions since the last processed one run steps 1-3 each, in order
+        (tracker LN-T7), before the one plan from the latest close.
         """
         if not self.paper:
             raise RuntimeError("run_paper_session is paper-only")
@@ -853,26 +888,23 @@ class EngineExecutor:
             report["notes"].append(f"session {session.date()} already processed (last {last}); re-planning only")
             logger.info("EngineExecutor: %s", report["notes"][-1])
         else:
-            pending_syms = [o["symbol"] for o in pt.pending_orders()]
-            held_syms = sorted({p.symbol for p in pt._positions if p.is_open})
-            bars = self._session_bars(view, list(dict.fromkeys(held_syms + pending_syms)),
-                                      cfg.costs.adv_lookback_days)
-            stops_by_sym: Dict[str, float] = {}
-            for p in pt._positions:
-                if p.is_open and p.stop_loss:
-                    stops_by_sym[p.symbol] = max(stops_by_sym.get(p.symbol, 0.0), p.stop_loss)
-            gap_bars = {s: b for s, b in bars.items() if s in stops_by_sym and b["open"] <= stops_by_sym[s]}
-            report["stops"].extend(pt.simulate_gtt_stops(gap_bars, cost_config=cfg.costs))
-            stopped_today = {e["symbol"] for e in report["stops"]}
-            quotes = self._open_quotes(view, pending_syms, cfg.costs.adv_lookback_days)
-            report["fills"] = pt.fill_pending_orders(
-                session, view.dates, quotes, cfg.costs,
-                min_trade_value_inr=cfg.portfolio.min_trade_value_inr, skip_buys=stopped_today)
-            held_after = sorted({p.symbol for p in pt._positions if p.is_open})
-            bars.update(self._session_bars(view, [s for s in held_after if s not in bars],
-                                           cfg.costs.adv_lookback_days))
-            report["stops"].extend(pt.simulate_gtt_stops(bars, cost_config=cfg.costs))
-            pt.set_engine_last_session(session)
+            # LN-T7: every store session since the last processed one, in order (a weekend Budget or Muhurat
+            # session, or a run that did not happen: their orders are no longer cancelled as stale), then
+            # one plan from the latest close
+            todo = [pd.Timestamp(d) for d in view.dates if last is None or pd.Timestamp(d).date() > last]
+            todo = todo[-1:] if last is None else todo
+            report["caught_up"] = [d.date().isoformat() for d in todo]
+            fills = {"session": session.date().isoformat(), "filled": [], "cancelled": [], "kept": []}
+            prev = last
+            for s in todo:
+                v = view.until(s) if len(todo) > 1 and hasattr(view, "until") else view
+                r = self._paper_one_session(pt, data, v, cfg, prev, s, report)
+                for k in ("filled", "cancelled"):
+                    fills[k].extend((r or {}).get(k) or [])
+                fills["kept"] = (r or {}).get("kept") or []
+                pt.set_engine_last_session(s)
+                prev = s.date()
+            report["fills"] = fills
 
         # Mark to market at the session close (forward-filled for suspended names)
         closes = view.close.ffill().iloc[-1]
@@ -892,66 +924,272 @@ class EngineExecutor:
         report["results"] = self.execute(plan)
         return report
 
+    def _paper_one_session(self, pt, data, view, cfg, last, session, report: dict) -> dict:
+        """One session of the paper book: its corporate events, gap stops, the open's fills, intraday stops."""
+        pending_syms = [o["symbol"] for o in pt.pending_orders()]
+        held_syms = sorted({p.symbol for p in pt._positions if p.is_open})
+        if last is not None:                              # LN-T4: the book moves into the session's units first
+            report["notes"].extend(self._paper_corporate_events(pt, data, last, session,
+                                                                sorted(set(held_syms) | set(pending_syms)),
+                                                                store_dir=cfg.data.store_dir))
+            pending_syms = [o["symbol"] for o in pt.pending_orders()]          # renames move them
+            held_syms = sorted({p.symbol for p in pt._positions if p.is_open})
+        bars = self._session_bars(view, list(dict.fromkeys(held_syms + pending_syms)), cfg.costs.adv_lookback_days)
+        stops_by_sym: Dict[str, float] = {}
+        for p in pt._positions:
+            if p.is_open and p.stop_loss:
+                stops_by_sym[p.symbol] = max(stops_by_sym.get(p.symbol, 0.0), p.stop_loss)
+        gap_bars = {s: b for s, b in bars.items() if s in stops_by_sym and b["open"] <= stops_by_sym[s]}
+        report["stops"].extend(pt.simulate_gtt_stops(gap_bars, cost_config=cfg.costs))
+        stopped_today = {e["symbol"] for e in report["stops"]}
+        quotes = self._open_quotes(view, pending_syms, cfg.costs.adv_lookback_days)
+        fills = pt.fill_pending_orders(session, view.dates, quotes, cfg.costs,
+                                       min_trade_value_inr=cfg.portfolio.min_trade_value_inr,
+                                       skip_buys=stopped_today)
+        held_after = sorted({p.symbol for p in pt._positions if p.is_open})
+        bars.update(self._session_bars(view, [s for s in held_after if s not in bars], cfg.costs.adv_lookback_days))
+        report["stops"].extend(pt.simulate_gtt_stops(bars, cost_config=cfg.costs))
+        return fills
+
+    @staticmethod
+    def _paper_corporate_events(pt, data, last, session, symbols: List[str], store_dir=None) -> List[str]:
+        """Renames, mergers, dividends, splits and bonuses since session ``last`` in the paper book (LN-T4, T5).
+
+        A renamed symbol's lots and PENDING orders move to the new name; a held
+        stock whose merger or delisting has gone ex and that no longer trades
+        is sold at its last close, as the backtest does.  Dividends are paid on
+        the lots held at the last close; a share-count change rebases lots and
+        PENDING orders; every held lot's stop moves by the price adjustments
+        since ``last`` (as the backtest's prices did), so an ex-date never
+        reads as a gap stop.  Each step is applied once.
+        """
+        from kite_connect.trading.book_events import (events_between, price_factor, renamed, unrecorded_gaps,
+                                                      upcoming_mergers)
+
+        notes: List[str] = []
+        if store_dir is not None:
+            for old, new in sorted(renamed(store_dir, symbols, last, session).items()):
+                if pt.rename_symbol(old, new, f"rename:{old}:{new}", session):
+                    notes.append(f"{old} renamed to {new}: the paper lots moved to the new name")
+            symbols = sorted({p.symbol for p in pt._positions if p.is_open} | {o["symbol"] for o in pt.pending_orders()})
+            close = getattr(data, "close", None)
+            for sym, what in sorted(upcoming_mergers(store_dir, symbols, session, days=0).items()):
+                traded = close is not None and sym in close.columns and pd.notna(close[sym].iloc[-1])
+                key = f"merger:{sym}:{what}"
+                if traded or key in pt.corporate_actions_applied() or close is None or sym not in close.columns:
+                    continue
+                last_px = close[sym].dropna()
+                if last_px.empty:
+                    continue
+                for pos in [p for p in pt._positions if p.is_open and p.symbol == sym]:
+                    pt._book_close(pos, float(last_px.iloc[-1]), "MERGER",
+                                   when=f"{pd.Timestamp(last_px.index[-1]).date()}T15:30:00+05:30")
+                pt._mark_applied(key)
+                notes.append(f"{sym}: {what}, no longer traded: sold at its last close {float(last_px.iloc[-1]):,.2f}")
+        events = events_between(data, symbols, last, session)
+        raw = getattr(data, "close_unadj", None)
+        for sym, e in sorted(events.items()):
+            for day, per_share, key in e["dividends"]:
+                r = pt.credit_dividend(sym, per_share, day, key)
+                if r:
+                    notes.append(f"dividend {sym}: Rs {per_share:g} x {r['quantity']} = Rs {r['amount']:,.2f}")
+            if e["share_keys"]:
+                px = float(raw[sym].loc[:pd.Timestamp(session)].dropna().iloc[-1]) if raw is not None and sym in raw else 0.0
+                r = pt.apply_share_change(sym, e["share_factor"], price_factor(data, sym, last, session), px,
+                                          "|".join(e["share_keys"]), session)
+                if r:
+                    notes.append(f"corporate action {sym}: factor {e['share_factor']:.4g}, {r['before']} -> "
+                                 f"{r['after']} shares" + (" (INFERRED by the store: check)" if e["inferred"] else ""))
+            if e["other"]:
+                notes.append(f"corporate action {sym} with no share change (rights/demerger/price): "
+                             + "; ".join(e["other"]))
+        key = f"stops:{pd.Timestamp(session).date().isoformat()}"
+        if key not in pt.corporate_actions_applied():
+            for pos in [p for p in pt._positions if p.is_open and p.stop_loss and not events.get(p.symbol, {}).get("share_keys")]:
+                f = price_factor(data, pos.symbol, last, session)
+                if abs(f - 1.0) > 1e-6:
+                    pos.stop_loss = round(pos.stop_loss * f, 2)
+                    pt._update_stop_db(pos)
+            pt._mark_applied(key)
+        gaps = unrecorded_gaps(data, symbols, last, session, events)
+        if gaps:
+            notes.append("ALERT as-printed close down 10%+ with no corporate action in the store (unrecorded "
+                         "split?): " + ", ".join(gaps))
+        return notes
+
     @staticmethod
     def order_tag(as_of, side: str, symbol: str) -> str:
-        """Kite tag (max 20 chars) that makes a day's order idempotent: NE<yymmdd><B|S><symbol>."""
-        return f"NE{pd.Timestamp(as_of):%y%m%d}{side[0]}{symbol}"[:20]
+        """Kite tag that makes a day's order idempotent: NE<yymmdd><B|S><symbol>, alphanumeric, max 20."""
+        from kite_connect.trading.order_status import kite_tag
+
+        return kite_tag(f"NE{pd.Timestamp(as_of):%y%m%d}{side[0]}{symbol}")
 
     def live_orders(self, plan: ExecutionPlan, variety: Optional[str] = None) -> List[dict]:
         """The exact broker orders a live session would send for ``plan``, as data.
 
-        Sells first, LIMIT + CNC, the plan's limit prices, one idempotent tag
+        Sells first, LIMIT + CNC, the plan's limit prices on each symbol's NSE
+        tick from Kite's instruments dump (sells rounded down, buys up, so
+        the limit stays inside its band; tracker LN-T1), one idempotent tag
         per order, ``variety`` = ``amo`` when the market is closed (the engine
         decides after the close and wants the next open) else ``regular``.
-        Both the real path and the dry run are built from this list.
+        Both the real path and the dry run are built from this list.  Without
+        a broker (a paper rehearsal) the plan's prices are kept.
         """
+        from kite_connect.trading.nse_instruments import round_price, tick_for, ticks_for, to_broker
         from kite_connect.trading.order_service import order_variety_now
 
         variety = variety or order_variety_now()
-        return [{"symbol": o.symbol, "exchange": "NSE", "transaction_type": o.side,
-                 "quantity": int(o.quantity), "order_type": "LIMIT", "product": "CNC",
-                 "price": float(o.limit_price), "variety": variety, "validity": "DAY",
-                 "tag": self.order_tag(plan.as_of, o.side, o.symbol), "is_exit": o.side == "SELL",
-                 "reason": o.reason, "ref_price": float(o.ref_price),
-                 "current_qty": int(o.current_qty), "target_qty": int(o.target_qty)}
-                for o in plan.sells + plan.buys]
+        ticks = ticks_for(self.kite) if self.kite is not None else None
+        floors = (self.next_lower_circuits([to_broker(o.symbol, ticks)[0] or o.symbol for o in plan.sells])
+                  if self.kite is not None and plan.sells else {})
+        out = []
+        for o in plan.sells + plan.buys:
+            price, fallback, limit_note = float(o.limit_price), False, ""
+            broker, note = to_broker(o.symbol, ticks)       # SYM-BE for a stock in series BE (LN-T5)
+            if self.kite is not None:
+                tick, known = tick_for(broker or o.symbol, price, ticks)
+                if o.side == "SELL":                        # LN-T14: the exit band, clamped to the circuit
+                    floor = (floors or {}).get(broker or o.symbol)
+                    band = EXIT_LIMIT_BAND_BPS if floors is not None else EXIT_FALLBACK_BAND_BPS
+                    price = round_price(float(o.ref_price) * (1 - band / 1e4), tick, "down")
+                    if floors is None:
+                        limit_note = f"{o.symbol}: quotes unavailable, sell limit {band:g} bp under the close"
+                    elif floor and price < floor + tick:
+                        price = round_price(floor, tick, "up") + tick
+                        limit_note = f"{o.symbol}: sell limit clamped to the lower circuit {floor:,.2f} + a tick"
+                    price = round(price, 2)
+                else:
+                    price = round_price(price, tick, "up")
+                fallback = not known
+            out.append({"symbol": broker or o.symbol, "engine_symbol": o.symbol, "unresolved": None if broker else note,
+                        "series_note": note if broker else "", "exchange": "NSE", "transaction_type": o.side,
+                        "quantity": int(o.quantity), "order_type": "LIMIT", "product": "CNC",
+                        "price": price, "variety": variety, "validity": "DAY",
+                        "tag": self.order_tag(plan.as_of, o.side, o.symbol), "is_exit": o.side == "SELL",
+                        "reason": o.reason, "ref_price": float(o.ref_price),
+                        "current_qty": int(o.current_qty), "target_qty": int(o.target_qty),
+                        "tick_fallback": fallback, "limit_note": limit_note})
+        return out
+
+    def next_lower_circuits(self, symbols) -> Optional[Dict[str, float]]:
+        """{Kite tradingsymbol: the next session's lower circuit} from tonight's quotes; None if unreadable.
+
+        Tonight's band, 1 - lower circuit / previous close, snapped to NSE's
+        2 / 5 / 10 / 20%, applied to tonight's price (tracker LN-T14).
+        """
+        syms = sorted({s for s in symbols if s})
+        if self.kite is None or not syms:
+            return {}
+        quotes: Dict[str, dict] = {}
+        try:
+            for i in range(0, len(syms), 400):
+                quotes.update(self.kite.quote([f"NSE:{x}" for x in syms[i:i + 400]]) or {})
+        except Exception as exc:                          # noqa: BLE001 - the caller falls back and says so
+            logger.warning("quotes for the circuit limits unavailable: %s", exc)
+            return None
+        out: Dict[str, float] = {}
+        for key, q in quotes.items():
+            lower, prev = float(q.get("lower_circuit_limit") or 0.0), float((q.get("ohlc") or {}).get("close") or 0.0)
+            last = float(q.get("last_price") or 0.0)
+            if lower > 0 and prev > lower and last > 0:
+                band = min(PRICE_BANDS, key=lambda b: abs(b - (1.0 - lower / prev)))
+                out[key.split(":", 1)[-1]] = last * (1.0 - band)
+        return out
 
     def dry_run_live(self, plan: ExecutionPlan) -> List[dict]:
         """What ``_execute_live`` would do, without touching the broker.
 
         Usable from paper mode too (the paper book stands in for the live
         one), so the live path can be rehearsed every day before any capital.
+        With a broker it is also Kite's preflight (tracker LN-T12): every order
+        and stop must name an NSE equity instrument in Kite's dump and sit on
+        its tick, so a dry run is clean only when Kite would accept it all; a
+        dump that cannot be read leaves the run unclean, without raising.
         """
+        from kite_connect.trading.gtt_stops import round_to_tick, stop_limit_price
+        from kite_connect.trading.nse_instruments import on_tick, tick_for, ticks_for, to_broker
         from kite_connect.trading.order_service import is_kill_switch_active
 
         kill = is_kill_switch_active()
-        results: List[dict] = []
+        ticks = ticks_for(self.kite) if self.kite is not None else None
+        results: List[dict] = self._preflight_notes(ticks)
         for spec in self.live_orders(plan):
-            blocked = kill and not spec["is_exit"]
+            off_tick = (ticks is not None and spec["symbol"] in ticks
+                        and not on_tick(spec["price"], ticks[spec["symbol"]]))
+            blocked = (kill and not spec["is_exit"]) or bool(spec["unresolved"]) or off_tick
+            error = (spec["unresolved"] or (f"price {spec['price']} is off the {ticks[spec['symbol']]} tick" if off_tick
+                                            else "KILL SWITCH active: BUYs are refused"))
             results.append({"mode": "live-dry-run", "status": "WOULD_REJECT" if blocked else "WOULD_PLACE",
-                            "success": not blocked, "symbol": spec["symbol"], "side": spec["transaction_type"],
+                            "success": not blocked, "symbol": spec["engine_symbol"], "tradingsymbol": spec["symbol"],
+                            "side": spec["transaction_type"],
                             "quantity": spec["quantity"], "limit_price": spec["price"], "variety": spec["variety"],
-                            "tag": spec["tag"], "reason": spec["reason"],
-                            **({"error": "KILL SWITCH active: BUYs are refused"} if blocked else {})})
-        results.append({"mode": "live-dry-run", "type": "gtt_reconcile", "success": True,
+                            "tag": spec["tag"], "reason": spec["reason"], "tick_fallback": spec["tick_fallback"],
+                            "series_note": spec["series_note"], "limit_note": spec["limit_note"],
+                            **({"error": error} if blocked else {})})
+        stop_errors = []
+        for st in plan.stop_instructions:                   # the GTTs the reconcile would arm
+            broker, note = to_broker(st.symbol, ticks)
+            if self.kite is not None and broker is None:
+                stop_errors.append({"symbol": st.symbol, "error": note})
+                continue
+            tick, known = tick_for(broker or st.symbol, st.trigger, ticks)
+            trig = round_to_tick(st.trigger, tick, mode="up")
+            if ticks is not None and known and not (on_tick(trig, tick) and on_tick(stop_limit_price(trig, None, tick), tick)):
+                stop_errors.append({"symbol": st.symbol, "error": f"trigger {trig} or its limit is off the {tick} tick"})
+        results.append({"mode": "live-dry-run", "type": "gtt_reconcile", "success": not stop_errors,
+                        "report": {"errors": stop_errors},
                         "stops": [{"symbol": s.symbol, "quantity": s.quantity, "trigger": s.trigger}
                                   for s in plan.stop_instructions]})
+        sent = [r for r in results if "tag" in r]
         logger.info("EngineExecutor DRY RUN %s: %d order(s) would be sent (%s), %d stop(s) reconciled",
-                    plan.as_of.date(), len(results) - 1,
-                    results[0]["variety"] if len(results) > 1 else "-", len(plan.stop_instructions))
+                    plan.as_of.date(), len(sent), sent[0]["variety"] if sent else "-", len(plan.stop_instructions))
         return results
 
+    def _preflight_notes(self, ticks) -> List[dict]:
+        """Run-level preflight findings, as result rows of ``type`` preflight (LN-T12)."""
+        out = []
+        if self.kite is not None and ticks is None:
+            out.append({"mode": "preflight", "type": "preflight", "success": False,
+                        "error": "Kite's instruments dump could not be read: prices fall back to the coarser NSE "
+                                 "slab and symbols are not checked"})
+        if ORDER_LIMIT_BAND_BPS >= 200:
+            out.append({"mode": "preflight", "type": "preflight", "success": False,
+                        "error": f"BUY limit band {ORDER_LIMIT_BAND_BPS:g} bp: names with a 2% price band would "
+                                 "reject it (CENTURION_ENGINE_LIMIT_BAND_BPS)"})
+        return out
+
     def _execute_live(self, plan: ExecutionPlan) -> List[dict]:
-        from kite_connect.trading.order_service import get_order_book, place_order
+        from kite_connect.trading.nse_instruments import ticks_for
+        from kite_connect.trading.order_service import place_order
+        from kite_connect.trading.order_status import order_placed
         from kite_connect.trading import gtt_stops
 
-        results: List[dict] = []
-        existing_tags = {o.get("tag") for o in (get_order_book(self.kite) or [])
-                         if o.get("status") not in ("REJECTED", "CANCELLED")}
+        results: List[dict] = self._preflight_notes(ticks_for(self.kite))     # advisory: nothing is skipped
+        # Today's book decides what is already placed (a re-run must not send the plan twice), so an
+        # unreadable book sends nothing (LN-T3); the stops below are still reconciled.
+        book, error = None, None
+        for attempt in range(ORDER_BOOK_READS):
+            try:
+                book = self.kite.orders() or []
+                break
+            except Exception as exc:                      # noqa: BLE001 - retried, then reported
+                error = exc
+                if attempt + 1 < ORDER_BOOK_READS:
+                    time.sleep(ORDER_BOOK_RETRY_SECONDS)
+        existing_tags = {o.get("tag") for o in (book or []) if order_placed(o.get("status"))}
         for spec in self.live_orders(plan):
-            base = {"mode": "live", "symbol": spec["symbol"], "side": spec["transaction_type"],
+            base = {"mode": "live", "symbol": spec["engine_symbol"], "tradingsymbol": spec["symbol"],
+                    "side": spec["transaction_type"],
                     "quantity": spec["quantity"], "limit_price": spec["price"], "variety": spec["variety"],
-                    "tag": spec["tag"], "reason": spec["reason"]}
+                    "tag": spec["tag"], "reason": spec["reason"], "tick_fallback": spec["tick_fallback"],
+                    "series_note": spec["series_note"], "limit_note": spec["limit_note"]}
+            if spec["unresolved"] and spec["transaction_type"] == "BUY":    # LN-T5: Kite has no instrument
+                results.append({**base, "status": "NOT_SENT", "success": False, "error": spec["unresolved"]})
+                continue                                  # an exit is still attempted (LN-T12)
+            if book is None:
+                results.append({**base, "status": "NOT_SENT", "success": False,
+                                "error": f"order book unreadable ({error}): nothing sent, to avoid duplicates"})
+                continue
             if spec["tag"] in existing_tags:
                 results.append({**base, "status": "DUPLICATE", "success": False,
                                 "error": "duplicate (already placed today)"})
@@ -964,12 +1202,24 @@ class EngineExecutor:
             results.append({**base, "status": "PLACED" if res.get("success") else "REJECTED", **res})
         # GTT stops at the quantity actually held now; the reconciliation job
         # re-syncs quantities after pending orders fill.
-        stops = {s.symbol: s.trigger for s in plan.stop_instructions}
+        # in Kite's names (SYM-BE for series BE, LN-T5); both series stay in scope, so after a series move
+        # the new instrument's GTT is placed before the old one is deleted as an orphan
+        from kite_connect.trading.nse_instruments import ticks_for, to_broker
+
+        ticks = ticks_for(self.kite)
+        name = lambda sym: to_broker(sym, ticks)[0] or sym  # noqa: E731
+        stops = {name(s.symbol): s.trigger for s in plan.stop_instructions}
+        floors = self.next_lower_circuits(stops)          # LN-T14: no stop limit under tomorrow's circuit
+        if floors is None:
+            results.append({"mode": "preflight", "type": "preflight", "success": False,
+                            "error": "quotes unavailable: stop GTT limits set without the lower-circuit floor"})
         if self._stop_scope_fn is not None:
             quantities, scope = self._stop_scope_fn()
-            report = gtt_stops.reconcile_stop_gtts(self.kite, stops=stops, quantities=quantities, scope=scope)
+            scope = sorted({name(x) for x in scope} | set(scope) | {f"{x}-BE" for x in scope})
+            report = gtt_stops.reconcile_stop_gtts(self.kite, stops=stops, scope=scope, ticks=ticks, floors=floors,
+                                                   quantities={name(x): q for x, q in quantities.items()})
         else:
-            report = gtt_stops.reconcile_stop_gtts(self.kite, stops=stops)
+            report = gtt_stops.reconcile_stop_gtts(self.kite, stops=stops, ticks=ticks, floors=floors)
         results.append({"mode": "live", "type": "gtt_reconcile", "success": not report.get("errors"),
                         "report": report})
         return results

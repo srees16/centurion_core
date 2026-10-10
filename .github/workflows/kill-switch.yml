@@ -1,0 +1,48 @@
+name: Kill switch
+
+# Tracker DM2: the latched kill switch in Neon, read by every order path on Actions and on the
+# HF Space (kite_connect/trading/kill_switch.py).  ON refuses new buys everywhere; exits and stop
+# GTTs still go.  It stays on until someone runs this with "off" and a reason; nothing resumes on
+# its own.  Each change emails the owner with the reason; this public log shows only on or off.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "status, on or off"
+        required: true
+        type: choice
+        options: [status, "on", "off"]
+        default: status
+      reason:
+        description: "Why (required for on / off; emailed to you, not printed; keep it non-sensitive: a public repo's run inputs are readable via the API)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  switch:
+    # main only, like the nightly job: a branch's code never flips the live switch
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04   # pinned: ubuntu-latest becomes Ubuntu 26 from 19 Oct 2026
+    timeout-minutes: 10
+    env:
+      CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
+      CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
+      CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
+      CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
+      CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+      CENTURION_LIVE_MODE: ${{ vars.CENTURION_LIVE_MODE }}
+      ACTION: ${{ inputs.action }}
+      REASON: ${{ inputs.reason }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install --quiet -r requirements-core.txt
+      - name: Kill switch
+        run: python -m kite_connect.trading.kill_switch "$ACTION" --reason "$REASON"

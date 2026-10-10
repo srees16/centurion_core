@@ -58,8 +58,15 @@ STT_OTHER_ETFS = frozenset({"SILVERBEES", "MON100"})   # MON100 (tracker R14): a
 STT_OTHER_ETF_SELL = 0.00001
 #: Recorded in every run's manifest; runs are compared only within one version.
 #: 1 = until 30 Sep 2026 (equity delivery STT on the metal ETFs too); 2 = the ETF rates above;
-#: 3 = ETF opens held within ETF_OPEN_BAND of the close for fills (tracker D4, 1 Oct 2026).
-COST_MODEL_VERSION = 3
+#: 3 = ETF opens held within ETF_OPEN_BAND of the close for fills (tracker D4, 1 Oct 2026);
+#: 4 = idle cash earns IDLE_CASH_YIELD_ANNUAL, nothing (tracker IC1, 10 Oct 2026).
+COST_MODEL_VERSION = 4
+
+#: What idle cash earns in the account, a year.  A Kite account pays no interest, and
+#: neither the paper nor the live book sweeps cash into a liquid fund, so: nothing.
+#: Cost models 1-3 credited EngineConfig.cash_yield_annual (6%), which no live path earns
+#: (tracker IC1).  A future cash sweep would set this from the fund's dated net yield.
+IDLE_CASH_YIELD_ANNUAL = 0.0
 
 # An ETF's open is often a stray first trade of a few units far from where it
 # traded all day (GOLDBEES 24 Dec 2020: open 48.98, low 43.58, close 43.73).  In

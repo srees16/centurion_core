@@ -257,6 +257,34 @@ def _equity_metrics(snapshots: List[dict], initial: float, rf: float) -> Dict[st
     return compute_metrics(returns, equity, rf_annual=rf, initial_capital=float(initial) or None)
 
 
+def journal_points(cloud, rf_annual: Optional[float] = None, min_sessions: int = 20) -> List[dict]:
+    """The book's paper record at each week's last session, for the metrics journal (tracker JR1).
+
+    Return and drawdown from the first session; Sharpe only from
+    ``min_sessions`` on, since a few weeks' Sharpe has a standard error near 2.
+    No Calmar: an annualised return over weeks overstates it many times.
+    """
+    import pandas as pd
+
+    snapshots = snapshots_view(cloud)
+    if len(snapshots) < 2:
+        return []
+    state = cloud.read_state() or {}
+    initial = _f(state.get("initial_capital")) or _f(snapshots[0].get("equity"))
+    rf = risk_free_annual() if rf_annual is None else rf_annual
+    weeks = [pd.Timestamp(str(s.get("date"))[:10]).isocalendar()[:2] for s in snapshots]
+    points = []
+    for i, s in enumerate(snapshots):
+        if i + 1 < len(snapshots) and weeks[i + 1] == weeks[i]:
+            continue
+        em = _equity_metrics(snapshots[: i + 1], initial, rf)
+        points.append({"date": str(s.get("date"))[:10], "sessions": i + 1,
+                       "total_return": _f(s.get("equity")) / initial - 1.0 if initial else None,
+                       "max_dd": em.get("max_drawdown"),
+                       "sharpe": em.get("sharpe") if i + 1 >= min_sessions else None})
+    return points
+
+
 def _trade_metrics(closed: List[dict]) -> Dict[str, float]:
     import numpy as np
     import pandas as pd

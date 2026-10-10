@@ -15,19 +15,8 @@ router = APIRouter()
 
 # ─── Market Ticker Prices ────────────────────────────────────────────────
 
-# ── NSE Trading Holidays (official calendar – update annually) ──
-# Source: https://www.nseindia.com/resources/exchange-communication-holidays
-_NSE_HOLIDAYS: set = {
-    # 2025
-    "2025-02-26", "2025-03-14", "2025-03-31", "2025-04-10", "2025-04-14",
-    "2025-04-18", "2025-05-01", "2025-08-15", "2025-08-27", "2025-10-02",
-    "2025-10-21", "2025-10-22", "2025-11-05", "2025-12-25",
-    # 2026
-    "2026-01-15", "2026-01-26", "2026-03-03", "2026-03-26", "2026-03-31",
-    "2026-04-03", "2026-04-14", "2026-05-01", "2026-05-28", "2026-06-26",
-    "2026-09-14", "2026-10-02", "2026-10-20", "2026-11-10", "2026-11-24",
-    "2026-12-25",
-}
+# NSE holidays and special sessions: one calendar shared with the trading code (tracker LN-T7)
+from nse_engine.nse_calendar import is_trading_day as _nse_trading_day  # noqa: E402
 
 _ticker_price_cache: Dict[str, Any] = {}   # L1 in-memory: cache_key -> response dict
 _ticker_cache_ts: Dict[str, float] = {}    # L1 in-memory: cache_key -> monotonic ts
@@ -42,9 +31,7 @@ def _is_market_open(market: str) -> bool:
     if market == "IND":
         # NSE: 9:15 AM – 3:30 PM IST (UTC+5:30), Mon–Fri, excl. holidays
         ist = now_utc + timedelta(hours=5, minutes=30)
-        if ist.weekday() >= 5:
-            return False
-        if ist.strftime("%Y-%m-%d") in _NSE_HOLIDAYS:
+        if not _nse_trading_day(ist.date()):
             return False
         t = ist.hour * 60 + ist.minute
         return 9 * 60 + 15 <= t < 15 * 60 + 30

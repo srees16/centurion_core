@@ -455,12 +455,12 @@ def _run_engine_paper():
     previous_session = pt.engine_last_session()
     executor = EngineExecutor(kite=None, paper=True, paper_trader=pt, deployment=dep)
     session = executor.run_paper_session()
-    missed = _missed_sessions(previous_session, session.get("session"))
+    missed = max(len(session.get("caught_up") or []) - 1, 0)   # store sessions, weekends included (LN-T7)
     if missed:
         session.setdefault("notes", []).append(
-            f"MISSED {missed} session(s) since {previous_session}: orders decided then were "
-            "cancelled as stale, so the book sat in cash for those days")
-        logger.warning("Paper book missed %d session(s) after %s", missed, previous_session)
+            f"CAUGHT UP {missed} session(s) since {previous_session}: each one's stops and fills were applied "
+            "in order; no plan was made for the sessions in between")
+        logger.warning("Paper book caught up %d session(s) after %s", missed, previous_session)
     plan = session.get("plan")
     entries = _engine_signal_entries(plan)
     n_traded = sum(1 for e in entries if e["was_traded"])
@@ -636,25 +636,6 @@ def _record_session_activity(pt, session: dict, snapshot: dict, plan, queued: in
         logger.warning("Session activity not recorded: %s", exc)
 
 
-def _missed_sessions(previous, current) -> int:
-    """Trading sessions between the last processed one and this one (0 when consecutive).
-
-    Counted on NSE weekdays, so a normal Friday-to-Monday gap is 0; holidays can
-    show 1 and are harmless. Anything larger means the scheduler dropped a day.
-    """
-    import pandas as pd
-
-    if not previous or not current:
-        return 0
-    try:
-        a, b = pd.Timestamp(previous).date(), pd.Timestamp(current).date()
-    except Exception:                                    # noqa: BLE001
-        return 0
-    if b <= a:
-        return 0
-    return max(len(pd.bdate_range(a, b)) - 2, 0)
-
-
 def _drift_check_line(pt, shift: dict, plan) -> str:
     """One line for the daily email: the drift check's verdict, or how long until it runs."""
     from kite_connect.trading.paper_trader import SHIFT_MIN_LIVE_DAYS
@@ -697,6 +678,8 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict, g
         if verdict in ("drifting", "regime_break"):
             alerts.append(f"Distribution shift: {verdict} (size multiplier {shift.get('position_size_multiplier', shift.get('multiplier', '—'))})")
         drift_check = _drift_check_line(pt, shift, plan)
+        from services.notifications.alerts import WARNING, alert   # tracker AL3: a paper book's risk events
+        book = _book_label() or "deployed"
         gate_line = None
         if gate:
             from nse_engine import paper_gate
@@ -704,6 +687,7 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict, g
             if gate.get("verdict") == paper_gate.FAIL:
                 alerts.append("PAPER GATE (G4) FAIL: " + "; ".join(
                     f"{c['name']} {c['display']}" for c in gate.get("checks", []) if c["status"] == paper_gate.FAIL))
+                alert(WARNING, f"paper_g4_fail:{book}", f"Centurion paper [{book}]: G4 FAIL", [alerts[-1]], book=book)
         dd_state = str(getattr(plan, "drawdown_state", "normal") or "normal") if plan is not None else "normal"
         dd_pct = float(getattr(plan, "drawdown_pct", 0.0) or 0.0) if plan is not None else 0.0
         dd_line = None
@@ -713,6 +697,8 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict, g
                 alerts.append(f"DRAWDOWN RULE changed to {dd_state.upper()} at {dd_pct:.1f}% below the peak: "
                               + _drawdown_prefix(plan).split(": ", 1)[-1].rstrip("; ") if dd_state != "normal"
                               else f"DRAWDOWN RULE re-armed: back to normal (new 60-session equity high)")
+                alert(WARNING, f"drawdown_rule:{book}:{dd_state}", f"Centurion paper [{book}]: drawdown rule {dd_state}",
+                      [alerts[-1]], book=book)
         sent = NotificationManager().email_engine_daily_report({
             "session": session.get("session"),
             "deployment": f"{dep.status} {dep.engine.config_hash()[:8]} · paper since {dep.paper_start_date}",

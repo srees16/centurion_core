@@ -117,6 +117,7 @@ def record_result(result: Any, tag: str, runs_dir: Optional[Union[str, Path]] = 
         "config_hash": config.config_hash() if hasattr(config, "config_hash") else "",
         **git_state(),
         "data_hash": getattr(result, "data_hash", ""),
+        "data_hash_version": _data_hash_version(),
         "start": str(start) if start is not None else None,
         "end": str(end) if end is not None else None,
         "created_at": created.isoformat(),
@@ -140,6 +141,12 @@ def record_result(result: Any, tag: str, runs_dir: Optional[Union[str, Path]] = 
     except Exception:  # frozen / foreign objects
         pass
     return str(run_dir)
+
+
+def _data_hash_version() -> int:
+    from nse_engine.types import DATA_HASH_VERSION
+
+    return DATA_HASH_VERSION
 
 
 def _cost_model_version() -> int:

@@ -1,0 +1,32 @@
+date,book,kind,event,cost_model,data_hash,config_hash,ref,cagr,sharpe,max_dd,calmar,sharpe_2017_25,dsr,pbo,pbo_n,exp_sharpe,exp_cagr,note
+2026-09-15,deployed,backtest,"Grid pick, approved 15 Sep (cost model 1)",1,172913b8,679cbd0c,20260914T183003557572Z_679cbd0c,0.240544,1.21879,-0.251437,0.956675,1.35107,0.994002,0.239005,36,,,
+2026-09-16,candidate,walk_forward,First walk-forward of the grid (Kaggle; NIFTY gaps not yet filled),1,172913b8,701edbe5,wf_oos_returns_kaggle.csv,0.233263,1.24132,-0.223148,1.04533,,,,,,,
+2026-09-16,deployed,walk_forward,First walk-forward of the grid (Kaggle; NIFTY gaps not yet filled),1,172913b8,701edbe5,wf_oos_returns_kaggle.csv,0.233263,1.24132,-0.223148,1.04533,,,,,,,
+2026-09-27,candidate,backtest,K5: the walk-forward's last-fold choice becomes the candidate,1,6c94f4f4,2d64ba4c,20260927T161509697939Z_2d64ba4c,0.222732,1.18856,-0.233625,0.953376,1.38862,0.988608,0.494483,47,,,
+2026-09-27,candidate,walk_forward,K5: walk-forward re-run on complete NIFTY data,1,6c94f4f4,,wf_oos_returns_k5.csv,0.219479,1.18734,-0.225336,0.974008,,,,,,,K5: main store with NIFTY gaps filled; B1 base (price_filter_unadjusted); same grid as B1b
+2026-09-27,deployed,backtest,V2: registry carried to the 23 Sep store rebuild,1,54854743,679cbd0c,20260927T120954390460Z_679cbd0c,0.240544,1.21879,-0.251437,0.956675,1.35107,,,,,,
+2026-09-27,deployed,backtest,"K5: NIFTY gaps filled, index closes in the data hash",1,6c94f4f4,679cbd0c,20260927T154544407199Z_679cbd0c,0.234949,1.18668,-0.250325,0.938574,1.34847,,,,,,
+2026-09-27,deployed,walk_forward,K5: walk-forward re-run on complete NIFTY data,1,6c94f4f4,,wf_oos_returns_k5.csv,0.219479,1.18734,-0.225336,0.974008,,,,,,,K5: main store with NIFTY gaps filled; B1 base (price_filter_unadjusted); same grid as B1b
+2026-09-30,candidate,backtest,U25: ETF STT fixed (cost model 2),2,6c94f4f4,2d64ba4c,20260930T174136365663Z_2d64ba4c,0.224159,1.20078,-0.230489,0.97254,1.40586,0.987803,0.464025,56,,,
+2026-09-30,deployed,backtest,U25: ETF STT fixed (cost model 2),2,6c94f4f4,679cbd0c,20260930T173801732345Z_679cbd0c,0.236334,1.19668,-0.230607,1.02484,1.36849,0.987458,0.464025,56,,,
+2026-10-01,candidate,backtest,D4: stray ETF opens fixed (cost model 3),3,6c94f4f4,2d64ba4c,20260930T191318294345Z_2d64ba4c,0.225615,1.21329,-0.230489,0.978856,1.42539,0.989467,0.48648,58,,,
+2026-10-01,candidate,walk_forward,R12 arm A: K5 grid (cost model 3),3,6c94f4f4,bd79bf28,wf_oos_returns_r12a.csv,0.208714,1.15047,-0.208616,1.00047,,,,,,,
+2026-10-01,deployed,backtest,D4: stray ETF opens fixed (cost model 3),3,6c94f4f4,679cbd0c,20260930T191537193012Z_679cbd0c,0.237391,1.20573,-0.230607,1.02942,1.38325,0.988823,0.48648,58,,,
+2026-10-01,deployed,walk_forward,R12 arm A: K5 grid (cost model 3),3,6c94f4f4,bd79bf28,wf_oos_returns_r12a.csv,0.208714,1.15047,-0.208616,1.00047,,,,,,,
+2026-10-01,e4,backtest,E4 recorded: B1 + exit rank 60 + refill exits (cost model 3),3,6c94f4f4,93cf6c4d,20261001T070708574377Z_93cf6c4d,0.246439,1.20487,-0.24641,1.00012,1.47787,0.988446,0.505439,59,,,
+2026-10-01,e4,walk_forward,"R12 arm B: K5 grid x exit rank {40, 60} (cost model 3)",3,6c94f4f4,bd79bf28,wf_oos_returns_r12b.csv,0.219345,1.27306,-0.171527,1.27878,,,,,,,
+2026-10-08,candidate,backtest,RR1: registry refreshed after the 7 Oct store rebuild,3,ba7c0982,2d64ba4c,20261008T075322161185Z_2d64ba4c,0.225615,1.21329,-0.230489,0.978856,1.42539,,,,,,
+2026-10-08,deployed,backtest,RR1: registry refreshed after the 7 Oct store rebuild,3,ba7c0982,679cbd0c,20261008T075552141367Z_679cbd0c,0.237391,1.20573,-0.230607,1.02942,1.38325,,,,,,
+2026-10-08,e4,backtest,RR1: registry refreshed after the 7 Oct store rebuild,3,ba7c0982,93cf6c4d,20261008T080306839468Z_93cf6c4d,0.246439,1.20487,-0.24641,1.00012,1.47787,,,,,,
+2026-10-10,candidate,backtest,IC1: idle cash earns nothing (cost model 4),4,ba7c0982,2d64ba4c,20261009T184910317150Z_2d64ba4c,0.213776,1.13177,-0.243088,0.879418,1.3585,0.9576,0.371484,61,0.758921,0.184644,PBO on excess returns
+2026-10-10,candidate,backtest,"RR2: ties by the name in force, data hash v2 (LN-T15)",4,dab49d3c,2d64ba4c,20261010T031406532878Z_2d64ba4c,0.21881,1.15742,-0.236424,0.925497,1.38073,0.962582,0.291608,61,0.793721,0.189515,PBO on excess returns
+2026-10-10,candidate,walk_forward,"R12 arm A re-run: IC1, cost model 4",4,ba7c0982,bd79bf28,wf_oos_returns_r12a4.csv,0.228543,1.2268,-0.221219,1.03311,,,,,,,
+2026-10-10,candidate,walk_forward,R12 arm A re-run: RR2 data (LN-T15),4,dab49d3c,bd79bf28,wf_oos_returns_r12a5.csv,0.23066,1.23751,-0.221204,1.04275,,,,,,,
+2026-10-10,deployed,backtest,IC1: idle cash earns nothing (cost model 4),4,ba7c0982,679cbd0c,20261009T185910593890Z_679cbd0c,0.229721,1.15801,-0.238917,0.96151,1.31819,0.965232,0.371484,61,0.778922,0.197369,PBO on excess returns
+2026-10-10,deployed,backtest,"RR2: ties by the name in force, data hash v2 (LN-T15)",4,dab49d3c,679cbd0c,20261010T032441064151Z_679cbd0c,0.231316,1.16338,-0.23887,0.968376,1.32082,0.964307,0.291608,61,0.79815,0.198765,PBO on excess returns
+2026-10-10,deployed,walk_forward,"R12 arm A re-run: IC1, cost model 4",4,ba7c0982,bd79bf28,wf_oos_returns_r12a4.csv,0.228543,1.2268,-0.221219,1.03311,,,,,,,
+2026-10-10,deployed,walk_forward,R12 arm A re-run: RR2 data (LN-T15),4,dab49d3c,bd79bf28,wf_oos_returns_r12a5.csv,0.23066,1.23751,-0.221204,1.04275,,,,,,,
+2026-10-10,e4,backtest,IC1: idle cash earns nothing (cost model 4),4,ba7c0982,93cf6c4d,20261009T185901820673Z_93cf6c4d,0.239024,1.16134,-0.257365,0.928736,1.43975,0.965564,0.371484,61,0.832987,0.215562,PBO on excess returns
+2026-10-10,e4,backtest,"RR2: ties by the name in force, data hash v2 (LN-T15)",4,dab49d3c,93cf6c4d,20261010T032422767185Z_93cf6c4d,0.235542,1.13873,-0.2532,0.930261,1.41025,0.956512,0.291608,61,0.847245,0.215407,PBO on excess returns
+2026-10-10,e4,walk_forward,"R12 arm B re-run: IC1, cost model 4",4,ba7c0982,bd79bf28,wf_oos_returns_r12b4.csv,0.183874,0.97931,-0.221219,0.831184,,,,,,,
+2026-10-10,e4,walk_forward,R12 arm B re-run: RR2 data (LN-T15),4,dab49d3c,bd79bf28,wf_oos_returns_r12b5.csv,0.203971,1.107,-0.218626,0.932968,,,,,,,

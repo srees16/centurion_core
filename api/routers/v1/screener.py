@@ -491,6 +491,28 @@ async def screener_weekly_checkpoints(book: Optional[str] = Depends(_book_param)
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/screener/monitor/journal")
+async def screener_metrics_journal(book: Optional[str] = Depends(_book_param)):
+    """Metrics journal (tracker JR1): the book's research evidence over time (docs/metrics_journal.csv,
+    added at each re-baseline), its paper record week by week (Neon) and the targets."""
+    try:
+        from nse_engine import journal
+        name = book or "deployed"
+        out = {"book": name, "rows": journal.read_rows(name), "paper": [], "paper_error": None,
+               "targets": journal.targets()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    try:
+        cloud = _cloud_or_none(book)
+        if cloud:
+            from kite_connect.trading.paper_book_view import journal_points
+            out["paper"] = journal_points(cloud)
+    except Exception as e:                                # noqa: BLE001 - the research rows still show
+        logger.warning("journal: paper record unavailable for %s: %s", out["book"], e)
+        out["paper_error"] = str(e)
+    return _sanitize_floats(out)
+
+
 @router.get("/screener/monitor/daily-detail/{date}")
 async def screener_daily_detail(date: str, book: Optional[str] = Depends(_book_param)):
     """Get full drill-down for a single trading day."""

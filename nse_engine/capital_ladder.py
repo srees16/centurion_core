@@ -32,7 +32,8 @@ Every live session evaluates the ladder on the live book's own paper gate
   MaxDD AND NIFTY's drawdown over the same days (in a market-wide crash the
   book is judged against the market, U22); (2) regime_break in two
   consecutive sessions; (3) G4's cost check FAIL (costs above 2x the model).
-  The response is ``CENTURION_KILL_SWITCH=true``, which refuses new buys.
+  The response is the kill switch (``kite_connect.trading.kill_switch``, or
+  ``CENTURION_KILL_SWITCH=true``), which refuses new buys.
 
 A step changes the live ledger's capital and cash by the difference and is
 recorded as a flow on that day's snapshot.  ``flow_adjusted`` removes flows
@@ -40,9 +41,11 @@ from the equity history, so a withdrawal never reads as a drawdown and a
 deposit never as a gain (drawdown rule, G4, max drawdown).
 
 Go-live (``readiness``): the first real session is refused unless the
-configuration about to trade has a paper G4 PASS with >= 60 sessions and
+configuration about to trade has a paper G4 PASS with >= 60 sessions,
 >= 5 scheduled dry runs finished clean (no alert: token, tunnel, egress IP,
-broker reads and order building all worked).  The paper record is the
+broker reads and order building all worked), and the account has shown it
+can sell unattended (``sell_path_check``: DDPI, a supervised AMO sell and a
+triggered GTT sell on this Kite user, tracker LN-T2).  The paper record is the
 deployed book's own, or, after a promotion, the trial book's that traded
 the same configuration (``go_live_evidence``, tracker V5), so promoting a
 trial that cleared the forward gate does not restart the go-live clock.
@@ -58,23 +61,29 @@ book, while the paper book only trades changes to what it holds.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import pandas as pd
 
+logger = logging.getLogger(__name__)
+
 RUNGS: Tuple[float, ...] = (600_000.0, 1_200_000.0, 2_100_000.0, 3_000_000.0)
 MIN_SESSIONS_PER_RUNG = 20            # about one month of sessions
 KILL_DD_MULTIPLE = 1.5
-# MaxDD of the deployed configuration's backtest, 2013-25 on the honest data
-# (679cbd0c, B1-era data; tracker section 1).  Override when the deployment
-# changes: CENTURION_BACKTEST_MAXDD=0.234 (candidate 2d64ba4c), for example.
-BACKTEST_MAXDD_DEFAULT = 0.247
+# MaxDD of the deployed configuration's backtest, 2013-25 (679cbd0c, cost model 4;
+# tracker IC1b, was 0.247 from cost model 1): the fallback of backtest_maxdd_for,
+# which reads the books register so a promotion moves the kill threshold with it.
+BACKTEST_MAXDD_DEFAULT = 0.239
 GO_LIVE_MIN_PAPER_SESSIONS = 60
 GO_LIVE_MIN_DRY_RUNS = 5
 STATE_KEY = "live_ladder"
 DRY_RUNS_KEY = "live_dry_runs"
+#: The supervised sell test, as verified against Kite (tracker LN-T2): without DDPI every CNC sell
+#: needs a same-day CDSL TPIN, which no unattended session can give.
+SELL_PATH_KEY = "live_sell_path"
 LIVE_CONFIG_KEY = "live_config"       # {"config_hash", "since"}: what the live book trades, since when (V5)
 GO, HOLD, STEP_DOWN = "GO", "HOLD", "STEP DOWN"
 GO_CHECKS = ("tracking error", "daily gap", "drawdown", "regime break")
@@ -125,6 +134,7 @@ class LadderDecision:
     reasons: List[str] = field(default_factory=list)
     kill: List[str] = field(default_factory=list)
     alerts: List[str] = field(default_factory=list)
+    critical: List[str] = field(default_factory=list)   # the alerts that need the owner today (tracker AL3)
 
     def line(self) -> str:
         head = f"{self.action} · rung {self.rung + 1} of {len(RUNGS)}, Rs {self.capital:,.0f}"
@@ -136,6 +146,29 @@ def _status(gate: Optional[Dict[str, Any]], name: str) -> Optional[str]:
         if c.get("name") == name:
             return c.get("status")
     return None
+
+
+def backtest_maxdd_for(config_hash: str) -> float:
+    """The kill threshold's backtest MaxDD (positive) for the configuration live trades.
+
+    ``CENTURION_BACKTEST_MAXDD`` when set; else the books register's like-for-like
+    2013-25 MaxDD of that configuration (``nse_engine.books register`` re-scores
+    it after a promotion or a re-baseline); else ``BACKTEST_MAXDD_DEFAULT``.
+    """
+    if os.environ.get("CENTURION_BACKTEST_MAXDD"):
+        return float(os.environ["CENTURION_BACKTEST_MAXDD"])
+    try:
+        from nse_engine.books import read_register
+
+        reg = read_register()
+        dd = pd.to_numeric(reg.loc[reg["config_hash"] == config_hash, "bt_max_dd"], errors="coerce").dropna()
+        if len(dd) and dd.iloc[0] != 0:
+            return abs(float(dd.iloc[0]))
+        logger.warning("books register has no backtest MaxDD for %s: kill threshold from %.1f%%",
+                       config_hash[:8], BACKTEST_MAXDD_DEFAULT * 100)
+    except Exception as exc:                              # noqa: BLE001 - the constant still guards
+        logger.warning("books register unreadable (%s): kill threshold from %.1f%%", exc, BACKTEST_MAXDD_DEFAULT * 100)
+    return BACKTEST_MAXDD_DEFAULT
 
 
 def evaluate(state: LadderState, session: str, *, gate: Optional[Dict[str, Any]], drawdown_state: str,
@@ -168,7 +201,9 @@ def evaluate(state: LadderState, session: str, *, gate: Optional[Dict[str, Any]]
     d = LadderDecision(HOLD, state.rung, state.capital, 0.0, kill=kill)
     if kill:
         d.alerts.append("KILL criterion met (your decision): " + "; ".join(kill)
-                        + ". Set CENTURION_KILL_SWITCH=true to refuse new buys. The ladder is frozen.")
+                        + ". Turn the kill switch on (Actions > Kill switch > on) to refuse new buys. "
+                          "The ladder is frozen.")
+        d.critical.append(d.alerts[-1])
 
     req = rung_of(requested_capital) if requested_capital else None
     if requested_capital and req is None:
@@ -193,6 +228,7 @@ def evaluate(state: LadderState, session: str, *, gate: Optional[Dict[str, Any]]
         else:
             d.reasons.append("G4 FAIL at the lowest rung: " + "; ".join(fails))
             d.alerts.append("G4 FAIL at the lowest rung: consider the kill switch. " + "; ".join(fails))
+        d.critical.append(d.alerts[-1])
         return d
 
     blockers = []
@@ -310,9 +346,36 @@ def config_since(raw: Optional[str], config_hash: str, first_session: str,
     return since, json.dumps({"config_hash": config_hash, "since": since}), stored.get("config_hash")
 
 
+def sell_path_check(record: Optional[Dict[str, Any]], user_id: Optional[str]) -> Tuple[bool, str]:
+    """Whether this Kite account has shown it can sell with no one present (tracker LN-T2).
+
+    ``record`` is the supervised test as ``live_session --record-sell-path``
+    verified it: DDPI confirmed, an AMO SELL (CNC) COMPLETE and a stop GTT
+    triggered with its SELL COMPLETE, all on the Kite user now logged in.
+    """
+    r = record or {}
+    if not r:
+        return False, "no supervised sell test recorded (live_session --record-sell-path)"
+    problems = []
+    if not r.get("ddpi_confirmed_on"):
+        problems.append("DDPI not confirmed")
+    if not user_id or r.get("user_id") != user_id:
+        problems.append(f"recorded for Kite user {r.get('user_id') or '?'}, logged in as {user_id or '?'}")
+    if r.get("amo_status") != "COMPLETE" or r.get("amo_side") != "SELL":
+        problems.append(f"AMO sell {r.get('amo_side') or '?'} {r.get('amo_status') or 'missing'}")
+    if r.get("gtt_status") != "triggered" or r.get("gtt_order_status") != "COMPLETE":
+        problems.append(f"GTT sell {r.get('gtt_status') or 'missing'}, its order {r.get('gtt_order_status') or '-'}")
+    if problems:
+        return False, "; ".join(problems)
+    return True, (f"DDPI confirmed {r['ddpi_confirmed_on']}; AMO sell and GTT sell COMPLETE "
+                  f"(verified {str(r.get('verified_at') or '')[:10]})")
+
+
 def readiness(paper_gate: Optional[Dict[str, Any]], dry_runs: Sequence[Dict[str, Any]],
-              source: str = "deployed paper book") -> List[Tuple[str, bool, str]]:
-    """Go-live checks: (name, ok, detail).  ``paper_gate`` comes from :func:`go_live_evidence`."""
+              source: str = "deployed paper book", sell_path: Optional[Tuple[bool, str]] = None
+              ) -> List[Tuple[str, bool, str]]:
+    """Go-live checks: (name, ok, detail).  ``paper_gate`` comes from :func:`go_live_evidence`;
+    ``sell_path`` from :func:`sell_path_check` (missing counts as not shown)."""
     out = []
     v, n = (paper_gate or {}).get("verdict"), _gate_sessions(paper_gate)
     out.append(("paper book G4", v == "PASS" and n >= GO_LIVE_MIN_PAPER_SESSIONS,
@@ -320,4 +383,6 @@ def readiness(paper_gate: Optional[Dict[str, Any]], dry_runs: Sequence[Dict[str,
     clean = [r for r in dry_runs if r.get("clean")]
     out.append(("live dry runs", len(clean) >= GO_LIVE_MIN_DRY_RUNS,
                 f"{len(clean)} clean of {len(dry_runs)} scheduled dry runs ({GO_LIVE_MIN_DRY_RUNS} needed)"))
+    ok, detail = sell_path if sell_path is not None else (False, "not checked")
+    out.append(("sell path", ok, detail))
     return out

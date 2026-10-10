@@ -117,7 +117,9 @@ class Broker:
                   "quantity": int(quantity), "product": PRODUCT, "order_type": "LIMIT", "price": float(price),
                   "validity": "DAY", "autoslice": "true"}
         if tag:
-            params["tag"] = tag[:20]
+            from kite_connect.trading.order_status import kite_tag
+
+            params["tag"] = kite_tag(tag)
         self._orders.wait()
         try:
             data = self.kite._post("order.place", url_args={"variety": "regular"}, params=params)
@@ -127,6 +129,10 @@ class Broker:
         result = _slices(data)
         self.log("place", params, response=data)
         return result
+
+    def orders(self) -> List[dict]:
+        """Today's order book."""
+        return self.kite.orders() or []
 
     def order_history(self, order_id: str) -> List[dict]:
         return self.kite.order_history(order_id)

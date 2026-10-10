@@ -38,7 +38,7 @@ of the same run.
 | Calmar | **1.03** | 0.98 | 1.00 |
 | Turnover / yr | 6.89× | 6.72× | **5.79×** |
 | Cost drag / yr | 2.8% | 2.7% | **2.4%** |
-| Walk-forward OOS Sharpe 2017–25 | 1.38 | 1.43 | **1.48** |
+| Backtest Sharpe 2017–25 | 1.38 | 1.43 | **1.48** |
 | PBO (n configurations) | 48.6% (58) | 48.6% (58) | 56.1% (60) |
 | Deflated Sharpe | 0.989 | 0.989 | 0.988 |
 | After the execution haircut (D2) | 1.00 / 20.2% / −22.8% | not measured | 1.08 / 22.2% / −26.5% |
@@ -86,7 +86,7 @@ has a standard error of about 2, so no return threshold gates anything.
 |---|---|---|---|
 | 1 | Paper sessions beside the deployed book | ≥ 60 sessions, and the deployed book ran ≥ 60 of the same sessions | PENDING until 60 |
 | 2 | Its own G4 | PASS on its latest session (not stale) | PENDING while NOT ENOUGH DATA or WATCH; FAIL on FAIL |
-| 3 | Walk-forward OOS Sharpe 2017–25 | ≥ the deployed configuration's − 0.05, from the recorded runs | PASS / FAIL, known today |
+| 3 | Backtest Sharpe 2017–25 (the walk-forward's test years; each book's own recorded run, not a walk-forward) | ≥ the deployed configuration's − 0.05, from the recorded runs | PASS / FAIL, known today |
 
 All three must be PASS. Reported beside them, never gating: PBO, deflated
 Sharpe, the benchmark gate, the holdout, and the paper returns of both

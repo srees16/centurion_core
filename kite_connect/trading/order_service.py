@@ -16,6 +16,7 @@ import logging
 import os
 import time
 import types
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,8 @@ def _is_nse_market_open() -> bool:
 # ── Order Placement ────────────────────────────────────────────
 
 def is_kill_switch_active() -> bool:
-    """True when the kill switch is on (env ``CENTURION_KILL_SWITCH`` or Config)."""
+    """True when the kill switch is on: env ``CENTURION_KILL_SWITCH``, Config, or the latched switch in Neon
+    (``kill_switch``, tracker DM2).  A configured but unreadable Neon counts as on: a halt is never missed."""
     kill_switch = os.environ.get("CENTURION_KILL_SWITCH", "").lower() in ("true", "1", "yes")
     if not kill_switch:
         try:
@@ -84,7 +86,14 @@ def is_kill_switch_active() -> bool:
             kill_switch = bool(getattr(Config, "KILL_SWITCH", False))
         except Exception:
             pass
-    return kill_switch
+    if kill_switch:
+        return True
+    try:
+        from kite_connect.trading.kill_switch import state
+        return bool(state().get("on"))
+    except Exception as exc:                              # noqa: BLE001 - fail closed
+        logger.error("kill switch state unreadable (%s): treated as ON", exc)
+        return True
 
 
 def _long_quantity(kite, symbol, exchange, product):
@@ -121,6 +130,19 @@ def _kill_switch_allows(kite, symbol, exchange, transaction_type, quantity, prod
     return True, ""
 
 
+def kill_switch_refusal(kite, symbol, exchange, transaction_type, quantity, product) -> Optional[str]:
+    """Why an order placed by hand is refused while the kill switch is on, or None (tracker DM0).
+
+    The paths outside ``place_order`` (the web app's direct route) treat a
+    sell as an exit, reduce-only as G2 allows; a buy is refused.
+    """
+    if not is_kill_switch_active():
+        return None
+    allowed, reason = _kill_switch_allows(kite, symbol, exchange, transaction_type, quantity, product,
+                                          is_exit=str(transaction_type or "").upper() == "SELL")
+    return None if allowed else reason
+
+
 AMO_VARIETY = "amo"          # after-market order: accepted while the market is closed, sent at the next open
 REGULAR_VARIETY = "regular"
 
@@ -128,6 +150,47 @@ REGULAR_VARIETY = "regular"
 def order_variety_now() -> str:
     """``regular`` during NSE hours, ``amo`` otherwise (the engine decides after the close)."""
     return REGULAR_VARIETY if _is_nse_market_open() else AMO_VARIETY
+
+
+#: Centurion places swing and positional trades only (owner's rule, 10 Oct 2026): Zerodha's
+#: intraday product and its intraday-only varieties (cover, bracket) are refused on every path.
+INTRADAY_PRODUCTS = frozenset({"MIS"})
+INTRADAY_VARIETIES = frozenset({"co", "bo"})
+
+
+def intraday_refusal(product, variety=REGULAR_VARIETY) -> Optional[str]:
+    """Why an order is refused as intraday, or None when it may go (CNC delivery, NRML for F&O)."""
+    if str(product or "").upper() in INTRADAY_PRODUCTS:
+        return f"product {product} is intraday: Centurion places swing and positional trades only (CNC, or NRML for F&O)"
+    if str(variety or "").lower() in INTRADAY_VARIETIES:
+        return f"variety {variety} (cover/bracket) is intraday only: Centurion places swing and positional trades only"
+    return None
+
+
+def same_day_refusal(kite, symbol, exchange, transaction_type, product, variety=REGULAR_VARIETY) -> Optional[str]:
+    """Why a delivery order would close or reverse a trade made today in the same stock, or None.
+
+    Zerodha counts a buy and a sell of one stock on the same day as an intraday
+    trade, whichever lots they touch.  Only a regular CNC order executes today
+    (an after-market order executes at the next session; F&O legs are left to
+    their own unwind rules).  Fails closed when today's positions cannot be
+    read.  Kite itself still accepts such an order: the owner sells there.
+    """
+    if str(product or "").upper() != "CNC" or str(variety or "").lower() != REGULAR_VARIETY:
+        return None
+    side = str(transaction_type).upper()
+    opposite = "buy_quantity" if side == "SELL" else "sell_quantity"
+    try:
+        day = (kite.positions() or {}).get("day", []) or []
+    except Exception as exc:                              # noqa: BLE001 - refuse rather than guess
+        return f"today's trades in {symbol} could not be read ({exc}): the order is refused; use Kite directly"
+    done = sum(int(p.get(opposite) or 0) for p in day
+               if p.get("tradingsymbol") == symbol and (p.get("exchange") or exchange) == exchange)
+    if done:
+        return (f"{symbol} was {'bought' if side == 'SELL' else 'sold'} today ({done} shares): this {side} would "
+                "make an intraday trade. Centurion places swing and positional trades only; use Kite directly "
+                "if it must happen today")
+    return None
 
 
 def place_order(kite, symbol, exchange, transaction_type, quantity,
@@ -152,7 +215,10 @@ def place_order(kite, symbol, exchange, transaction_type, quantity,
     order_type : str
         ``"MARKET"``, ``"LIMIT"``, ``"SL"``, or ``"SL-M"``.
     product : str
-        ``"CNC"`` (delivery), ``"MIS"`` (intraday), or ``"NRML"``.
+        ``"CNC"`` (delivery) or ``"NRML"`` (F&O, carried overnight); ``"MIS"``
+        (intraday) is refused, as are cover and bracket varieties
+        (``intraday_refusal``) and a regular CNC order that would close or
+        reverse today's trade in the same stock (``same_day_refusal``).
     price : float | None
         Required for LIMIT / SL orders.
     trigger_price : float | None
@@ -175,6 +241,13 @@ def place_order(kite, symbol, exchange, transaction_type, quantity,
         ``{"success": True, "order_id": "..."}`` on success, or
         ``{"success": False, "error": "..."}`` on failure.
     """
+    # ── Swing and positional only: no intraday product, variety or same-day round trip ──
+    refusal = (intraday_refusal(product, variety)
+               or same_day_refusal(kite, symbol, exchange, transaction_type, product, variety))
+    if refusal:
+        logger.error("Order refused for %s: %s", symbol, refusal)
+        return {"success": False, "error": refusal}
+
     # ── G2: KILL SWITCH — halt new risk, but never block reduce-only exits ──
     if is_kill_switch_active():
         allowed, reason = _kill_switch_allows(kite, symbol, exchange, transaction_type,
@@ -207,8 +280,10 @@ def place_order(kite, symbol, exchange, transaction_type, quantity,
                                                "use variety='amo' after hours"}
 
     # Generate idempotency tag from order parameters (caller tag takes precedence)
+    from kite_connect.trading.order_status import kite_tag, order_placed
+
     if tag:
-        idempotency_tag = tag[:20]  # Kite tag max 20 chars
+        idempotency_tag = kite_tag(tag)  # Kite: alphanumeric, max 20 chars (LN-T3)
     else:
         tag_seed = f"{symbol}:{exchange}:{transaction_type}:{quantity}:{order_type}:{price}:{int(time.time()//60)}"
         idempotency_tag = hashlib.sha256(tag_seed.encode()).hexdigest()[:20]
@@ -217,16 +292,24 @@ def place_order(kite, symbol, exchange, transaction_type, quantity,
 
     for attempt in range(_MAX_RETRIES):
         try:
-            # Before retry, check if previous attempt silently succeeded
+            # Before retry, check if previous attempt silently succeeded: an order at
+            # any stage short of rejection counts, AMO REQ RECEIVED included (LN-T3).
+            # If the book cannot be read the order may exist, so it is not re-sent.
             if attempt > 0:
                 try:
                     orders = kite.orders() or []
-                    for o in orders:
-                        if o.get("tag") == idempotency_tag and o.get("status") in ("OPEN", "COMPLETE", "TRIGGER PENDING"):
-                            logger.info("Idempotent duplicate detected for %s (tag=%s) — skipping retry", symbol, idempotency_tag)
-                            return {"success": True, "order_id": o.get("order_id")}
-                except Exception:
-                    pass
+                except Exception as exc:
+                    msg = f"order status unknown: the order book could not be read before a retry ({exc}); check Kite"
+                    logger.error("%s %s x %s (tag=%s): %s", transaction_type, symbol, quantity, idempotency_tag, msg)
+                    _persist_to_db(symbol, exchange, transaction_type, int(quantity), order_type, product, price,
+                                   success=False, error_msg=msg, status_text="UNKNOWN")
+                    _send_order_email(symbol, exchange, transaction_type, int(quantity), price or 0, "-",
+                                      "UNKNOWN", error=msg)
+                    return {"success": False, "status": "UNKNOWN", "error": msg}
+                for o in orders:
+                    if o.get("tag") == idempotency_tag and order_placed(o.get("status")):
+                        logger.info("Idempotent duplicate detected for %s (tag=%s) — skipping retry", symbol, idempotency_tag)
+                        return {"success": True, "order_id": o.get("order_id")}
 
             params = dict(
                 tradingsymbol=symbol,

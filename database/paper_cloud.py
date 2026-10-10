@@ -102,8 +102,8 @@ def paper_schema_from_env() -> Optional[str]:
     if not _SCHEMA_RE.match(raw):
         raise ValueError(f"{ENV_SCHEMA}={raw!r} is not a plain lower-case identifier")
     from kite_connect.trading.live_session import live_schema
-    if raw == live_schema():
-        raise ValueError(f"{ENV_SCHEMA}={raw!r} is the live book's schema: a paper book needs its own")
+    if raw == live_schema() or raw.startswith("live"):        # live, and live_<id> of each managed account
+        raise ValueError(f"{ENV_SCHEMA}={raw!r} is reserved for the live books: a paper book needs its own")
     return raw
 
 
@@ -420,10 +420,10 @@ class PaperCloudSync:
             logger.warning("Cloud sync session failed: %s", exc)
             return False
 
-    def read_sessions(self, since_epoch: bool = True) -> pd.DataFrame:
-        """Session activity of the current book."""
-        df = self._read(f"SELECT * FROM {self._t('paper_sessions')} ORDER BY session_date")
-        return self._since_epoch(df, "session_date", since_epoch)
+    def read_sessions(self, since_epoch: bool = True, strict: bool = False) -> pd.DataFrame:
+        """Session activity of the current book (``strict``: raise on a DB error)."""
+        df = self._read(f"SELECT * FROM {self._t('paper_sessions')} ORDER BY session_date", strict)
+        return self._since_epoch(df, "session_date", since_epoch, strict)
 
     def sync_fills(self, fills: List[dict]) -> bool:
         """Insert execution events, skipping ones already stored.
@@ -452,10 +452,10 @@ class PaperCloudSync:
             logger.warning("Cloud sync fills failed: %s", exc)
             return False
 
-    def read_fills(self, since_epoch: bool = True) -> pd.DataFrame:
-        """Execution events of the current book (all books with ``since_epoch=False``)."""
-        df = self._read(f"SELECT * FROM {self._t('paper_fills')} ORDER BY occurred_at")
-        return self._since_epoch(df, "occurred_at", since_epoch)
+    def read_fills(self, since_epoch: bool = True, strict: bool = False) -> pd.DataFrame:
+        """Execution events of the current book (all books with ``since_epoch=False``; ``strict``: raise)."""
+        df = self._read(f"SELECT * FROM {self._t('paper_fills')} ORDER BY occurred_at", strict)
+        return self._since_epoch(df, "occurred_at", since_epoch, strict)
 
     def sync_weekly(self, ckpt: dict) -> bool:
         """Upsert a weekly checkpoint row."""
@@ -608,13 +608,15 @@ class PaperCloudSync:
                     now, initial_capital, owner, values["previous_epoch"] or "none", len(open_now))
         return values
 
-    def _since_epoch(self, df: pd.DataFrame, column: str, enabled: bool) -> pd.DataFrame:
+    def _since_epoch(self, df: pd.DataFrame, column: str, enabled: bool, strict: bool = False) -> pd.DataFrame:
         """Rows of the current book only: ``column`` at or after the epoch."""
         if not enabled or df is None or df.empty or column not in df.columns:
             return df
         try:
             state = self.read_state()
         except Exception as exc:                          # noqa: BLE001 - reading only
+            if strict:
+                raise
             logger.debug("epoch lookup failed: %s", exc)
             return df
         ep = _epoch_from_state(state)
@@ -630,10 +632,15 @@ class PaperCloudSync:
 
     # ── Read methods (called by Paper Dashboard UI) ────────────
 
-    def read_snapshots(self, since_epoch: bool = True) -> pd.DataFrame:
-        """Daily snapshots of the current book (all books with ``since_epoch=False``)."""
-        df = self._read(f"SELECT * FROM {self._t('paper_daily_snapshots')} ORDER BY date")
-        return self._since_epoch(df, "date", since_epoch)
+    def read_snapshots(self, since_epoch: bool = True, strict: bool = False) -> pd.DataFrame:
+        """Daily snapshots of the current book (all books with ``since_epoch=False``).
+
+        ``strict`` raises on a DB error instead of returning an empty frame:
+        the live book must never read an outage as "no history" (its drawdown
+        rule would then read normal, tracker LN-T10).
+        """
+        df = self._read(f"SELECT * FROM {self._t('paper_daily_snapshots')} ORDER BY date", strict)
+        return self._since_epoch(df, "date", since_epoch, strict)
 
     def read_signals(self, since_epoch: bool = True) -> pd.DataFrame:
         """Signal log rows of the current book."""
@@ -650,7 +657,7 @@ class PaperCloudSync:
         df = self._read(f"SELECT * FROM {self._t('paper_weekly_checkpoints')} ORDER BY week_number")
         return self._since_epoch(df, "week_start", since_epoch)
 
-    def _read(self, sql: str) -> pd.DataFrame:
+    def _read(self, sql: str, strict: bool = False) -> pd.DataFrame:
         try:
             with self._session() as session:
                 result = session.execute(text(sql))
@@ -659,5 +666,7 @@ class PaperCloudSync:
                     return pd.DataFrame()
                 return pd.DataFrame(rows, columns=result.keys())
         except Exception as exc:
+            if strict:
+                raise
             logger.warning("Cloud read failed: %s", exc)
             return pd.DataFrame()
