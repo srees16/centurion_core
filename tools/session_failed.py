@@ -49,9 +49,9 @@ def main() -> int:
     else:
         subject = f"Centurion paper session FAILED{f' ({label})' if label else ''} - {now}"
         body = (f"<p>The paper trading run{f' ({label})' if label else ''} did not complete at {now}.</p>{link}"
-                "<p>Orders queued at the previous close fill only at the next session's open, "
-                "so a session missed on a fill day loses those orders: they are cancelled as "
-                "stale on the following run. Re-running the workflow the same evening recovers them.</p>")
+                "<p>The next run catches up: each missed session's stops and the queued orders' fills "
+                "are applied in order, then one plan is made from the latest close (no plan is made "
+                "for the sessions in between). Re-running the workflow the same evening avoids even that.</p>")
     try:
         from services.notifications.manager import NotificationManager
         sent = NotificationManager()._send_html_email(subject, body)

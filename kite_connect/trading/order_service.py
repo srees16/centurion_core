@@ -207,8 +207,10 @@ def place_order(kite, symbol, exchange, transaction_type, quantity,
                                                "use variety='amo' after hours"}
 
     # Generate idempotency tag from order parameters (caller tag takes precedence)
+    from kite_connect.trading.order_status import kite_tag, order_placed
+
     if tag:
-        idempotency_tag = tag[:20]  # Kite tag max 20 chars
+        idempotency_tag = kite_tag(tag)  # Kite: alphanumeric, max 20 chars (LN-T3)
     else:
         tag_seed = f"{symbol}:{exchange}:{transaction_type}:{quantity}:{order_type}:{price}:{int(time.time()//60)}"
         idempotency_tag = hashlib.sha256(tag_seed.encode()).hexdigest()[:20]
@@ -217,16 +219,24 @@ def place_order(kite, symbol, exchange, transaction_type, quantity,
 
     for attempt in range(_MAX_RETRIES):
         try:
-            # Before retry, check if previous attempt silently succeeded
+            # Before retry, check if previous attempt silently succeeded: an order at
+            # any stage short of rejection counts, AMO REQ RECEIVED included (LN-T3).
+            # If the book cannot be read the order may exist, so it is not re-sent.
             if attempt > 0:
                 try:
                     orders = kite.orders() or []
-                    for o in orders:
-                        if o.get("tag") == idempotency_tag and o.get("status") in ("OPEN", "COMPLETE", "TRIGGER PENDING"):
-                            logger.info("Idempotent duplicate detected for %s (tag=%s) — skipping retry", symbol, idempotency_tag)
-                            return {"success": True, "order_id": o.get("order_id")}
-                except Exception:
-                    pass
+                except Exception as exc:
+                    msg = f"order status unknown: the order book could not be read before a retry ({exc}); check Kite"
+                    logger.error("%s %s x %s (tag=%s): %s", transaction_type, symbol, quantity, idempotency_tag, msg)
+                    _persist_to_db(symbol, exchange, transaction_type, int(quantity), order_type, product, price,
+                                   success=False, error_msg=msg, status_text="UNKNOWN")
+                    _send_order_email(symbol, exchange, transaction_type, int(quantity), price or 0, "-",
+                                      "UNKNOWN", error=msg)
+                    return {"success": False, "status": "UNKNOWN", "error": msg}
+                for o in orders:
+                    if o.get("tag") == idempotency_tag and order_placed(o.get("status")):
+                        logger.info("Idempotent duplicate detected for %s (tag=%s) — skipping retry", symbol, idempotency_tag)
+                        return {"success": True, "order_id": o.get("order_id")}
 
             params = dict(
                 tradingsymbol=symbol,

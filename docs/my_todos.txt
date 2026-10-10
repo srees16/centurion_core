@@ -121,7 +121,7 @@ Task: you are the best quantitative trader, research analyst and strategist havi
 
 ~~~~~~
 
-Final Goal:
+Final Goal: 
 Upgrade centurion_core to a statistically robust, evidence-based trading system with improved signal reliability and reduced overfitting.
 
 ~~~~~~
@@ -173,8 +173,10 @@ audit the current order workflow beginning with user's ticker input until placin
 1. Where are images stored currently wen i run analysis? Display location or url to access dem on ui pages
 2. Implement same configuration n strategy to give a list of US stocks
 3. Can paper trading for US stocks be possible if not automating buy sell signals?
-1. Create pipelines to enable multiple paper trade runs based on future enhancements without affecting live trade underway
-7. design n implement kill switch
+4. Create pipelines to enable multiple paper trade runs based on future enhancements without affecting live trade underway
+5. design n implement kill switch
+6. create space for journalling
+7. analyze best scenarios to setup alert & discord bots
 
 Reorder per priority for final go-live applicable to all the strategies, both current and future:
 Ensure centurion is survivorship bias free
@@ -185,10 +187,11 @@ Live dry run is as expected
 Out of sample is realistic
 Dates back to 2008 in both options n stocks do capture events like 2008 crash
 
-refer for applicable improvements: https://github.com/paperswithbacktest/awesome-systematic-trading
-https://github.com/QuantConnect/Lean
-
-https://github.com/PyPatel/Options-Trading-Strategies-in-Python
+refer for applicable improvements: 
 
 add a task in action_tracker to perform after the paper trade is completed to ensure that we capture the scores of the metrics like Sharpe ratio, Sortina ratio, Information ratio, Calmar ratio, Max drawdown, volatility, CVaR (Expected Shortfall), Skew and kurtosis, Factor exposures and beta (how much of the return is just market or style factors versus true alpha), Implementation shortfall / slippage, Market impact, Turnover, Hit rate and win/loss ratio, Profit factor, Average P&L per trade, Out-of-sample and walk-forward performance, Deflated Sharpe / probability of backtest overfitting, Parameter sensitivity, Regime stability, Alpha decay, Regime stability, Capacity (how much capital it can run before impact eats the edge), Correlation (to Centurion's existing strategies. A mediocre but uncorrelated Sharpe is often worth more than a great but correlated one), Live vs. backtest tracking error. Investigate whether the Sharpe survives costs, out-of-sample testing, and live trading at the size we want to run. Since Centurion implements non-HFT strategies, robustness and overfitting checks carry far more weight.
 
+On me:
+Check Console, then Account, for DDPI on your main Zerodha ID. If it isn't active, submit it now, because it takes days.
+what are three ways to handle the funding?
+ST2, LN-T2

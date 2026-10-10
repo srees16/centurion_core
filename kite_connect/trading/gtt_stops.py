@@ -10,8 +10,11 @@ Rules implemented here:
 
 * one active stop GTT per (exchange, symbol) - repeated calls modify the
   existing trigger instead of creating a duplicate;
-* trigger rounded to the 0.05 tick; the limit price sits
-  ``limit_buffer_pct`` below the trigger (rounded down to a tick);
+* prices on the symbol's NSE tick from Kite's instruments dump
+  (:mod:`nse_instruments`, tracker LN-T1): the trigger rounded up, so a
+  stop is never lowered by rounding; the limit price sits
+  ``limit_buffer_pct`` below the trigger, rounded down, at least one tick;
+  a GTT off the current tick is modified onto it (NSE re-tiers monthly);
 * a stop above the last traded price cannot be placed (Kite rejects it);
   callers get ``error="stop_breached"`` and should exit instead;
 * every placement / modification / deletion is persisted and e-mailed with
@@ -35,7 +38,9 @@ from typing import Dict, List, Mapping, Optional, Iterable
 logger = logging.getLogger(__name__)
 
 TICK_SIZE = 0.05
-DEFAULT_LIMIT_BUFFER_PCT = float(os.environ.get("CENTURION_GTT_LIMIT_BUFFER_PCT", "1.0"))
+# 2% below the trigger (tracker LN-T14: over 2013-25 a 1% limit left 3 gap stops that were not locked at the
+# lower circuit unsold, 2% none); never below the next session's lower circuit (``limit_floor``)
+DEFAULT_LIMIT_BUFFER_PCT = float(os.environ.get("CENTURION_GTT_LIMIT_BUFFER_PCT", "2.0"))
 GTT_ORDER_TYPE_LABEL = "GTT-SL"
 
 _ACTIVE = "active"
@@ -58,11 +63,26 @@ def round_to_tick(price: float, tick: float = TICK_SIZE, mode: str = "nearest") 
     return round(n * tick, 2)
 
 
-def stop_limit_price(trigger: float, limit_buffer_pct: Optional[float] = None) -> float:
-    """Limit price for a SELL stop: ``limit_buffer_pct`` % below the trigger."""
+def stop_limit_price(trigger: float, limit_buffer_pct: Optional[float] = None, tick: float = TICK_SIZE,
+                     floor: Optional[float] = None) -> float:
+    """Limit price for a SELL stop: ``limit_buffer_pct`` % below the trigger, on ``tick``.
+
+    ``floor`` is the next session's lower circuit: a limit below it would be
+    rejected by the exchange, so the limit is raised to it when the trigger
+    is above it (tracker LN-T14).
+    """
     pct = DEFAULT_LIMIT_BUFFER_PCT if limit_buffer_pct is None else float(limit_buffer_pct)
-    limit = round_to_tick(float(trigger) * (1.0 - pct / 100.0), mode="down")
-    return max(limit, TICK_SIZE)
+    limit = round_to_tick(float(trigger) * (1.0 - pct / 100.0), tick, mode="down")
+    if floor and float(trigger) > float(floor):
+        limit = max(limit, round_to_tick(float(floor), tick, mode="up"))
+    return max(limit, tick)
+
+
+def _tick_of(kite, symbol: str, price: float) -> tuple:
+    """(tick, from Kite's dump) for ``symbol`` (tracker LN-T1)."""
+    from kite_connect.trading.nse_instruments import tick_for, ticks_for
+
+    return tick_for(symbol, price, ticks_for(kite))
 
 
 def _kill_switch_active() -> bool:
@@ -192,8 +212,8 @@ def _last_price(kite, symbol: str, exchange: str) -> Optional[float]:
 
 # ── Place / modify / delete ────────────────────────────────────
 
-def _payload(symbol, exchange, quantity, trigger, limit_buffer_pct):
-    limit = stop_limit_price(trigger, limit_buffer_pct)
+def _payload(symbol, exchange, quantity, trigger, limit_buffer_pct, tick: float = TICK_SIZE, floor=None):
+    limit = stop_limit_price(trigger, limit_buffer_pct, tick, floor)
     orders = [{
         "exchange": exchange,
         "tradingsymbol": symbol,
@@ -215,17 +235,27 @@ def place_or_update_stop_gtt(
     exchange: str = "NSE",
     limit_buffer_pct: Optional[float] = None,
     existing: Optional[List[dict]] = None,
+    tick: Optional[float] = None,
+    limit_floor: Optional[float] = None,
 ) -> dict:
     """Ensure exactly one active stop GTT for ``symbol`` at ``trigger_price``.
 
     Returns ``{"success", "action", "trigger_id", "trigger", "limit",
-    "quantity", "error"}`` where action is placed | modified | unchanged |
-    rejected.  ``existing`` lets a caller pass a pre-fetched GTT list.
+    "quantity", "error", "tick", "tick_fallback"}`` where action is placed |
+    modified | unchanged | rejected.  ``existing`` lets a caller pass a
+    pre-fetched GTT list; ``tick`` the symbol's tick (default: Kite's dump,
+    else the coarser slab's, flagged ``tick_fallback``).
     """
+    from kite_connect.trading.nse_instruments import on_tick
+
     quantity = int(quantity or 0)
-    trigger = round_to_tick(float(trigger_price or 0.0))
+    fallback = False
+    if tick is None:
+        tick, known = _tick_of(kite, symbol, float(trigger_price or 0.0))
+        fallback = not known
+    trigger = round_to_tick(float(trigger_price or 0.0), tick, mode="up")
     base = {"symbol": symbol, "exchange": exchange, "quantity": quantity,
-            "trigger": trigger, "trigger_id": None, "limit": None}
+            "trigger": trigger, "trigger_id": None, "limit": None, "tick": tick, "tick_fallback": fallback}
     if quantity <= 0 or trigger <= 0:
         return {**base, "success": False, "action": "rejected",
                 "error": "quantity and trigger must be positive"}
@@ -255,7 +285,7 @@ def place_or_update_stop_gtt(
                 "detail": msg, "last_price": last_price}
     lp_for_api = float(last_price) if last_price else trigger
 
-    limit, orders = _payload(symbol, exchange, quantity, trigger, limit_buffer_pct)
+    limit, orders = _payload(symbol, exchange, quantity, trigger, limit_buffer_pct, tick, limit_floor)
     base["limit"] = limit
 
     try:
@@ -275,8 +305,9 @@ def place_or_update_stop_gtt(
 
     try:
         if keep is not None:
-            if (keep["quantity"] == quantity and abs(keep["trigger"] - trigger) < TICK_SIZE / 2
-                    and abs(keep["limit"] - limit) < TICK_SIZE / 2):
+            if (keep["quantity"] == quantity and abs(keep["trigger"] - trigger) < tick / 2
+                    and abs(keep["limit"] - limit) < tick / 2
+                    and on_tick(keep["trigger"], tick) and on_tick(keep["limit"], tick)):
                 return {**base, "success": True, "action": "unchanged", "trigger_id": keep["id"],
                         "error": None}
             kite.modify_gtt(
@@ -349,6 +380,8 @@ def reconcile_stop_gtts(
     delete_orphans: bool = True,
     quantities: Optional[Mapping[str, int]] = None,
     scope: Optional[Iterable[str]] = None,
+    ticks: Optional[Mapping[str, float]] = None,
+    floors: Optional[Mapping[str, float]] = None,
 ) -> dict:
     """Make every CNC holding carry exactly one stop GTT at the held quantity.
 
@@ -367,13 +400,22 @@ def reconcile_stop_gtts(
     scope : symbols
         Delete orphans only among these symbols (default: any symbol), so
         stops the caller does not manage are never touched.
+    ticks : {symbol: tick}
+        Each symbol's NSE tick (default: Kite's instruments dump).
+    floors : {symbol: price}
+        The next session's lower circuit per symbol: no stop limit below it.
 
     Returns a report dict with lists: placed, modified, unchanged, deleted,
-    missing_stop, breached, errors.
+    missing_stop, breached, errors, tick_fallback (symbols priced on the
+    coarser slab's tick because Kite's dump lacked them).
     """
+    from kite_connect.trading.nse_instruments import tick_for, ticks_for
+
     stops = dict(stops or {})
     report = {k: [] for k in ("placed", "modified", "unchanged", "deleted",
-                              "missing_stop", "breached", "errors")}
+                              "missing_stop", "breached", "errors", "tick_fallback")}
+    if ticks is None:
+        ticks = ticks_for(kite)
     try:
         held = get_held_quantities(kite, exchange)
         gtts = list_stop_gtts(kite, exchange=exchange)
@@ -408,9 +450,13 @@ def reconcile_stop_gtts(
             report["missing_stop"].append(sym)
             logger.warning("GTT reconcile: %s (qty=%d) has no stop and no stop level known", sym, qty)
             continue
+        tick, known = tick_for(sym, trigger, ticks)
+        if not known:
+            report["tick_fallback"].append(sym)
         res = place_or_update_stop_gtt(
             kite, sym, qty, trigger, last_price=ltps.get(sym) or None, exchange=exchange,
-            limit_buffer_pct=limit_buffer_pct, existing=existing,
+            limit_buffer_pct=limit_buffer_pct, existing=existing, tick=tick,
+            limit_floor=(floors or {}).get(sym),
         )
         if res["success"]:
             report[res["action"]].append({"symbol": sym, "quantity": qty,
@@ -431,8 +477,9 @@ def reconcile_stop_gtts(
                     report["deleted"].append({"symbol": sym, "trigger_id": g["id"]})
 
     logger.info(
-        "GTT reconcile: placed=%d modified=%d unchanged=%d deleted=%d missing=%d breached=%d errors=%d",
+        "GTT reconcile: placed=%d modified=%d unchanged=%d deleted=%d missing=%d breached=%d errors=%d "
+        "tick_fallback=%d",
         *(len(report[k]) for k in ("placed", "modified", "unchanged", "deleted",
-                                   "missing_stop", "breached", "errors")),
+                                   "missing_stop", "breached", "errors", "tick_fallback")),
     )
     return report

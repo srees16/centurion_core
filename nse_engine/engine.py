@@ -4,7 +4,8 @@ event-driven backtest simulator with run recording.
 
 Timeline of one backtest day ``u``
 ----------------------------------
-1. Idle cash accrues ``cash_yield_annual / 252``.
+1. Idle cash accrues ``costs.IDLE_CASH_YIELD_ANNUAL / 252``: nothing since cost
+   model 4, as in a Kite account (``config.cash_yield_annual`` is ignored).
 2. Held symbols with no data after an earlier date (delisted) are liquidated
    at their last close.
 3. Gap stops: a stop set at an earlier close triggers at the open when
@@ -38,7 +39,8 @@ import pandas as pd
 
 from nse_engine.allocator import allocate, basket_vol
 from nse_engine.config import EngineConfig
-from nse_engine.costs import fillable_open, median_traded_value, simulate_fill, COST_MODEL_VERSION
+from nse_engine.costs import (COST_MODEL_VERSION, IDLE_CASH_YIELD_ANNUAL, fillable_open, median_traded_value,
+                               simulate_fill)
 from nse_engine.drawdown import NORMAL as DD_NORMAL, DrawdownDecision, DrawdownTracker, summarise as dd_summarise
 from nse_engine.metrics import compute_metrics
 from nse_engine.portfolio import (
@@ -54,7 +56,7 @@ from nse_engine.portfolio import (
 from nse_engine.regime import compute_regime
 from nse_engine.signals import compute_signal_panels, daily_returns, realised_vol
 from nse_engine.sleeves import compute_sleeve_panels, sleeve_weights
-from nse_engine.types import BacktestResult, Holding, MarketData, TargetPortfolio, Trade
+from nse_engine.types import DATA_HASH_VERSION, BacktestResult, Holding, MarketData, TargetPortfolio, Trade
 from nse_engine.universe import compute_universe_panel
 
 logger = logging.getLogger(__name__)
@@ -86,6 +88,10 @@ class EngineCache:
         self.symbols: List[str] = [str(c) for c in self.columns]
         self.sym_index: Dict[str, int] = {s: i for i, s in enumerate(self.symbols)}
         self.name_rank = np.argsort(np.argsort(np.array(self.symbols, dtype=object)))
+        # LN-T15: the name each renamed column traded under, by first position (ties break on the name in force)
+        self.name_segments: Dict[int, List[Tuple[int, str]]] = {
+            self.sym_index[c]: [(int(self.dates.searchsorted(pd.Timestamp(d))), str(n)) for d, n in segs]
+            for c, segs in (getattr(data, "trade_names", None) or {}).items() if c in self.sym_index}
         self._data_id = id(data.close)
         self.sectors: Dict[str, str] = dict(data.sectors or {})
         self.sector_history = data.sector_history
@@ -135,6 +141,22 @@ class EngineCache:
             self.rebalance_day = (np.arange(n) % every) == 0
         self.build_seconds = time.perf_counter() - t0
         logger.info("EngineCache built in %.1fs (%d dates x %d symbols)", self.build_seconds, n, len(self.symbols))
+
+    def names_in_force(self, pos: int, cols: np.ndarray) -> np.ndarray:
+        """Rank of each column's name in force at ``pos`` among ``cols`` (tracker LN-T15).
+
+        A column renamed later still trades under its old name at ``pos``, so a
+        rename never reorders an earlier decision's ties.
+        """
+        names = []
+        for j in cols:
+            name = self.symbols[int(j)]
+            for p, n in self.name_segments.get(int(j), ()):
+                if p > pos:
+                    break
+                name = n
+            names.append(name)
+        return np.argsort(np.argsort(np.array(names, dtype=object), kind="stable"), kind="stable")
 
     def position(self, as_of: pd.Timestamp) -> int:
         """Row of the last trading date <= ``as_of``."""
@@ -234,7 +256,7 @@ def generate_targets(
     uni = np.flatnonzero(cache.universe_mask[pos])
     fc = cache.combined[pos]
     cand = uni[np.isfinite(fc[uni]) & (fc[uni] > 0)]
-    order = cand[np.lexsort((cache.name_rank[cand], -fc[cand]))]
+    order = cand[np.lexsort((cache.name_rank[cand], cache.names_in_force(pos, cand), -fc[cand]))]
     rank_syms = [cache.symbols[j] for j in order]
     ranks = pd.Series(np.arange(1, len(order) + 1, dtype="int64"), index=rank_syms)
     rank_map = dict(zip(rank_syms, range(1, len(order) + 1)))
@@ -597,7 +619,7 @@ def run_backtest(
     book = _Book(cash=float(config.initial_capital))
     sleeve_set = set(cache.sleeve_syms)
     pending: Dict[int, _Order] = {}
-    daily_yield = config.cash_yield_annual / 252.0
+    daily_yield = IDLE_CASH_YIELD_ANNUAL / 252.0      # cost model 4: config.cash_yield_annual is ignored
     eq_vals: List[float] = []
     w_rows: List[Dict[str, float]] = []
     cfg_costs = config.costs
@@ -779,6 +801,7 @@ def record_run(result: BacktestResult, config: EngineConfig, *, tag: str = "", l
         "git_commit": commit.strip() if commit else None,
         "git_dirty": bool(status.strip()) if status is not None else None,
         "data_hash": result.data_hash,
+        "data_hash_version": DATA_HASH_VERSION,
         "start": str(result.equity.index[0].date()) if len(result.equity) else None,
         "end": str(result.equity.index[-1].date()) if len(result.equity) else None,
         "created_at": datetime.now(timezone.utc).isoformat(),

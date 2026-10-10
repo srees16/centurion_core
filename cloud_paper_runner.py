@@ -455,12 +455,12 @@ def _run_engine_paper():
     previous_session = pt.engine_last_session()
     executor = EngineExecutor(kite=None, paper=True, paper_trader=pt, deployment=dep)
     session = executor.run_paper_session()
-    missed = _missed_sessions(previous_session, session.get("session"))
+    missed = max(len(session.get("caught_up") or []) - 1, 0)   # store sessions, weekends included (LN-T7)
     if missed:
         session.setdefault("notes", []).append(
-            f"MISSED {missed} session(s) since {previous_session}: orders decided then were "
-            "cancelled as stale, so the book sat in cash for those days")
-        logger.warning("Paper book missed %d session(s) after %s", missed, previous_session)
+            f"CAUGHT UP {missed} session(s) since {previous_session}: each one's stops and fills were applied "
+            "in order; no plan was made for the sessions in between")
+        logger.warning("Paper book caught up %d session(s) after %s", missed, previous_session)
     plan = session.get("plan")
     entries = _engine_signal_entries(plan)
     n_traded = sum(1 for e in entries if e["was_traded"])
@@ -634,25 +634,6 @@ def _record_session_activity(pt, session: dict, snapshot: dict, plan, queued: in
         })
     except Exception as exc:                              # noqa: BLE001 - reporting only
         logger.warning("Session activity not recorded: %s", exc)
-
-
-def _missed_sessions(previous, current) -> int:
-    """Trading sessions between the last processed one and this one (0 when consecutive).
-
-    Counted on NSE weekdays, so a normal Friday-to-Monday gap is 0; holidays can
-    show 1 and are harmless. Anything larger means the scheduler dropped a day.
-    """
-    import pandas as pd
-
-    if not previous or not current:
-        return 0
-    try:
-        a, b = pd.Timestamp(previous).date(), pd.Timestamp(current).date()
-    except Exception:                                    # noqa: BLE001
-        return 0
-    if b <= a:
-        return 0
-    return max(len(pd.bdate_range(a, b)) - 2, 0)
 
 
 def _drift_check_line(pt, shift: dict, plan) -> str:

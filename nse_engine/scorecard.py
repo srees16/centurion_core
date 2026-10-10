@@ -64,13 +64,14 @@ BENCHMARK = "NIFTY50_TRI"
 HORIZONS = (5, 21, 63, 126, 252)
 LADDER_INR = (6e5, 1.2e6, 2.1e6, 3e6, 5e6, 1e7, 2e7, 5e7, 1e8)
 CAPACITY_WINDOW_DAYS = 504
-#: The anchored walk-forward of each book's configuration family (R12, cost model 3, test years 2017-25):
-#: arm A re-fits K5's 32-point grid (the deployed rule and the candidate's neutral 0.6 are grid points),
-#: arm B the same grid times exit rank {40, 60} (E4's rule).  The family's base is bd79bf28, not the
-#: book's own hash: a walk-forward re-fits the parameters, so it judges the family, not one setting.
-WALK_FORWARD_OOS = {"deployed": "data/nse_engine/wf_oos_returns_r12a.csv",
-                    "candidate": "data/nse_engine/wf_oos_returns_r12a.csv",
-                    "e4": "data/nse_engine/wf_oos_returns_r12b.csv"}
+#: The anchored walk-forward of each book's configuration family (R12 re-run on cost model 4, tracker
+#: IC1, test years 2017-25): arm A re-fits K5's 32-point grid (the deployed rule and the candidate's
+#: neutral 0.6 are grid points), arm B the same grid times exit rank {40, 60} (E4's rule).  The family's
+#: base is bd79bf28, not the book's own hash: a walk-forward re-fits the parameters, so it judges the
+#: family, not one setting.  The cost-model-3 originals stay as wf_oos_returns_r12a.csv / _r12b.csv.
+WALK_FORWARD_OOS = {"deployed": "data/nse_engine/wf_oos_returns_r12a4.csv",
+                    "candidate": "data/nse_engine/wf_oos_returns_r12a4.csv",
+                    "e4": "data/nse_engine/wf_oos_returns_r12b4.csv"}
 OPTIONS_RUNS = "data/nse_engine/runs_options"
 #: Section 1's targets, fixed before any number is read.
 PASS_RULES = (("net Sharpe", "sharpe", ">", 1.2), ("max drawdown", "max_drawdown", ">=", -0.30),
@@ -106,9 +107,16 @@ def _clean(obj: Any) -> Any:
 # ── loading ────────────────────────────────────────────────────────────────
 
 def latest_run(registry, config_hash: str, cost_model: Optional[int] = None) -> Dict[str, Any]:
-    """The newest recorded full-window run of ``config_hash`` (on the current cost model when given)."""
+    """The newest recorded full-window run of ``config_hash`` (on the current cost model when given).
+
+    Full window is the forward gate's validation window, as for the books register: a run over another
+    window (the 2007-25 extended checks) is a different experiment, not a newer one.
+    """
+    from nse_engine.forward_gate import VALIDATION_WINDOW
+
     trials = registry.list_trials()
-    mine = trials[trials["config_hash"] == config_hash]
+    mine = trials[(trials["config_hash"] == config_hash) & (trials["start"] == VALIDATION_WINDOW[0])
+                  & (trials["end"] == VALIDATION_WINDOW[1])]
     if cost_model is not None:
         mine = mine[mine["cost_model"] == int(cost_model)]
     if mine.empty:
@@ -431,13 +439,13 @@ def overfitting(registry, run_id: str, manifest: Dict[str, Any], rf: float, spli
 
     window = (manifest.get("start"), manifest.get("end"))
     cost_model = int(manifest.get("cost_model") or LEGACY_COST_MODEL)
-    key = f"{manifest.get('data_hash')}|{window}|{cost_model}"
+    key = f"{manifest.get('data_hash')}|{window}|{cost_model}|{rf}"
     cache = cache if cache is not None else {}
     if key not in cache:
         matrix = registry.returns_matrix(data_hash=manifest.get("data_hash"), window=window, cost_model=cost_model)
         pbo = None
         if matrix.shape[1] >= 2:
-            p = cscv_pbo(matrix, n_splits=splits)
+            p = cscv_pbo(matrix, n_splits=splits, rf_annual=rf)               # excess basis, as the DSR
             pbo = {k: p[k] for k in ("pbo", "n_trials", "n_combinations", "degradation_slope", "prob_oos_loss")}
         cache[key] = (matrix, pbo)
     matrix, pbo = cache[key]

@@ -535,9 +535,11 @@ def run_configs(args) -> Dict[str, Any]:
 
 
 def run_options(args) -> Dict[str, Any]:
-    """Backtest the pre-registered options sleeves (tracker O2) and record them."""
+    """Backtest the pre-registered options-family candidates (O2 sleeves, O3 signal futures, O4 F&O
+    anomalies) and record them."""
     from dataclasses import replace
 
+    from kite_connect.options import fo_anomalies, signal_futures
     from kite_connect.options.backtest import record, run_sleeve
     from kite_connect.options.sleeves import CANDIDATES
 
@@ -545,6 +547,18 @@ def run_options(args) -> Dict[str, Any]:
     runs_dir = args.runs_dir or default_runs_dir()
     results = {}
     for key in args.candidates.split(","):
+        if key in signal_futures.CANDIDATES:           # round 2 (plan 5r)
+            cfg = signal_futures.CANDIDATES[key]
+            res = signal_futures.run_strategy(replace(cfg, start=args.start or cfg.start, end=args.end or cfg.end), store)
+            results[key] = {"run_dir": signal_futures.record(res, runs_dir), "metrics": res.metrics}
+            logger.info("%s recorded in %s", key, results[key]["run_dir"])
+            continue
+        if key in fo_anomalies.CANDIDATES:             # round 3 (plan 5s)
+            cfg = fo_anomalies.CANDIDATES[key]
+            res = fo_anomalies.run(replace(cfg, start=args.start or cfg.start, end=args.end or cfg.end), store)
+            results[key] = {"run_dir": fo_anomalies.record(res, runs_dir), "metrics": res.metrics}
+            logger.info("%s recorded in %s", key, results[key]["run_dir"])
+            continue
         cfg = CANDIDATES[key]
         res = run_sleeve(replace(cfg, start=args.start or cfg.start, end=args.end or cfg.end), store)
         results[key] = {"run_dir": record(res, runs_dir), "metrics": res.metrics}
@@ -615,7 +629,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     p.add_argument("--tag", default="refresh")
     p.set_defaults(func=run_configs)
 
-    p = sub.add_parser("options", help="the pre-registered options sleeves (tracker O2)")
+    p = sub.add_parser("options", help="the pre-registered options-family candidates (O2 A1/A2/B, O3 X1-X4, O4 Y1-Y3)")
     p.add_argument("--candidates", default="A1,A2,B")
     p.add_argument("--start", help="window override (plan 5q addendum: 2007-01-02)")
     p.add_argument("--end")

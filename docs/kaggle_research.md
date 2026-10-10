@@ -159,6 +159,25 @@ python -m kite_connect.options.backtest evaluate   # gates 1 and 2 of plan § 5q
 `evaluate` records the combined book (E4 plus the selected sleeve) in the
 book's registry, `data/nse_engine/runs`, as one configuration.
 
+Round 2 (tracker O3, plan § 5r) runs the same task with `--candidates
+X1,X2,X3,X4`: PyPatel's signal strategies on NIFTY futures
+(`kite_connect/options/signal_futures.py`). They also read the store's
+`market.parquet` (India VIX and breadth, written by the store build). The
+store dataset for them needs only `options/`, `futures/`,
+`underlying.parquet`, `market.parquet` and `manifest.json`, about 100 MB
+instead of 560. Start a kernel only after `push-store` reports the dataset
+ready: the first round 2 kernel, pushed while the new version was still
+being created, mounted the previous one. Gates:
+`python -m kite_connect.options.signal_futures evaluate`.
+
+Round 3 (tracker O4, plan § 5s) is `--candidates Y1,Y2,Y3`: the futures and
+options strategies of awesome-systematic-trading
+(`kite_connect/options/fo_anomalies.py`). Its gates are
+`python -m kite_connect.options.fo_anomalies evaluate`. After `push-store`,
+wait until `kaggle datasets files srees16/centurion-nse-fo-store` shows the
+new files' timestamps. Both `push-store`'s "ready" and the listing's
+`lastUpdated` lag the new version by several minutes.
+
 ## Stage-A sweep
 
 ```bash

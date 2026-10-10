@@ -36,6 +36,8 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 
+from nse_engine.validation.dsr import PERIODS_PER_YEAR, daily_rf
+
 logger = logging.getLogger(__name__)
 
 _METRICS = ("sharpe", "mean", "sortino")
@@ -81,7 +83,8 @@ def _metric_from_stats(s1: np.ndarray, s2: np.ndarray, sd2: np.ndarray, n: np.nd
 
 def cscv_pbo(returns_matrix: pd.DataFrame, n_splits: int = 16, metric: str = "sharpe",
              max_combinations: Optional[int] = None, random_state: int = 0,
-             chunk_cells: int = 4_000_000) -> Dict[str, object]:
+             chunk_cells: int = 4_000_000, rf_annual: float = 0.0,
+             periods_per_year: int = PERIODS_PER_YEAR) -> Dict[str, object]:
     """CSCV probability of backtest overfitting.
 
     Parameters
@@ -92,12 +95,16 @@ def cscv_pbo(returns_matrix: pd.DataFrame, n_splits: int = 16, metric: str = "sh
         unannualised; ranking is scale-free so annualisation is irrelevant.
     max_combinations : optional random subsample size of the C(S, S/2) splits.
     random_state : seed for the subsample.
+    rf_annual : risk-free rate taken off every daily return first, so trials
+        are ranked on excess returns as the deflated Sharpe and the
+        walk-forward select them (tracker LN-T16; 0.0 ranks raw returns).
+    periods_per_year : periods in a year for ``rf_annual`` (252).
 
     Returns
     -------
     dict: pbo, logits (ndarray), median_logit, n_combinations, n_trials, n_obs,
     n_dropped_rows, degradation_slope, degradation_intercept, prob_oos_loss,
-    mean_is_metric, mean_oos_metric, metric, n_splits.
+    mean_is_metric, mean_oos_metric, metric, n_splits, rf_annual, return_basis.
     """
     if metric not in _METRICS:
         raise ValueError(f"metric must be one of {_METRICS}, got {metric!r}")
@@ -119,7 +126,7 @@ def cscv_pbo(returns_matrix: pd.DataFrame, n_splits: int = 16, metric: str = "sh
     if block < 2:
         raise ValueError(f"need at least {2 * n_splits} rows for {n_splits} splits, got {t_all}")
     drop = t_all - block * n_splits
-    x = m.to_numpy(dtype="float64")[drop:]
+    x = m.to_numpy(dtype="float64")[drop:] - daily_rf(rf_annual, periods_per_year)
     xb = x.reshape(n_splits, block, n_trials)
     b1 = xb.sum(axis=1)                                  # S x N
     b2 = (xb ** 2).sum(axis=1)
@@ -171,4 +178,6 @@ def cscv_pbo(returns_matrix: pd.DataFrame, n_splits: int = 16, metric: str = "sh
         "mean_oos_metric": float(np.mean(oos_best_metric)),
         "metric": metric,
         "n_splits": int(n_splits),
+        "rf_annual": float(rf_annual),
+        "return_basis": "excess" if rf_annual else "raw",
     }

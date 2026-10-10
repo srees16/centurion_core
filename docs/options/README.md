@@ -29,6 +29,8 @@ All code is in `kite_connect/options/`.
 | `position_monitor.py` | Ledger of filled baskets; live P&L, Greeks, breakeven / stop-loss / max-loss alerts |
 | `cli.py` | The commands below |
 | `backtest.py`, `sleeves.py` | Research: options sleeves backtested on the NSE F&O archive (tracker O2; validation plan § 5q) |
+| `signal_futures.py` | Research: PyPatel's put-call ratio, TRIN, VIX and breakout strategies on NIFTY futures (tracker O3; validation plan § 5r: none passed) |
+| `fo_anomalies.py` | Research: awesome-systematic-trading's option-expiry week, volatility risk premium and overnight strategies on NIFTY (tracker O4; validation plan § 5s) |
 
 The older files in the same folder (`option_chain.py`, `options_executor.py`,
 `options_monitor.py`, the three `*_strategy.py`) serve `/api/v1/options` and

@@ -1,0 +1,44 @@
+{
+ "recorded": "2026-10-10",
+ "registry": {
+  "candidate": {
+   "cagr": 0.21880959002045297,
+   "config_hash": "2d64ba4c811336b1",
+   "cost_model": 4,
+   "data_hash": "dab49d3cbd323c16",
+   "final_equity": 6543982.368772969,
+   "max_drawdown": -0.2364237579270534,
+   "n_trades": 6466,
+   "sharpe": 1.15741533090945,
+   "trades_sha256": "d418090576eadb9e1fadc22e4ecd6c48408df172084582119f98709b69c54433"
+  },
+  "deployed": {
+   "cagr": 0.23131550754828512,
+   "config_hash": "679cbd0ceaf7c895",
+   "cost_model": 4,
+   "data_hash": "dab49d3cbd323c16",
+   "final_equity": 7472437.14956627,
+   "max_drawdown": -0.23886951422761937,
+   "n_trades": 6175,
+   "sharpe": 1.1633759354501785,
+   "trades_sha256": "ef84498057407582dc991f35bf0687437828b6b496833b059895f4f518ebce08"
+  },
+  "e4": {
+   "cagr": 0.23554236215318025,
+   "config_hash": "93cf6c4d6ea47371",
+   "cost_model": 4,
+   "data_hash": "dab49d3cbd323c16",
+   "final_equity": 7812768.628396126,
+   "max_drawdown": -0.2532002174012229,
+   "n_trades": 5615,
+   "sharpe": 1.138734229201306,
+   "trades_sha256": "a58405d031241d9e313021ef5fe4c20588a16e22ab4a5971ada6810cc1c71095"
+  }
+ },
+ "registry_runtime": {
+  "numpy": "2.4.6",
+  "pandas": "3.0.6",
+  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "python": "3.13.5"
+ }
+}

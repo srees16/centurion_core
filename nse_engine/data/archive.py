@@ -193,13 +193,15 @@ def transform_content(cand: RemoteFile, content: bytes) -> Optional[bytes]:
 
 def session_dates(start: date, end: date, extra: Iterable[date] = SPECIAL_SUNDAY_SESSIONS,
                   include_saturdays: bool = True) -> List[date]:
-    """Candidate sessions in [start, end]: weekdays, Saturdays and known Sunday sessions.
+    """Candidate sessions in [start, end]: every day, weekends included (``include_saturdays``).
 
-    A Saturday without a bhavcopy is recorded as missing like any holiday,
-    so it costs one request once.
+    NSE has held sessions on Saturdays (Budget days, drills) and on Sundays
+    (Muhurat; the Union Budget of Sun 1 Feb 2026, which a Saturday-only probe
+    missed: tracker LN-T7).  A weekend day without a bhavcopy is recorded as
+    missing like any holiday, so it costs one request once.
     """
     out: Set[date] = {start + timedelta(days=i) for i in range((end - start).days + 1)}
-    last_day = 5 if include_saturdays else 4
+    last_day = 6 if include_saturdays else 4
     out = {d for d in out if d.weekday() <= last_day}
     out |= {d for d in extra if start <= d <= end}
     return sorted(out)
@@ -362,7 +364,11 @@ class BhavcopyArchive:
              kinds: Sequence[str] = KINDS, log_every: int = 20) -> Dict[str, Dict[str, int]]:
         """Mirror every session in [start, end] for ``kinds``. Resumable."""
         start_d, end_d = to_date(start), to_date(end)
-        dates = session_dates(start_d, end_d)
+        from nse_engine.nse_calendar import special_session_dates
+
+        # a special session outside the window (one the nightly window passed before it was probed)
+        # is re-checked every sync: a stat when it is already here or known missing
+        dates = sorted(set(session_dates(start_d, end_d)) | {d for d in special_session_dates() if d <= end_d})
         counts: Dict[str, Dict[str, int]] = {k: {} for k in kinds}
         t0 = time.monotonic()
         logger.info("sync %s..%s: %d candidate sessions, kinds=%s", start_d, end_d, len(dates), list(kinds))

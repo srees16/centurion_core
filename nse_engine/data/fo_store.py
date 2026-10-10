@@ -14,6 +14,9 @@ moves::
     fo_store/stock_options/2013.parquet, stock_futures/2013.parquet
                                     the same columns for stock derivatives (OD3)
     fo_store/participant_oi.parquet date, client_type, open interest by instrument and side (OD2)
+    fo_store/market.parquet         date, India VIX, NSE breadth (advancers, decliners and their
+                                    volumes), NIFTY 50 open and close (NSE, from Feb 2012), from
+                                    the equity stores (options rounds 2 and 3, plans 5r and 5s)
     fo_store/manifest.json          version, per-year source fingerprints, data hash
 
 Index derivatives on ``SYMBOLS`` are the O2 tables, and only they enter the
@@ -284,6 +287,53 @@ def _write_underlying(equity_stores: Sequence[Path], store: Path) -> int:
     return len(out)
 
 
+def _write_market(equity_stores: Sequence[Path], store: Path) -> int:
+    """India VIX and NSE breadth per session, for the round 2 signals (O3, plan 5r).
+
+    Breadth counts every EQ-series stock against its previous close (NSE's,
+    adjusted on ex-dates): advancers, decliners, unchanged and the volume of
+    each side, for TRIN.  India VIX is NSE's (from May 2014), else Yahoo's
+    cached ^INDIAVIX (from March 2008); ``vix_source`` says which.
+    NIFTY 50's open and close from NSE's daily index files (from February
+    2012) are kept for round 3's overnight strategy (plan 5s).  Each session
+    is taken from the first equity store that has it.
+    """
+    breadth, vix, nifty = [], [], []
+    for eq in equity_stores:
+        for path in sorted((eq / "equity").glob("*.parquet")):
+            df = pd.read_parquet(path, columns=["date", "series", "close", "prev_close", "volume"])
+            df = df[(df["series"] == "EQ") & (df["close"] > 0) & (df["prev_close"] > 0)]
+            up, down = df["close"] > df["prev_close"], df["close"] < df["prev_close"]
+            breadth.append(pd.DataFrame({
+                "advancers": up.groupby(df["date"]).sum(), "decliners": down.groupby(df["date"]).sum(),
+                "unchanged": (~(up | down)).groupby(df["date"]).sum(),
+                "adv_volume": df["volume"].where(up, 0.0).groupby(df["date"]).sum(),
+                "dec_volume": df["volume"].where(down, 0.0).groupby(df["date"]).sum()}))
+        for path in sorted((eq / "indices").glob("*.parquet")):
+            df = pd.read_parquet(path, columns=["date", "index_name", "open", "close"])
+            vix.append(pd.Series(df.loc[df["index_name"] == "INDIAVIX", "close"].to_numpy(dtype=float),
+                                 index=pd.DatetimeIndex(df.loc[df["index_name"] == "INDIAVIX", "date"]), name="nse"))
+            n50 = df[df["index_name"] == INDEX_NAMES["NIFTY"]]
+            nifty.append(pd.DataFrame({"nifty50_open": pd.to_numeric(n50["open"], errors="coerce").to_numpy(),
+                                       "nifty50_close": pd.to_numeric(n50["close"], errors="coerce").to_numpy()},
+                                      index=pd.DatetimeIndex(n50["date"])))
+        cache = eq / "external" / "yf_indiavix.parquet"
+        if cache.exists():
+            y = pd.read_parquet(cache)["close"]
+            vix.append(pd.Series(y.to_numpy(dtype=float), index=pd.DatetimeIndex(y.index).normalize(), name="yahoo"))
+    out = pd.concat(breadth)
+    out = out[~out.index.duplicated(keep="first")].sort_index()
+    vix_rows = pd.concat([pd.DataFrame({"india_vix": s, "vix_source": s.name}) for s in vix if len(s)])
+    vix_rows = vix_rows.dropna(subset=["india_vix"])
+    vix_rows = vix_rows[~vix_rows.index.duplicated(keep="first")]      # NSE rows come first and win
+    out = out.join(vix_rows, how="left")
+    n50 = pd.concat(nifty).dropna()
+    out = out.join(n50[~n50.index.duplicated(keep="first")], how="left")
+    out.index.name = "date"
+    out.reset_index().to_parquet(store / "market.parquet", index=False)
+    return len(out)
+
+
 def build_fo_store(archive_root: PathLike, store_dir: PathLike, equity_stores: Sequence[PathLike],
                    workers: int = 4, stocks: bool = True, stock_from: int = STOCK_FROM) -> Dict[str, object]:
     """Build (or update) the store; a year is rebuilt only when its sources changed."""
@@ -313,6 +363,7 @@ def build_fo_store(archive_root: PathLike, store_dir: PathLike, equity_stores: S
                 logger.info("stock year %s: %s", info["year"], info)
     manifest["participant_rows"] = _write_participant(archive_root, store)
     manifest["underlying_rows"] = _write_underlying([Path(p) for p in equity_stores], store)
+    manifest["market_rows"] = _write_market([Path(p) for p in equity_stores], store)
     manifest["data_hash"] = hashlib.sha256(json.dumps(
         {y: v["fingerprint"] for y, v in sorted(manifest["years"].items())}, sort_keys=True).encode()).hexdigest()[:16]
     manifest_path.write_text(json.dumps(manifest, indent=1, sort_keys=True))
@@ -359,6 +410,12 @@ def load_underlying(store_dir: PathLike, symbol: str = "NIFTY", exact_only: bool
     if exact_only and "exact" in df:
         df = df[df["exact"]]
     return pd.Series(df["close"].to_numpy(dtype=float), index=pd.DatetimeIndex(df["date"]), name=symbol).sort_index()
+
+
+def load_market(store_dir: PathLike) -> pd.DataFrame:
+    """India VIX and breadth by session (``_write_market``), indexed by date."""
+    df = pd.read_parquet(Path(store_dir) / "market.parquet")
+    return df.set_index(pd.DatetimeIndex(df.pop("date"))).sort_index()
 
 
 def data_hash(store_dir: PathLike) -> str:

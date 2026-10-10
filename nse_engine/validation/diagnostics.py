@@ -220,7 +220,7 @@ def full_report(result: Any, data: Any, benchmarks: Optional[Dict[str, pd.Series
                                            rf_annual=rf))
     if trials_matrix is not None and trials_matrix.shape[1] >= 2:
         def _pbo():
-            out = cscv_pbo(trials_matrix, n_splits=pbo_splits)
+            out = cscv_pbo(trials_matrix, n_splits=pbo_splits, rf_annual=rf)
             logits = np.asarray(out.pop("logits"))  # omit the bulk array
             out["logit_quantiles"] = dict(zip(("p05", "p25", "p50", "p75", "p95"),
                                               np.quantile(logits, [.05, .25, .5, .75, .95])))

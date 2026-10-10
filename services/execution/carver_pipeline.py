@@ -50,19 +50,10 @@ def _cfg_val(attr: str, default):
 
 NSE_CLOSE_HOUR, NSE_CLOSE_MINUTE = 15, 30
 
-# NSE equity trading holidays (weekday closures).  Best-effort list — extend
-# with env CENTURION_NSE_HOLIDAYS="YYYY-MM-DD,YYYY-MM-DD".  A missing holiday
-# is handled by the consensus fallback in ``apply_session_freshness_gate``.
-NSE_HOLIDAYS = frozenset({
-    # 2025
-    "2025-02-26", "2025-03-14", "2025-03-31", "2025-04-10", "2025-04-14",
-    "2025-04-18", "2025-05-01", "2025-08-15", "2025-08-27", "2025-10-02",
-    "2025-10-21", "2025-10-22", "2025-11-05", "2025-12-25",
-    # 2026
-    "2026-01-26", "2026-03-03", "2026-03-26", "2026-03-31", "2026-04-03",
-    "2026-04-14", "2026-05-01", "2026-05-28", "2026-06-26", "2026-09-14",
-    "2026-10-02", "2026-10-20", "2026-11-10", "2026-11-24", "2026-12-25",
-})
+# NSE holidays and special sessions live in one calendar (nse_engine.nse_calendar, tracker LN-T7);
+# extend with env CENTURION_NSE_HOLIDAYS="YYYY-MM-DD,YYYY-MM-DD".  A missing holiday is handled by
+# the consensus fallback in ``apply_session_freshness_gate``.
+from nse_engine.nse_calendar import HOLIDAYS as NSE_HOLIDAYS  # noqa: E402
 
 
 def _nse_holidays():
@@ -72,8 +63,10 @@ def _nse_holidays():
 
 
 def is_nse_trading_day(d) -> bool:
-    """Weekday that is not a listed NSE holiday."""
-    return d.weekday() < 5 and d.isoformat() not in _nse_holidays()
+    """Weekday that is not a listed NSE holiday, or a special session (Budget day, Muhurat)."""
+    from nse_engine.nse_calendar import is_special_session
+
+    return (d.weekday() < 5 and d.isoformat() not in _nse_holidays()) or is_special_session(d)
 
 
 def previous_nse_session(d):

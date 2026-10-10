@@ -192,8 +192,13 @@ accumulate. The walk-forward OOS window (2017-2025) is materially unaffected,
 so the headline OOS Sharpe 1.24 stands; the full-sample backtest and anything
 measured on 2013-2016 was flattered.
 
-Live trading was never affected: on the day itself an adjusted close equals
-the printed one, so the paper book's eligibility has always been correct.
+Live trading was not affected for the deployed book: on the day itself an
+adjusted close equals the printed one. The books that filter on as-printed
+prices (candidate, E4: `price_filter_unadjusted`) were, until 10 Oct 2026:
+`MarketData.until()`, which paper and live plan through, dropped
+`close_unadj`, so their universe history fell back to adjusted prices. To
+1 Oct 2025, 2,394 of 3,410 sessions of that history differed from the
+registered runs'; since LN-T8 none do.
 
 **Walk-forward re-run (B1b, 18 Sep 2026, both arms on one machine, 32-point
 grid, 9 folds, 594 backtests):** OOS excess Sharpe 1.259 with the fix against
@@ -983,6 +988,494 @@ and Calmar rather than on its own return (a hedge costs carry by design),
 and weekly-expiry versions, which exist only from 2019 and so have less
 history to pass on.
 
+## 5r. Options round 2: PyPatel's signal strategies (O3, 9 Oct 2026)
+
+Your request: compare the strategies in
+`github.com/PyPatel/Options-Trading-Strategies-in-Python` (last commit
+`c7b8a0d`, Aug 2019) with Centurion's, test them, and paper-trade the best.
+That repository's four strategies trade no options: three use an options or
+breadth indicator to time the S&P 500 future (put-call ratio bands, TRIN
+bands, a VIX threshold) and one is a 55-day breakout on three US stocks.
+None runs as published (indentation errors, Python 2, swapped datasets,
+a retired Quandl feed) and none was costed or tested outside about a year
+of 2017–18 data. Centurion has every input on Indian data, so round 2
+tests what each was meant to do, on NIFTY futures, in the options family
+(U32).
+
+**Pre-registered 9 Oct 2026, 19:41 IST, before any code for these strategies
+existed and before any of their results.** Seen beforehand: the yearly mean
+NIFTY open-interest put-call ratio (0.94 to 1.46, 2007–26), and nothing
+else of these signals. Four configurations, the repository's own parameters,
+no grid, 2013-01-01 to 2025-12-31; 2026 stays unseen until the verdict.
+
+| | X1: PCR bands | X2: TRIN bands | X3: VIX threshold | X4: 55-day breakout |
+|---|---|---|---|---|
+| Source file | `PCR_strategy.py` | `TRIN_strategy.py` | `VIX_Strategy.py` | `Turtle Trading.py` |
+| Indicator | NIFTY options put-call ratio by volume: put contracts ÷ call contracts, all expiries, each session | log TRIN = log[(advancers ÷ decliners) ÷ (advancing volume ÷ declining volume)], every EQ-series stock, close vs previous close | India VIX close | NIFTY 50 close against the prior 55 sessions |
+| Bands / levels | mean over 20 sessions ± 1.5 σ; stop bands 2 σ beyond those | the same over 22 sessions | VIX ≥ 22 | high, low and mean of the 55 closes before the day |
+| Enter (flat) | long when the indicator crosses above the upper band; short when it crosses below the lower band | the same | long when VIX ≥ 22 | long above the 55-day high; short below the 55-day low |
+| Exit a long | crosses back below the mean, or above the upper stop band, or NIFTY 1% below the entry | the same | NIFTY 5% above or 5% below the entry | close below the 55-day mean |
+| Exit a short | crosses back above the mean, or below the lower stop band, or NIFTY 1% above the entry | the same | (long only) | close above the 55-day mean |
+
+Carried over as written:
+- **σ.** The repository's estimator: the square root of the mean, over the
+  last (window − 1) sessions, of (indicator − that day's moving average)².
+- **Crossings.** As written: today's value beyond today's band, and
+  yesterday's value on the other side of today's band.
+- **Rule order.** Entries are read only when flat, exits only when holding,
+  in the repository's order. A position closed by any rule needs a fresh
+  crossing to re-open (X1, X2). X3 may re-enter at the next decision while
+  VIX is still at or above 22.
+- **Entry level.** The absolute stop is 25 S&P points on a ~2,470 future in
+  the repository, about 1%, so 1% of NIFTY here.
+
+Fixed, because the repository's code contradicts its own comments:
+- The long absolute stop never fires: the code tests −price − entry > 25.
+- The short absolute stop leaves the state machine "in a trade" with no
+  position.
+- X4 sums the long and short columns before forward-filling them, so the
+  55-day-mean exit never applies. Each column is filled forward first.
+
+Common to all four:
+- **Instrument.** The near-month NIFTY future: the nearest monthly expiry
+  after the session. The position is held through its expiry day and
+  rolled at that close, charged as a sale and a purchase.
+- **Rules versus P&L.** The rules (stops, targets, breakouts) read NIFTY 50's
+  close, so a roll's basis jump never triggers a rule. P&L is the future's
+  close to close, or its settlement price when it did not trade.
+- **Fills.** A decision uses the session's close; the fill is the next
+  session's close, as in round 1. The repository acts on the same close
+  that makes the signal, which no one can do with a put-call ratio or TRIN
+  that is known only after the market shuts.
+- **Size.** Unlevered: at each entry the position's notional equals the
+  strategy's equity, held in that quantity (whole lots are ignored; one
+  NIFTY lot is about ₹16 lakh of notional). Returns are P&L over equity,
+  with no interest on the collateral, which belongs to the book. A
+  future's return is already in excess of cash, so rf = 0 is its excess
+  Sharpe.
+- **Costs.** `fno_costs` cost model 1, at each day's rates: brokerage, STT
+  on the sell side, exchange charge, SEBI fee, stamp duty on the buy side,
+  and GST. Slippage per side is max(1 tick, 1 bp of the price).
+- **Data.**
+  - The put-call ratio comes from the F&O store's options table.
+  - TRIN and India VIX come from the equity stores, copied into the F&O
+    store as `market.parquet`, as NIFTY's closes already are, so a Kaggle
+    kernel needs that store alone.
+  - India VIX is NSE's from May 2014 and Yahoo's before, from March 2008.
+- **Runs.** On Kaggle, in `data/nse_engine/runs_options/`.
+
+**Gate 1: each alone.** Excess Sharpe > 0 and deflated Sharpe ≥ 0.95 on daily
+returns, rf = 0, at N = every options-family configuration on the window:
+3 from round 1 plus these 4, so 7. Reported, not gating:
+- CAGR, MaxDD and Calmar
+- trades, win rate, average trade and time in the market
+- costs
+- the family's CSCV PBO
+
+**Selection.** Of those passing gate 1, the highest Sharpe goes forward; ties
+go X1, X2, X3, X4. If none passes, round 2 closes.
+
+**Gate 2: the combined book.** As in § 5q: r = r(E4) + 0.25 × r(strategy)
+each day, against E4's current run on today's equity data
+(`20261008T080306839468Z_93cf6c4d`: Sharpe 1.205, CAGR 24.64%, MaxDD
+−24.64%). All three must hold:
+- CAGR at least 25.0%
+- excess Sharpe (rf 6.5%) at least E4's
+- MaxDD no more than 2 points deeper than E4's
+
+Reported, not gating: the same overlay at 0.5, which is one NIFTY lot on the
+₹30 lakh book; Calmar; Sharpe over 2017–25; and the deflated Sharpe at the
+total trial count. The margin for 0.25 is about 3% of the book, inside
+E4's idle cash.
+
+**Reported, not gating.**
+- The same four over 2007-01-02 to 2025-12-31 (E4's extended run
+  `20261001T070903385179Z_93cf6c4d`). India VIX starts in March 2008, so
+  X3 has no signal before then.
+- For a strategy that passes both gates, its 2026 record to the last
+  session.
+
+**After the verdict.**
+- **A pass:** the strategy goes to a paper book beside E4. That book is
+  built then, since no recurring F&O paper book exists. It goes live only
+  after its own forward evidence and your decision.
+- **A fail:** round 2 closes without re-tuning; the code and inputs stay.
+
+**Run note, 9 Oct 2026, 20:05 IST.** The first 2013–25 kernel started while
+Kaggle was still creating the store version that holds `market.parquet`, so
+it mounted the previous version and stopped at X2. Its one recorded run (X1)
+was discarded unread and the kernel relaunched on the new version. The
+2007–25 kernel had the new version from the start. All eight runs carry F&O
+data hash `1dfa6257` and inputs hash `f349610b`, the local file's.
+
+**Result, 9 Oct 2026: round 2 closed, no strategy passed gate 1.** Each alone,
+2013–25, unlevered on the near-month future, rf 0, N = 7:
+
+| Strategy | Trades | Win rate | Time in market | Sharpe | CAGR | MaxDD | Deflated Sharpe | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| X1: PCR bands | 289 | 43% | 31% | −0.12 | −1.6% | −35.9% | 0.008 | FAIL |
+| X2: TRIN bands | 325 | 52% | 19% | 0.67 | +4.8% | −16.0% | 0.671 | FAIL |
+| X3: VIX ≥ 22 | 37 | 68% | 21% | 0.50 | +4.9% | −31.2% | 0.419 | FAIL |
+| X4: 55-day breakout | 57 | 32% | 71% | 0.14 | +0.9% | −25.8% | 0.065 | FAIL |
+
+Gate 2 was not run, and nothing entered the book's registry. For context
+(not a gate): holding the near-month future throughout made Sharpe 0.48,
+CAGR 6.6% and MaxDD −40.4% over the same years. Reported, 2007–25:
+
+| Strategy | Sharpe | CAGR | MaxDD |
+|---|---|---|---|
+| X1 | 0.01 | −0.5% | −35.9% |
+| X2 | 0.21 | +1.5% | −41.5% |
+| X3 | 0.31 | +3.7% | −46.4% |
+| X4 | −0.02 | −1.7% | −63.1% |
+
+The options family's PBO over its 7 configurations is 29.9%. The best of
+the family is still round 1's A1, with a deflated Sharpe of 0.865.
+
+What the trades say:
+- **X1** loses on its shorts: ₹−4.9 lakh over 126 trades. A put-call ratio
+  falling through its lower band is no sell signal on NIFTY. Its longs make
+  ₹1.1 lakh. It lost money in 8 of 13 years.
+- **X2** is the only one with an edge on both sides:
+  - ₹9.6 lakh on the longs and ₹7.1 lakh on the shorts
+  - 3 losing years in 13
+  - but 2020 alone gave ₹5.5 lakh, charges took ₹3.6 lakh, and the edge
+    shrinks to Sharpe 0.21 once 2007–12 is included
+- **X3** is buying the dip after fear spikes:
+  - 37 trades, 25 at the +5% target
+  - 2020 gave ₹7.2 lakh of its ₹17.4 lakh
+  - over 2007–25 it carries 2008 (MaxDD −46%)
+- **X4** wins on its longs and gives it back on the shorts: ₹−6.0 lakh over 22
+  trades.
+
+None comes near the book's bar (Sharpe 1.2) or an options-family deflated
+Sharpe of 0.95. Not re-tuned: other bands, a long-only X1 or a cost filter
+would be fitted to these years. The module
+(`kite_connect/options/signal_futures.py`), the inputs (`market.parquet`) and
+the Kaggle task stay, so a later round costs one run. The other ideas from
+round 1, a protective bear put spread and weekly expiries, remain open
+for your go/no-go.
+
+## 5s. Options round 3: the F&O strategies of awesome-systematic-trading (O4, 9 Oct 2026)
+
+Your request: compare `github.com/paperswithbacktest/awesome-systematic-trading`
+with Centurion, test what is needed, and run it on Kaggle. Centurion
+screened the same repository on 17 Sep 2026 (Stage F item 5):
+- **Tested then and rejected:** every price-based stock strategy a long-only
+  Indian book can use. Three passed the information screen (residual
+  momentum, 52-week-high proximity, low beta) and each lowered the book's
+  Sharpe. The rest failed the screen.
+- **Not significant on NIFTY:** turn-of-the-month and payday.
+- **Not tested then:** the files that needed futures or options data.
+
+Since then:
+- **The repository's 61 strategy files have not changed** (last change
+  1 Aug 2026).
+- **Its README's new table** lists the 61 strongest of 1,687 paper
+  replications, gross of costs, on each paper's own window. Its code is on a
+  paid site, and the table is mostly bonds, currencies, crypto and non-Indian
+  equity. Nothing in it can be run here.
+- **Centurion now has NSE's F&O archive** (round 1), with India VIX and
+  breadth (round 2).
+
+So the book is not re-tested: its one remaining configuration stays unspent.
+Three of the 61 files had become testable, and they belong in the options
+family (U32): two trade derivatives, and one holds the index only
+overnight, beside the book.
+
+**Pre-registered 9 Oct 2026, 20:47 IST, before any code for these three and
+before any of their results.** The files' own parameters, no grid,
+2013-01-01 to 2025-12-31; 2026 stays unseen until the verdict.
+
+| | Y1: option-expiry week | Y2: volatility risk premium | Y3: overnight with sentiment |
+|---|---|---|---|
+| File | `option-expiration-week-effect.py` | `volatility-risk-premium-effect.py` | `market-sentiment-and-an-overnight-anomaly.py` |
+| Position | long the near-month NIFTY future through the week of each monthly expiry | long NIFTY (near-month future) throughout, plus each cycle: short the ATM call and ATM put, long the put nearest 0.85 × spot | long NIFTYBEES from the close to the next open, 1/3 of capital for each condition met |
+| Timing | from the close of the last session before the expiry's week to the close of the session before expiry day (the file holds Monday's open to expiry day's open) | options chosen the session after the last ones expire: the monthly expiry closest to 30 days, within 25–35; held to expiry | conditions: NIFTY 50 above its 20-session mean; India VIX below its 20-session mean |
+| Size | notional = equity | index notional = option notional = equity | the exposure share of equity |
+
+Carried over as written:
+- **Y1:** the monthly expiry dates are NIFTY's.
+- **Y2:** strikes come from that expiry's strikes that traded on the
+  decision day. The ATM call and ATM put are each nearest the NIFTY close;
+  the put is nearest 0.85 × that close. The file's ±20-strike filter is
+  dropped: on SPY it usually cannot reach 15% below spot, which is the
+  paper's put.
+- **Y3:** the file's third condition (a US sentiment index) has no Indian
+  series, and the file itself ran without it before 2018. So, as there, two
+  conditions give 0, 1/3 or 2/3 of capital.
+
+Translations:
+- **Y1** is a calendar, so it fills on the planned closes.
+- **Y2** decides on a close and fills at the next session's closes, with
+  each option at its close, or at its settlement price when it did not
+  trade, as in rounds 1 and 2.
+  - Expiry settles on NIFTY 50's close, or failing that the expiring
+    future's settlement price.
+  - A long put that ends in the money pays STT on exercise.
+- **Y3:**
+  - The conditions use the previous session's closes, as the file uses
+    15:44 values to place a close order.
+  - It buys at NSE's closing price (the last half-hour's average) and sells
+    at the opening price (the pre-open auction).
+  - Each held night is charged 6.5% / 252, so its returns are in excess of
+    cash like the futures' returns.
+
+Common to all three:
+- **Futures and options** as in round 2: the near-month future, rolled on
+  expiry day's close; `fno_costs` cost model 1; slippage per side of max(1
+  tick, 1 bp) on futures and max(1 tick, 0.5% of premium) on options (§ 5q).
+- **NIFTYBEES** pays the book's own cost model 3: ETF STT, stamp duty,
+  exchange charge, SEBI fee, GST and the depository charge on every sale,
+  plus square-root impact on its 20-session median traded value.
+- **Capital** ₹7.5 lakh, the 0.25 overlay's share of the ₹30 lakh book;
+  unlevered, with whole lots ignored.
+- **Data** from the F&O store: NIFTYBEES's open, close and traded value are
+  added to `market.parquet` from the equity stores.
+- **Runs** on Kaggle, in `data/nse_engine/runs_options/`.
+
+**Gates.** As in § 5r: gate 1 is excess Sharpe > 0 and deflated Sharpe ≥ 0.95
+at N = every options-family configuration on the window, that is 7 plus
+these 3, so 10. The highest Sharpe that passes goes to gate 2, E4 + 0.25 ×
+r(strategy) against E4's run `20261008T080306839468Z_93cf6c4d`:
+- CAGR at least 25%
+- excess Sharpe at least E4's
+- MaxDD no more than 2 points deeper
+
+Reported, not gating:
+- the 2007–25 window (India VIX from March 2008)
+- for a strategy that passes both gates, its 2026 record
+
+**A pass** goes to a paper book beside E4, built then. **A fail** closes
+round 3 without re-tuning.
+
+**Amendment, 9 Oct 2026, 20:50 IST, before any code for these three and
+before any result.** NIFTYBEES's opening prices in the bhavcopy are not
+prices anyone could have traded at:
+- **Stray first trades:** over a hundred nights show a gap beyond ±8%,
+  some of them ±20%. This is the stray-ETF-open problem that cost model 3
+  already handles.
+- **An unadjusted split:** the 1:10 split of 19 Dec 2019 shows as a −90%
+  night, and NSE's previous close does not adjust it.
+
+Y3 therefore uses the NIFTY 50 index's own open and close, from NSE's daily
+index files (computed from every constituent's opening auction; no stale
+or stray opens since February 2012). It is traded as the near-month
+NIFTY future: futures charges and 1 bp slippage on each side, the held
+night charged 6.5% / 252 as above. NSE's index files start on 21 Feb 2012,
+so Y3's 2007–25 run starts there. Nothing else changes.
+
+Settled while writing the code, before any result:
+- A session without an India VIX close keeps the last one. Otherwise each
+  gap would blank the 20-session mean, and Y3's VIX condition with it, for
+  four weeks.
+- Y2's future is resized to equity at each monthly roll, as the file buys the
+  index afresh each cycle.
+
+**Code fix after the first result, 9 Oct 2026, 22:13 IST.** The first
+evaluation (Kaggle runs of 21:00) showed Y2 with 13 cycles in 13 years. The
+rule implies about 150.
+
+The cause was in the code, not the strategy:
+- NSE moved the April 2014 monthly expiry off a market holiday, 24 April
+  (Mumbai voted in the general election that day), to 23 April.
+- The simulator settled options only on a session dated exactly the label.
+  It waited for a 24 April session that never came, held the dead legs to
+  2025 and opened no further cycle.
+
+Nine of the 237 monthly expiry labels since 2007 did not settle on their
+date:
+
+| Label | What happened |
+|---|---|
+| 27 Nov 2008 | settled 28 Nov (the Mumbai attacks) |
+| 25 Dec 2008 | settled the 24th |
+| 30 Apr 2009 | settled the 29th |
+| 27 Feb 2014 | relabelled 26 Feb in December 2013 |
+| 24 Apr 2014 | settled the 23rd |
+| 29 Mar 2018 | relabelled the 28th |
+| 30 Mar 2023 | relabelled the 29th |
+| 29 Jun 2023 | settled the 27th |
+| 31 Mar 2026 | relabelled the 30th |
+
+The fix (`settlement_sessions`):
+- A contract settles on the session its contracts last traded.
+- A label whose contracts stopped trading more than a week before its date
+  was relabelled; it is dropped, and its contracts carry on under the new
+  label.
+- Y2's future rolls on that session too, and Y1's expiry week follows it.
+
+Effects:
+- **Y1** changes only in those months. **Y3** uses no expiries and is unchanged.
+- **Configurations:** no parameter changed, so the configurations and N are
+  unchanged. Y1 and Y2 run again on Kaggle. The first runs stay in the
+  registry, which reads the latest run of each configuration.
+- **Round 2:** its strategies are unaffected; they reproduce exactly.
+- **Round 1:** its harness settles on the first session on or after the
+  label, so it never stalled. But it settled a moved expiry up to two
+  sessions late, at that later close, and skipped a relabelled month
+  (February 2014). That touches about 3 of its 156 months. Its verdict, a
+  best deflated Sharpe of 0.865 against 0.95, is not re-run.
+
+**Result, 9 Oct 2026: round 3 closed, no strategy passed gate 1.**
+- **Runs.** Y1 and Y2 come from the corrected runs (Kaggle, 22:14 IST). Y3's
+  run is unchanged.
+- **Data.** F&O data hash `1dfa6257`, inputs `e41e358b`.
+- **Basis.** Each strategy alone, 2013–25, ₹7.5 lakh, rf = 0 (Y3 in excess
+  of cash), N = 10.
+
+| Strategy | Trades | Win rate | Time in market | Sharpe | CAGR | MaxDD | Deflated Sharpe | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| Y1: option-expiry week | 156 | 48% | 13% | −0.16 | −1.2% | −26.1% | 0.001 | FAIL |
+| Y2: volatility risk premium | 147 cycles | 73% | 100% | 0.34 | +4.6% | −47.8% | 0.101 | FAIL |
+| Y3: overnight with sentiment | 2,414 nights | 58% | 75% | 1.04 | +3.8% | −10.4% | 0.884 | FAIL |
+
+Gate 2 was not run, and nothing entered the book's registry. The
+options-family PBO over its 10 configurations is 22.2%. Reported, 2007–25:
+Y1 −0.23, Y2 0.33 (MaxDD −47.8%), Y3 0.91 (from February 2012). For
+context, holding the near-month future made Sharpe 0.48 over 2013–25.
+
+What the runs say:
+- **Y1:** the option-expiry week has no edge on NIFTY.
+- **Y2:** writing the monthly at-the-money straddle on top of a long future
+  does worse than the future alone: Sharpe 0.34 against 0.48, MaxDD −47.8%
+  against −40.4%. The 15%-out-of-the-money put barely caps a month like
+  March 2020, and the straddle gives up the rallies.
+- **Y3** is the strongest result of all three options rounds: NIFTY's
+  overnight drift, taken only while the index is above its 20-session mean
+  and India VIX below its own. But it does not clear the bar, and its numbers
+  are optimistic:
+  - Fills: it fills at NSE's closing price (a half-hour average) and opening
+    price (the auction), which a futures order matches only approximately.
+  - Costs: 2,414 nightly round trips paid ₹6.0 lakh of charges on ₹7.5 lakh,
+    about 6 points a year.
+
+Not re-tuned. A test of Y3 on the future's own opening and closing prices
+would be a new configuration in a later round. The bhavcopy carries futures
+opens, but the F&O store does not keep them yet.
+
+## 5t. Idle cash earns nothing: cost model 4 (IC1, 10 Oct 2026)
+
+Cost models 1–3 credited idle cash with 6% a year (`cash_yield_annual`) in
+the backtest and in the benchmarks. A Kite account pays no interest on idle
+cash, and neither the paper nor the live book earns it. On the deployed
+book's 27 sessions spent wholly in cash, the model-3 run gains exactly
+6%/252 a day.
+
+**Fixed 10 Oct 2026, before any run.** Cost model 4 credits idle cash with
+`IDLE_CASH_YIELD_ANNUAL` = 0 (`nse_engine/costs.py`), in the engine and in
+the benchmarks' cash leg. `cash_yield_annual` stays in `EngineConfig` at
+0.06, unused, so that no configuration hash changes. The same 27 sessions
+now gain exactly 0. Registry comparisons stay within one cost model.
+
+**Re-run.** All 61 same-window configurations re-ran in one Kaggle job on
+fingerprint ba7c0982 (no new trials), and Kaggle reproduced the local runs.
+The three books, model 3 → model 4:
+
+| Book | Sharpe | CAGR | MaxDD | Calmar | DSR |
+|---|---|---|---|---|---|
+| Deployed 679cbd0c | 1.206 → 1.158 | 23.74% → 22.97% | −23.1% → −23.9% | 1.03 → 0.96 | 0.989 → 0.965 |
+| Candidate 2d64ba4c | 1.213 → 1.132 | 22.56% → 21.38% | −23.0% → −24.3% | 0.98 → 0.88 | 0.989 → 0.958 |
+| E4 93cf6c4d | 1.205 → 1.161 | 24.64% → 23.90% | −24.6% → −25.7% | 1.00 → 0.93 | 0.988 → 0.966 |
+
+No configuration now clears Sharpe 1.2 (the best is 1.194, the median 0.993).
+PBO over the 61 rises from 57.8% to 60.4%. The benchmark gate passes for all
+three books. With the D2 haircut (one-day lag, twice the impact):
+
+| Book | Haircut Sharpe / CAGR / MaxDD | Expected OOS Sharpe |
+|---|---|---|
+| Deployed | 0.973 / 19.7% / −23.9% | 0.82 |
+| Candidate | 0.948 / 18.5% / −27.3% | 0.80 |
+| E4 | 1.040 / 21.6% / −27.7% | 0.87 |
+
+**Walk-forward (R12 re-run on Kaggle, r12a4 and r12b4).** Out-of-sample
+2017–25, model 3 → model 4:
+
+| Arm | OOS Sharpe | CAGR | MaxDD |
+|---|---|---|---|
+| A: K5's 32-point grid (deployed, candidate) | 1.150 → 1.227 | 20.9% → 22.9% | −20.9% → −22.1% |
+| B: the same grid × exit rank {40, 60} (E4) | 1.273 → 0.979 | 21.9% → 18.4% | −17.2% → −22.1% |
+
+The two arms move apart because of what the folds select, not because the
+strategy changed. Without the cash credit, the in-sample fits prefer staying
+invested: neutral scale 1.0 over 0.6, a 5-day rebalance over 21, and 20
+positions over 30. Those picks helped arm A out of sample and hurt arm B.
+E4's own configuration loses only 0.04 Sharpe over 2017–25 (1.478 → 1.440).
+The store refresh changed none of E4's returns. The re-run also used
+Kaggle's newer image (Python 3.13, pandas 3.0.6). The scorecards now read
+these walk-forwards: deployed and candidate pass the walk-forward rule
+(1.23 ≥ 1.2) and E4 fails it (0.98). No book passes net Sharpe or Calmar.
+
+**Options gates.** Gate 2's base is now E4 under model 4: run
+20261009T185901820673Z_93cf6c4d for 2013–25, and
+20261009T191853176431Z_93cf6c4d for the reported 2007–25 view. The 2007–25
+run was recorded locally, not on Kaggle: Sharpe 0.973 → 0.913, CAGR 21.11%
+→ 20.03%, MaxDD −39.1% → −40.8%. O2, O3 and O4 keep their verdicts. All
+three closed at gate 1, which does not read E4, and none recorded a
+combined run. A combined run now refuses a base from another cost model.
+A round 4 (O5) starts from E4's model-4 CAGR of 23.90%, so a sleeve must
+now add 1.1 points, not 0.4, to reach gate 2's 25% bar.
+
+## 5u. Data re-baseline: special sessions, point-in-time names, excess-basis PBO (LN-T7, T8, T15, T16; 10 Oct 2026)
+
+Four corrections from the Lean review (`docs/lean_review.md`), adopted on
+principle before any result was read. None is a configuration change, so no
+trial is spent; all 61 same-window configurations were re-run in one Kaggle
+job (RR2), as for cost models 2-4.
+
+**The Budget session of Sunday 1 Feb 2026 (LN-T7).** The archive probed
+weekdays, Saturdays and four known Sundays, so NSE's full Sunday session for
+the Union Budget (circular CM 11/2026) was missing: on 2 Feb, 2,082 stocks'
+prev_close disagreed with their last close. The store now probes every day
+and flags such a date at build time. With the session backfilled, the
+deployed book's 2026 holdout (to 11 Sep) moves from Sharpe 0.49 / CAGR 15.1% /
+MaxDD −18.7% to 0.58 / 17.5% / −17.4%: 4 stop exits move from the 2 Feb open
+to the 1 Feb bar and 4 more stops fire that day. The 2013-25 window has no
+missing session (only NSE's 24 Jun 2006 Saturday, which no archive has).
+
+**The as-printed price filter in paper and live (LN-T8).** `MarketData.until()`
+dropped `close_unadj`, so the candidate and E4 books, which filter on
+as-printed prices, planned their universe history on adjusted prices. To 1
+Oct 2025, 2,394 of 3,410 sessions of that history differed from what their
+registered runs used; since the fix, none. Backtests never cut the panel, so
+no recorded run changes; the two paper books plan as validated from the
+merge.
+
+**Ties broken by the name in force (LN-T15).** Forecasts are capped, and on a
+quarter of sessions more than 20 names share the cap; ties were broken
+alphabetically by each stock's latest name. A rename after the window
+(about five a month in 2026) therefore reordered decisions inside it, and
+moved the data hash. Ties now break by the name the stock traded under on
+the decision date (`MarketData.trade_names`, 352 renamed columns), and the
+data hash (version 2) is keyed on the names in force at the panel's end and
+widened to every price frame, the as-printed close, volume and the ETF set.
+Relabel gate, run before the change shipped: with the store's rename table
+cut at 2025-12-31 (renames after the window hidden), all 61 configurations
+give the same 2013-25 returns (to 1e-12) and the same hash. Data hash
+`ba7c098240b4c9ec` → `dab49d3cbd323c16`.
+
+**PBO on excess returns (LN-T16).** CSCV ranked trials on raw returns while
+the deflated Sharpe, the walk-forward and every pass rule use returns over
+6.5%; it now subtracts the risk-free rate first.
+
+**Result (RR2, Kaggle = local to the last digit).**
+
+| Book | Sharpe | CAGR | MaxDD | DSR |
+|---|---|---|---|---|
+| Deployed 679cbd0c | 1.158 → 1.163 | 22.97% → 23.13% | −23.9% → −23.9% | 0.964 |
+| Candidate 2d64ba4c | 1.132 → 1.157 | 21.38% → 21.88% | −24.3% → −23.6% | 0.963 |
+| E4 93cf6c4d | 1.161 → 1.139 | 23.90% → 23.55% | −25.7% → −25.3% | 0.957 |
+
+Across the 61 configurations Sharpe moves by +0.002 on average (−0.023 to
++0.027; Spearman 0.990). PBO over the 61: 37.2% → 29.2% on the excess basis
+("likely real"; probability of an out-of-sample loss 0.7%), 60.4% → 51.2% on
+the raw basis. One configuration now clears Sharpe 1.2: `0381af7f`, the R11
+crash re-entry rule (1.194 → 1.220), which failed its own pre-registered
+rule on 28 Sep (§5f) and stays closed. Benchmark gate passed for all three
+books. Haircut (one-day lag, twice the impact, CSCV selection ×0.82):
+expected OOS Sharpe deployed 0.80, candidate 0.79, E4 0.85. Walk-forwards
+(R12 re-run, r12a5 / r12b5): see below.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast
@@ -1147,8 +1640,20 @@ The live book is a ledger, not the account. Zerodha accounts hold other
 investments, and the planner sells every holding it has no target for, so
 the engine only ever sees the ledger: the capital given on the first
 session (`--capital`, month 1 = ₹6 lakh), the cash its own fills leave, and
-the quantities it bought. Stops are reconciled only for those symbols.
-Holding an engine symbol personally as well is not supported.
+the quantities it bought, with each position's entry session and last stop
+(LS1, 10 Oct 2026). Before LS1 every live holding reached the planner dated
+"today", so its stop counted only from that night's close. Replaying the
+deployed backtest's 2013–25 history through the live ledger now rebuilds
+the engine's holdings (entry date, stop, quantity) on every one of 3,219
+nights, with each stop GTT on Kite's 5-paise tick and the stop within half
+a tick of the engine's; with the old book, 3,183 differ. A live stop is
+never lowered: a GTT left below the ledger's last stop, a GTT book that
+cannot be read, or a GTT that is gone (triggered without a sale, expired,
+deleted) keeps the ledger's level with an alert, so the engine still exits
+through it. Ledger stops follow the store's corporate-action adjustments
+(each keeps the close it was set against), as the backtest's adjusted
+prices do. Stops are reconciled only for
+those symbols. Holding an engine symbol personally as well is not supported.
 
 Before month 1: `live_session --dry-run --capital 600000` after every paper
 session for at least a week, comparing its orders with the paper book's
@@ -1204,9 +1709,11 @@ every live session and written in the daily email:
   day's snapshot, and the equity history the drawdown rule and G4 read has
   them removed.
 - **Go-live.** The first real session is refused unless the deployed paper
-  book's G4 is PASS with at least 60 sessions and five scheduled dry runs
-  finished clean; `CENTURION_GO_LIVE_OVERRIDE=true` overrides and the email
-  says so. The Kaggle token (U2) and leverage (L4, NO-GO) stay manual checks.
+  book's G4 is PASS with at least 60 sessions, five scheduled dry runs
+  finished clean, and the account has shown it can sell unattended: DDPI
+  confirmed and a supervised AMO sell and triggered GTT sell COMPLETE on the
+  same Kite user, recorded with `live_session --record-sell-path` (LN-T2);
+  `CENTURION_GO_LIVE_OVERRIDE=true` overrides and the email says so. The Kaggle token (U2) and leverage (L4, NO-GO) stay manual checks.
 
 ## 8. Stage F — Research loop (runs in parallel with paper trading)
 

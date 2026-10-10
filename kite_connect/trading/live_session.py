@@ -79,8 +79,11 @@ logger = logging.getLogger(__name__)
 ENV_LIVE_SCHEMA = "CENTURION_LIVE_SCHEMA"
 ENV_LIVE_CAPITAL = "CENTURION_LIVE_CAPITAL"
 DEFAULT_LIVE_SCHEMA = "live"
-LIVE_LEDGER_KEY = "live_ledger"            # {"capital", "cash", "positions": {sym: qty}, "symbols", "session"}
+LIVE_LEDGER_KEY = "live_ledger"            # {"capital", "cash", "positions": {sym: qty}, "entries", "stops", "stop_basis", "symbols", "session"}
 LIVE_ORDERS_KEY = "live_orders"            # orders placed at the last live session (JSON)
+LIVE_ORDERS_PENDING_KEY = "live_orders_pending"   # placed orders the order book has not yet accounted for (LN-T6)
+CA_CREDIT_SESSIONS = 5                     # sessions to wait for split/bonus shares at the broker before an alert
+STOP_COOLDOWN_KEEP_DAYS = 30               # recent stop-outs kept in the ledger; the engine counts its 5 sessions
 LIVE_LAST_SESSION_KEY = "live_last_session"
 LIVE_DRY_LAST_SESSION_KEY = "live_dry_run_last_session"   # the scheduled dry run's once-per-session marker
 LIVE_SKIP_NOTIFIED_KEY = "live_skip_notified"            # date of the last "no login today" email
@@ -113,17 +116,32 @@ def load_ledger(state: Dict[str, str], capital: Optional[float]) -> dict:
     if not capital or capital <= 0:
         raise RuntimeError(f"first live session: give the book's capital (--capital or {ENV_LIVE_CAPITAL}); "
                            "month 1 of the ladder is Rs 6,00,000")
-    return {"capital": float(capital), "cash": float(capital), "positions": {}, "symbols": [], "session": ""}
+    return {"capital": float(capital), "cash": float(capital), "positions": {}, "entries": {}, "stops": {},
+            "stop_basis": {}, "symbols": [], "session": ""}
 
 
-def apply_fills(ledger: dict, fills: List[dict], session, dp_charge_inr: float) -> dict:
-    """The ledger after ``fills`` (engine and external), applied once per session."""
+def apply_fills(ledger: dict, fills: List[dict], session, dp_charge_inr: float,
+                planned_stops: Optional[Dict[str, Tuple[float, Optional[list]]]] = None, once: bool = True) -> dict:
+    """The ledger after ``fills`` (engine and external), applied once per session.
+
+    Keeps what the backtest keeps on each Holding, so live stops follow the
+    same rule (tracker LS1): ``entries`` holds the session of a position's first
+    BUY fill (kept on adds and partial sells, dropped at zero), and ``stops``
+    the book's last stop, seeded for a new position from ``planned_stops``, the
+    stop planned with its BUY order the night before: ``{symbol: (stop, basis)}``.
+    ``stop_basis`` keeps each stop's ``[date, close]``, the close it was set
+    against, so ``rescale_stops`` can follow the data's corporate-action
+    adjustments.  ``once=False`` books a correction (``--reconcile``) without
+    the once-per-session guard and leaves the ledger's session as it is.
+    """
     from nse_engine.costs import statutory_cost
 
     day = pd.Timestamp(session).date().isoformat()
-    if str(ledger.get("session") or "") >= day:
+    if once and str(ledger.get("session") or "") >= day:
         return ledger                                   # this session's fills are already in
-    led = {**ledger, "positions": dict(ledger.get("positions") or {}), "symbols": list(ledger.get("symbols") or [])}
+    led = {**ledger, "positions": dict(ledger.get("positions") or {}), "symbols": list(ledger.get("symbols") or []),
+           "entries": dict(ledger.get("entries") or {}), "stops": dict(ledger.get("stops") or {}),
+           "stop_basis": dict(ledger.get("stop_basis") or {}), "recent_stops": dict(ledger.get("recent_stops") or {})}
     for f in fills:
         if f.get("status") != "FILLED" or int(f.get("quantity") or 0) <= 0:
             continue
@@ -133,28 +151,209 @@ def apply_fills(ledger: dict, fills: List[dict], session, dp_charge_inr: float) 
             qty = min(qty, have)
             if qty <= 0:
                 continue
+            # the backtest's stop cooldown (LN-T9): a GTT or manual sale on its session, the engine's stop
+            # exit on the session the stop was hit (its decision date)
+            if f.get("source") == SOURCE_EXTERNAL:
+                led["recent_stops"][sym] = str(f.get("session_date") or day)[:10]
+            elif str(f.get("reason") or "") == "exit:stop" and f.get("decision_date"):
+                led["recent_stops"][sym] = str(f["decision_date"])[:10]
             led["positions"][sym] = have - qty
             led["cash"] += qty * px - statutory_cost(qty * px, "SELL", pd.Timestamp(session), dp_charge_inr, symbol=sym)
         else:
+            if have <= 0:                               # a new position: its entry, and its planned stop
+                led["entries"][sym] = day
+                stop, basis = (planned_stops or {}).get(sym) or (None, None)
+                led["stops"].pop(sym, None)
+                led["stop_basis"].pop(sym, None)
+                if stop:
+                    led["stops"][sym] = float(stop)
+                    if basis and basis[1]:
+                        led["stop_basis"][sym] = [str(basis[0])[:10], float(basis[1])]
             led["positions"][sym] = have + qty
             led["cash"] -= qty * px + statutory_cost(qty * px, "BUY", pd.Timestamp(session), dp_charge_inr, symbol=sym)
             if sym not in led["symbols"]:
                 led["symbols"].append(sym)
     led["positions"] = {s: q for s, q in led["positions"].items() if q > 0}
-    led["session"] = day
+    led["entries"] = {s: d for s, d in led["entries"].items() if s in led["positions"]}
+    led["stops"] = {s: v for s, v in led["stops"].items() if s in led["positions"]}
+    led["stop_basis"] = {s: v for s, v in led["stop_basis"].items() if s in led["stops"]}
+    horizon = (pd.Timestamp(day) - pd.Timedelta(days=STOP_COOLDOWN_KEEP_DAYS)).date().isoformat()
+    led["recent_stops"] = {s: d for s, d in led["recent_stops"].items() if d >= horizon}
+    if once:
+        led["session"] = day
     return led
 
 
-def scoped_book(ledger: dict, broker_holdings: Dict[str, dict], broker_cash: float) -> Tuple[Dict[str, dict], float, List[str]]:
-    """(holdings, cash, alerts): the ledger's symbols as the broker holds them."""
+def apply_ledger_events(ledger: dict, data, session) -> Tuple[List[str], float, List[dict]]:
+    """Splits, bonuses and dividends since the ledger's last session (tracker LN-T4): (notes, dividend
+    income, event rows for ``paper_fills``).
+
+    A share-count change rebases the ledger's quantity once per event (the
+    broker credits bonus and split shares a few sessions later, so
+    ``ca_pending`` keeps the position whole meanwhile: ``scoped_book``).
+    Stops follow through ``rescale_stops``.  Dividends go to the bank
+    account, not the trading account, so the ledger's cash does not move: the
+    income is returned for the snapshot to book as an equal withdrawal, so
+    the ex-date drop is not counted as a loss.
+    """
+    from kite_connect.trading.book_events import events_between, rebase_quantity
+
+    last, positions = ledger.get("session"), ledger.get("positions") or {}
+    if not last or not positions:
+        return [], 0.0, []
+    applied = list(ledger.get("ca_applied") or [])
+    day = pd.Timestamp(session).date().isoformat()
+    notes, income, rows = [], 0.0, []
+
+    def row(sym, side, qty_before, qty, ref, px, note, key):
+        return {"order_id": key[:60], "session_date": day, "decision_date": "", "source": "corporate_action",
+                "symbol": sym, "side": side, "status": "FILLED", "requested_qty": int(qty_before),
+                "quantity": int(qty), "ref_price": float(ref), "fill_price": float(px), "impact_bps": 0.0,
+                "costs_inr": 0.0, "note": note[:200], "occurred_at": f"{day}T09:15:00+05:30"}
+
+    for sym, e in sorted(events_between(data, positions, last, session).items()):
+        q = int(positions.get(sym, 0))
+        for when, per_share, key in e["dividends"]:
+            if key in applied or q <= 0:
+                continue
+            income += q * per_share
+            rows.append(row(sym, "", q, q, per_share, per_share, f"dividend Rs {per_share:g} x {q}, paid to the "
+                            "bank account", key))
+            applied.append(key)
+        key = "|".join(e["share_keys"])
+        if key and key not in applied:
+            new, _ = rebase_quantity(q, e["share_factor"])
+            positions[sym] = new
+            ledger.setdefault("ca_pending", {})[sym] = {"ex_date": day, "quantity": new}
+            rows.append(row(sym, "", q, new, e["share_factor"], 0.0, f"split/bonus factor {e['share_factor']:.4g}: "
+                            f"{q} -> {new} shares", key))
+            applied.append(key)
+            notes.append(f"corporate action {sym}: factor {e['share_factor']:.4g}, {q} -> {new} shares"
+                         + (" (INFERRED by the store: check)" if e["inferred"] else ""))
+        if e["other"]:
+            notes.append(f"corporate action {sym} with no share change (rights/demerger/price): " + "; ".join(e["other"]))
+    ledger["positions"] = {s: v for s, v in positions.items() if v > 0}
+    ledger["ca_applied"] = applied[-500:]
+    return notes, income, rows
+
+
+def rekey_ledger(ledger: dict, renames: Dict[str, str]) -> List[str]:
+    """Move positions, entries, stops and their bases from an old symbol to its new one, once (LN-T5).
+
+    The old name stays in ``symbols``, so the stop GTT on the old instrument
+    stays in the reconcile's scope and is deleted once the new one is armed.
+    """
+    notes = []
+    positions = ledger.get("positions") or {}
+    for old, new in sorted(renames.items()):
+        if old == new or old not in positions:
+            continue
+        if new in positions:
+            notes.append(f"{old} is now {new}, but the ledger holds both: not merged, check Kite")
+            continue
+        for key in ("positions", "entries", "stops", "stop_basis", "ca_pending", "isins"):
+            m = ledger.get(key) or {}
+            if old in m:
+                m[new] = m.pop(old)
+                ledger[key] = m
+        ledger.setdefault("symbols", [])
+        if new not in ledger["symbols"]:
+            ledger["symbols"].append(new)
+        notes.append(f"{old} is now {new} (NSE rename or series change): the ledger moved to the new name")
+    return notes
+
+
+def rescale_stops(ledger: dict, close: pd.DataFrame) -> Dict[str, float]:
+    """Put the ledger's stops on tonight's price scale; returns each moved symbol's factor.
+
+    The store back-adjusts prices for dividends, splits, bonuses and demergers,
+    as the backtest's data is adjusted, so a stop set against an older close
+    moves with it: factor = the close of the stop's date in ``close`` (tonight's
+    forward-filled closes) / the close it was set against.  The basis is moved
+    to tonight's scale too, so a second run of the session changes nothing.
+    """
+    stops, basis = ledger.setdefault("stops", {}), ledger.setdefault("stop_basis", {})
+    factors: Dict[str, float] = {}
+    for sym, (day, then) in list(basis.items()):
+        try:
+            now = float(close.at[pd.Timestamp(day), sym])
+        except (KeyError, ValueError, TypeError):
+            continue
+        f = now / float(then) if then and math.isfinite(now) and now > 0 else 1.0
+        if sym in stops and abs(f - 1.0) > 1e-6:
+            stops[sym] = round(float(stops[sym]) * f, 4)
+            basis[sym] = [day, now]
+            factors[sym] = f
+    return factors
+
+
+def scoped_book(ledger: dict, broker_holdings: Dict[str, dict], broker_cash: float,
+                factors: Optional[Dict[str, float]] = None,
+                bought_today: Optional[Dict[str, int]] = None) -> Tuple[Dict[str, dict], float, List[str]]:
+    """(holdings, cash, alerts): the ledger's symbols as the broker holds them.
+
+    Each holding carries its entry date and its stop, as on the backtest's
+    Holding (LS1).  The stop is never lowered: the higher of the broker's GTT
+    trigger and the ledger's last stop (a GTT the broker failed to raise keeps
+    the book's level), the planned stop for a position filled today (its GTT
+    does not exist yet), and the last stop when the GTTs could not be read or
+    a GTT is gone (triggered without a sale, expired or deleted), so the engine
+    still exits through it.  ``factors`` (from ``rescale_stops``) put the
+    broker's triggers on tonight's price scale, as the ledger's stops already
+    are.  A quantity that differs from the broker's raises an alert; if the
+    data shows no corporate action for it, the broker's GTT is used, or the
+    stop is recomputed when there is none.  ``t1_quantity`` is the part bought
+    at today's open (``bought_today``): it settles during tomorrow's session,
+    so Zerodha credits its sale only the day after, and the planner does not
+    spend those proceeds on tomorrow's buys.
+    """
+    from kite_connect.trading.gtt_stops import TICK_SIZE
+
     alerts, holdings = [], {}
+    entries, stops = ledger.get("entries") or {}, ledger.get("stops") or {}
+    awaiting = ledger.get("ca_pending") or {}
     for sym, q in (ledger.get("positions") or {}).items():
         b = broker_holdings.get(sym) or {}
         bq = int(b.get("quantity") or 0)
-        if bq < q:
-            alerts.append(f"{sym}: the ledger holds {q} but the broker {bq} - using {bq}; check Kite")
+        credit = sym in awaiting and bq < q                # LN-T4: split/bonus shares not yet credited
+        if credit:
+            alerts.append(f"{sym}: awaiting the broker's credit of split/bonus shares (ex {awaiting[sym]['ex_date']}): "
+                          f"the broker shows {bq} of {q}")
+            bq_eff = q
+        else:
+            bq_eff = bq
+            if bq != q:
+                alerts.append(f"{sym}: the ledger holds {q} but the broker {bq} - using {min(q, bq)}; check Kite")
+        bq = bq_eff
         if min(q, bq) > 0:
-            holdings[sym] = {"quantity": min(q, bq), "avg_price": b.get("avg_price", 0.0), "stop_price": b.get("stop_price")}
+            f = float((factors or {}).get(sym, 1.0))
+            stop = None if b.get("stop_price") is None else float(b["stop_price"]) * f
+            last = float(stops[sym]) if stops.get(sym) else None
+            filled_today = entries.get(sym) == ledger.get("session")
+            # the last stop is on tonight's scale unless the quantity moved with no adjustment in the data
+            trusted = last is not None and (bq == q or f != 1.0)
+            if b.get("stops_unknown"):
+                stop = last if trusted else None
+                alerts.append(f"{sym}: the broker's stop GTTs could not be read - "
+                              + (f"keeping the book's last stop {last:,.2f}" if trusted
+                                 else "its stop is recomputed from today's close"))
+            elif stop is None and trusted:
+                stop = last
+                if not filled_today:                     # filled today: its GTT is placed tonight
+                    alerts.append(f"{sym}: no stop GTT at the broker (triggered without a sale, expired or "
+                                  f"deleted) - keeping the book's last stop {last:,.2f}; check Kite")
+            elif stop is None and last is not None:
+                alerts.append(f"{sym}: no stop GTT at the broker - its stop is recomputed from today's close")
+            elif stop is not None and trusted and last > stop:
+                if last - stop > TICK_SIZE / 2 + 1e-9:   # not just the trigger's rounding to the tick
+                    alerts.append(f"{sym}: the broker's stop GTT {stop:,.2f} is below the book's last stop "
+                                  f"{last:,.2f} - using the book's")
+                stop = last                              # never lowered: a GTT the broker did not raise
+            if not entries.get(sym):
+                alerts.append(f"{sym}: no entry date in the ledger - its stop counts from today")
+            holdings[sym] = {"quantity": min(q, bq), "avg_price": b.get("avg_price", 0.0), "stop_price": stop,
+                             "entry_date": entries.get(sym),
+                             "t1_quantity": min(int((bought_today or {}).get(sym, 0)), min(q, bq))}
     cash = float(ledger.get("cash") or 0.0)
     if broker_cash + 1.0 < cash:
         alerts.append(f"broker cash {broker_cash:,.0f} is below the ledger's {cash:,.0f} - planning with the broker's")
@@ -194,19 +393,21 @@ def fills_from_outcomes(outcomes: List[dict], placed: Dict[str, dict], session, 
                      "source": SOURCE_ENGINE, "symbol": sym, "side": side, "status": status,
                      "requested_qty": int(o.get("quantity") or 0), "quantity": filled,
                      "ref_price": float(spec.get("ref_price") or 0.0), "fill_price": px,
-                     "impact_bps": round(impact, 3), "costs_inr": round(cost, 2),
-                     "note": note[:200], "occurred_at": f"{day}T09:15:00+05:30"})
+                     "impact_bps": round(impact, 3), "costs_inr": round(cost, 2), "reason": spec.get("reason"),
+                     "note": (note + (f" ({spec['reason']})" if spec.get("reason") else ""))[:200],
+                     "occurred_at": f"{day}T09:15:00+05:30"})
     return rows
 
 
 def external_sells(order_book: List[dict], symbols, session, dp_charge_inr: float) -> List[dict]:
     """Completed CNC sells today of ledger ``symbols`` the engine did not place (GTT stop, manual)."""
+    from kite_connect.trading.nse_instruments import to_engine
     from nse_engine.costs import statutory_cost
 
     day = pd.Timestamp(session).date().isoformat()
     rows = []
     for o in order_book or []:
-        sym = o.get("tradingsymbol")
+        sym = to_engine(o.get("tradingsymbol"))         # a GTT sale of SYM-BE belongs to SYM (LN-T5)
         if sym not in symbols or str(o.get("tag") or "").startswith("NE"):
             continue
         if str(o.get("transaction_type") or "").upper() != "SELL" or str(o.get("product") or "CNC").upper() != "CNC":
@@ -224,6 +425,107 @@ def external_sells(order_book: List[dict], symbols, session, dp_charge_inr: floa
                      "note": f"not placed by the engine (tag {o.get('tag') or '-'}): GTT stop or manual",
                      "occurred_at": f"{day}T09:15:00+05:30"})
     return rows
+
+
+def _next_session(dates, day) -> Optional[pd.Timestamp]:
+    later = pd.DatetimeIndex(dates)[pd.DatetimeIndex(dates) > pd.Timestamp(day)]
+    return pd.Timestamp(later[0]).normalize() if len(later) else None
+
+
+def reconcile_missed(ledger: dict, pending: List[dict], broker_qty: Dict[str, int], broker_avg: Dict[str, float],
+                     triggered_gtts: List[dict], view, session, dp_charge_inr: float
+                     ) -> Tuple[List[dict], Dict[str, str], Dict[str, pd.Timestamp], List[str]]:
+    """Explain the broker's quantities after a missed or failed session (tracker LN-T6).
+
+    Kite's order book lasts one day, so the fills of a session nobody ran are
+    never read; the ledger would miss them, the next plan would re-send a
+    filled BUY (a doubled position) and a sale's cash would never come back.
+    For the ledger's symbols and the ``pending`` orders' symbols, broker
+    quantity minus ledger quantity (after today's fills) is explained in
+    order: a pending BUY adopts an excess (at the broker's average price for
+    a new symbol, else the fill session's open capped at the limit), a
+    pending SELL a shortfall (the open floored at the limit), a triggered
+    stop GTT the rest of a shortfall (an external sale at its trigger, or the
+    open on a gap below it, never under its limit).  Returns (fill rows dated
+    their fill session, entry dates of adopted positions, stop cooldowns,
+    what stays unexplained).
+    """
+    from nse_engine.costs import statutory_cost
+
+    positions = ledger.get("positions") or {}
+    rows, entries, cooldown, unexplained = [], {}, {}, []
+
+    def open_at(day, sym) -> float:
+        try:
+            return float(view.open.at[day, sym])
+        except (KeyError, ValueError, TypeError):
+            return float("nan")
+
+    def row(o, sym, side, qty, px, day, source, note):
+        return {"order_id": str(o.get("order_id") or o.get("tag") or ""), "session_date": day.date().isoformat(),
+                "decision_date": str(o.get("decision_date") or ""), "source": source, "symbol": sym, "side": side,
+                "status": "FILLED", "requested_qty": int(o.get("quantity") or qty), "quantity": int(qty),
+                "ref_price": float(o.get("ref_price") or o.get("trigger") or 0.0), "fill_price": float(px),
+                "impact_bps": 0.0, "costs_inr": round(statutory_cost(qty * px, side, day, dp_charge_inr, symbol=sym), 2),
+                "reason": o.get("reason"), "note": note, "occurred_at": f"{day.date().isoformat()}T09:15:00+05:30"}
+
+    for sym in sorted(set(positions) | {str(o.get("symbol")) for o in pending}):
+        delta = int(broker_qty.get(sym, 0)) - int(positions.get(sym, 0))
+        for o in (o for o in pending if str(o.get("symbol")) == sym):
+            day = _next_session(view.dates, o.get("decision_date"))
+            side, qty, limit = str(o.get("side")).upper(), int(o.get("quantity") or 0), float(o.get("limit_price") or 0.0)
+            if day is None or day > pd.Timestamp(session) or qty <= 0:
+                continue
+            op = open_at(day, sym)
+            if side == "BUY" and delta > 0:
+                q = min(delta, qty)
+                px = (float(broker_avg[sym]) if sym not in positions and broker_avg.get(sym)
+                      else min(op, limit) if limit > 0 and op == op else limit or op)
+                rows.append(row(o, sym, "BUY", q, px, day, SOURCE_ENGINE, "adopted after a missed session"))
+                entries[sym] = day.date().isoformat()
+                delta -= q
+            elif side == "SELL" and delta < 0:
+                q = min(-delta, qty)
+                px = max(op, limit) if op == op else limit
+                rows.append(row(o, sym, "SELL", q, px, day, SOURCE_ENGINE, "adopted after a missed session"))
+                delta += q
+        if delta < 0:
+            for g in (g for g in triggered_gtts if g.get("symbol") == sym):
+                day = pd.Timestamp(str(g.get("updated_at") or session)[:10]).normalize()
+                trig, limit = float(g.get("trigger") or 0.0), float(g.get("limit") or 0.0)
+                op = open_at(day, sym)
+                px = max(min(trig, op) if op == op else trig, limit)
+                q = min(-delta, int(g.get("quantity") or 0))
+                if q > 0:
+                    rows.append(row(g, sym, "SELL", q, px, day, SOURCE_EXTERNAL,
+                                    f"GTT stop {g.get('id')} triggered on a missed session"))
+                    cooldown[sym] = day
+                    delta += q
+                if delta >= 0:
+                    break
+        if delta < 0:                                     # sold with no record: on cooldown from today (LN-T9)
+            cooldown.setdefault(sym, pd.Timestamp(session).normalize())
+        if delta != 0:
+            unexplained.append(f"{sym}: the ledger holds {positions.get(sym, 0)}, the broker "
+                               f"{broker_qty.get(sym, 0)} ({delta:+d} unexplained)")
+    return rows, entries, cooldown, unexplained
+
+
+def manual_reconcile(ledger: dict, items: Dict[str, Tuple[int, float]], session, dp_charge_inr: float
+                     ) -> Tuple[dict, List[dict]]:
+    """``--reconcile SYM=QTY@PX``: set the ledger's SYM to QTY, booking the difference at PX (LN-T6)."""
+    day = pd.Timestamp(session).normalize()
+    rows = []
+    for sym, (qty, px) in items.items():
+        delta = int(qty) - int((ledger.get("positions") or {}).get(sym, 0))
+        if delta:
+            side = "BUY" if delta > 0 else "SELL"
+            rows.append({"order_id": f"manual-{sym}-{day.date()}", "session_date": day.date().isoformat(),
+                         "decision_date": "", "source": SOURCE_EXTERNAL, "symbol": sym, "side": side,
+                         "status": "FILLED", "requested_qty": abs(delta), "quantity": abs(delta),
+                         "ref_price": float(px), "fill_price": float(px), "impact_bps": 0.0, "costs_inr": 0.0,
+                         "note": "manual reconcile", "occurred_at": f"{day.date().isoformat()}T15:30:00+05:30"})
+    return apply_fills(ledger, rows, day, dp_charge_inr, once=False), rows
 
 
 # ── step 3: the book at the close ───────────────────────────────
@@ -330,7 +632,13 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
             own_gate = None
         pgate, source = cl.go_live_evidence(own_gate, dep.engine.config_hash(),
                                             trial_gates if trial_gates is not None else _trial_gates(dep))
-        checks = cl.readiness(pgate, json.loads(state.get(cl.DRY_RUNS_KEY) or "[]"), source=source)
+        try:
+            user_id = (kite.profile() or {}).get("user_id")
+        except Exception:                                 # noqa: BLE001 - an unknown user fails the check
+            user_id = None
+        sell_path = cl.sell_path_check(json.loads(state.get(cl.SELL_PATH_KEY) or "null"), user_id)
+        checks = cl.readiness(pgate, json.loads(state.get(cl.DRY_RUNS_KEY) or "[]"), source=source,
+                              sell_path=sell_path)
         missing = [f"{n}: {d}" for n, ok, d in checks if not ok]
         if cl.rung_of(ledger["capital"]) is None:
             raise RuntimeError(f"live capital {ledger['capital']:,.0f} is not a ladder rung "
@@ -349,7 +657,8 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
     elif shift_path.exists():
         shift_path.unlink()
 
-    raw_equity, flows = _equity_and_flows(book.read_snapshots())
+    strict = bool(record) and not dry_run                 # LN-T10: a real session fails closed on its book
+    raw_equity, flows = _equity_and_flows(_book_read(book, "read_snapshots", strict))
     from nse_engine.capital_ladder import flow_adjusted
     history = flow_adjusted(raw_equity, flows)
     cooldown: Dict[str, pd.Timestamp] = {}
@@ -380,9 +689,35 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
                     "fills": [], "external": [], "alerts": [], "notes": list(extra_notes or []) + go_live_notes,
                     "results": [], "plan": None}
 
+    # LN-T4: the ledger moves into tonight's units (splits, bonuses) before today's fills, which are in them
+    from kite_connect.trading.book_events import events_between, unrecorded_gaps, upcoming_share_actions
+
+    prev_session = ledger.get("session")
+    broker_holdings, broker_cash = kite_book(kite)
+    # LN-T5: a renamed stock moves to its new name first (the store's change table, then the broker's ISIN)
+    from kite_connect.trading.book_events import renamed, upcoming_mergers
+
+    renames = renamed(cfg.data.store_dir, ledger.get("positions") or {}, prev_session, session)
+    by_isin = {h.get("isin"): s for s, h in broker_holdings.items() if h.get("isin")}
+    for old, isin in (ledger.get("isins") or {}).items():
+        new = by_isin.get(isin)
+        if new and new != old and old in (ledger.get("positions") or {}) and old not in broker_holdings:
+            renames.setdefault(old, new)
+    report["alerts"].extend(rekey_ledger(ledger, renames))
+    ca_notes, dividend_income, report["events"] = apply_ledger_events(ledger, data, session)
+    report["notes"].extend(ca_notes)
+    gaps = (unrecorded_gaps(data, ledger.get("positions") or {}, prev_session, session,
+                            events_between(data, ledger.get("positions") or {}, prev_session, session))
+            if prev_session else [])
+    if gaps:
+        report["alerts"].append("as-printed close down 10%+ with no corporate action in the store (an unrecorded "
+                                "split?), buys of it held back: " + ", ".join(gaps))
+
     # 2. outcomes of the previous live session's orders, then the ledger
     placed_doc = json.loads(state.get(LIVE_ORDERS_KEY) or "{}")
     decision = placed_doc.get("decision_date")
+    pending = list(json.loads(state.get(LIVE_ORDERS_PENDING_KEY) or "[]"))    # LN-T6: carried from earlier nights
+    book_unknown = False
     if decision and pd.Timestamp(decision) < session:
         opens_row = view.open.iloc[-1]
         placed = {o["tag"]: o for o in placed_doc.get("orders", []) if o.get("tag")}
@@ -392,10 +727,15 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
             report["alerts"].append(f"order book unavailable: {outcomes[0].get('error')}")
         report["fills"] = fills_from_outcomes(outcomes, placed, session, decision, opens, dp)
         seen = {o.get("tag") for o in outcomes}
-        lost = [f"{s.get('side')} {s.get('symbol')}" for t, s in placed.items()
-                if t not in seen and s.get("status") == "PLACED"]
-        if lost and not (outcomes and outcomes[0].get("status") == "unknown"):
-            report["alerts"].append("placed but missing from the order book: " + ", ".join(lost))
+        book_unknown = bool(outcomes and outcomes[0].get("status") == "unknown")
+        # orders the book does not account for (a missed session's, or an UNKNOWN placement) wait for the
+        # broker's quantities to explain them
+        pending += [{**o, "decision_date": decision} for t, o in placed.items()
+                    if (book_unknown or t not in seen) and o.get("status") in ("PLACED", "UNKNOWN", "INTENDED")]
+        intended = [f"{o.get('side')} {o.get('symbol')}" for t, o in placed.items()
+                    if o.get("status") == "INTENDED" and t not in seen and not book_unknown]
+        if intended:                                      # LN-T10: the run stopped between write-ahead and send
+            report["alerts"].append("intended last night but not in the order book: " + ", ".join(intended))
         bad = [f for f in report["fills"] if f["status"] != "FILLED" or f["note"].startswith("partial")]
         if bad:
             report["alerts"].append("not (fully) filled: " + "; ".join(f"{f['side']} {f['symbol']} {f['note']}" for f in bad))
@@ -412,63 +752,153 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
     if report["external"]:
         report["alerts"].append("sold outside the engine today (GTT stop or manual): "
                                 + ", ".join(f"{e['symbol']} x{e['quantity']}" for e in report["external"]))
-    ledger = apply_fills(ledger, report["fills"] + report["external"], session, dp)
+    planned_stops = ({o["symbol"]: (o["stop_price"], [decision, o.get("ref_price")]) for o in placed_doc.get("orders", [])
+                      if str(o.get("side")).upper() == "BUY" and o.get("stop_price")}
+                     if decision and pd.Timestamp(decision) < session else {})
+    planned_stops.update({o["symbol"]: (o["stop_price"], [o["decision_date"], o.get("ref_price")]) for o in pending
+                          if str(o.get("side")).upper() == "BUY" and o.get("stop_price")})
 
-    # 3. the book at the close
-    broker_holdings, broker_cash = kite_book(kite)
-    holdings, cash, scope_alerts = scoped_book(ledger, broker_holdings, broker_cash)
+    # LN-T6: after a missed session (its fills left the order book) or with orders unaccounted for, the
+    # broker's quantities decide; what they cannot explain blocks new buys until it is cleared
+    fill_day = _next_session(view.dates, decision) if decision else None
+    skipped = bool(fill_day is not None and fill_day < session and pd.Timestamp(decision) < session
+                   and str(ledger.get("session") or "") < fill_day.date().isoformat())
+    block_buys: List[str] = []
+    adopted_entries: Dict[str, str] = {}
+    if book_unknown:
+        block_buys.append("the order book could not be read, so last night's fills are unknown")
+    elif pending or skipped:
+        provisional = apply_fills(ledger, report["fills"] + report["external"], session, dp)
+        since = str(ledger.get("session") or "")
+        from kite_connect.trading.gtt_stops import list_stop_gtts
+
+        def sold(g) -> bool:                             # triggered since the last session, its order not refused
+            r, when = g.get("order_result"), str((g.get("raw") or {}).get("updated_at") or "")[:10]
+            ok = not isinstance(r, dict) or str(r.get("status") or "success").lower() == "success"
+            return g.get("status") == "triggered" and ok and since < when <= session.date().isoformat()
+
+        try:
+            triggered = [{**g, "updated_at": (g.get("raw") or {}).get("updated_at")}
+                         for g in list_stop_gtts(kite, active_only=False) if sold(g)]
+        except Exception as exc:                          # noqa: BLE001 - then a shortfall stays unexplained
+            triggered = []
+            report["alerts"].append(f"GTT history unavailable for the reconcile: {exc}")
+        awaiting = ledger.get("ca_pending") or {}
+        seen_qty = {s: int(h["quantity"]) for s, h in broker_holdings.items()}
+        seen_qty.update({s: max(seen_qty.get(s, 0), int((provisional.get("positions") or {}).get(s, 0)))
+                         for s in awaiting})                  # split/bonus shares on their way (LN-T4)
+        rows, adopted_entries, gtt_cooldown, unexplained = reconcile_missed(
+            provisional, pending, seen_qty,
+            {s: float(h.get("avg_price") or 0.0) for s, h in broker_holdings.items()}, triggered, view, session, dp)
+        if rows:
+            report["fills"] += [r for r in rows if r["source"] == SOURCE_ENGINE]
+            report["external"] += [r for r in rows if r["source"] == SOURCE_EXTERNAL]
+            cooldown.update(gtt_cooldown)
+            report["alerts"].append("reconciled after a missed session: "
+                                    + ", ".join(f"{r['side']} {r['symbol']} x{r['quantity']} ({r['session_date']})"
+                                                for r in rows))
+        if unexplained:
+            block_buys.append("RECONCILE NEEDED: " + "; ".join(unexplained)
+                              + " (fix: live_session --reconcile SYM=QTY@PX)")
+        used = {r["order_id"] for r in rows}
+        unfilled = [f"{o.get('side')} {o.get('symbol')}" for o in pending if str(o.get("tag")) not in used]
+        if unfilled:
+            report["alerts"].append("placed, but neither the order book nor the broker shows a fill: "
+                                    + ", ".join(unfilled))
+        pending = []
+    ledger = apply_fills(ledger, report["fills"] + report["external"], session, dp, planned_stops=planned_stops)
+    for sym, day in adopted_entries.items():
+        if sym in (ledger.get("positions") or {}):
+            ledger.setdefault("entries", {})[sym] = day          # the fill session, as the backtest dates it
+    for sym, day in cooldown.items():                     # LN-T9: kept across sessions, as the backtest does
+        ledger.setdefault("recent_stops", {})[sym] = max(str(ledger["recent_stops"].get(sym) or ""),
+                                                         pd.Timestamp(day).date().isoformat())
+    cooldown.update({s: pd.Timestamp(d) for s, d in (ledger.get("recent_stops") or {}).items()})
+    report["alerts"].extend(block_buys)
+    close_ff = view.close.ffill()
+    factors = rescale_stops(ledger, close_ff)            # stops onto tonight's adjusted prices
+    if factors:
+        report["notes"].append("stops rescaled for corporate actions: "
+                               + ", ".join(f"{s} x{f:.4f}" for s, f in sorted(factors.items())))
+
+    # 3. the book at the close (broker_holdings read in step 2)
+    bought_today: Dict[str, int] = {}                     # unsettled at tomorrow's open (T+1)
+    for f in report["fills"]:
+        if f.get("status") == "FILLED" and str(f.get("side")).upper() == "BUY":
+            bought_today[str(f["symbol"])] = bought_today.get(str(f["symbol"]), 0) + int(f.get("quantity") or 0)
+    holdings, cash, scope_alerts = scoped_book(ledger, broker_holdings, broker_cash, factors, bought_today)
     report["alerts"].extend(scope_alerts)
+    ledger["isins"] = {s: v for s, v in {**(ledger.get("isins") or {}),        # LN-T5: to follow a rename by ISIN
+                                         **{x: h["isin"] for x, h in broker_holdings.items() if h.get("isin")}}.items()
+                       if s in (ledger.get("positions") or {})}
+    for sym, w in list((ledger.get("ca_pending") or {}).items()):     # LN-T4: credited, or overdue
+        bq = int((broker_holdings.get(sym) or {}).get("quantity") or 0)
+        waited = int(((view.dates > pd.Timestamp(w["ex_date"])) & (view.dates <= session)).sum())
+        if bq >= int((ledger.get("positions") or {}).get(sym, 0)) or sym not in (ledger.get("positions") or {}):
+            ledger["ca_pending"].pop(sym)
+        elif waited >= CA_CREDIT_SESSIONS:
+            report["alerts"].append(f"{sym}: split/bonus shares still not credited {waited} sessions after the "
+                                    f"ex-date {w['ex_date']}: check Kite and Console")
     scope["holdings"], scope["cash"] = holdings, cash
     outside = sorted(set(broker_holdings) - set(ledger.get("positions") or {}))
     if outside:
         report["notes"].append(f"{len(outside)} holding(s) outside the book, left alone: {', '.join(outside[:10])}")
-    closes = view.close.ffill().iloc[-1]
+    closes = close_ff.iloc[-1]
     marked = mark_book(holdings, float(ledger["cash"]), closes)
     closed_today = sum(1 for f in report["fills"] + report["external"] if f["side"] == "SELL" and f["status"] == "FILLED")
     prior, prior_flows = raw_equity[raw_equity.index < session], flows[flows.index < session]
+    div_flow = -float(dividend_income)        # LN-T4: paid to the bank account, booked as income withdrawn
+    if div_flow:
+        prior_flows = pd.concat([prior_flows, pd.Series([div_flow], index=pd.DatetimeIndex([session]))])
     history = flow_adjusted(pd.concat([prior, pd.Series([marked["equity"]], index=pd.DatetimeIndex([session]))]),
                             prior_flows)                  # today's equity before any ladder flow
     today_flow = 0.0
+    ahead: Dict[str, str] = {}                           # written with the ledger, in one transaction (LN-T10)
     if record and not dry_run and session.date() >= dep.paper_start_date:
         from nse_engine import capital_ladder as cl
         since, marker, replaced = cl.config_since(state.get(cl.LIVE_CONFIG_KEY), dep.engine.config_hash(),
                                                   history.index[0].date().isoformat(), session.date().isoformat())
         if marker:
-            book.sync_state({cl.LIVE_CONFIG_KEY: marker})
+            ahead[cl.LIVE_CONFIG_KEY] = marker
         if replaced:
             report["notes"].append(f"configuration {replaced[:8]} -> {dep.engine.config_hash()[:8]} from {since}: "
                                    "the live G4 window restarts here (V5)")
-        decision, gate = _ladder_step(ex, data, view, dep, ledger, state, book, session, history, marked, since,
-                                      requested_capital, label)
+        decision, gate, lstate = _ladder_step(ex, data, view, dep, ledger, state, book, session, history, marked,
+                                              since, requested_capital, label, strict=strict)
+        ahead[cl.STATE_KEY] = lstate.dump()
         report["ladder"] = decision.line()
         report["alerts"].extend(decision.alerts)
         if gate is not None:
             from nse_engine import paper_gate as pg
             report["gate"] = pg.one_line(gate)
-            book.sync_state({pg.STATE_KEY: pg.summary_json(gate, updated_at=datetime.now(timezone.utc).isoformat(),
-                                                           config_hash=dep.engine.config_hash())})
+            ahead[pg.STATE_KEY] = pg.summary_json(gate, updated_at=datetime.now(timezone.utc).isoformat(),
+                                                  config_hash=dep.engine.config_hash())
         if decision.flow:
             today_flow = float(decision.flow)
             ledger["capital"] = float(decision.capital)
             ledger["cash"] = float(ledger["cash"]) + today_flow
-            holdings, cash, _ = scoped_book(ledger, broker_holdings, broker_cash)
+            holdings, cash, _ = scoped_book(ledger, broker_holdings, broker_cash, factors, bought_today)
             scope["holdings"], scope["cash"] = holdings, cash
             marked = mark_book(holdings, float(ledger["cash"]), closes)
-    all_flows = pd.concat([prior_flows, pd.Series([today_flow], index=pd.DatetimeIndex([session]))])
+    all_flows = pd.concat([prior_flows[prior_flows.index < session],
+                           pd.Series([today_flow + div_flow], index=pd.DatetimeIndex([session]))])
     history = flow_adjusted(pd.concat([prior, pd.Series([marked["equity"]], index=pd.DatetimeIndex([session]))]),
                             all_flows)                    # in tonight's capital base, flows removed
     snap = snapshot_row(session, marked, history, float(ledger["capital"]), closed_today)
-    if today_flow:
-        js = json.loads(snap["snapshot_json"]); js["flow"] = today_flow; snap["snapshot_json"] = json.dumps(js, default=str)
+    if today_flow or div_flow:
+        js = json.loads(snap["snapshot_json"]); js["flow"] = today_flow + div_flow
+        if div_flow:
+            js["dividends"] = -div_flow
+        snap["snapshot_json"] = json.dumps(js, default=str)
     report["snapshot"], report["ledger"] = snap, ledger
     if record:
         if not state.get("epoch"):                       # the book begins at this session
             start = (session.tz_localize("Asia/Kolkata")).tz_convert("UTC").isoformat()
             book.sync_state({"epoch": start, "book_start": start, "book_owner": "live_engine",
                              "initial_capital": ledger["capital"]})
-        book.sync_fills(report["fills"] + report["external"])
-        book.sync_snapshot(snap)
-        book.sync_state({LIVE_LEDGER_KEY: json.dumps(ledger)})
+        _book_write(book.sync_fills(report["fills"] + report["external"] + report.get("events", [])), "fills", strict)
+        _book_write(book.sync_snapshot(snap), "snapshot", strict)
+        _book_write(book.sync_state({LIVE_LEDGER_KEY: json.dumps(ledger), **ahead}), "ledger and ladder state", strict)
 
     # 4-5. plan and execute
     plan = None
@@ -486,12 +916,83 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
                                  "stops trading it")
             if unpriced:
                 report["alerts"].append("disconnect: no price, not sold tonight: " + ", ".join(unpriced))
+        from kite_connect.trading.nse_engine_executor import ORDER_LIMIT_BAND_BPS, PlannedOrder, _tick
+
+        carry: Dict[str, int] = {}                       # LN-T14: last night's sells that did not (fully) fill
+        for f in report["fills"]:
+            if str(f.get("side")).upper() == "SELL" and int(f.get("requested_qty") or 0) > int(f.get("quantity") or 0):
+                carry[str(f["symbol"])] = carry.get(str(f["symbol"]), 0) + int(f["requested_qty"]) - int(f["quantity"])
+        weights = getattr(getattr(plan, "target", None), "weights", None) or {}
+        equity_now = float(getattr(plan, "equity", 0.0) or 0.0)
+        for sym, residual in sorted(carry.items()):
+            held, px = int((holdings.get(sym) or {}).get("quantity") or 0), float(closes.get(sym, 0.0) or 0.0)
+            if sym in {o.symbol for o in plan.orders} or held <= 0 or px <= 0:
+                continue                                  # tonight's plan decides it, or nothing is left
+            keep = int(math.floor(float(weights.get(sym, 0.0)) * equity_now / px + 1e-6)) if equity_now > 0 else 0
+            q = min(residual, held - keep)
+            if q > 0:
+                plan.orders.insert(0, PlannedOrder(sym, "SELL", q, px, _tick(px * (1 - ORDER_LIMIT_BAND_BPS / 1e4), "down"),
+                                                   "exit:carry", held, held - q))
+                report["notes"].append(f"{sym}: {q} share(s) of last night's sell did not fill, sent again")
+        mergers = upcoming_mergers(cfg.data.store_dir, holdings, session)
+        if mergers:                                       # LN-T5: exit before the stock stops trading
+
+            report["alerts"].append("merger/delisting announced, selling the position: "
+                                    + "; ".join(f"{s} ({w})" for s, w in sorted(mergers.items())))
+            selling = {o.symbol for o in plan.orders if o.side == "SELL"}
+            plan.orders = [o for o in plan.orders if not (o.side == "BUY" and o.symbol in mergers)]
+            for sym in sorted(set(mergers) - selling):
+                px, q = float(closes.get(sym, 0.0) or 0.0), int(holdings[sym]["quantity"])
+                if px > 0 and q > 0:
+                    plan.orders.insert(0, PlannedOrder(sym, "SELL", q, px, _tick(px * (1 - ORDER_LIMIT_BAND_BPS / 1e4),
+                                                                                "down"), "exit:merger", q, 0))
+        ex_next = upcoming_share_actions(cfg.data.store_dir, {o.symbol for o in plan.orders}, session)
+        if ex_next:                                      # LN-T4: tonight's prices and quantities are stale tomorrow
+            report["notes"].append("held back, ex-date at the next open: "
+                                   + "; ".join(f"{s} ({w})" for s, w in sorted(ex_next.items())))
+            plan.orders = [o for o in plan.orders if o.symbol not in ex_next]
+        gap_syms = {g.split(" ")[0] for g in gaps}
+        if gap_syms:
+            plan.orders = [o for o in plan.orders if not (o.side == "BUY" and o.symbol in gap_syms)]
+        for o in plan.orders:                            # LN-T4: sell only what the broker can deliver
+            if o.side == "SELL" and o.symbol in (ledger.get("ca_pending") or {}):
+                sellable = int((broker_holdings.get(o.symbol) or {}).get("quantity") or 0)
+                if o.quantity > sellable:
+                    report["notes"].append(f"{o.symbol}: sell cut {o.quantity} -> {sellable} (split/bonus shares "
+                                           "not yet credited)")
+                    o.quantity = sellable
+        plan.orders = [o for o in plan.orders if o.quantity > 0]
+        if block_buys and plan.buys:                    # LN-T6: exits only until the ledger balances
+            report["notes"].append(f"buys held back: {', '.join(o.symbol for o in plan.buys)}")
+            plan.orders = [o for o in plan.orders if o.side == "SELL"]
         report["plan"] = plan
         stale = any(s.get("reason") == "stale_data" for s in plan.skipped)
         if stale:
             report["alerts"].append("stale market data: no orders planned")
+        if strict and not stale and plan.orders:         # LN-T10: what is about to be sent is saved first
+            from kite_connect.trading.nse_engine_executor import EngineExecutor as _EE
+
+            stops_planned = {x.symbol: x.trigger for x in plan.stop_instructions}
+            intended = {"decision_date": session.date().isoformat(), "orders": [
+                {"tag": _EE.order_tag(session, o.side, o.symbol), "symbol": o.symbol, "side": o.side,
+                 "quantity": int(o.quantity), "reason": getattr(o, "reason", None), "ref_price": float(o.ref_price),
+                 "limit_price": float(getattr(o, "limit_price", 0.0) or 0.0),
+                 "stop_price": stops_planned.get(o.symbol) if o.side == "BUY" else None, "status": "INTENDED"}
+                for o in plan.orders]}
+            _book_write(book.sync_state({LIVE_ORDERS_KEY: json.dumps(intended),
+                                         LIVE_ORDERS_PENDING_KEY: json.dumps(pending if book_unknown else [])}),
+                        "intended orders (nothing sent)", strict)
         report["results"] = ex.dry_run_live(plan) if dry_run else ([] if stale else ex.execute(plan))
-    orders = [r for r in report["results"] if r.get("type") != "gtt_reconcile"]
+    preflight = [r["error"] for r in report["results"] if r.get("type") == "preflight"]
+    if preflight:                                        # LN-T12: Kite would not accept everything
+        report["alerts"].append("preflight: " + "; ".join(preflight))
+    orders = [r for r in report["results"] if r.get("type") not in ("gtt_reconcile", "preflight")]
+    series = sorted({r["series_note"] for r in orders if r.get("series_note")})
+    if series:
+        report["notes"].append("; ".join(series))
+    clamps = [r["limit_note"] for r in orders if r.get("limit_note")]
+    if clamps:                                           # LN-T14: limits set by the circuit or a fallback
+        report["notes"].append("; ".join(clamps))
     refused = [r for r in orders if not r.get("success") and r.get("status") != "DUPLICATE"]
     if refused:
         report["alerts"].append("orders refused: " + "; ".join(
@@ -499,20 +1000,47 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
     gtt = [r for r in report["results"] if r.get("type") == "gtt_reconcile"]
     if gtt and not gtt[0].get("success"):
         report["alerts"].append(f"GTT stop reconciliation errors: {(gtt[0].get('report') or {}).get('errors')}")
+    off_grid = sorted({str(r["symbol"]) for r in orders if r.get("tick_fallback")}
+                      | set((gtt[0].get("report") or {}).get("tick_fallback") or [] if gtt else []))
+    if off_grid:                                         # LN-T1: priced on the coarser slab's tick
+        report["alerts"].append("Kite's instrument list lacked a tick, priced on the coarser NSE slab: "
+                                + ", ".join(off_grid))
+    breached = (gtt[0].get("report") or {}).get("breached") if gtt else None
+    if breached:                                         # no GTT placed; the book's stop exits it next session
+        report["alerts"].append("stop already above the price, no GTT placed: "
+                                + ", ".join(f"{b['symbol']} {b['trigger']:,.2f}" for b in breached))
     if plan is not None and plan.drawdown_changed:
         report["alerts"].append(f"DRAWDOWN RULE now {plan.drawdown_state.upper()} at {plan.drawdown_pct:.1f}% below the peak")
 
     # 6. record the session and today's orders for tomorrow
     if record:
         values = {LIVE_LAST_SESSION_KEY: session.date().isoformat()}
+        if not dry_run:
+            values[LIVE_ORDERS_PENDING_KEY] = json.dumps(pending if book_unknown else [])
         if plan is not None and not dry_run:
             refs = {o.symbol: o.ref_price for o in plan.orders}
+            planned = {s.symbol: s.trigger for s in plan.stop_instructions}
             values[LIVE_ORDERS_KEY] = json.dumps({"decision_date": session.date().isoformat(), "orders": [
                 {"tag": r.get("tag"), "symbol": r.get("symbol"), "side": r.get("side"), "quantity": r.get("quantity"),
+                 "reason": r.get("reason"),
                  "limit_price": r.get("limit_price"), "ref_price": refs.get(r.get("symbol"), 0.0),
+                 "stop_price": planned.get(r.get("symbol")) if str(r.get("side")).upper() == "BUY" else None,
                  "status": "PLACED" if r.get("status") == "DUPLICATE" else r.get("status")} for r in orders]})
-        book.sync_state(values)
-        book.sync_session(_session_row(report, plan, marked, snap, orders))
+            # tonight's stops become the book's last stops (LS1), kept if a GTT is later missing,
+            # with tonight's close as their basis for later corporate-action adjustments
+            held = {s: v for s, v in planned.items() if s in (ledger.get("positions") or {})}
+            ledger["stops"] = {**(ledger.get("stops") or {}), **held}
+            basis = dict(ledger.get("stop_basis") or {})
+            for s in held:
+                c = closes.get(s)
+                if c is not None and pd.notna(c) and float(c) > 0:
+                    basis[s] = [session.date().isoformat(), float(c)]
+                else:
+                    basis.pop(s, None)
+            ledger["stop_basis"] = basis
+            values[LIVE_LEDGER_KEY] = json.dumps(ledger)
+        _book_write(book.sync_state(values), "the session's orders and ledger (orders were sent)", strict)
+        _book_write(book.sync_session(_session_row(report, plan, marked, snap, orders)), "session record", strict)
     if once_per_session and dry_run:                     # the marker and the log only; a dry run records no book
         from nse_engine.capital_ladder import DRY_RUNS_KEY
         log = [r for r in json.loads(state.get(DRY_RUNS_KEY) or "[]") if r.get("session") != session.date().isoformat()]
@@ -527,6 +1055,46 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
                 report["session"], report["mode"], len(report["fills"]), len(report["external"]), len(orders),
                 "built" if dry_run else "sent", len(report["alerts"]))
     return report
+
+
+def record_sell_path(kite, book, ddpi_confirmed_on: str, amo_order_id: str, gtt_id) -> dict:
+    """Verify the supervised sell test against Kite and keep it in the book (tracker LN-T2).
+
+    The test, run once by hand: DDPI confirmed in Console, then two shares of
+    a cheap liquid name outside the book sold by an AMO SELL (CNC) and by a
+    single-leg SELL GTT with its trigger near the price.  Kite is read for
+    both, so the record holds what the broker says, not what was typed.
+    """
+    from nse_engine.capital_ladder import SELL_PATH_KEY
+
+    amo = (kite.order_history(amo_order_id) or [{}])[-1]
+    g = kite.get_gtt(gtt_id) or {}
+    result = (((g.get("orders") or [{}])[0].get("result") or {}).get("order_result") or {})
+    gtt_order_id = result.get("order_id")
+    gtt_order = (kite.order_history(gtt_order_id) or [{}])[-1] if gtt_order_id else {}
+    rec = {"ddpi_confirmed_on": str(ddpi_confirmed_on)[:10], "user_id": (kite.profile() or {}).get("user_id"),
+           "amo_order_id": str(amo_order_id), "amo_side": str(amo.get("transaction_type") or "").upper(),
+           "amo_product": amo.get("product"), "amo_status": str(amo.get("status") or "").upper(),
+           "amo_status_message": amo.get("status_message"), "gtt_id": str(gtt_id),
+           "gtt_status": str(g.get("status") or "").lower(), "gtt_order_id": gtt_order_id,
+           "gtt_order_status": str(gtt_order.get("status") or "").upper(),
+           "gtt_rejection": result.get("rejection_reason"), "verified_at": datetime.now(timezone.utc).isoformat()}
+    book.sync_state({SELL_PATH_KEY: json.dumps(rec)})
+    return rec
+
+
+def _book_read(book, name: str, strict: bool):
+    """``book.<name>()``; with ``strict``, a store error raises instead of reading as empty (LN-T10)."""
+    import inspect
+
+    fn = getattr(book, name)
+    return fn(strict=True) if strict and "strict" in inspect.signature(fn).parameters else fn()
+
+
+def _book_write(ok, what: str, strict: bool) -> None:
+    """A real session refuses to go on when its book could not be saved (LN-T10)."""
+    if strict and ok is False:
+        raise RuntimeError(f"live book write failed: {what}; nothing more is sent, the backup run retries")
 
 
 def _equity_and_flows(snaps: Optional[pd.DataFrame]) -> Tuple[pd.Series, pd.Series]:
@@ -579,7 +1147,8 @@ def _paper_state(paper_book=None) -> Dict[str, str]:
 
 
 def _ladder_step(ex, data, view, dep, ledger: dict, state: Dict[str, str], book, session, history: pd.Series,
-                 marked: dict, since: Optional[str] = None, requested: Optional[float] = None, label: str = ""):
+                 marked: dict, since: Optional[str] = None, requested: Optional[float] = None, label: str = "",
+                 strict: bool = False):
     """G4 on the live book, then tonight's capital-ladder decision (``nse_engine.capital_ladder``).
 
     G4 compares the sessions since ``since`` (the first on the current
@@ -598,14 +1167,14 @@ def _ladder_step(ex, data, view, dep, ledger: dict, state: Dict[str, str], book,
                                                  end=session.date().isoformat(),
                                                  initial_capital=float(ledger["capital"]))
             ref = run_backtest(data, cfg, record=False, tag="live-reference")
-            gate = pg.evaluate(window, ref.returns, fills=book.read_fills(), reference_trades=ref.trades,
-                               sessions=book.read_sessions())
+            gate = pg.evaluate(window, ref.returns, fills=_book_read(book, "read_fills", strict),
+                               reference_trades=ref.trades, sessions=_book_read(book, "read_sessions", strict))
         except Exception as exc:                          # noqa: BLE001 - the ladder then holds
             logger.warning("live G4 unavailable: %s", exc)
     dd, _ = ex.drawdown_decision(session, marked["equity"])
     nifty = view.index_close["NIFTY50"] if "NIFTY50" in view.index_close.columns else pd.Series(dtype="float64")
     nifty = nifty[(nifty.index >= history.index[0]) & (nifty.index <= session)] if len(history) else nifty
-    sessions = book.read_sessions()
+    sessions = _book_read(book, "read_sessions", strict)
     mults = (pd.to_numeric(sessions.sort_values("session_date")["shift_multiplier"], errors="coerce").fillna(1.0).tolist()
              if sessions is not None and not sessions.empty and "shift_multiplier" in sessions.columns else [])
     lstate = cl.LadderState.load(state.get(cl.STATE_KEY), float(ledger["capital"]), session.date().isoformat())
@@ -615,8 +1184,7 @@ def _ladder_step(ex, data, view, dep, ledger: dict, state: Dict[str, str], book,
                            book_dd=cl.current_drawdown(history), nifty_dd=cl.current_drawdown(nifty),
                            shift_multipliers=mults, requested_capital=float(req) if req else None,
                            capital_setting=f"{label}'s capital on Fly Kite" if label else ENV_LIVE_CAPITAL)
-    book.sync_state({cl.STATE_KEY: lstate.dump()})
-    return decision, gate
+    return decision, gate, lstate                     # saved by the caller with the ledger (LN-T10)
 
 
 def _session_row(report: dict, plan, marked: dict, snap: dict, orders: List[dict]) -> dict:
@@ -711,6 +1279,11 @@ def main(argv=None) -> int:
     ap.add_argument("--account", default="",
                     help="a connected account's id (kite_connect.auth.accounts, FA2): its own book, Kite app, "
                          "capital and mode; needs --stored-token")
+    ap.add_argument("--reconcile", nargs="+", metavar="SYM=QTY@PX",
+                    help="set the ledger's SYM to QTY (what the broker holds), booking the difference at PX, "
+                         "to clear a RECONCILE NEEDED alert (LN-T6); no Kite login needed")
+    ap.add_argument("--record-sell-path", nargs=3, metavar=("DDPI_CONFIRMED_ON", "AMO_ORDER_ID", "GTT_ID"),
+                    help="verify the supervised sell test against Kite and record it (go-live check, LN-T2)")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     notes: List[str] = []
@@ -729,6 +1302,26 @@ def main(argv=None) -> int:
             print(f"{acct.id}: session skipped: {lock}")
             return 0
         capital = capital if capital is not None else acct.capital
+    if args.reconcile:
+        from nse_engine.deployment import load_deployment
+
+        items = {}
+        for item in args.reconcile:
+            try:
+                sym, rest = item.split("=", 1)
+                qty, px = rest.split("@", 1)
+                items[sym.strip().upper()] = (int(qty), float(px))
+            except ValueError:
+                ap.error(f"--reconcile {item!r}: expected SYM=QTY@PX, e.g. INFY=40@1512.5")
+        rbook = live_book(acct.schema if acct else None)
+        led = load_ledger(rbook.read_state(), None)
+        led, rows = manual_reconcile(led, items, pd.Timestamp(datetime.now(timezone.utc).date()),
+                                     load_deployment().engine.costs.dp_charge_inr)
+        rbook.sync_fills(rows)
+        rbook.sync_state({LIVE_LEDGER_KEY: json.dumps(led)})
+        print(json.dumps({"reconciled": [f"{r['side']} {r['symbol']} x{r['quantity']} @ {r['fill_price']}" for r in rows],
+                          "positions": {s: led["positions"].get(s, 0) for s in items}}))
+        return 0
     if args.stored_token:
         from kite_connect.auth import daily_login as dl
         book = live_book(acct.schema if acct else None)
@@ -764,6 +1357,13 @@ def main(argv=None) -> int:
     else:
         from kite_connect.auth.kite_session import create_kite_session
         kite = create_kite_session()
+    if args.record_sell_path:
+        from nse_engine.capital_ladder import sell_path_check
+
+        rec = record_sell_path(kite, book if book is not None else live_book(), *args.record_sell_path)
+        ok, detail = sell_path_check(rec, rec.get("user_id"))
+        print(f"sell path {'PASS' if ok else 'FAIL'}: {detail}")
+        return 0 if ok else 1
     report = run_live_session(kite, dry_run=dry_run, capital=capital, as_of=args.as_of, book=book,
                               record=True if args.record else None, email=not args.no_email, extra_notes=notes,
                               once_per_session=args.stored_token, requested_capital=acct.capital if acct else None,

@@ -301,6 +301,10 @@ jobs:
           MODE: ${{ steps.window.outputs.mode }}
           SYNC_START: ${{ steps.window.outputs.sync_start }}
         run: |
+          # NIFTY 50 sessions before NSE's daily index files (Feb 2012): the frozen copy the research
+          # store uses, so this store hashes as the registry's (tracker LN-T13)
+          ext=data/nse_engine/store/external/nifty50_history.parquet
+          [ -f "$ext" ] || install -D -m 644 config/external/nifty50_history.parquet "$ext"
           python - <<'EOF'
           import json, logging, os
           from datetime import date
@@ -318,9 +322,27 @@ jobs:
               # recently synced years, plus any year whose parquet is missing
               years = [y for y in archive_years(archive)
                        if y >= first or not (store / "equity" / f"{y}.parquet").exists()]
-          print(json.dumps(build_store(archive, store, years=years), indent=2))
+          summary = build_store(archive, store, years=years)
+          print(json.dumps(summary, indent=2))
+          for x in summary.get("suspect_missing_sessions", []):   # LN-T7: a session the archive lacks
+              print(f"::error::a session seems missing from the store before {x['date']} "
+                    f"({x['mismatched']} of {x['symbols']} prev_close values do not match)")
           EOF
           du -sh data/nse_engine/store
+
+      # The three books' 2013-25 backtests against their expected statistics (tracker LN-T13): a code,
+      # dependency or runner change that moves a book with its hashes unchanged is emailed, and
+      # drift=true lets CENTURION_CANARY_DRIFT_ACTION=dry-run hold the live book to a dry run.
+      - name: Book regression canary
+        id: canary
+        continue-on-error: true
+        env:
+          CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
+          CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
+          CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
+          CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
+          CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+        run: python -m runners.run_nse_engine canary --tier actions
 
       - name: Regenerate same-period shift reference
         continue-on-error: true
@@ -391,6 +413,8 @@ jobs:
           CENTURION_PROXY_HOST_KEY: ${{ secrets.CENTURION_PROXY_HOST_KEY }}
           CENTURION_KITE_STATIC_IP: ${{ vars.CENTURION_KITE_STATIC_IP }}
           CENTURION_LIVE_CAPITAL: ${{ vars.CENTURION_LIVE_CAPITAL }}
+          CANARY_DRIFT: ${{ steps.canary.outputs.drift }}
+          CANARY_DRIFT_ACTION: ${{ vars.CENTURION_CANARY_DRIFT_ACTION }}
           # MU1: Centurion's registration, which unlocks the connected accounts' live orders
           CENTURION_ALGO_PROVIDER_ID: ${{ vars.CENTURION_ALGO_PROVIDER_ID }}
           CENTURION_SEBI_REGISTRATION: ${{ vars.CENTURION_SEBI_REGISTRATION }}
@@ -412,6 +436,9 @@ jobs:
             export CENTURION_KITE_PROXY="socks5h://127.0.0.1:1080"
           fi
           dry=""; [ "$LIVE_MODE" = "live" ] || dry="--dry-run"
+          if [ "$CANARY_DRIFT" = "true" ] && [ "$CANARY_DRIFT_ACTION" = "dry-run" ]; then
+            dry="--dry-run"; echo "::warning::canary drift: the live session runs as a dry run (CENTURION_CANARY_DRIFT_ACTION)"
+          fi
           status=0
           python -m kite_connect.trading.live_session --stored-token $dry || status=$?
           python -m kite_connect.auth.accounts mask || { echo "::error::accounts skipped: log masks not set"; exit 1; }
