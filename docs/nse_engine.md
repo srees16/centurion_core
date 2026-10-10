@@ -213,16 +213,23 @@ states are kept in `BacktestResult.daily_state` and written to `drawdown.csv`.
 
 Run directory layout (`config.runs_dir/<run_id>/`):
 `config.json`, `manifest.json` (run_id, tag, config_hash, git_commit,
-git_dirty, data_hash, start, end, created_at, metrics, lag_days, and
-`refresh_of` when the run reproduces an earlier one after a store rebuild),
-`returns.csv` (date, return), `equity.csv`, `trades.csv`, `weights.parquet`.
+git_dirty, data_hash, start, end, created_at, metrics, lag_days,
+`runtime` (libraries, system, machine and origin: local, kaggle, actions or
+hf_space; LN-T26), and `refresh_of` when the run reproduces an earlier one
+after a store rebuild), `returns.csv` (date, return), `equity.csv`,
+`trades.csv`, `weights.parquet`.
 `run_backtest(..., manifest_extra={...})` adds fields to the manifest.
+Runs recorded before the runtime stamp are classified, Mac or Kaggle, in the
+sidecar `runtime_index.json` (`python -m runners.run_nse_engine runtime-index`,
+again after importing unstamped Kaggle runs); `list_trials` reports each
+run's `environment`, and `returns_matrix(environment=...)` filters on it and
+warns when a trial set spans environments.
 
 ### Validation (`nse_engine.validation`)
 
 ```python
 TrialRegistry(runs_dir).list_trials() -> pd.DataFrame
-TrialRegistry(runs_dir).returns_matrix(start=None, end=None, dedupe_config=True) -> pd.DataFrame  # date x run_id
+TrialRegistry(runs_dir).returns_matrix(start=None, end=None, dedupe_config=True, environment=None) -> pd.DataFrame  # date x run_id
 refresh_registry(registry, data, from_hash, window, dry_run=False) -> dict  # re-run same-window configs on new data
 cscv_pbo(returns_matrix: pd.DataFrame, n_splits: int = 16, rf_annual: float = 0.0) -> dict  # pbo, logits, ...
 # rf_annual: trials ranked on excess returns, as the deflated Sharpe (every engine caller passes 6.5%, LN-T16)
@@ -477,19 +484,32 @@ orders at this session's open with the backtest's impact and statutory costs
 shift multiplier for new risk) → queue orders for the next open. See
 `docs/nse_engine_validation_plan.md` for gates and monitoring.
 
+**Live order rules (tracker LN-T21).** The model fills at the open; live
+sends after-market limits (buys 1% above the close, sells 5% under it) and
+stop-limit GTTs placed the evening after a buy. `run_backtest(fill_rule=
+"live")` applies those rules (`nse_engine/live_rules.py`) in a reference run
+outside the config hash and never recorded, and `python -m
+runners.run_nse_engine live-rules [--deployment ...]` compares it with the
+model and scores G4's checks over rolling 60-session windows.  The live
+book's G4 gate uses this reference (tracker G4ref); the model's fills at the
+open are scored beside it, for information.
+
 ## Scorecard (tracker SC1)
 
 `python -m runners.run_nse_engine scorecard --book all` writes one report per
 book (`docs/scorecards/<as-of>_<book>.md`, JSON under
 `data/nse_engine/scorecard/`) from the book's latest recorded run on the
 current cost model: return and risk (Sharpe, Sortino, information ratio vs
-NIFTY 50 TRI, Calmar, MaxDD, volatility, CVaR, skew, kurtosis, beta),
-attribution (style factors built point in time from the store, the alpha
-left after them, alpha decay by horizon and by year), trading (turnover,
-hit rate, win/loss, profit factor, P&L per round trip, modelled impact by
-participation), capacity (the capital at which impact eats half the gross
-edge), robustness (walk-forward OOS, deflated Sharpe and PBO from the
-registry, one-setting neighbours, NIFTY-trend and VIX regimes), correlation
+NIFTY 50 TRI, Calmar, MaxDD, volatility, CVaR, skew, kurtosis, beta; the
+drawdown periods, longest and deepest, and the book over NIFTY 50 TRI's
+deepest drawdowns), attribution (style factors built point in time from
+the store, the alpha left after them, alpha decay by horizon and by year),
+trading (turnover, hit rate, win/loss, profit factor, P&L per round trip,
+modelled impact by participation, fills cut by the cap vs scaled for cash),
+capacity (the assets the participation cap binds first, the capital at
+which impact eats half the gross edge), robustness (walk-forward OOS, deflated Sharpe and PBO from the
+registry, each Sharpe's standard error, PSR against 1.2 and MinTRL,
+one-setting neighbours, NIFTY-trend and VIX regimes), correlation
 with the other books, the options sleeves and the metal ETFs, and the paper
 book's G4 gate when `CENTURION_DATABASE_URL` is set (`--paper-schema` for a
 second book).  Pass rules are section 1's targets of the tracker, fixed before

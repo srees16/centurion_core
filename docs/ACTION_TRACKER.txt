@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 10 Oct 2026, 14:40 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 10 Oct 2026, 16:45 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -65,7 +65,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                 1.1x leverage reaches 25% with Sharpe < 1.2 (L4, E3); a
                 second ETF sleeve (R14, MON100) funds itself from the core:
                 CAGR -1.9 pts, Sharpe flat.  What is left: the forward
-                evidence on E4, and a new return stream from new data (U28).
+                evidence on E4; a futures short sleeve is closed (U28).
    MaxDD 30%    YES outside crises (-24.7% in 2013-25).  A 2008-type crash
                 costs ~33% even with the drawdown rule (R4); accepted (U22).
    Calmar 1.0   BORDERLINE.  0.92 backtest, 1.05 OOS; more CAGR lowers it.
@@ -155,7 +155,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                Mac vs Linux differ at the 2nd decimal: compare like with like.
   9 Concentr.  2014 +76%, 2017 +52%, 2021 +87% carry the CAGR; 2013/15/16/19/
                22 were -4% to +6%; 86% of days below peak; worst recovery
-               726 days (Aug 2018 -> Aug 2020).
+               748 days (28 Aug 2018 -> 14 Sep 2020; scorecard, LN-T25).
  10 Leverage   permitted and operable via MTF (L4: Group I stocks, auto-
                pledge with DDPI, API product MTF), but at 14.6%/yr funding
                each 0.1x adds 0.5-0.75 CAGR pts for ~3 pts MaxDD and -0.05
@@ -164,6 +164,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  3. DECISIONS TAKEN (27 Sep)
 --------------------------------------------------------------------------------
+  G4ref (10 Oct) The live book's G4 gate judges live against a backtest
+       that fills as live's orders do (LN-T21); the model's fills at the open
+       are scored beside it, for information.  Decided before D3's first
+       live session, so no live data was seen.                     -> done
   U19  Promotion = forward gate: >= 60 paper sessions beside the deployed
        book, G4 PASS, WF OOS Sharpe within 0.05 of base; PBO/DSR reported,
        not gating.                                                  -> V3
@@ -217,6 +221,14 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
+ >>> MONDAY 12 OCT - YOUR ACTIONS (market hours; details in the items below)
+     1. Options paper demo (O1d): log in to Kite from the 09:00 email; at
+        ~10:00 IST, Actions > "Options paper demo" > Run workflow
+        (NIFTY, moderate_bull, 1), then again with moderate_bear.
+     2. Supervised sell test, day 1 (ST2 step 3): in Kite, buy 2 shares of
+        a cheap liquid stock, product CNC.  Then Tue after ~16:00 the AMO
+        sell, Wed the GTT sell and Actions > "Record sell path".
+     3. Call Zerodha with the AMO funding question (ST2 step 2).
 [!] P1  O1d  MONDAY 12 OCT, MORNING: your steps for the options demo in
              market hours (your ask 9 Oct).  Mac and VS Code not needed:
              1. Log in to Kite from the 09:00 IST email (phone is fine).
@@ -246,7 +258,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              all ten configurations.  Open ideas: Y3 (overnight drift) on
              the future's own open and close (needs futures opens in the
              F&O store; the bhavcopy has them); a protective bear put
-             spread judged on the combined book; weekly expiries.
+             spread judged on the combined book; weekly expiries.  Its
+             prerequisites LN-T20 and LN-T27 are done (10 Oct).
 [!] P1  U23  Log in to Kite once every trading day: tap the link in the
              09:00 / 17:30 IST email (valid until 06:00 next day).  The first
              live dry run is Thu 1 Oct 19:00 IST (Fri 2 Oct is a holiday);
@@ -261,11 +274,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              deployed backtest's buying sessions (24% of its buying; E4 63%
              / 43%) those buys would be rejected and go through a session
              late.
-             1. Console > Account > DDPI: is DDPI active?  Without DDPI (or
-                POA) every sell AMO needs a CDSL TPIN authorisation by hand,
-                so the automated 19:00 session cannot sell at all.  If not
-                active, submit DDPI online now (takes days).
-             2. Ask Zerodha support to confirm: "Is a CNC BUY AMO's margin
+             1. DONE 10 Oct: DDPI is active on your account (you checked in
+                Console).  Without it every sell AMO and GTT stop sell would
+                need a CDSL TPIN authorisation by hand.
+             2. PARKED to Mon 12 Oct: you call Zerodha.  Ask them to confirm: "Is a CNC BUY AMO's margin
                 checked at 09:00 before same-account SELL AMOs (from settled
                 holdings, DDPI active) execute, so their proceeds cannot
                 fund it?"  Then choose one: (a) keep a cash buffer in the
@@ -275,13 +287,18 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                 credit 0, buys only from night cash, the rest a session later
                 (about -0.7 pt CAGR a year); (c) a 09:20 second pass after the
                 sells fill (needs a login before 09:08).
-             3. Once DDPI is active (LN-T2, before ~12 Dec), one supervised
-                evening with 2 shares of a cheap liquid stock outside the
-                book: an AMO SELL (CNC), and a single-leg SELL GTT with its
-                trigger just under the price.  The next evening, with both
-                COMPLETE, run: live_session --record-sell-path <DDPI date>
-                <AMO order id> <GTT id>.  Kite is read for both; the first
-                real session refuses to start until this passes.
+             3. Supervised sell test, clean route (your call 10 Oct); merge
+                the "Record sell path" workflow to main before Wed:
+                Mon 12 Oct, market hours: buy 2 shares of a cheap liquid
+                stock (CNC).  Tue 13 Oct after ~16:00: AMO SELL 1 share
+                (CNC, LIMIT a little under the price).  Wed 14 Oct: log in
+                to Kite; after 09:15 the AMO is COMPLETE (note its order
+                ID); in market hours a single-leg SELL GTT for the other
+                share, trigger just under the price, limit a bit lower,
+                until it triggers and completes (note the GTT ID); that
+                evening, Actions > Record sell path with your DDPI date and
+                both IDs.  The first real session refuses to start until
+                this passes.
 [!] P3  LN-T13 Optional, before live month 1: GitHub > srees16/centurion_core
              > Settings > Secrets and variables > Actions > Variables > New
              repository variable: CENTURION_CANARY_DRIFT_ACTION = dry-run.
@@ -372,14 +389,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                  realised-vs-model cost gap (model 2.4-2.8%/yr of CAGR);
                  sized by G4's cost ratio.  Needs >= 30 real fills (~Jan).
                                                                   Prompt: do X1
-#5  [ ] P2  U28  Short sleeve in single-stock futures (NSE F&O archive).
-                 R15 (1 Oct): a naked short loses (-11%/yr, Sharpe -0.30);
-                 beside E4 it is a hedge (MaxDD -23% -> -18%, CAGR -2.3
-                 pts).  The real edge is a market-neutral spread, which needs
-                 a Rs 2-3 crore book (lots Rs 3-17 L).  Not now; your
-                 go/no-go.  Plan 5p.
-#6  [ ] P3  R6   R21A rules as signal groups (+/-0.1 Sharpe)    Prompt: do R6
-#7  [ ] P3  R9   Universe size 150 / 300 / 500 (+/-0.1)        Prompt: do R9
+#5  [ ] P3  R6   R21A rules as signal groups (+/-0.1 Sharpe)    Prompt: do R6
+#6  [ ] P3  R9   Universe size 150 / 300 / 500 (+/-0.1)        Prompt: do R9
  OCT-NOV  research and housekeeping while the books accumulate (no trials)
    Measured 1 Oct: 147k lines of Python; the trading engine is 9k.  Two
    modules hold the daily path: scheduler.py 3,211 lines / 30 jobs, all
@@ -412,52 +423,22 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              2015: locked 59 sessions, -3.2% of equity).  Worth about -0.3 pt
              CAGR (deployed), -0.45 pt (E4).  A fix is a backtest rule (no
              fill on a locked day) and a data re-baseline, not an order
-             setting.
+             setting.  If the fix bumps COST_MODEL_VERSION, do IC2 first.
 [ ] P3  AL6  Push channel for CRITICAL alerts (Pushover or Telegram):
              deferred (your call 10 Oct: fewer than 5 users, email is
              enough).  Revisit if users grow or email proves too slow.
-[ ] P2  LN-T18 Scorecard regime split labelled with the regime known at the
-             previous close (the 'loses ~22% a year in bear phases' figure is
-             look-ahead).  Small.  Detail: lean_review.md item 18.
-[ ] P2  LN-T19 One missing NIFTY or sleeve print blanks the 200-day means for
-             200 sessions: fix the archive rule and add a nightly presence
-             alert.  Small.  Detail: lean_review.md item 19.
-[ ] P2  LN-T20 Options: one label-to-contract settlement map for every options
-             backtest, plus a guard on the settle column.  Small plus one
-             Kaggle job; needed before any O5 round.  Detail: lean_review.md
-             item 20.
-[ ] P2  LN-T21 Model the orders live actually sends (limit and GTT outcomes
-             observed in paper, a hash-neutral live-rule reference).  Medium.
-             Detail: lean_review.md item 21.
-[ ] P3  LN-T22 Remove hash-seed dependence so reruns are bit-identical.  Two
-             lines.  Detail: lean_review.md item 22.
-[ ] P3  LN-T23 Capacity: name the assets that bind first (sleeve rebalances,
-             ~Rs 6.4 crore) and fix the 'cut by the 5% cap' mislabel.  Small.
-             Detail: lean_review.md item 23.
-[ ] P3  LN-T24 Report the Sharpe standard error, PSR against 1.2 and MinTRL
-             beside the pass rules (deployed 1.16 +/- 0.29).  Small.  Detail:
-             lean_review.md item 24.
-[ ] P3  LN-T25 Drawdown periods (depth, duration, recovery) and behaviour
-             across NIFTY TRI's drawdown episodes.  Small.  Detail:
-             lean_review.md item 25.
-[ ] P3  LN-T26 Stamp the runtime in every run manifest; warn when a trial set
-             mixes platforms.  Small.  Detail: lean_review.md item 26.
-[ ] P3  LN-T27 Options toolkit: ITM legs take their OTM mirror's IV, so Greeks
-             and the volatility stop are never lost.  Small; needed before
-             any O5 round.  Detail: lean_review.md item 27.
-[ ] P3  LN-T28 Document the missing 2006-09 corporate actions in store_ext2006
-             (2007-25 runs only; none flips); optionally import ~17 events.
-             Small.  Detail: lean_review.md item 28.
+[ ] P3  LN-T21b Phase 1 of LN-T21, deferred (your call 10 Oct): paper fills
+             record would_fill_live (open / at_limit / unfilled) from the
+             session's bar; needs a paper_fills column (Neon and SQLite).
+[ ] P3  LN-T28b Optional, from LN-T28: import the ~17 missed 2006-09 bonus /
+             demerger events (and dividends) into store_ext2006, rebuild it,
+             run refresh-registry --dry-run.  Only after a source covering
+             2006-09, delisted names included, is confirmed; keep the 35%
+             threshold.  Detail: lean_review.md item 28.
 [ ] P3  LN-T29 After go-live: consider sweeping idle cash into a liquid ETF
              with hysteresis (~+0.3 pt CAGR after tax; would be cost model
-             5).  Medium.  Detail: lean_review.md item 29.
-[ ] P3  LS2  Live ledger, found in the LS1 review, not fixed (rare or
-             outside LS1): a second run of the same night uses tonight's
-             stop as the previous one (manual re-run only); a
-             GTT sale that part-filled and was cancelled is not taken off
-             the ledger; `live_session --dry-run --record` writes the
-             ledger, so the first real session would skip the D3 go-live
-             checks (the scheduled dry runs do not pass --record).
+             5).  Medium.  PREREQUISITE: do IC2 first, before the first
+             cost-model-5 run is recorded.  Detail: lean_review.md item 29.
 [ ] P3  IC2  Cost-model stamping, latent (IC1 review; none bites today):
              walk-forward fold files, the stitched summary and holdout.lock
              carry no cost model; the books register's validation fallback
@@ -466,7 +447,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              "already recorded" skip ignore the cost model; a non-0.06
              cash_yield_annual would make a duplicate trial; options runs
              are stamped with the equity cost model.  Fix together at the
-             next cost-model change.
+             next cost-model change: a prerequisite of whatever bumps
+             COST_MODEL_VERSION (LN-T29 likely; LN-T30 if it does).
 [ ] P3  U20  Refill exits: now tested through E4 / D5 in the queue (was a
              decision due ~24 Dec).  Drop it if E4 fails.
 [ ] P3  E3   MTF-levered variant: only after U20 (b), ~24 Dec.   Prompt: do E3
@@ -486,6 +468,153 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+10 Oct  LN-T27 Options toolkit IVs for ITM legs (Lean's smoothing rule).  The
+             live chain adds iv_strike (the OTM option's IV for both options
+             at a strike, else the other's) and iv_source (own / mirror /
+             none); pretrade reads iv_strike.  The position monitor quotes
+             each leg's mirror and solves own IV, mirror IV, then the entry
+             ATM IV (flagged approximate), so Greeks and the volatility stop
+             are never lost while spot and a price exist.  Checks: a weekly
+             chain priced on F = S e^((r+1.5%)T), bull put spread short 3.6%
+             ITM: before, Greeks n/a and no stop even in a crash; after,
+             Greeks and the stop fire.  NIFTY legs > 2% ITM with no IV
+             (2019-25 sample): 23.1% -> 0.6%.  iv_history / IV_VERSION
+             untouched; the optional Black-76 forward path not built.
+10 Oct  LN-T20 One settlement source for every options backtest.
+             settlement_sessions follows NSE relabels (same-month label
+             starting the next session, recursively) and drops contracts
+             still trading at the data end (29 Jun 2023 -> 28 Jun, 27 Feb
+             2014 -> 26 Feb, 2025-09-25 -> 30 Sep, 2026-03-26/31 -> 30 Mar,
+             ...); rekey_to_settlement keys rounds 1-3 by settlement session
+             (O2 settles and quotes moved months on their day; O3 rolls on
+             it; Y2's future too); O2 never values a leg at the settle
+             column on its settlement day.  Re-run on Kaggle (2013-25 and
+             2007-25): A1 0.816 -> 0.828, A2 -0.273 -> -0.182 (its phantom
+             -26.3% day gone), B 0.256 -> 0.259, X3 0.502 -> 0.494, X4 0.139
+             -> 0.144, Y2 settles June 2023 at 18,972.10; X1, X2, Y1, Y3
+             reproduce; N 10, every gate-1 verdict unchanged.  Plan 5s
+             addendum; the relabel table corrected.
+10 Oct  U28  CLOSED on evidence (your call): no short sleeve in single-stock
+             futures.  R15: a naked short loses -11%/yr (Sharpe -0.30, MaxDD
+             -88%); beside E4 it is a hedge that costs 2.3 pts of CAGR and
+             loses most in rebounds (against U22); a median lot (Rs 6.3 L)
+             is the whole first rung; and LN-T18 removed the bear-hedge case
+             (bear phases ~flat ex ante).  Reopen trigger: the book past
+             Rs 2 crore, then as a market-neutral spread.  Plan 5p.  Queue
+             renumbered (R6 #5, R9 #6).
+10 Oct  LN-T28 Dated caveat in plan 5e and the K4 entry: store_ext2006 has no
+             corporate actions or dividends before 2010-01-04 (checked: first
+             action 2010-01-04, first dividend 2009-12-31); ~17 bonus /
+             demerger gaps under the 35% threshold stay unadjusted (ONGC
+             2006-10-27 -31.6%, JPASSOCIAT 2009-12-17 -31.2%, RELIANCE
+             2006-01-18 -25.3%), so 2008 drawdowns read ~1 pt too deep;
+             same-data comparisons unaffected.  The optional import is
+             LN-T28b (needs a source).
+10 Oct  LN-T26 Every run manifest carries its runtime (record_run and
+             record_result: python, numpy, pandas, pyarrow, scipy, platform,
+             system, machine, origin local / kaggle / actions / hf_space);
+             config.json and the config hash untouched.  Older runs are
+             classified in a sidecar, runs/runtime_index.json (new
+             `runtime-index` subcommand; re-run after importing unstamped
+             Kaggle runs): 3,576 Kaggle, 2,925 Mac, 0 unmapped (options
+             registry 18 / 6).  list_trials reports `environment`;
+             returns_matrix(environment=) filters and warns on a mixed set or
+             a dedupe across environments: 297 mixed configurations, all
+             under cost model 1; the cost-model-4 matrix (61, all Kaggle)
+             raises none.  kaggle_research.md corrected.  IC2 (bundle it at
+             the next cost-model change) stays open.
+10 Oct  LN-T23 Capacity names what binds first: deployed SILVERBEES at
+             Rs 6.36 cr, GOLDBEES Rs 7.25 cr (sleeve rebalances), first core
+             stock ACUTAAS Rs 42.17 cr; traded value over the cap 2.9% at
+             Rs 10 cr, 52.3% where impact eats half the edge (Rs 297 cr).
+             The "5.3% of fills cut by the 5% cap" was mislabelled: the cap
+             cut 1 of 6,175 fills, 304 buys were scaled down for cash.  Shares
+             print to one decimal.  Synthetic two-fill check; scorecards
+             re-rendered.
+10 Oct  LN-T25 Drawdown periods in the scorecard (metrics.drawdown_periods:
+             episodes keyed by a count of days at the high, so equal peaks
+             stay separate; an open one is kept).  Deployed: longest under
+             water 28 Aug 2018 -> 14 Sep 2020, 748 days, -23.9%; 86.2% of
+             days under water; none open.  Across NIFTY 50 TRI's 5 deepest
+             drawdowns the book fell less every time (2020: -10.8% vs
+             -38.3%) and recovered less in 4 of 5.  Descriptive only: not in
+             G4 or the ladder.  Section 1's "726 days" refreshed.
+10 Oct  LN-T24 Sharpe noise beside the pass rules (reported, never a pass):
+             standard error, PSR against 1.2 and MinTRL vs 0, for the
+             registry run and the walk-forward OOS; the paper Sharpe's
+             standard error.  Deployed 1.16 +/- 0.29, PSR(1.2) 0.450, MinTRL
+             541 sessions (2.1 years); candidate PSR 0.442, E4 0.417;
+             walk-forward r12a5 0.543, r12b5 0.394.  PSR(0) equals
+             validation.json; on an iid series the SE equals
+             sqrt((1+SR^2/2)/(T-1)).  2026-10-10 scorecards re-rendered.
+10 Oct  LN-T22 Reruns no longer depend on the hash seed: the two set loops
+             (portfolio buffer, engine _projected_holdings) iterate sorted.
+             Equity bytes and raw trades.csv now identical under
+             PYTHONHASHSEED 1/2/3 at lag 0 and 1 (before: both varied); the
+             sorted trades (6,175 / 6,288) and CAGR unchanged, daily returns
+             within 4e-16 of the old code; canary ok.
+10 Oct  LS2  Live ledger edge cases, fixed before go-live.  A dry run never
+             records: `--dry-run --record` wrote the live book's ledger,
+             epoch, fills, snapshots and even the real session marker, so
+             the first real session would have skipped the go-live checks
+             (and, the same day, itself); the flag is gone and
+             run_live_session refuses a recorded dry run.  A GTT or manual
+             sale cancelled after a part fill now reaches the ledger with
+             what it filled (external_sells).  A same-night re-run starts
+             from the stops the last session left (ledger stops_prev), so it
+             can correct a bad first run instead of inheriting its stops.
+             Checks: temporary script (refusal, the six sell cases, the
+             re-run block run from the source) deleted; full suite (220).
+10 Oct  G4ref Your call: the live book's G4 gate uses the live-rule
+             reference (run_backtest fill_rule="live"), the model's fills at
+             the open scored beside it for information: in the live email
+             ("vs live's order rules; vs the model, for information: ...")
+             and in the stored gate the weekly report reads.  Live sessions
+             only (dry runs have no ladder); paper books keep the model
+             reference (they fill at the open).  Check: a live book that
+             executed exactly as the rules gives the gate 0.0%/yr TE and 0 bp
+             gap, the model line 0.7%/yr (temporary script); fast suite.
+10 Oct  LN-T18 Scorecard regime split ex ante: each day carries the NIFTY
+             trend and VIX regime known at the previous close (the same-day
+             label pulled the down days that flip the regime into "bear" by
+             their own move).  Deployed 2013-25: bear -23.8% / Sharpe -2.07
+             -> +6.3% / -0.02, bull 2.50 -> 1.79, VIX elevated -1.68 -> 0.88;
+             shares of days unchanged; the candidate and E4 alike.  The
+             "loses ~22% a year in bear phases" case for a bear hedge (O5,
+             U28) does not hold ex ante.  2026-10-10 scorecards re-rendered
+             (only the regime tables and as-of changed).  Checks: equal to the
+             old split on the index shifted a session, a crash on day t keeps
+             day t's label (temporary script); full suite (220).
+10 Oct  LN-T21 Phase 2: a live-rule reference (phase 1 deferred, LN-T21b).
+             nse_engine/live_rules.py: a DAY limit (Lean's LimitFill, strict
+             penetration, the open when marketable) and Centurion's stop GTT
+             rule; run_backtest(fill_rule="live") applies them, outside the
+             config hash and never recorded (refused): buys 1% / sells 5%
+             from the decision close, stop limits 2% under the trigger, no
+             stop on a buy's own day, an ex-date between decision and fill
+             holds the order back (LN-T4).  run_nse_engine live-rules
+             compares it with the model.  Deployed 2013-25: 6,091 trades,
+             Sharpe 1.168 / CAGR 23.09% / MaxDD -23.9% (model 6,175, 1.163 /
+             23.13% / -23.9%); 9.4% of buys fill at their limit, 1.6% not at
+             all; sells near all (the LN-T14 band); G4 vs the model: TE 1.0%/yr,
+             daily-gap FAIL in 64 / WATCH 1 of 3,160 windows (G4ref).  Checks:
+             the model path bit-identical (canary); every bar case, the refusal
+             and the entry-day rule in a temporary script (deleted); full
+             suite (220).
+10 Oct  LN-T19 One missing NIFTY or sleeve print no longer blanks a 200-day
+             mean for 200 sessions.  regime.sample_trend: the mean of the
+             last 200 available closes, a gap carrying the last trend for up
+             to 5 sessions; used for NIFTY and the sleeves (a missing
+             GOLDBEES print no longer sells the sleeve).  Archive: an indices
+             404 on a day the equity file exists is retried within the
+             lookback, never recorded as a holiday (the rule behind the 12
+             NIFTY gaps of 2013-16).  The plan notes and warns (once a day)
+             when NIFTY or an enabled sleeve lacks a close, still planning.
+             Checks: the three books' backtests identical (canary: trades,
+             metrics, data hash); a NIFTY gap changes 0 days (was 200), a
+             GOLDBEES gap keeps the sleeve; no gap in today's store; R14's
+             MON100 sleeve (closed) changes on 70 sessions, so its run would
+             not reproduce.  Temporary script deleted; full suite (220).
 10 Oct  DM0-2 Dead man's switch, alert-only (your calls).  DM2: one latched
              kill switch in Neon (kite_connect/trading/kill_switch.py), read
              by every order path on Actions and the HF Space; on / off only
@@ -903,8 +1032,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              57.7% over 61 configs (56.1% before SB2's extra trial).  14
              neighbours: fragile = stop ATR 6 -> 3 (-0.22) and any third
              signal group (-0.07 to -0.38); the rest within +/-0.06.
-             Regimes: NIFTY bear -22%/yr (Sharpe -1.9, 19% of days), bull
-             +39%, VIX > 25 -21%.  Correlation: candidate 0.97, E4 0.96 (one
+             Regimes, labelled with the regime known at the previous close
+             (LN-T18, 10 Oct; the same-day labels read bear -22%/yr): NIFTY
+             bear +6%/yr (Sharpe -0.02, 19% of days), bull +30%, VIX
+             elevated +19%.  Correlation: candidate 0.97, E4 0.96 (one
              family, no diversification), options ~0, gold 0.23, NIFTY 0.48.
              Candidate 2d64ba4c: Calmar 0.98 FAIL, OOS 1.15 FAIL, rest PASS.
              E4 93cf6c4d: all 5 PASS (OOS 1.27, R12 B), capacity ~Rs 470
@@ -1927,6 +2058,11 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              undefined for all of 2014-16 in every validated run; baseline
              barely moves when filled (Sharpe 1.140 -> 1.144), grid configs
              with neutral scale 0.6 do.  K5 queued before R4.  Suite 101.
+             Caveat (10 Oct, LN-T28): store_ext2006 has no corporate actions
+             or dividends before 2010-01-04; ~17 bonus/demerger gaps in
+             2006-09 stay unadjusted (ONGC 2006-10-27 -31.6%), so 2008
+             drawdowns read ~1 pt too deep; same-data comparisons are
+             unaffected (plan 5e).
 27 Sep  L4   Leverage due diligence: docs/leverage_due_diligence.md.
              Permitted: MTF for Group I stocks, pledged to the broker;
              collateral margin cannot fund delivery, so MTF is the only

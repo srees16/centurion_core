@@ -233,6 +233,14 @@ def cmd_validate(args) -> None:
     print(f"saved {out}")
 
 
+def cmd_runtime_index(args) -> None:
+    """LN-T26: classify the runs recorded before manifests carried a runtime stamp (a sidecar index in the runs
+    directory; manifests are not rewritten), so the registry can tell Mac from Kaggle runs."""
+    from nse_engine.validation.trials import build_runtime_index
+
+    _print_json(build_runtime_index(args.runs_dir, args.kaggle_out))
+
+
 def cmd_refresh_registry(args) -> None:
     """Re-run every same-window configuration on the current store after its
     data fingerprint changed, check the returns reproduce, and compare PBO and
@@ -608,6 +616,49 @@ def cmd_canary(args) -> None:
               [f"The nightly canary found that {what}.", *moved, f"Runtime: {runtime}"])
 
 
+def cmd_live_rules(args) -> None:
+    """LN-T21: a book's backtest under live's order rules beside the model's fills at the open, the orders'
+    outcomes, and the G4 checks the order rules alone produce over rolling windows (live rules vs model, as a
+    live book would be judged against the model's reference)."""
+    from collections import Counter
+
+    from nse_engine import paper_gate
+    from nse_engine.deployment import load_deployment
+    from nse_engine.engine import run_backtest
+
+    dep = load_deployment(args.deployment)
+    cfg = dep.engine.replace(start=args.start, end=args.end)
+    data = _load_data(cfg, data_start=dep.data_start().isoformat())
+    model = run_backtest(data, cfg, record=False)
+    live = run_backtest(data, cfg, record=False, fill_rule="live")
+    sides = Counter(model.trades["side"]) if len(model.trades) else Counter()
+    outcomes = Counter(n.split(": live: ", 1)[1] for n in live.notes if ": live: " in n)
+
+    windows = {"daily gap": Counter(), "tracking error": Counter()}
+    n = len(model.returns)
+    for i in range(max(n - args.window, 0)):              # equity has one more point than its window's returns
+        report = paper_gate.evaluate(live.equity.iloc[i:i + args.window + 1],
+                                     model.returns.iloc[i + 1:i + args.window + 1], min_sessions=args.window)
+        for c in report["checks"]:
+            if c["name"] in windows:
+                windows[c["name"]][c["status"]] += 1
+    full = {c["name"]: c["display"] for c in paper_gate.evaluate(live.equity, model.returns)["checks"]
+            if c["name"] in windows}
+
+    def summary(res) -> dict:
+        m = res.metrics
+        return {"trades": int(len(res.trades)), "sharpe": round(float(m["sharpe"]), 4),
+                "cagr": round(float(m["cagr"]), 4), "max_drawdown": round(float(m["max_drawdown"]), 4)}
+
+    _print_json({"book": args.deployment, "window": [args.start, args.end],
+                 "model_fills_at_open": summary(model), "live_rules": summary(live),
+                 "model_orders": {"BUY": sides.get("BUY", 0), "SELL": sides.get("SELL", 0)},
+                 "live_outcomes": dict(sorted(outcomes.items())),
+                 "g4_vs_model_full_period": full,
+                 "g4_vs_model_rolling": {"window_sessions": args.window, "windows": max(n - args.window, 0),
+                                         **{k: dict(v) for k, v in windows.items()}}})
+
+
 def cmd_scorecard(args) -> None:
     """SC1: the strategy scorecard of a book's latest recorded run (docs/scorecards/)."""
     from nse_engine.scorecard import main as scorecard_main
@@ -721,6 +772,14 @@ def main(argv=None) -> None:
     p.add_argument("--no-email", action="store_true")
     p.set_defaults(func=cmd_canary)
 
+    p = sub.add_parser("live-rules", help="a book's backtest under live's order rules beside the model's, and the "
+                                          "G4 gap the order rules alone produce (LN-T21)")
+    p.add_argument("--deployment", default="config/nse_engine_deployed.json")
+    p.add_argument("--start", default=CANARY_WINDOW[0])
+    p.add_argument("--end", default=CANARY_WINDOW[1])
+    p.add_argument("--window", type=int, default=60, help="G4 window in sessions (the go-live gate's 60)")
+    p.set_defaults(func=cmd_live_rules)
+
     p = sub.add_parser("validate", help="DSR, PBO and benchmark gate for a recorded run")
     p.add_argument("--run-id")
     p.add_argument("--splits", type=int, default=16)
@@ -737,6 +796,12 @@ def main(argv=None) -> None:
     p.add_argument("--tolerance", type=float, default=1e-9, help="max daily return difference to call identical")
     p.add_argument("--splits", type=int, default=16, help="CSCV blocks for the PBO comparison")
     p.set_defaults(func=cmd_refresh_registry)
+
+    p = sub.add_parser("runtime-index", help="classify runs recorded before the runtime stamp as Mac or Kaggle "
+                                             "(LN-T26); re-run after importing unstamped Kaggle runs")
+    p.add_argument("--runs-dir", default=EngineConfig().runs_dir)
+    p.add_argument("--kaggle-out", default="data/nse_engine/kaggle_out")
+    p.set_defaults(func=cmd_runtime_index)
 
     p = sub.add_parser("walk-forward", help="anchored walk-forward re-fitting")
     add_config_args(p)

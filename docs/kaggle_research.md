@@ -83,9 +83,13 @@ is not one experiment, so `wf_stitch` refuses unless you pass
 `--allow-mixed-env`, and the summary then records both environments.
 
 Practically: **run every fold of a walk-forward on Kaggle**, and compare its
-result against other Kaggle results. Runs imported into the registry carry
-their provenance; a PBO or DSR computed over a mixture of platforms is
-comparing configurations that were not measured the same way.
+result against other Kaggle results. A PBO or DSR computed over a mixture of
+platforms is comparing configurations that were not measured the same way.
+Only the fold files carried provenance until 10 Oct 2026; since then every
+run manifest carries its `runtime` (LN-T26), the runs recorded before it are
+classified Mac or Kaggle by `runtime-index` (from `kaggle_out`), and
+`returns_matrix` warns when a trial set mixes the two (filter with
+`environment=`).
 
 `--pin` installs this machine's numpy, pandas and pyarrow in the kernel
 (turning on the internet switch). Worth doing for provenance, but it does not

@@ -204,6 +204,28 @@ def kite_book(kite) -> Tuple[Dict[str, object], float]:
                 "isin": isin.get(s)} for s, q in qty.items()}, cash
 
 
+def presence_gaps(view, cfg) -> List[str]:
+    """What the regime and sleeve trends lack on the view's last session (tracker LN-T19): the index's
+    close that day or in its trailing ``trend_ma_days`` sessions, and each enabled sleeve's close."""
+    from nse_engine.sleeves import sleeve_symbols
+
+    if not len(view.close):
+        return []
+    day, gaps = view.close.index[-1], []
+    sym, n = cfg.regime.index_symbol, cfg.regime.trend_ma_days
+    if sym not in view.index_close.columns:
+        gaps.append(f"{sym}: no index closes in the data")
+    else:
+        tail = view.index_close[sym].reindex(view.close.index).iloc[-n:]
+        missing = [d.date().isoformat() for d in tail.index[tail.isna()]]
+        if missing:
+            gaps.append(f"{sym}: no close on {', '.join(missing[-5:])}"
+                        + (f" and {len(missing) - 5} more of the last {n} sessions" if len(missing) > 5 else ""))
+    gaps += [f"{s}: no close on {day.date()}" for s in sleeve_symbols(cfg.sleeves, view.close.columns)
+             if pd.isna(view.close[s].iloc[-1])]
+    return gaps
+
+
 def live_order_outcomes(kite, as_of) -> List[dict]:
     """What became of the engine's orders for the session decided on ``as_of``.
 
@@ -612,6 +634,12 @@ class EngineExecutor:
             logger.debug("Freshness check unavailable: %s", exc)
 
         view = data.until(as_of) if hasattr(data, "until") else data
+        gaps = presence_gaps(view, cfg) if self._as_of_is_live(as_of) else []
+        if gaps:                                          # LN-T19: still plan; the trends carry the gap
+            plan.notes.append("data gap: " + "; ".join(gaps))
+            from services.notifications.alerts import WARNING, alert
+
+            alert(WARNING, f"data_gap:{as_of.date()}", "Centurion: index or sleeve prices missing", gaps)
         # Last available close per symbol (forward-filled, as the engine marks equity)
         closes = view.close.ffill().iloc[-1] if len(view.close) else pd.Series(dtype=float)
         prices: Dict[str, float] = {}

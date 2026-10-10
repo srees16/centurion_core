@@ -44,8 +44,9 @@ Real orders need ALL of: ``CENTURION_PAPER_TRADE=false``,
 ``CENTURION_NSE_ENGINE_LIVE=true``, an approved deployment (not a placeholder
 or candidate) and a Kite session; otherwise the session refuses to start.
 It never falls back to the paper book.  A dry run needs only a Kite session
-(read-only calls); by default it records nothing (``--record`` to keep a
-rehearsal book in Neon).
+(read-only calls) and records nothing: written to the live book, a rehearsal
+would pose as its history and let the first real session skip the go-live
+checks (tracker LS2).
 
     python -m kite_connect.trading.live_session --dry-run --capital 600000
     python -m kite_connect.trading.live_session --capital 600000     # first real session
@@ -79,7 +80,7 @@ logger = logging.getLogger(__name__)
 ENV_LIVE_SCHEMA = "CENTURION_LIVE_SCHEMA"
 ENV_LIVE_CAPITAL = "CENTURION_LIVE_CAPITAL"
 DEFAULT_LIVE_SCHEMA = "live"
-LIVE_LEDGER_KEY = "live_ledger"            # {"capital", "cash", "positions": {sym: qty}, "entries", "stops", "stop_basis", "symbols", "session"}
+LIVE_LEDGER_KEY = "live_ledger"            # {"capital", "cash", "positions": {sym: qty}, "entries", "stops", "stop_basis", "stops_prev", "symbols", "session"}
 LIVE_ORDERS_KEY = "live_orders"            # orders placed at the last live session (JSON)
 LIVE_ORDERS_PENDING_KEY = "live_orders_pending"   # placed orders the order book has not yet accounted for (LN-T6)
 CA_CREDIT_SESSIONS = 5                     # sessions to wait for split/bonus shares at the broker before an alert
@@ -417,8 +418,10 @@ def fills_from_outcomes(outcomes: List[dict], placed: Dict[str, dict], session, 
 
 
 def external_sells(order_book: List[dict], symbols, session, dp_charge_inr: float) -> List[dict]:
-    """Completed CNC sells today of ledger ``symbols`` the engine did not place (GTT stop, manual)."""
+    """CNC sells today of ledger ``symbols`` the engine did not place (GTT stop, manual), with what they
+    filled: complete, or cancelled after a part fill."""
     from kite_connect.trading.nse_instruments import to_engine
+    from kite_connect.trading.order_status import order_terminal
     from nse_engine.costs import statutory_cost
 
     day = pd.Timestamp(session).date().isoformat()
@@ -430,7 +433,7 @@ def external_sells(order_book: List[dict], symbols, session, dp_charge_inr: floa
         if str(o.get("transaction_type") or "").upper() != "SELL" or str(o.get("product") or "CNC").upper() != "CNC":
             continue
         filled = int(o.get("filled_quantity") or 0)
-        if str(o.get("status") or "").upper() != "COMPLETE" or filled <= 0:
+        if not order_terminal(o.get("status")) or filled <= 0:    # LS2: one cancelled part-filled sold what it filled
             continue
         px = float(o.get("average_price") or 0.0)
         rows.append({"order_id": str(o.get("order_id") or ""), "session_date": day, "decision_date": "",
@@ -684,6 +687,8 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
     if kite is None:
         raise RuntimeError("no Kite session: a live session needs the broker, even for a dry run")
     record = (not dry_run) if record is None else bool(record)
+    if dry_run and record:
+        raise ValueError("a dry run is never recorded: it would write the live book's ledger and history (LS2)")
     dep = deployment or load_deployment()
     if not dry_run:
         allowed, reason = live_orders_allowed()
@@ -765,6 +770,16 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
                     "results": [], "plan": None}
     critical: List[str] = []                              # tracker AL3: the alerts that need the owner today
     missed_buys: List[str] = []                           # tracker AL4: buys that did not fill (they can wait)
+    # LS2: the stops this session starts from, kept with the ledger; a re-run of the same session starts from
+    # them again instead of from the stops its first run wrote, so it can correct that run
+    tonight = session.date().isoformat()
+    prior = ledger.get("stops_prev") or {}
+    if prior.get("session") == tonight:
+        ledger["stops"], ledger["stop_basis"] = dict(prior.get("stops") or {}), dict(prior.get("stop_basis") or {})
+        report["notes"].append("a re-run of this session: it starts from the stops the last session left")
+    else:
+        ledger["stops_prev"] = {"session": tonight, "stops": dict(ledger.get("stops") or {}),
+                                "stop_basis": dict(ledger.get("stop_basis") or {})}
 
     # LN-T4: the ledger moves into tonight's units (splits, bonuses) before today's fills, which are in them
     from kite_connect.trading.book_events import events_between, unrecorded_gaps, upcoming_share_actions
@@ -962,9 +977,11 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
         critical.extend(decision.critical)
         if gate is not None:
             from nse_engine import paper_gate as pg
-            report["gate"] = pg.one_line(gate)
+            report["gate"] = (pg.one_line(gate) + " (vs live's order rules; vs the model, for information: "
+                              + f"{gate.get('model_reference') or 'n/a'})")
             ahead[pg.STATE_KEY] = pg.summary_json(gate, updated_at=datetime.now(timezone.utc).isoformat(),
-                                                  config_hash=dep.engine.config_hash())
+                                                  config_hash=dep.engine.config_hash(),
+                                                  model_reference=gate.get("model_reference"))
         if decision.flow:
             today_flow = float(decision.flow)
             ledger["capital"] = float(decision.capital)
@@ -1255,7 +1272,11 @@ def _ladder_step(ex, data, view, dep, ledger: dict, state: Dict[str, str], book,
 
     G4 compares the sessions since ``since`` (the first on the current
     configuration, ``capital_ladder.config_since``) with a backtest of that
-    configuration; drawdown and the kill criteria still read the whole book.
+    configuration that fills as live's orders do (``fill_rule="live"``,
+    tracker LN-T21; G4ref, the owner's call of 10 Oct 2026, before the first
+    live session); the model's fills at the open are scored beside it, for
+    information only (``gate["model_reference"]``).  Drawdown and the kill
+    criteria still read the whole book.
     """
     from nse_engine import capital_ladder as cl
     from nse_engine import paper_gate as pg
@@ -1268,9 +1289,12 @@ def _ladder_step(ex, data, view, dep, ledger: dict, state: Dict[str, str], book,
             cfg = dep.reference_config().replace(start=window.index[0].date().isoformat(),
                                                  end=session.date().isoformat(),
                                                  initial_capital=float(ledger["capital"]))
-            ref = run_backtest(data, cfg, record=False, tag="live-reference")
-            gate = pg.evaluate(window, ref.returns, fills=_book_read(book, "read_fills", strict),
-                               reference_trades=ref.trades, sessions=_book_read(book, "read_sessions", strict))
+            fills, sessions = _book_read(book, "read_fills", strict), _book_read(book, "read_sessions", strict)
+            ref = run_backtest(data, cfg, record=False, tag="live-reference", fill_rule="live")
+            gate = pg.evaluate(window, ref.returns, fills=fills, reference_trades=ref.trades, sessions=sessions)
+            model = run_backtest(data, cfg, record=False, tag="live-reference")
+            gate["model_reference"] = pg.one_line(pg.evaluate(window, model.returns, fills=fills,
+                                                              reference_trades=model.trades, sessions=sessions))
         except Exception as exc:                          # noqa: BLE001 - the ladder then holds
             logger.warning("live G4 unavailable: %s", exc)
     dd, _ = ex.drawdown_decision(session, marked["equity"])
@@ -1371,7 +1395,6 @@ def main(argv=None) -> int:
     ap.add_argument("--capital", type=float, default=None,
                     help=f"the book's capital, needed on the first session (or {ENV_LIVE_CAPITAL})")
     ap.add_argument("--as-of", default=None, help="session date (default: the latest store session)")
-    ap.add_argument("--record", action="store_true", help="dry run: keep the rehearsal book in Neon")
     ap.add_argument("--no-email", action="store_true")
     ap.add_argument("--stored-token", action="store_true",
                     help="the scheduled run: today's token from the Kite login callback, calls through "
@@ -1465,7 +1488,7 @@ def main(argv=None) -> int:
         print(f"sell path {'PASS' if ok else 'FAIL'}: {detail}")
         return 0 if ok else 1
     report = run_live_session(kite, dry_run=dry_run, capital=capital, as_of=args.as_of, book=book,
-                              record=True if args.record else None, email=not args.no_email, extra_notes=notes,
+                              email=not args.no_email, extra_notes=notes,
                               once_per_session=args.stored_token, requested_capital=acct.capital if acct else None,
                               label=acct.name if acct else "", unwind_sessions=acct.unwind_sessions if acct else 0)
     if acct is not None and acct.unwind_sessions and not report.get("skipped"):

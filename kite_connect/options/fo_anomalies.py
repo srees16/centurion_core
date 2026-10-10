@@ -47,6 +47,7 @@ from kite_connect.options.signal_futures import (
     _Futures,
     _metrics,
     _trade_cost,
+    rekey_to_settlement,
     run_strategy,
     settlement_sessions,
 )
@@ -144,27 +145,25 @@ class _Chain:
 
 def monthly_expiries(options: pd.DataFrame) -> Dict[pd.Timestamp, pd.Timestamp]:
     """The last option expiry of each calendar month (weeklies dropped, as in rounds 1 and 2), mapped to
-    the session it settled on (``settlement_sessions``: holiday moves and relabelled contracts)."""
+    the session it settled on (``settlement_sessions``: holiday moves and relabelled contracts).  Given
+    rows re-keyed by ``rekey_to_settlement``, each expiry is that session, and a relabelled month's
+    contracts are one expiry."""
     settled = settlement_sessions(options)
     labels = pd.Series(sorted(settled))
     return {e: settled[e] for e in labels.groupby(labels.dt.to_period("M")).max()}
-
-
-def _front(fut: _Futures, settled: Dict[pd.Timestamp, pd.Timestamp], d: pd.Timestamp) -> pd.Timestamp:
-    """The nearest future still trading after ``d`` (its settlement session, not its label, is after d)."""
-    return next(e for e in fut.expiries[d] if settled.get(e, e) > d)
 
 
 def run_vrp(cfg: VrpConfig, store_dir: str, opt_cfg: OptionsConfig = OptionsConfig()) -> SignalResult:
     """Replay Y2 session by session (§ 5s)."""
     start, end = pd.Timestamp(cfg.start), pd.Timestamp(cfg.end)
     load_to = (end + pd.Timedelta(days=60)).strftime("%Y-%m-%d")
-    options = fo_store.load_options(store_dir, (start - pd.Timedelta(days=10)).strftime("%Y-%m-%d"), load_to, cfg.symbol)
+    options = rekey_to_settlement(fo_store.load_options(store_dir, (start - pd.Timedelta(days=10)).strftime("%Y-%m-%d"),
+                                                        load_to, cfg.symbol))
     settle_on = monthly_expiries(options)
     by_expiry = {e: g for e, g in options[options["expiry"].isin(list(settle_on))].groupby("expiry")}
     futures = fo_store.load_futures(store_dir, (start - pd.Timedelta(days=10)).strftime("%Y-%m-%d"), load_to,
                                     cfg.symbol)
-    fut, fut_settle = _Futures(futures), settlement_sessions(futures)
+    fut = _Futures(rekey_to_settlement(futures))                  # keyed, and rolled, by settlement session
     dates = pd.DatetimeIndex(sorted(fut.expiries))
     window = dates[(dates >= start) & (dates <= end)]
     spot = fo_store.load_underlying(store_dir, cfg.symbol).reindex(dates).ffill()
@@ -203,7 +202,7 @@ def run_vrp(cfg: VrpConfig, store_dir: str, opt_cfg: OptionsConfig = OptionsConf
                     costs_total += cost
                     legs.append({"type": t, "strike": k, "units": units if side == BUY else -units, "mark": ref})
                 if not f_units:
-                    contract = _front(fut, fut_settle, d)
+                    contract = fut.front(d)
                     f_mark = fut.at(d, contract, np.nan)
                     f_units = equity / f_mark
                     cost = _trade_cost(f_units, f_mark, BUY, d, cfg, opt_cfg)
@@ -226,9 +225,9 @@ def run_vrp(cfg: VrpConfig, store_dir: str, opt_cfg: OptionsConfig = OptionsConf
             trades.append(cycle)
             legs, cycle, expired_today = [], None, True
         # 4. the future rolls at its settlement session's close, resized to equity
-        if f_units and fut_settle.get(contract, contract) <= d:
+        if f_units and contract <= d:
             old_px = fut.at(d, contract, f_mark)
-            contract = _front(fut, fut_settle, d)
+            contract = fut.front(d)
             f_mark = fut.at(d, contract, np.nan)
             new_units = equity / f_mark
             cost = (_trade_cost(f_units, old_px, SELL, d, cfg, opt_cfg)
