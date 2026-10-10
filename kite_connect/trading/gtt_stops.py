@@ -86,14 +86,10 @@ def _tick_of(kite, symbol: str, price: float) -> tuple:
 
 
 def _kill_switch_active() -> bool:
-    active = os.environ.get("CENTURION_KILL_SWITCH", "").lower() in ("true", "1", "yes")
-    if not active:
-        try:
-            from config import Config
-            active = bool(getattr(Config, "KILL_SWITCH", False))
-        except Exception:
-            pass
-    return active
+    """``order_service.is_kill_switch_active``: one reading of the switch, the latched Neon one included (DM2)."""
+    from kite_connect.trading.order_service import is_kill_switch_active
+
+    return is_kill_switch_active()
 
 
 def _order_hooks():

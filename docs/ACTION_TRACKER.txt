@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 10 Oct 2026, 13:57 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 10 Oct 2026, 14:40 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -289,6 +289,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              with its code and data hashes unchanged) runs the live session
              as a dry run instead of sending orders.  Without it, drift is
              only emailed.
+[!] P1  DMfd After the next merge to main: the dead man's switch fire drill
+             with Claude (your call 10 Oct): a manual /fail ping, and the
+             check's schedule set a few minutes ahead once, to see both
+             emails arrive.
 --------------------------------------------------------------------------------
  5. IN PROGRESS [~]
 --------------------------------------------------------------------------------
@@ -323,20 +327,18 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
  ALERTING PLAN (your ask 10 Oct; the relevance table's health, risk and
  order categories): email only, to you; subjects [Centurion CRITICAL] and
  [Centurion warning]; healthchecks.io free tier as the dead-man's switch;
- push channel deferred (AL6).  AL1, AL2 done 10 Oct; AL3, AL4 by ~25 Nov, AL5
- at go-live.
-[ ] P1  AL3  Risk through alert(): kill criteria, a rung step-down, G4 FAIL
-             at the lowest rung, a position without a stop GTT, a ledger /
-             broker quantity mismatch (CRITICAL); a paper book's G4 FAIL or
-             drawdown-rule change (warning).  0.5-1 day.
-[ ] P1  AL4  Orders, evening (replaces LN-T17): a rejected exit or stop sell
-             is CRITICAL with Kite's reason and a fix hint; a rejected buy a
-             warning (also covers ST2's AMO funding risk).  0.5-1 day.
+ push channel deferred (AL6).  AL1-AL4 done 10 Oct; AL5 at go-live.
 [ ] P2  AL5  Orders, market hours, at go-live: Kite postbacks for the
              engine's own orders (kite_tag): rejected or cancelled ->
-             CRITICAL within a minute, a filled stop -> warning.  Needs Kite's
-             postback URL on the HF Space (your answer pending); test it with
-             ST2's supervised sell.  1 day.
+             CRITICAL within a minute, a filled stop -> warning.  Postback URL
+             set 10 Oct on your Kite app: https://srees16-centurion-core.hf.space
+             /stream/postback (route live: a bad-checksum test got 403).  To
+             confirm with ST2's supervised sell: whether Kite posts back
+             GTT-triggered sells (it may only post the app's own orders; if
+             not, those come from the order book).  1 day.
+ DEAD MAN'S SWITCH (your ask 10 Oct): alert-only, external (healthchecks.io,
+ AL2); no broker action from the watcher (it would need your daily login),
+ no separate operator check-in (the daily Kite login is one).
 #1  [ ] P1  D3   Go live on schedule: Rs 6L rung ~mid Dec, once paper G4
                  PASS at 60 sessions + 5 clean dry runs + the sell path
                  recorded (ST2 step 3, LN-T2) (set
@@ -484,6 +486,45 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+10 Oct  DM0-2 Dead man's switch, alert-only (your calls).  DM2: one latched
+             kill switch in Neon (kite_connect/trading/kill_switch.py), read
+             by every order path on Actions and the HF Space; on / off only
+             with a reason, via Actions > Kill switch (main only; the log
+             shows on / off, the reason is emailed); a configured but
+             unreadable Neon counts as on; the repo variable still works.
+             DM0: the direct Quick Trade route (423) and live option baskets
+             (exits only, checked before any leg) obey it.  DM1: the nightly
+             ping says healthy only when the paper book and, with the live
+             book on, the live session reached the last NSE session (a
+             no-login skip passes); else /fail with the reason.  Checks:
+             temporary script passed and deleted; full suite (220).
+10 Oct  AL4  Orders, evening (LN-T17 closed): every sell of a ledger name
+             that did not go through today gets one line with Kite's own text
+             and a fix hint (order_status.rejection_hint: DDPI / TPIN, more
+             shares than held, a circuit band; for buys, the 09:00 cash check
+             of ST2).  failed_stop_sells: a stop GTT that changed today whose
+             order failed, was rejected or cancelled short, on a name the
+             broker still holds (not after the engine's own exit sold it), and
+             a CNC sell placed outside the engine that was rejected.  The line
+             replaces scoped_book's generic "no stop GTT" line.  The engine's
+             own rejected orders carry the hint in their fill note.  A sell
+             not done joins the CRITICAL email (AL3); unfilled buys send one
+             warning.  The reconcile reuses the same GTT read (one call, not
+             two).  Checks: LN-T17's test cases (a)-(f) plus older / foreign
+             GTTs and manual sells in a temporary script, passed and deleted
+             (it caught two bugs, fixed); full suite (220) passes.
+10 Oct  AL3  Risk through alert().  Live (CRITICAL, one email per session
+             listing every item, after the ladder): a kill criterion, a rung
+             step-down, G4 FAIL at the lowest rung (LadderDecision.critical),
+             a ledger / broker quantity mismatch, a stop GTT the broker does
+             not have or that could not be read (scoped_book's critical
+             list).  Paper (warning, per book): G4 FAIL, a drawdown-rule
+             change.  Advice (a GO allowed, a capital that is not a rung, a
+             pending split credit, a GTT below the book's stop) stays in the
+             nightly email only.  The ladder runs only in real sessions, so
+             its items cannot appear in a dry run.  Checks: temporary script
+             (each case, critical and not) passed and deleted; full suite
+             (220) passes.
 10 Oct  AL2  System health through alert() (with AL2h: your healthchecks.io
              check "centurion-nightly" and the CENTURION_HEALTHCHECK_URL
              secret).  CRITICAL: the live session failed (also its refusals:

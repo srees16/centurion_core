@@ -77,7 +77,8 @@ def _is_nse_market_open() -> bool:
 # ── Order Placement ────────────────────────────────────────────
 
 def is_kill_switch_active() -> bool:
-    """True when the kill switch is on (env ``CENTURION_KILL_SWITCH`` or Config)."""
+    """True when the kill switch is on: env ``CENTURION_KILL_SWITCH``, Config, or the latched switch in Neon
+    (``kill_switch``, tracker DM2).  A configured but unreadable Neon counts as on: a halt is never missed."""
     kill_switch = os.environ.get("CENTURION_KILL_SWITCH", "").lower() in ("true", "1", "yes")
     if not kill_switch:
         try:
@@ -85,7 +86,14 @@ def is_kill_switch_active() -> bool:
             kill_switch = bool(getattr(Config, "KILL_SWITCH", False))
         except Exception:
             pass
-    return kill_switch
+    if kill_switch:
+        return True
+    try:
+        from kite_connect.trading.kill_switch import state
+        return bool(state().get("on"))
+    except Exception as exc:                              # noqa: BLE001 - fail closed
+        logger.error("kill switch state unreadable (%s): treated as ON", exc)
+        return True
 
 
 def _long_quantity(kite, symbol, exchange, product):
@@ -120,6 +128,19 @@ def _kill_switch_allows(kite, symbol, exchange, transaction_type, quantity, prod
     if int(quantity) > held:
         return False, f"KILL SWITCH active: exit qty {quantity} exceeds long qty {held}"
     return True, ""
+
+
+def kill_switch_refusal(kite, symbol, exchange, transaction_type, quantity, product) -> Optional[str]:
+    """Why an order placed by hand is refused while the kill switch is on, or None (tracker DM0).
+
+    The paths outside ``place_order`` (the web app's direct route) treat a
+    sell as an exit, reduce-only as G2 allows; a buy is refused.
+    """
+    if not is_kill_switch_active():
+        return None
+    allowed, reason = _kill_switch_allows(kite, symbol, exchange, transaction_type, quantity, product,
+                                          is_exit=str(transaction_type or "").upper() == "SELL")
+    return None if allowed else reason
 
 
 AMO_VARIETY = "amo"          # after-market order: accepted while the market is closed, sent at the next open

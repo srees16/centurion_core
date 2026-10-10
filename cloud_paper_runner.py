@@ -678,6 +678,8 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict, g
         if verdict in ("drifting", "regime_break"):
             alerts.append(f"Distribution shift: {verdict} (size multiplier {shift.get('position_size_multiplier', shift.get('multiplier', '—'))})")
         drift_check = _drift_check_line(pt, shift, plan)
+        from services.notifications.alerts import WARNING, alert   # tracker AL3: a paper book's risk events
+        book = _book_label() or "deployed"
         gate_line = None
         if gate:
             from nse_engine import paper_gate
@@ -685,6 +687,7 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict, g
             if gate.get("verdict") == paper_gate.FAIL:
                 alerts.append("PAPER GATE (G4) FAIL: " + "; ".join(
                     f"{c['name']} {c['display']}" for c in gate.get("checks", []) if c["status"] == paper_gate.FAIL))
+                alert(WARNING, f"paper_g4_fail:{book}", f"Centurion paper [{book}]: G4 FAIL", [alerts[-1]], book=book)
         dd_state = str(getattr(plan, "drawdown_state", "normal") or "normal") if plan is not None else "normal"
         dd_pct = float(getattr(plan, "drawdown_pct", 0.0) or 0.0) if plan is not None else 0.0
         dd_line = None
@@ -694,6 +697,8 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict, g
                 alerts.append(f"DRAWDOWN RULE changed to {dd_state.upper()} at {dd_pct:.1f}% below the peak: "
                               + _drawdown_prefix(plan).split(": ", 1)[-1].rstrip("; ") if dd_state != "normal"
                               else f"DRAWDOWN RULE re-armed: back to normal (new 60-session equity high)")
+                alert(WARNING, f"drawdown_rule:{book}:{dd_state}", f"Centurion paper [{book}]: drawdown rule {dd_state}",
+                      [alerts[-1]], book=book)
         sent = NotificationManager().email_engine_daily_report({
             "session": session.get("session"),
             "deployment": f"{dep.status} {dep.engine.config_hash()[:8]} · paper since {dep.paper_start_date}",

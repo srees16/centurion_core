@@ -559,13 +559,15 @@ jobs:
             data/nse_engine/store
           key: nse-engine-data-v1-${{ github.run_id }}-${{ github.run_attempt }}
 
-      # Tracker AL2: the dead-man's switch (healthchecks.io, AL2h).  Every run that gets this far
-      # pings, NSE holidays included; no ping by 23:00 IST on a weekday emails the owner from
-      # outside GitHub.  Without the secret it does nothing.
+      # Trackers AL2 / DM1: the dead-man's switch (healthchecks.io, AL2h).  A run that gets this far
+      # pings when it left the books healthy (the paper book and, with the live book on, the live
+      # session reached the last NSE session; a no-login skip passes), else /fail with the reason.
+      # Holidays pass.  No ping by 23:00 IST on a weekday emails the owner from outside GitHub.
+      # Without the secret it does nothing.
       - name: Dead-man's switch ping
         if: success()
         env:
-          HC_URL: ${{ secrets.CENTURION_HEALTHCHECK_URL }}
-        run: |
-          [ -n "$HC_URL" ] || { echo "no CENTURION_HEALTHCHECK_URL: no ping"; exit 0; }
-          curl -fsS -m 10 --retry 3 -o /dev/null "$HC_URL" || echo "::warning::dead-man's switch ping failed"
+          CENTURION_HEALTHCHECK_URL: ${{ secrets.CENTURION_HEALTHCHECK_URL }}
+          CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
+          CENTURION_LIVE_MODE: ${{ vars.CENTURION_LIVE_MODE }}
+        run: python -m tools.paper_heartbeat --ping

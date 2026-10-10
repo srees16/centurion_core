@@ -289,7 +289,9 @@ def rescale_stops(ledger: dict, close: pd.DataFrame) -> Dict[str, float]:
 
 def scoped_book(ledger: dict, broker_holdings: Dict[str, dict], broker_cash: float,
                 factors: Optional[Dict[str, float]] = None,
-                bought_today: Optional[Dict[str, int]] = None) -> Tuple[Dict[str, dict], float, List[str]]:
+                bought_today: Optional[Dict[str, int]] = None,
+                critical: Optional[List[str]] = None,
+                stop_failures: Optional[Dict[str, str]] = None) -> Tuple[Dict[str, dict], float, List[str]]:
     """(holdings, cash, alerts): the ledger's symbols as the broker holds them.
 
     Each holding carries its entry date and its stop, as on the backtest's
@@ -305,11 +307,17 @@ def scoped_book(ledger: dict, broker_holdings: Dict[str, dict], broker_cash: flo
     stop is recomputed when there is none.  ``t1_quantity`` is the part bought
     at today's open (``bought_today``): it settles during tomorrow's session,
     so Zerodha credits its sale only the day after, and the planner does not
-    spend those proceeds on tomorrow's buys.
+    spend those proceeds on tomorrow's buys.  ``critical``, when given, also
+    collects the alerts that need the owner today (tracker AL3): a quantity
+    the broker does not show, a stop GTT it does not have or that could not be
+    read.  ``stop_failures`` (``failed_stop_sells``) puts Kite's own reason in
+    place of the generic missing-GTT line (tracker AL4).
     """
     from kite_connect.trading.gtt_stops import TICK_SIZE
 
     alerts, holdings = [], {}
+    urgent = critical if critical is not None else []
+    failures = stop_failures or {}
     entries, stops = ledger.get("entries") or {}, ledger.get("stops") or {}
     awaiting = ledger.get("ca_pending") or {}
     for sym, q in (ledger.get("positions") or {}).items():
@@ -324,6 +332,7 @@ def scoped_book(ledger: dict, broker_holdings: Dict[str, dict], broker_cash: flo
             bq_eff = bq
             if bq != q:
                 alerts.append(f"{sym}: the ledger holds {q} but the broker {bq} - using {min(q, bq)}; check Kite")
+                urgent.append(alerts[-1])
         bq = bq_eff
         if min(q, bq) > 0:
             f = float((factors or {}).get(sym, 1.0))
@@ -337,13 +346,18 @@ def scoped_book(ledger: dict, broker_holdings: Dict[str, dict], broker_cash: flo
                 alerts.append(f"{sym}: the broker's stop GTTs could not be read - "
                               + (f"keeping the book's last stop {last:,.2f}" if trusted
                                  else "its stop is recomputed from today's close"))
+                urgent.append(alerts[-1])
             elif stop is None and trusted:
                 stop = last
                 if not filled_today:                     # filled today: its GTT is placed tonight
-                    alerts.append(f"{sym}: no stop GTT at the broker (triggered without a sale, expired or "
-                                  f"deleted) - keeping the book's last stop {last:,.2f}; check Kite")
+                    alerts.append(f"{failures[sym]} - keeping the book's last stop {last:,.2f}" if sym in failures
+                                  else f"{sym}: no stop GTT at the broker (triggered without a sale, expired or "
+                                       f"deleted) - keeping the book's last stop {last:,.2f}; check Kite")
+                    urgent.append(alerts[-1])
             elif stop is None and last is not None:
-                alerts.append(f"{sym}: no stop GTT at the broker - its stop is recomputed from today's close")
+                alerts.append(f"{failures[sym]} - its stop is recomputed from today's close" if sym in failures
+                              else f"{sym}: no stop GTT at the broker - its stop is recomputed from today's close")
+                urgent.append(alerts[-1])
             elif stop is not None and trusted and last > stop:
                 if last - stop > TICK_SIZE / 2 + 1e-9:   # not just the trigger's rounding to the tick
                     alerts.append(f"{sym}: the broker's stop GTT {stop:,.2f} is below the book's last stop "
@@ -366,6 +380,7 @@ def scoped_book(ledger: dict, broker_holdings: Dict[str, dict], broker_cash: flo
 def fills_from_outcomes(outcomes: List[dict], placed: Dict[str, dict], session, decision_date,
                         opens: Dict[str, float], dp_charge_inr: float) -> List[dict]:
     """``paper_fills`` rows for the engine's orders of ``decision_date``."""
+    from kite_connect.trading.order_status import rejection_hint
     from nse_engine.costs import statutory_cost
 
     day = pd.Timestamp(session).date().isoformat()
@@ -388,6 +403,8 @@ def fills_from_outcomes(outcomes: List[dict], placed: Dict[str, dict], session, 
         note = outcome + (f" {filled}/{o.get('quantity')}" if outcome == "partial" else "")
         if o.get("error"):
             note += f": {o['error']}"
+            hint = rejection_hint(o["error"], side)      # tracker AL4: what to do about it
+            note += f" ({hint})" if hint else ""
         rows.append({"order_id": str(o.get("order_id") or ""), "session_date": day,
                      "decision_date": pd.Timestamp(decision_date).date().isoformat(),
                      "source": SOURCE_ENGINE, "symbol": sym, "side": side, "status": status,
@@ -425,6 +442,64 @@ def external_sells(order_book: List[dict], symbols, session, dp_charge_inr: floa
                      "note": f"not placed by the engine (tag {o.get('tag') or '-'}): GTT stop or manual",
                      "occurred_at": f"{day}T09:15:00+05:30"})
     return rows
+
+
+def failed_stop_sells(gtts: List[dict], order_book: List[dict], symbols, held: Dict[str, int],
+                      session) -> Dict[str, str]:
+    """{symbol: alert line} for today's sells of ledger ``symbols`` that did not go through (tracker AL4, LN-T17).
+
+    A stop GTT that changed today (triggered, rejected or disabled) whose order
+    failed at Kite, was rejected, or was cancelled short of its quantity; and a
+    CNC sell placed outside the engine that was rejected.  Only names the
+    broker still ``held`` after today's fills count: a GTT that fired after
+    the engine's exit had sold the name is not a failure.  Each line carries
+    Kite's own text and a fix hint (``order_status.rejection_hint``).
+    """
+    from kite_connect.trading.nse_instruments import to_engine
+    from kite_connect.trading.order_status import rejection_hint
+
+    day = pd.Timestamp(session).date().isoformat()
+    book = {str(o.get("order_id")): o for o in order_book or []}
+
+    def line(head: str, status: str, msg: str) -> str:
+        hint = rejection_hint(msg, "SELL")
+        return f"{head} - Kite {status}: {msg or 'no reason given'}" + (f" ({hint})" if hint else "")
+
+    def result(g) -> dict:
+        return g.get("order_result") if isinstance(g.get("order_result"), dict) else {}
+
+    out: Dict[str, str] = {}
+    gtt_orders = {str(result(g).get("order_id") or "") for g in gtts}     # never a "manual" sell below
+    for g in gtts:
+        sym = to_engine(g.get("symbol"))
+        changed = str((g.get("raw") or {}).get("updated_at") or "")[:10]
+        if sym not in symbols or g.get("status") not in ("triggered", "rejected", "disabled") or changed != day:
+            continue
+        r = result(g)
+        o = book.get(str(r.get("order_id") or ""))
+        o_status = str((o or {}).get("status") or "").upper()
+        if str(r.get("status") or "").lower() == "failed":
+            status, msg = "FAILED", str(r.get("rejection_reason") or "")
+        elif o_status == "REJECTED":
+            status, msg = "REJECTED", str(o.get("status_message") or "")
+        elif o_status == "CANCELLED" and int(o.get("filled_quantity") or 0) < int(o.get("quantity") or 0):
+            status, msg = "CANCELLED", str(o.get("status_message") or "")
+        elif g.get("status") in ("rejected", "disabled"):
+            status, msg = g["status"].upper(), ""
+        else:
+            continue
+        if held.get(sym, 0) > 0:
+            out[sym] = line(f"STOP SELL NOT DONE: {sym} x{g.get('quantity')} trigger {float(g.get('trigger') or 0):,.2f}",
+                            status, msg)
+    for o in order_book or []:                           # a sell placed outside the engine, rejected
+        sym = to_engine(o.get("tradingsymbol"))
+        if (sym in symbols and sym not in out and held.get(sym, 0) > 0 and str(o.get("order_id")) not in gtt_orders
+                and not str(o.get("tag") or "").startswith("NE")
+                and str(o.get("transaction_type") or "").upper() == "SELL"
+                and str(o.get("product") or "CNC").upper() == "CNC" and str(o.get("status") or "").upper() == "REJECTED"):
+            out[sym] = line(f"SELL REJECTED (placed outside the engine): {sym} x{o.get('quantity')}", "REJECTED",
+                            str(o.get("status_message") or ""))
+    return out
 
 
 def _next_session(dates, day) -> Optional[pd.Timestamp]:
@@ -688,6 +763,8 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
     report: dict = {"session": session.date().isoformat(), "mode": "live dry run" if dry_run else "live",
                     "fills": [], "external": [], "alerts": [], "notes": list(extra_notes or []) + go_live_notes,
                     "results": [], "plan": None}
+    critical: List[str] = []                              # tracker AL3: the alerts that need the owner today
+    missed_buys: List[str] = []                           # tracker AL4: buys that did not fill (they can wait)
 
     # LN-T4: the ledger moves into tonight's units (splits, bonuses) before today's fills, which are in them
     from kite_connect.trading.book_events import events_between, unrecorded_gaps, upcoming_share_actions
@@ -739,6 +816,9 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
         bad = [f for f in report["fills"] if f["status"] != "FILLED" or f["note"].startswith("partial")]
         if bad:
             report["alerts"].append("not (fully) filled: " + "; ".join(f"{f['side']} {f['symbol']} {f['note']}" for f in bad))
+            for f in bad:                                 # AL4: an exit not done needs the owner today
+                (critical if str(f["side"]).upper() == "SELL" else missed_buys).append(
+                    f"{f['side']} {f['symbol']} not (fully) filled: {f['note']}")
     elif decision:
         report["notes"].append(f"orders decided {decision}: outcomes already read")
     try:
@@ -752,6 +832,16 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
     if report["external"]:
         report["alerts"].append("sold outside the engine today (GTT stop or manual): "
                                 + ", ".join(f"{e['symbol']} x{e['quantity']}" for e in report["external"]))
+    from kite_connect.trading.gtt_stops import list_stop_gtts
+
+    gtt_error = None                                      # AL4: today's stop sells that did not go through
+    try:
+        gtt_history = list_stop_gtts(kite, active_only=False)
+    except Exception as exc:                              # noqa: BLE001 - the GTT book's own alert covers it
+        logger.warning("GTT history unavailable for the failed-sell check: %s", exc)
+        gtt_history, gtt_error = [], exc
+    stop_failures = failed_stop_sells(gtt_history, order_book, set(ledger.get("positions") or {}),
+                                      {s: int(h.get("quantity") or 0) for s, h in broker_holdings.items()}, session)
     planned_stops = ({o["symbol"]: (o["stop_price"], [decision, o.get("ref_price")]) for o in placed_doc.get("orders", [])
                       if str(o.get("side")).upper() == "BUY" and o.get("stop_price")}
                      if decision and pd.Timestamp(decision) < session else {})
@@ -770,19 +860,15 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
     elif pending or skipped:
         provisional = apply_fills(ledger, report["fills"] + report["external"], session, dp)
         since = str(ledger.get("session") or "")
-        from kite_connect.trading.gtt_stops import list_stop_gtts
 
         def sold(g) -> bool:                             # triggered since the last session, its order not refused
             r, when = g.get("order_result"), str((g.get("raw") or {}).get("updated_at") or "")[:10]
             ok = not isinstance(r, dict) or str(r.get("status") or "success").lower() == "success"
             return g.get("status") == "triggered" and ok and since < when <= session.date().isoformat()
 
-        try:
-            triggered = [{**g, "updated_at": (g.get("raw") or {}).get("updated_at")}
-                         for g in list_stop_gtts(kite, active_only=False) if sold(g)]
-        except Exception as exc:                          # noqa: BLE001 - then a shortfall stays unexplained
-            triggered = []
-            report["alerts"].append(f"GTT history unavailable for the reconcile: {exc}")
+        triggered = [{**g, "updated_at": (g.get("raw") or {}).get("updated_at")} for g in gtt_history if sold(g)]
+        if gtt_error is not None:                         # then a shortfall stays unexplained
+            report["alerts"].append(f"GTT history unavailable for the reconcile: {gtt_error}")
         awaiting = ledger.get("ca_pending") or {}
         seen_qty = {s: int(h["quantity"]) for s, h in broker_holdings.items()}
         seen_qty.update({s: max(seen_qty.get(s, 0), int((provisional.get("positions") or {}).get(s, 0)))
@@ -826,8 +912,13 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
     for f in report["fills"]:
         if f.get("status") == "FILLED" and str(f.get("side")).upper() == "BUY":
             bought_today[str(f["symbol"])] = bought_today.get(str(f["symbol"]), 0) + int(f.get("quantity") or 0)
-    holdings, cash, scope_alerts = scoped_book(ledger, broker_holdings, broker_cash, factors, bought_today)
+    holdings, cash, scope_alerts = scoped_book(ledger, broker_holdings, broker_cash, factors, bought_today,
+                                               critical=critical, stop_failures=stop_failures)
     report["alerts"].extend(scope_alerts)
+    for fail in stop_failures.values():                   # AL4: a failure scoped_book had no line to replace
+        if not any(a.startswith(fail) for a in scope_alerts):
+            report["alerts"].append(fail)
+            critical.append(fail)
     ledger["isins"] = {s: v for s, v in {**(ledger.get("isins") or {}),        # LN-T5: to follow a rename by ISIN
                                          **{x: h["isin"] for x, h in broker_holdings.items() if h.get("isin")}}.items()
                        if s in (ledger.get("positions") or {})}
@@ -868,6 +959,7 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
         ahead[cl.STATE_KEY] = lstate.dump()
         report["ladder"] = decision.line()
         report["alerts"].extend(decision.alerts)
+        critical.extend(decision.critical)
         if gate is not None:
             from nse_engine import paper_gate as pg
             report["gate"] = pg.one_line(gate)
@@ -1050,6 +1142,16 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
     if shift_path.exists():
         shift_path.unlink()
     if email:
+        from services.notifications.alerts import CRITICAL, WARNING, alert
+
+        if critical:                                      # AL3: one email for what needs the owner today
+            alert(CRITICAL, f"live_risk:{label or 'own'}",
+                  f"Centurion live{f' [{label}]' if label else ''}: {len(critical)} item(s) need your check today",
+                  critical, book=label or None)
+        if missed_buys:                                   # AL4: buys that did not fill
+            alert(WARNING, f"live_buys:{label or 'own'}",
+                  f"Centurion live{f' [{label}]' if label else ''}: {len(missed_buys)} buy(s) not filled", missed_buys,
+                  book=label or None)
         _email(report, dep, snap, float(ledger["capital"]), getattr(book, "schema", None) or live_schema(), label)
     logger.info("LIVE session %s (%s): %d fills, %d external, %d orders %s, %d alert(s) (detail in the email)",
                 report["session"], report["mode"], len(report["fills"]), len(report["external"]), len(orders),

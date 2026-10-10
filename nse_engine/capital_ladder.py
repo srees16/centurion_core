@@ -32,7 +32,8 @@ Every live session evaluates the ladder on the live book's own paper gate
   MaxDD AND NIFTY's drawdown over the same days (in a market-wide crash the
   book is judged against the market, U22); (2) regime_break in two
   consecutive sessions; (3) G4's cost check FAIL (costs above 2x the model).
-  The response is ``CENTURION_KILL_SWITCH=true``, which refuses new buys.
+  The response is the kill switch (``kite_connect.trading.kill_switch``, or
+  ``CENTURION_KILL_SWITCH=true``), which refuses new buys.
 
 A step changes the live ledger's capital and cash by the difference and is
 recorded as a flow on that day's snapshot.  ``flow_adjusted`` removes flows
@@ -133,6 +134,7 @@ class LadderDecision:
     reasons: List[str] = field(default_factory=list)
     kill: List[str] = field(default_factory=list)
     alerts: List[str] = field(default_factory=list)
+    critical: List[str] = field(default_factory=list)   # the alerts that need the owner today (tracker AL3)
 
     def line(self) -> str:
         head = f"{self.action} · rung {self.rung + 1} of {len(RUNGS)}, Rs {self.capital:,.0f}"
@@ -199,7 +201,9 @@ def evaluate(state: LadderState, session: str, *, gate: Optional[Dict[str, Any]]
     d = LadderDecision(HOLD, state.rung, state.capital, 0.0, kill=kill)
     if kill:
         d.alerts.append("KILL criterion met (your decision): " + "; ".join(kill)
-                        + ". Set CENTURION_KILL_SWITCH=true to refuse new buys. The ladder is frozen.")
+                        + ". Turn the kill switch on (Actions > Kill switch > on) to refuse new buys. "
+                          "The ladder is frozen.")
+        d.critical.append(d.alerts[-1])
 
     req = rung_of(requested_capital) if requested_capital else None
     if requested_capital and req is None:
@@ -224,6 +228,7 @@ def evaluate(state: LadderState, session: str, *, gate: Optional[Dict[str, Any]]
         else:
             d.reasons.append("G4 FAIL at the lowest rung: " + "; ".join(fails))
             d.alerts.append("G4 FAIL at the lowest rung: consider the kill switch. " + "; ".join(fails))
+        d.critical.append(d.alerts[-1])
         return d
 
     blockers = []

@@ -320,7 +320,7 @@ async def kite_orders():
 @router.post("/kite/orders")
 async def kite_place_order(order: Dict[str, Any]):
     """Place an order via Kite (swing and positional only: an intraday order is refused)."""
-    from kite_connect.trading.order_service import intraday_refusal, same_day_refusal
+    from kite_connect.trading.order_service import intraday_refusal, kill_switch_refusal, same_day_refusal
 
     refusal = intraday_refusal(order.get("product"), order.get("variety", "regular"))
     if refusal:
@@ -333,6 +333,10 @@ async def kite_place_order(order: Dict[str, Any]):
                                       order.get("variety", "regular"))
     if refusal:
         raise HTTPException(status_code=422, detail=refusal)
+    refusal = await asyncio.to_thread(kill_switch_refusal, kite, order.get("tradingsymbol"), order.get("exchange"),
+                                      order.get("transaction_type"), order.get("quantity"), order.get("product"))
+    if refusal:                                           # tracker DM0: the kill switch holds here too
+        raise HTTPException(status_code=423, detail=refusal)
     try:
         variety = order.pop("variety", "regular")
         order_id = await asyncio.to_thread(

@@ -109,6 +109,11 @@ class BasketExecutor:
 
     def execute(self, legs: Sequence[LegOrder], tag: str = "") -> ExecutionReport:
         report = ExecutionReport(self.mode, [])
+        refusal = self._kill_switch_refusal(legs) if self.mode == "live" else None
+        if refusal:                                       # checked before any leg: a refused basket sends nothing
+            logger.error("basket %s refused: %s", tag, refusal)
+            report.stopped = refusal
+            return report
         for leg in execution_order(legs):
             result = self._one(leg, tag)
             report.results.append(result)
@@ -118,6 +123,22 @@ class BasketExecutor:
         for warning in report.naked_shorts():
             logger.error("NAKED SHORT after basket %s: %s", tag, warning)
         return report
+
+    def _kill_switch_refusal(self, legs: Sequence[LegOrder]) -> Optional[str]:
+        """While the kill switch is on (tracker DM0), only an exit goes: every leg must reduce an open
+        position (a sell of a long, a buy of a short).  None when the basket may go."""
+        from kite_connect.trading.order_service import is_kill_switch_active
+
+        if not is_kill_switch_active():
+            return None
+        try:
+            net = {p.get("tradingsymbol"): int(p.get("quantity") or 0) for p in self.broker.positions()}
+        except Exception as exc:                          # noqa: BLE001 - refuse rather than guess
+            return f"KILL SWITCH active and the positions could not be read ({exc})"
+        opening = [f"{leg.side} {leg.contract.tradingsymbol}" for leg in legs
+                   if (net.get(leg.contract.tradingsymbol, 0) if leg.side == SELL
+                       else -net.get(leg.contract.tradingsymbol, 0)) < leg.quantity]
+        return f"KILL SWITCH active: only exits go, and {', '.join(opening)} would open risk" if opening else None
 
     # ── one leg ─────────────────────────────────────────────────
     def _one(self, leg: LegOrder, tag: str) -> LegResult:
