@@ -10,19 +10,27 @@ registry is the single source of the trial matrix.
 ``record_result`` writes a minimal run directory for a ``BacktestResult``
 that was produced without the engine's own recorder (e.g. an injected
 backtest function); the engine itself writes the full layout.
+
+Both stamp the manifest's ``runtime`` (``runtime_stamp``): Mac and Kaggle
+runs of one configuration do not reproduce each other, so a trial set must
+stay on one platform.  Runs recorded before the stamp are classified in a
+sidecar (``build_runtime_index``), and ``returns_matrix`` warns when the
+trials it selects span environments (tracker LN-T26).
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import time
 import uuid
 import warnings
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Mapping, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -33,6 +41,10 @@ MANIFEST_FIELDS = ("run_id", "tag", "config_hash", "git_commit", "git_dirty",
                    "data_hash", "start", "end", "created_at", "refresh_of", "cost_model")
 #: Runs recorded before the cost model was versioned (U25, 30 Sep 2026).
 LEGACY_COST_MODEL = 1
+#: Sidecar in a runs directory: the runtime of each run recorded before manifests carried one (LN-T26).
+RUNTIME_INDEX = "runtime_index.json"
+#: The (system, machine) every Kaggle session recorded in its provenance (kaggle_out fold and state files).
+KAGGLE_PLATFORM = ("Linux", "x86_64")
 
 
 _GIT_CACHE: Dict[str, Any] = {}
@@ -64,6 +76,68 @@ def _git_state_uncached(cwd: Optional[str]) -> Dict[str, Any]:
         return {"git_commit": sha, "git_dirty": dirty}
     except Exception:  # pragma: no cover - git missing
         return {"git_commit": "unknown", "git_dirty": None}
+
+
+def runtime_origin() -> str:
+    """Where this process runs: kaggle, actions, hf_space or local, from each platform's own variables."""
+    from cloud.kaggle_runner import on_kaggle
+
+    if os.getenv("KAGGLE_KERNEL_RUN_TYPE") or on_kaggle():
+        return "kaggle"
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        return "actions"
+    if os.getenv("SPACE_ID"):
+        return "hf_space"
+    return "local"
+
+
+def runtime_stamp() -> Dict[str, str]:
+    """A run's runtime for its manifest (never config.json, so the config hash is untouched): the walk-forward
+    folds' ``provenance()`` plus scipy, system, machine and origin."""
+    import platform
+
+    from cloud.kaggle_runner import provenance
+
+    out = provenance()
+    try:
+        import scipy
+        out["scipy"] = scipy.__version__
+    except ImportError:                               # reporting only
+        out["scipy"] = "missing"
+    out.update({"system": platform.system(), "machine": platform.machine(), "origin": runtime_origin()})
+    return out
+
+
+def environment_class(runtime: Optional[Mapping[str, Any]]) -> Optional[str]:
+    """``origin/system-machine`` of a runtime stamp (``kaggle/Linux-x86_64``); None when unknown."""
+    if not runtime or not runtime.get("origin"):
+        return None
+    return f"{runtime['origin']}/{runtime.get('system')}-{runtime.get('machine')}"
+
+
+def build_runtime_index(runs_dir: Union[str, Path], kaggle_out: Union[str, Path]) -> Dict[str, Any]:
+    """Classify the runs whose manifest has no runtime stamp, in the ``RUNTIME_INDEX`` sidecar (manifests are
+    not rewritten): a run directory also under ``kaggle_out/<session>/runs`` came from Kaggle, any other was
+    recorded on this machine.  Run it here, on the research machine, after importing Kaggle runs."""
+    import platform
+
+    root = Path(runs_dir)
+    kaggle = {m.parent.name for m in Path(kaggle_out).glob("*/runs/*/manifest.json")}
+    on_kaggle = {"origin": "kaggle", "system": KAGGLE_PLATFORM[0], "machine": KAGGLE_PLATFORM[1]}
+    here = {"origin": "local", "system": platform.system(), "machine": platform.machine()}
+    index = {}
+    for man in TrialRegistry(root)._manifests():
+        if not man.get("runtime"):
+            name = Path(man["_dir"]).name
+            index[name] = on_kaggle if name in kaggle else here
+    (root / RUNTIME_INDEX).write_text(json.dumps(index, indent=1, sort_keys=True))
+    return {"runs_dir": str(root), "indexed": len(index),
+            "by_environment": dict(Counter(environment_class(v) for v in index.values()))}
+
+
+def _warn(msg: str) -> None:
+    logger.warning(msg)
+    warnings.warn(msg, UserWarning, stacklevel=3)
 
 
 def to_jsonable(obj: Any) -> Any:
@@ -124,6 +198,7 @@ def record_result(result: Any, tag: str, runs_dir: Optional[Union[str, Path]] = 
         "metrics": to_jsonable(getattr(result, "metrics", {}) or {}),
         "recorded_by": "nse_engine.validation.trials.record_result",
         "cost_model": _cost_model_version(),
+        "runtime": runtime_stamp(),
     }
     for key, value in dict(extra or {}).items():
         manifest.setdefault(str(key), to_jsonable(value))
@@ -180,8 +255,18 @@ class TrialRegistry:
             out.append(man)
         return out
 
+    def _runtime_index(self) -> Dict[str, Any]:
+        path = self.runs_dir / RUNTIME_INDEX
+        try:
+            return json.loads(path.read_text()) if path.exists() else {}
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Ignoring unreadable %s: %s", path, exc)
+            return {}
+
     def list_trials(self) -> pd.DataFrame:
-        """One row per recorded run: manifest fields plus scalar metrics."""
+        """One row per recorded run: manifest fields plus scalar metrics, and the run's ``environment``
+        (``environment_class`` of its runtime stamp, else of the sidecar index; None when neither has it)."""
+        index = self._runtime_index()
         rows = []
         for man in self._manifests():
             row = {k: man.get(k) for k in MANIFEST_FIELDS}
@@ -189,11 +274,12 @@ class TrialRegistry:
                 if isinstance(v, (int, float, bool, str)) or v is None:
                     row[k if k not in row else f"metric_{k}"] = v
             row["run_dir"] = man["_dir"]
+            row["environment"] = environment_class(man.get("runtime") or index.get(Path(man["_dir"]).name))
             rows.append(row)
         cols = list(MANIFEST_FIELDS)
         df = pd.DataFrame(rows)
         if df.empty:
-            return pd.DataFrame(columns=cols + ["run_dir"])
+            return pd.DataFrame(columns=cols + ["run_dir", "environment"])
         df["cost_model"] = pd.to_numeric(df["cost_model"], errors="coerce").fillna(LEGACY_COST_MODEL).astype(int)
         return df.sort_values(["created_at", "run_id"], na_position="first").reset_index(drop=True)
 
@@ -213,16 +299,19 @@ class TrialRegistry:
     def returns_matrix(self, start: Optional[str] = None, end: Optional[str] = None,
                        dedupe_config: bool = True, data_hash: Optional[str] = None,
                        tags: Optional[List[str]] = None,
-                       window: Optional[tuple] = None, cost_model: Optional[int] = None) -> pd.DataFrame:
+                       window: Optional[tuple] = None, cost_model: Optional[int] = None,
+                       environment: Optional[str] = None) -> pd.DataFrame:
         """date x run_id daily returns restricted to dates common to all runs.
 
         ``dedupe_config`` keeps only the latest run (by created_at) per
         (config_hash, start, end) -- re-runs of one config on one window.
-        ``data_hash`` / ``tags`` / ``cost_model`` filter runs (results from two
-        cost models are not comparable: U25).  ``window=(start, end)`` keeps only
-        runs recorded on exactly that trading window, so walk-forward fold runs
-        do not shrink the common-date intersection.  Warns when the selected
-        runs were computed on different data hashes.
+        ``data_hash`` / ``tags`` / ``cost_model`` / ``environment`` filter runs
+        (results from two cost models are not comparable: U25; nor from two
+        platforms: LN-T26).  ``window=(start, end)`` keeps only runs recorded on
+        exactly that trading window, so walk-forward fold runs do not shrink the
+        common-date intersection.  Warns when the selected runs were computed on
+        different data hashes or in different environments, and when dedupe
+        replaced a run with one from another environment.
         """
         trials = self.list_trials()
         if trials.empty:
@@ -231,6 +320,8 @@ class TrialRegistry:
             trials = trials[trials["data_hash"] == data_hash]
         if cost_model is not None:
             trials = trials[trials["cost_model"] == int(cost_model)]
+        if environment is not None:
+            trials = trials[trials["environment"] == environment]
         if tags is not None:
             trials = trials[trials["tag"].isin(tags)]
         if window is not None:
@@ -246,16 +337,22 @@ class TrialRegistry:
                      + trials["end"].fillna("").astype(str))
             keyed = keyed.where(trials["config_hash"].fillna("").astype(str) != "", "")
             has_key = keyed != ""
-            latest = trials[has_key].groupby(keyed[has_key], sort=False).tail(1)
-            trials = pd.concat([latest, trials[~has_key]]).sort_values(["created_at", "run_id"])
+            groups = trials[has_key].groupby(keyed[has_key], sort=False)
+            crossed = int((groups["environment"].nunique(dropna=False) > 1).sum())
+            if crossed:
+                _warn(f"Dedupe kept the latest run of {crossed} configurations over a run from another "
+                      "environment (pass environment=...)")
+            trials = pd.concat([groups.tail(1), trials[~has_key]]).sort_values(["created_at", "run_id"])
         if trials.empty:
             return pd.DataFrame()
         hashes = set(trials["data_hash"].dropna().astype(str))
         if len(hashes) > 1:
-            msg = (f"Trials span {len(hashes)} different data hashes {sorted(hashes)}; "
-                   "returns are not comparable across data versions (pass data_hash=...)")
-            logger.warning(msg)
-            warnings.warn(msg, UserWarning, stacklevel=2)
+            _warn(f"Trials span {len(hashes)} different data hashes {sorted(hashes)}; "
+                  "returns are not comparable across data versions (pass data_hash=...)")
+        envs = set(trials["environment"].fillna("unknown"))
+        if len(envs) > 1:
+            _warn(f"Trials span {len(envs)} environments {sorted(envs)}; Mac and Kaggle runs do not reproduce "
+                  "each other (pass environment=...; 'unknown' runs predate the runtime stamp: run runtime-index)")
         series = [self.load_returns(r) for r in trials["run_id"]]
         mat = pd.concat(series, axis=1, join="inner")
         mat.columns = list(trials["run_id"])

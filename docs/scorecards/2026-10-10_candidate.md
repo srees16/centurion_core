@@ -1,6 +1,6 @@
 # Scorecard: candidate (2d64ba4c), 2013-01-01 to 2025-12-31
 
-Run 20261010T031406532878Z_2d64ba4c, data dab49d3cbd323c16, cost model 4, risk-free 6.5%, as of 2026-10-10T05:20 UTC. The recorded run is the registry's configuration; the paper and live books add the deployment's drawdown overlay (E2).
+Run 20261010T031406532878Z_2d64ba4c, data dab49d3cbd323c16, cost model 4, risk-free 6.5%, as of 2026-10-10T11:50 UTC. The recorded run is the registry's configuration; the paper and live books add the deployment's drawdown overlay (E2).
 
 ## Pass rules (fixed before the data was read)
 
@@ -34,6 +34,26 @@ Run 20261010T031406532878Z_2d64ba4c, data dab49d3cbd323c16, cost model 4, risk-f
 | Beta to NIFTY 50 TRI | 0.35 |
 | Beta on NIFTY down days | 0.37 |
 | Market alpha (annual, t) | 11.7% (t 3.4) |
+
+**Drawdowns** (151 periods): the longest under water ran 2018-01-15 to 2020-07-27, 924 days, -17.8% deep; 87.1% of days under water; none open at the end.
+
+| Peak | Trough | Recovered | Depth | Days |
+|---|---|---|---|---|
+| 2015-04-08 | 2016-01-29 | 2017-04-20 | -23.6% | 743 |
+| 2018-01-15 | 2019-08-01 | 2020-07-27 | -17.8% | 924 |
+| 2022-04-11 | 2023-03-13 | 2023-06-13 | -11.4% | 428 |
+| 2013-01-03 | 2013-04-05 | 2013-12-19 | -10.9% | 350 |
+| 2024-09-27 | 2024-11-14 | 2025-05-22 | -10.1% | 237 |
+
+**Across NIFTY 50 TRI's deepest drawdowns** (descriptive: the fall is peak to trough, the recovery trough to the TRI's recovery or the end)
+
+| TRI peak | Trough | Recovered | TRI fall | Book fall | TRI recovery | Book recovery |
+|---|---|---|---|---|---|---|
+| 2020-01-14 | 2020-03-23 | 2020-11-06 | -38.3% | -6.5% | 62.4% | 33.1% |
+| 2015-03-03 | 2016-02-25 | 2016-08-31 | -21.4% | -16.5% | 27.5% | 17.3% |
+| 2021-10-18 | 2022-06-17 | 2022-11-11 | -16.4% | -5.7% | 20.7% | -2.2% |
+| 2024-09-26 | 2025-03-04 | 2025-10-23 | -15.4% | -3.6% | 18.3% | 20.4% |
+| 2018-08-28 | 2018-10-26 | 2019-04-02 | -14.4% | -7.0% | 17.2% | -6.5% |
 
 ## Attribution: style factors and the alpha left
 
@@ -94,32 +114,34 @@ Alpha trend 1.1% per year (p 0.50); first half mean 3.8%, second half 15.0%.
 | Profit factor | 1.89 |
 | Average P&L per round trip | Rs 2,124 (13 bp of equity) |
 | Largest win / loss | Rs 2.5 L / Rs -46,298 |
-| Participation (order / median traded value) | median 0.01%, p95 0.07%, 3.9% of fills cut by the 5% cap |
+| Participation (order / median traded value) | median 0.01%, p95 0.07%; 1 of 6,466 fills cut by the 5% cap, 249 buys scaled down for cash |
 | Modelled impact | 9.8 bp of traded value |
 
 ## Capacity
 
 Fills of 2023-12-21 to 2025-12-30 (1027) re-sized to each capital; gross edge 16.7% per year (net excess CAGR plus modelled impact).
 
-| Capital | Impact drag per year | Edge left | Fills over the 5% cap |
-|---|---|---|---|
-| Rs 6.0 L | 0.43% | 16.3% | 0% |
-| Rs 12.0 L | 0.48% | 16.2% | 0% |
-| Rs 21.0 L | 0.54% | 16.2% | 0% |
-| Rs 30.0 L | 0.58% | 16.1% | 0% |
-| Rs 50.0 L | 0.66% | 16.0% | 0% |
-| Rs 1.00 cr | 0.80% | 15.9% | 0% |
-| Rs 2.00 cr | 1.01% | 15.7% | 0% |
-| Rs 5.00 cr | 1.41% | 15.3% | 0% |
-| Rs 10.00 cr | 1.86% | 14.8% | 0% |
+| Capital | Impact drag per year | Edge left | Fills over the 5% cap | Traded value over it |
+|---|---|---|---|---|
+| Rs 6.0 L | 0.43% | 16.3% | 0.0% | 0.0% |
+| Rs 12.0 L | 0.48% | 16.2% | 0.0% | 0.0% |
+| Rs 21.0 L | 0.54% | 16.2% | 0.0% | 0.0% |
+| Rs 30.0 L | 0.58% | 16.1% | 0.0% | 0.0% |
+| Rs 50.0 L | 0.66% | 16.0% | 0.0% | 0.0% |
+| Rs 1.00 cr | 0.80% | 15.9% | 0.0% | 0.0% |
+| Rs 2.00 cr | 1.01% | 15.7% | 0.0% | 0.0% |
+| Rs 5.00 cr | 1.41% | 15.3% | 0.0% | 0.0% |
+| Rs 10.00 cr | 1.86% | 14.8% | 0.4% | 3.0% |
 
-**Impact eats half the edge at Rs 270.81 cr**, where 25% of fills would exceed the participation cap. The engine would cap fills over the participation limit rather than pay the impact shown; the capped share says how much of the book would then go untraded.
+**Impact eats half the edge at Rs 270.81 cr**, where 25.3% of fills (47.4% of traded value) would exceed the participation cap. The engine would cap fills over the participation limit rather than pay the impact shown; the capped share says how much of the book would then go untraded.
+
+The cap binds first on SILVERBEES (sleeve) at Rs 6.48 cr, GOLDBEES (sleeve) at Rs 6.97 cr, HSCL at Rs 37.77 cr, ACUTAAS at Rs 42.16 cr, ASTERDM at Rs 44.52 cr; the first core stock is HSCL at Rs 37.77 cr; 5%, 25%, 50% of traded value is over it at Rs 15.48 cr, Rs 117.69 cr, Rs 299.84 cr.
 
 ## Robustness
 
-**Walk-forward OOS** (2017-01-02 to 2025-12-31, 9 folds over 32 grid points of the configuration family, base bd79bf28; data/nse_engine/wf_oos_returns_r12a5.csv): Sharpe 1.24, CAGR 23.1%, MaxDD -22.1%, Calmar 1.04; mean IS 0.95 vs OOS 1.01 per fold (OOS/IS 1.30), 3 negative OOS years.
+**Walk-forward OOS** (2017-01-02 to 2025-12-31, 9 folds over 32 grid points of the configuration family, base bd79bf28; data/nse_engine/wf_oos_returns_r12a5.csv): Sharpe 1.24, CAGR 23.1%, MaxDD -22.1%, Calmar 1.04; mean IS 0.95 vs OOS 1.01 per fold (OOS/IS 1.30), 3 negative OOS years; Sharpe standard error 0.35, PSR(1.2) 0.543, MinTRL vs 0 479 sessions (1.9 years); reported, not a pass rule.
 
-**Overfitting** over 61 recorded configurations (data dab49d3cbd323c16, cost model 4): deflated Sharpe 0.963 (annual Sharpe 1.16 vs the expected best of 0.64 from 61 trials; clustered 1.000), PBO 29.2%, probability of an OOS loss 0.7%.
+**Overfitting** over 61 recorded configurations (data dab49d3cbd323c16, cost model 4): deflated Sharpe 0.963 (annual Sharpe 1.16 vs the expected best of 0.64 from 61 trials; clustered 1.000), PBO 29.2%, probability of an OOS loss 0.7%; Sharpe standard error 0.29, PSR(1.2) 0.442, MinTRL vs 0 547 sessions (2.2 years); reported, not a pass rule.
 
 **Parameter sensitivity**: 5 recorded one-setting neighbours (Sharpe change -0.04 to 0.03); fragile settings (|change| > 0.10): none.
 
@@ -131,20 +153,20 @@ Fills of 2023-12-21 to 2025-12-30 (1027) re-sized to each capital; gross edge 16
 | universe.price_filter_unadjusted | True | False | 1.15 | -0.01 | -0.1% |
 | portfolio.exit_rank | 40 | 60 | 1.19 | 0.03 | 0.7% |
 
-**Regime stability by NIFTY 50 trend**
+**Regime stability by NIFTY 50 trend** (the regime known at the previous close)
 
 | Regime | Days | Annual return | Sharpe | Up days | Worst day |
 |---|---|---|---|---|---|
-| bear | 19% | -15.5% | -1.82 | 49% | -6.6% |
-| bull | 67% | 36.5% | 2.40 | 61% | -5.5% |
-| sideways | 15% | -3.9% | -0.85 | 54% | -6.2% |
+| bear | 19% | 7.0% | 0.04 | 53% | -6.6% |
+| bull | 67% | 28.6% | 1.74 | 60% | -6.2% |
+| sideways | 15% | 3.4% | -0.26 | 54% | -4.1% |
 
-**Regime stability by India VIX**
+**Regime stability by India VIX** (the regime known at the previous close)
 
 | Regime | Days | Annual return | Sharpe | Up days | Worst day |
 |---|---|---|---|---|---|
-| calm | 94% | 23.4% | 1.39 | 58% | -5.5% |
-| elevated | 6% | -19.5% | -1.60 | 53% | -6.6% |
+| calm | 94% | 21.2% | 1.18 | 58% | -6.6% |
+| elevated | 6% | 16.2% | 0.79 | 58% | -3.1% |
 
 ## Correlation of daily returns
 

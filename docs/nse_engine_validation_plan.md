@@ -372,6 +372,19 @@ exposure took 309 days after the 2008 low to reach 0.8 (79 days in 2020,
 loses the year and the crash. A faster re-entry after a crash is research
 item R11, to be pre-registered: with 3–4 episodes it is easy to overfit.
 
+**Data caveat (10 Oct 2026, tracker LN-T28).** `store_ext2006` has no
+corporate-action or dividend records before 2010-01-04. About 17 bonus and
+demerger gaps in 2006–09 that are smaller than the loader's 35% inference
+threshold stay unadjusted, so a holder books a false loss on the ex-date:
+ONGC 2006-10-27 (−31.6%, a 1:2 bonus), JPASSOCIAT 2009-12-17 (−31.2%),
+DABUR, CROMPGREAV, RELIANCE 2006-01-18 (−25.3%, a demerger). Dividends
+before 2010 are missing too. The 2008 drawdowns above read about 1 point too
+deep. Comparisons on the same data (the configurations against each other,
+the walk-forward's grid) are unaffected, and no verdict of R4, R11 or the
+other 2007–25 runs flips. The 2013–25 window and live trading do not use
+this data. Importing the events needs a source that covers 2006–09,
+delisted names included; the 35% threshold stays.
+
 ## 5f. Crash re-entry (R11, 28 Sep 2026): FAIL
 
 Decision U22 asks that a crisis not keep the book out of the rebound. The
@@ -815,6 +828,10 @@ market-neutral pair, which needs more capital still. Risk: its worst
 months are rebounds, against decision U22. Revisit as a market-neutral
 spread when the book is past ₹2 crore. One look, not a trial: no
 configuration was recorded.
+
+U28 closed on this evidence (10 Oct 2026), with that trigger to reopen it.
+The scorecard's ex-ante regime split (LN-T18) has since removed the case for
+a bear hedge: the book is about flat in bear phases, not −22% a year.
 
 ## 5q. Options sleeve, first round (O2, 3 Oct 2026)
 

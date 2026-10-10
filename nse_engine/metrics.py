@@ -54,6 +54,30 @@ def max_drawdown(equity: pd.Series) -> float:
     return float((e / e.cummax() - 1.0).min())
 
 
+def drawdown_periods(equity: pd.Series) -> pd.DataFrame:
+    """Every drawdown of a date-indexed equity curve, in date order (tracker LN-T25).
+
+    Lean's DrawdownCollection with two fixes: an episode is keyed by a count
+    of the days at the high-water mark, not by the peak's value, so drawdowns
+    from equal peaks stay separate; and one still open at the end is kept,
+    with no recovery date.  The first day back at the peak is the recovery.
+    ``days`` are calendar days from the peak to the recovery (or the last
+    date), ``sessions`` the days under water.
+    """
+    e = equity.dropna().astype("float64")
+    groups = [g for _, g in e.groupby((e >= e.cummax()).cumsum())]
+    rows = []
+    for i, g in enumerate(groups):
+        if len(g) < 2:
+            continue
+        recovery = groups[i + 1].index[0] if i + 1 < len(groups) else pd.NaT
+        end = g.index[-1] if pd.isna(recovery) else recovery
+        rows.append({"peak": g.index[0], "trough": g.idxmin(), "recovery": recovery,
+                     "depth": float(g.min() / g.iloc[0] - 1.0), "days": int((end - g.index[0]).days),
+                     "sessions": int(len(g) - 1)})
+    return pd.DataFrame(rows, columns=["peak", "trough", "recovery", "depth", "days", "sessions"])
+
+
 def round_trips(trades: Optional[pd.DataFrame]) -> pd.DataFrame:
     """Round trips per symbol: from a flat position to flat again.
 
@@ -114,6 +138,7 @@ def compute_metrics(
     mdd = out["max_drawdown"]
     out["calmar"] = float(out["cagr"] / abs(mdd)) if np.isfinite(mdd) and mdd < 0 and np.isfinite(out["cagr"]) else float("nan")
     out["skew"] = float(stats.skew(r.to_numpy())) if n > 2 else float("nan")
+    # Excess (Fisher) kurtosis, 0 for a normal; validation.dsr's PSR and MinTRL take the raw value (3).
     out["kurtosis"] = float(stats.kurtosis(r.to_numpy())) if n > 3 else float("nan")
 
     if weights is not None and len(weights):

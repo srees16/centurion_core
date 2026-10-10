@@ -218,7 +218,7 @@ def apply_no_trade_buffer(
     is skipped.  Full exits (target 0) always trade.
     """
     out: Dict[str, float] = {}
-    for sym in set(target) | set(current):
+    for sym in sorted(set(target) | set(current)):
         t = float(target.get(sym, 0.0))
         c = float(current.get(sym, 0.0))
         if t <= 0:
