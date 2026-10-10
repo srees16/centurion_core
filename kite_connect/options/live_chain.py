@@ -5,7 +5,11 @@ chain's ATM strike, ATM IV, max pain and PCR (``strategies``).
 
 Implied volatility is solved from the bid / ask mid when both sides quote,
 else from the last price; a price below the no-arbitrage bound gives no IV
-rather than an invented one.
+rather than an invented one.  Priced on spot with no dividend, an ITM
+option's mid often sits below that bound, so each strike also carries
+``iv_strike``: the OTM option's IV for both options there, else the other
+one's when it does not solve (Lean's smoothing rule, tracker LN-T27), with
+``iv_source`` saying whose it is (own, mirror or none).
 """
 
 from __future__ import annotations
@@ -19,12 +23,12 @@ import pandas as pd
 
 from kite_connect.options.instruments import Contract, InstrumentResolver, spot_key
 from kite_connect.options.strategies import max_pain, put_call_ratio
-from kite_connect.options.theory import atm_strike, black_scholes, implied_volatility
+from kite_connect.options.theory import CALL, PUT, atm_strike, black_scholes, implied_volatility
 
 IST = timezone(timedelta(hours=5, minutes=30))
 EXPIRY_CLOSE = time(15, 30)
 CHAIN_COLUMNS = ["strike", "option_type", "tradingsymbol", "lot_size", "ltp", "bid", "ask", "mid", "oi", "volume",
-                 "iv", "delta", "gamma", "theta", "vega"]
+                 "iv", "delta", "gamma", "theta", "vega", "iv_strike", "iv_source"]
 
 
 def days_to_expiry(expiry: date, now: datetime) -> float:
@@ -47,7 +51,8 @@ def quote_prices(quote: Optional[dict]) -> Dict[str, float]:
 
 def build_chain(contracts: Sequence[Contract], quotes: Dict[str, dict], spot: float, now: datetime,
                 rate: float) -> pd.DataFrame:
-    """One row per contract with prices, IV and Greeks (per unit; theta per day, vega per vol point)."""
+    """One row per contract with prices, IV and Greeks (per unit; theta per day, vega per vol point), and the
+    strike's IV (``iv_strike``, ``iv_source``)."""
     rows: List[dict] = []
     for c in contracts:
         p = quote_prices(quotes.get(c.quote_key))
@@ -59,6 +64,16 @@ def build_chain(contracts: Sequence[Contract], quotes: Dict[str, dict], spot: fl
                      "lot_size": c.lot_size, **p, "iv": iv if iv else math.nan,
                      "delta": g.delta if g else math.nan, "gamma": g.gamma if g else math.nan,
                      "theta": g.theta if g else math.nan, "vega": g.vega if g else math.nan})
+    own = {(r["strike"], r["option_type"]): r["iv"] for r in rows}
+    for r in rows:
+        otm = CALL if r["strike"] >= spot else PUT
+        for t in (otm, PUT if otm == CALL else CALL):          # the OTM side first, then its mirror
+            iv = own.get((r["strike"], t), math.nan)
+            if np.isfinite(iv):
+                r.update(iv_strike=iv, iv_source="own" if t == r["option_type"] else "mirror")
+                break
+        else:
+            r.update(iv_strike=math.nan, iv_source="none")
     return pd.DataFrame(rows, columns=CHAIN_COLUMNS)
 
 

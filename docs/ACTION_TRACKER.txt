@@ -258,7 +258,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              all ten configurations.  Open ideas: Y3 (overnight drift) on
              the future's own open and close (needs futures opens in the
              F&O store; the bhavcopy has them); a protective bear put
-             spread judged on the combined book; weekly expiries.
+             spread judged on the combined book; weekly expiries.  Its
+             prerequisites LN-T20 and LN-T27 are done (10 Oct).
 [!] P1  U23  Log in to Kite once every trading day: tap the link in the
              09:00 / 17:30 IST email (valid until 06:00 next day).  The first
              live dry run is Thu 1 Oct 19:00 IST (Fri 2 Oct is a holiday);
@@ -426,16 +427,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 [ ] P3  AL6  Push channel for CRITICAL alerts (Pushover or Telegram):
              deferred (your call 10 Oct: fewer than 5 users, email is
              enough).  Revisit if users grow or email proves too slow.
-[ ] P2  LN-T20 Options: one label-to-contract settlement map for every options
-             backtest, plus a guard on the settle column.  Small plus one
-             Kaggle job; needed before any O5 round.  Detail: lean_review.md
-             item 20.
 [ ] P3  LN-T21b Phase 1 of LN-T21, deferred (your call 10 Oct): paper fills
              record would_fill_live (open / at_limit / unfilled) from the
              session's bar; needs a paper_fills column (Neon and SQLite).
-[ ] P3  LN-T27 Options toolkit: ITM legs take their OTM mirror's IV, so Greeks
-             and the volatility stop are never lost.  Small; needed before
-             any O5 round.  Detail: lean_review.md item 27.
 [ ] P3  LN-T28b Optional, from LN-T28: import the ~17 missed 2006-09 bonus /
              demerger events (and dividends) into store_ext2006, rebuild it,
              run refresh-registry --dry-run.  Only after a source covering
@@ -474,6 +468,32 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+10 Oct  LN-T27 Options toolkit IVs for ITM legs (Lean's smoothing rule).  The
+             live chain adds iv_strike (the OTM option's IV for both options
+             at a strike, else the other's) and iv_source (own / mirror /
+             none); pretrade reads iv_strike.  The position monitor quotes
+             each leg's mirror and solves own IV, mirror IV, then the entry
+             ATM IV (flagged approximate), so Greeks and the volatility stop
+             are never lost while spot and a price exist.  Checks: a weekly
+             chain priced on F = S e^((r+1.5%)T), bull put spread short 3.6%
+             ITM: before, Greeks n/a and no stop even in a crash; after,
+             Greeks and the stop fire.  NIFTY legs > 2% ITM with no IV
+             (2019-25 sample): 23.1% -> 0.6%.  iv_history / IV_VERSION
+             untouched; the optional Black-76 forward path not built.
+10 Oct  LN-T20 One settlement source for every options backtest.
+             settlement_sessions follows NSE relabels (same-month label
+             starting the next session, recursively) and drops contracts
+             still trading at the data end (29 Jun 2023 -> 28 Jun, 27 Feb
+             2014 -> 26 Feb, 2025-09-25 -> 30 Sep, 2026-03-26/31 -> 30 Mar,
+             ...); rekey_to_settlement keys rounds 1-3 by settlement session
+             (O2 settles and quotes moved months on their day; O3 rolls on
+             it; Y2's future too); O2 never values a leg at the settle
+             column on its settlement day.  Re-run on Kaggle (2013-25 and
+             2007-25): A1 0.816 -> 0.828, A2 -0.273 -> -0.182 (its phantom
+             -26.3% day gone), B 0.256 -> 0.259, X3 0.502 -> 0.494, X4 0.139
+             -> 0.144, Y2 settles June 2023 at 18,972.10; X1, X2, Y1, Y3
+             reproduce; N 10, every gate-1 verdict unchanged.  Plan 5s
+             addendum; the relabel table corrected.
 10 Oct  U28  CLOSED on evidence (your call): no short sleeve in single-stock
              futures.  R15: a naked short loses -11%/yr (Sharpe -0.30, MaxDD
              -88%); beside E4 it is a hedge that costs 2.3 pts of CAGR and

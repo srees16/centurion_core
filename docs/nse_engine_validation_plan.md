@@ -1312,7 +1312,7 @@ date:
 | 24 Apr 2014 | settled the 23rd |
 | 29 Mar 2018 | relabelled the 28th |
 | 30 Mar 2023 | relabelled the 29th |
-| 29 Jun 2023 | settled the 27th |
+| 29 Jun 2023 | relabelled the 28th on the 28th (settled the 28th; corrected 10 Oct 2026, LN-T20) |
 | 31 Mar 2026 | relabelled the 30th |
 
 The fix (`settlement_sessions`):
@@ -1327,7 +1327,8 @@ Effects:
 - **Configurations:** no parameter changed, so the configurations and N are
   unchanged. Y1 and Y2 run again on Kaggle. The first runs stay in the
   registry, which reads the latest run of each configuration.
-- **Round 2:** its strategies are unaffected; they reproduce exactly.
+- **Round 2:** its strategies reproduced exactly then; that was wrong for
+  two of them (corrected 10 Oct 2026, below).
 - **Round 1:** its harness settles on the first session on or after the
   label, so it never stalled. But it settled a moved expiry up to two
   sessions late, at that later close, and skipped a relabelled month
@@ -1370,6 +1371,36 @@ What the runs say:
 Not re-tuned. A test of Y3 on the future's own opening and closing prices
 would be a new configuration in a later round. The bhavcopy carries futures
 opens, but the F&O store does not keep them yet.
+
+**Settlement re-baseline, 10 Oct 2026 (tracker LN-T20).** The fix above
+followed a relabel only in round 3's code, and only when the old label's
+rows stopped more than a week early; a relabel inside that week (29 Jun 2023
+to 28 Jun) settled a day early, and rounds 1 and 2 never used the map. Now
+one settlement source serves every options backtest:
+- `settlement_sessions` follows a relabel when a label of the same month
+  starts the very next session (recursively: 26 Mar 2026 to 31 Mar to
+  30 Mar), and leaves out a label still trading at the data's end.
+- Rounds 1, 2 and 3 key every contract by the session it settles on
+  (`rekey_to_settlement`): round 1 settles and quotes a moved month on its
+  real day, round 2's future rolls on it and no longer carries a stale mark
+  across a relabel, and Y2 settles June 2023 on the 28th (18,972.10, not the
+  27th's close).
+- Round 1 values an untraded leg on its own settlement session at intrinsic
+  against the exact index close, never the settle column, which has held the
+  index level that day since 2020.
+
+Re-run on Kaggle (2013–25 and 2007–25), same configurations, so N stays 10;
+a data re-baseline, as on 9 Oct. Sharpe, 2013–25, each alone:
+
+| | A1 | A2 | B | X3 | X4 | Y2 |
+|---|---|---|---|---|---|---|
+| Before | 0.816 | −0.273 | 0.256 | 0.502 | 0.139 | 0.317 |
+| After | 0.828 | −0.182 | 0.259 | 0.494 | 0.144 | 0.317 |
+
+A2's phantom −26.3% day (30 Jun 2023: the month settled a session late,
+against that day's close) is gone: 0% that day, −3.5% on the 28th. X1, X2, Y1 and Y3 reproduce
+exactly. Every gate-1 verdict stands: no strategy passes (A1's deflated
+Sharpe 0.897 on round 1's three sleeves, 0.696 at N = 10).
 
 ## 5t. Idle cash earns nothing: cost model 4 (IC1, 10 Oct 2026)
 

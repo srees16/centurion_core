@@ -1,4 +1,4 @@
-Realistically achievable target: Sharpe >= 1.5, CAGR >=30%, MaxDD<=35%, Calmar >= 1%, PBO <= 30%
+Realistically achievable target: Sharpe >= 1.2, CAGR >=35%, MaxDD<=35%, Calmar >= 1%, PBO <= 30%
 Goal is to have the best possible alpha, Sharpe and CAGR, lowest possible maxDD
 
 *success criterion should be highest Sharpe + lowest max DD, not a CAGR number. A config with 45%+ CAGR and 0.90 Sharpe is far better than 60% CAGR and 0.50 Sharpe, because the former will survive in live trading while the latter will blow up.*
@@ -95,39 +95,26 @@ momentum=16%, mean_reversion=13%, penfold_trend=12%, ehlers_dsp=12%, ewmac_16_64
 R21A OOS metrics (Sharpe=2.093, CAGR=74.1%, MaxDD=25.2%)
 R21A Full Period: Sharpe=1.181, CAGR=32.7%, MaxDD=29.6%, Calmar=1.1, PBO=27.1%
 ~~~~~~
-Target: Sharpe >= 1.8, CAGR >= 55%, MaxDD<= 35%, PBO <= 35%
+Target: Sharpe >= 1.8, CAGR >= 35%, MaxDD<= 35%, PBO <= 35%
 1. abort the backtest
 2. fundamentally rethink the approach, recalibrate & re-tune first
 3. then, analyze the identified steps and implement the best fixes to achieve
 4. finally, re-run full_pipeline_backtest
 ~~~~~~
+Golden target: Sharpe >= 1.2, CAGR >=35%, MaxDD<=35%, Calmar >= 1%, PBO <= 30%
 
-1. Utilize all available resources on the internet, github repos, PhD thesis, medium blogs, wikipedia, research papers on sites like arxiv.org etc., quant blogs and/or any other relevant media to perform deep research and understand the characteristics of trading systems that beat the above target consistently
-2. audit centurion_core and identify all the gaps (critical, high, medium, low) after compare & contrast with the best trading systems that were researched
-3. use the acquired knowledge to prepare a plan of action for implementation to reach the desired target stated above
+You are the best quantitative trader, research analyst and strategist having 20+ years of experience in Renaissance Technologies and Jane Street, world's 2 of the top quant trading firms.
 
-
-~~~~~~
-/Godmode
-Goal: Sharpe >= 1.8, CAGR >= 55%, MaxDD <= 35%, PBO <= 35%
-
-Task: you are the best quantitative trader, research analyst and strategist having 20+ years of experience in Renaissance Technologies and Jane Street, world's 2 of the top quant trading firms.
-1. with that experience, deeply study all available resources on the internet, github repos, PhD thesis, medium blogs, wikipedia, academic research papers on sites like arxiv.org etc., quant blogs and/or any other relevant media to perform deep research and understand the characteristics of trading systems that beat the above target consistently
-2. Quantify performance of centurion_core's Ind stocks module for the realistic returns in Indian markets during bull, bear & range-bound regimes, generating alpha, order workflow for Kite, signal quality for buy/sell, risk management etc.
-3. after research and understanding how the best trading systems work, do deep audit of centurion_core, do compare & contrast and identify all the gaps (if any) and categorize them after assessing the severity
-4. use the acquired knowledge to prepare a plan of action for implementation to realistically achieve the desired goal stated above
-5. if it requires genuinely new uncorrelated alpha sources, multi-timeframe diversification and any other methods/strategies, list them out crisp & clear
-6. skip audit of intraday and automatic order setup (for US stocks only) since centurion_core is for swing, positional trades. Automated trading enabled for Ind stocks via Zerodha Kite
+1. with that experience & context, deeply study all available resources on the internet, github repos, PhD thesis, medium blogs, wikipedia, academic research papers on sites like arxiv.org etc., quant blogs and/or any other relevant media to perform deep research and understand the characteristics of trading systems that meet and even beat the golden target consistently
+2. after the research and understanding how the best trading systems work, do a deep audit of centurion_core to compare & contrast performance of centurion_core's Ind stocks module for the realistic returns in Indian markets during bull, bear & range-bound regimes, alpha that it can generate, signal quality for buy/sell, risk management etc., and identify all the gaps and categorize them after assessing the value-add
+3. use the acquired knowledge to fundamentally rethink the approach, prepare a plan of action, backtests, forward walk OOS tests, paper trade as relevant for implementation to achieve the golden target
+4. if it requires genuinely new uncorrelated alpha sources, multi-timeframe diversification and any other methods/strategies, list them out crisp & clear
+5. skip audit of intraday and automatic order setup (for US stocks only) since centurion_core is for swing, positional trades. Automated trading enabled for Ind stocks via Zerodha Kite
+6. ensure centurion_core is a statistically robust, evidence-based trading system with improved signal reliability and reduced overfitting in Indian market conditions during go-live
 
 ~~~~~~
 
-Final Goal: 
-Upgrade centurion_core to a statistically robust, evidence-based trading system with improved signal reliability and reduced overfitting.
-
-~~~~~~
-there are various strategies that are implemented using the techniques discussed in the pdf docs. evaluate which combination of strategies would result in a higher sustained CAGR in bull, bear and range-bound regimes.
-~~~~~~
-You are the senior technical architect at THE most reputed quant trading firm in the world. You are designing centurion_core for 1 or 2 retail traders, a trading platform that would automatically trigger buy/sell orders based on fundamental analysis, technical analysis, qualitative analysis, macro-economic head & tail winds and event-driven news updates. Considering these requirements, perform the below tasks:
+You are the  at THE most reputed quant trading firm in the world. You are designing centurion_core for 1 or 2 retail traders, a trading platform that would automatically trigger buy/sell orders based on fundamental analysis, technical analysis, qualitative analysis, macro-economic head & tail winds and event-driven news updates. Considering these requirements, perform the below tasks:
 
 audit, investigate and analyze the characteristics of a trading terminal of a highly reputable quant firm. Compare & contrast that with the current implementation of centurion_core app with focus "ind stocks module". Remember that centurion_core app is to be used by 1-2 users only. List out the implementation gaps in high level system design & architecture, stock analysis methodology along with low level technical details. Give readable and crisp details.
 
@@ -136,6 +123,9 @@ audit the gaps in the current implementation of centurion_core with respect to t
 analyze if the current trading strategies, backtest strategies and techniques implemented from various pdf docs are practical to apply when triggering orders for ind stocks.
 
 finally, investigate by what percentage will centurion_core outperform NIFTY index. suggest improvements
+
+~~~~~~
+there are various strategies that are implemented using the techniques discussed in the pdf docs. evaluate which combination of strategies would result in a higher sustained CAGR in bull, bear and range-bound regimes.
 
 ~~~~~~
 audit the current order workflow beginning with user's ticker input until placing order on kite and identify any gaps if there are.
@@ -162,13 +152,12 @@ audit the current order workflow beginning with user's ticker input until placin
 ~~~~~~~
 
 1. Touch ONLY code required for this task; leave unrelated code untouched.
-2. Preserve existing behavior, APIs, and contracts unless explicitly required.
+2. Remove all temporary/test/debug scripts and implementation artifacts created during execution.
 3. Reuse existing utilities/patterns; avoid unnecessary duplication, or abstraction.
-4. Keep the diff minimal, clean, and production-ready.
-5. Review the final diff and remove anything unrelated or unnecessary.
-6. Remove all temporary/test/debug scripts and implementation artifacts you created.
-7. Remove all unused/dead code, imports, methods, variables, and obsolete snippets.
-8. Keep production-ready, modular, well-documented code only.
+4. Keep production-ready, modular, well-documented code only.
+5. Preserve existing behavior of unrelated functionality, APIs, and contracts unless explicitly required.
+6. Keep the diff minimal, clean, and production-ready.
+7. Review the final diff and remove anything unrelated or unnecessary.
 
 1. Where are images stored currently wen i run analysis? Display location or url to access dem on ui pages
 2. Implement same configuration n strategy to give a list of US stocks
@@ -185,7 +174,7 @@ Paper trade metrics are in line with goal
 
 refer for applicable improvements: 
 
-add a task in action_tracker to perform after the paper trade is completed to ensure that we capture the scores of the metrics like Sharpe ratio, Sortina ratio, Information ratio, Calmar ratio, Max drawdown, volatility, CVaR (Expected Shortfall), Skew and kurtosis, Factor exposures and beta (how much of the return is just market or style factors versus true alpha), Implementation shortfall / slippage, Market impact, Turnover, Hit rate and win/loss ratio, Profit factor, Average P&L per trade, Out-of-sample and walk-forward performance, Deflated Sharpe / probability of backtest overfitting, Parameter sensitivity, Regime stability, Alpha decay, Regime stability, Capacity (how much capital it can run before impact eats the edge), Correlation (to Centurion's existing strategies. A mediocre but uncorrelated Sharpe is often worth more than a great but correlated one), Live vs. backtest tracking error. Investigate whether the Sharpe survives costs, out-of-sample testing, and live trading at the size we want to run. Since Centurion implements non-HFT strategies, robustness and overfitting checks carry far more weight.
+add a task in action_tracker to perform after the paper trade is completed to ensure that we capture the scores of the metrics like Sharpe ratio, Sortina ratio, Information ratio, Calmar ratio, Max drawdown, volatility, CVaR (Expected Shortfall), Skew and kurtosis, Factor exposures and beta (how much of the return is just market or style factors versus true alpha), Implementation shortfall / slippage, Market impact, Turnover, Hit rate and win/loss ratio, Profit factor, Average P&L per trade, Out-of-sample and walk-forward performance, Deflated Sharpe / probability of backtest overfitting, Parameter sensitivity, Regime stability, Alpha decay, Capacity (how much capital it can run before impact eats the edge), Correlation (to Centurion's existing strategies). A mediocre but uncorrelated Sharpe is often worth more than a great but correlated one), Live vs. backtest tracking error. Investigate whether the Sharpe survives costs, out-of-sample testing, and live trading at the size we want to run. Since Centurion implements non-HFT strategies, robustness and overfitting checks carry far more weight.
 
 Be candid. If something in the current architecture does not meet the stated goal or if adding it now would be premature, say so.
 

@@ -69,7 +69,7 @@ def prepare(broker: Broker, resolver: InstrumentResolver, underlying: str, expir
                               CHAIN_STRIKES_EACH_SIDE)
     contracts = [resolver.resolve(underlying, expiry, k, t) for _, t, k, _ in spec]
     quotes = broker.quotes([c.quote_key for c in contracts])
-    ivs = dict(zip(chain["tradingsymbol"], chain["iv"]))
+    ivs = dict(zip(chain["tradingsymbol"], chain["iv_strike"]))       # an ITM leg takes its OTM mirror's IV
     legs = order_legs(spec, resolver, underlying, expiry, quotes, lots, cfg.limits.limit_slippage_cap, ivs)
     try:
         margins = broker.basket_margins([l.kite_order() for l in legs])
