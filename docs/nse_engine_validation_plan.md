@@ -372,6 +372,19 @@ exposure took 309 days after the 2008 low to reach 0.8 (79 days in 2020,
 loses the year and the crash. A faster re-entry after a crash is research
 item R11, to be pre-registered: with 3–4 episodes it is easy to overfit.
 
+**Data caveat (10 Oct 2026, tracker LN-T28).** `store_ext2006` has no
+corporate-action or dividend records before 2010-01-04. About 17 bonus and
+demerger gaps in 2006–09 that are smaller than the loader's 35% inference
+threshold stay unadjusted, so a holder books a false loss on the ex-date:
+ONGC 2006-10-27 (−31.6%, a 1:2 bonus), JPASSOCIAT 2009-12-17 (−31.2%),
+DABUR, CROMPGREAV, RELIANCE 2006-01-18 (−25.3%, a demerger). Dividends
+before 2010 are missing too. The 2008 drawdowns above read about 1 point too
+deep. Comparisons on the same data (the configurations against each other,
+the walk-forward's grid) are unaffected, and no verdict of R4, R11 or the
+other 2007–25 runs flips. The 2013–25 window and live trading do not use
+this data. Importing the events needs a source that covers 2006–09,
+delisted names included; the 35% threshold stays.
+
 ## 5f. Crash re-entry (R11, 28 Sep 2026): FAIL
 
 Decision U22 asks that a crisis not keep the book out of the rebound. The
@@ -815,6 +828,10 @@ market-neutral pair, which needs more capital still. Risk: its worst
 months are rebounds, against decision U22. Revisit as a market-neutral
 spread when the book is past ₹2 crore. One look, not a trial: no
 configuration was recorded.
+
+U28 closed on this evidence (10 Oct 2026), with that trigger to reopen it.
+The scorecard's ex-ante regime split (LN-T18) has since removed the case for
+a bear hedge: the book is about flat in bear phases, not −22% a year.
 
 ## 5q. Options sleeve, first round (O2, 3 Oct 2026)
 
@@ -1295,7 +1312,7 @@ date:
 | 24 Apr 2014 | settled the 23rd |
 | 29 Mar 2018 | relabelled the 28th |
 | 30 Mar 2023 | relabelled the 29th |
-| 29 Jun 2023 | settled the 27th |
+| 29 Jun 2023 | relabelled the 28th on the 28th (settled the 28th; corrected 10 Oct 2026, LN-T20) |
 | 31 Mar 2026 | relabelled the 30th |
 
 The fix (`settlement_sessions`):
@@ -1310,7 +1327,8 @@ Effects:
 - **Configurations:** no parameter changed, so the configurations and N are
   unchanged. Y1 and Y2 run again on Kaggle. The first runs stay in the
   registry, which reads the latest run of each configuration.
-- **Round 2:** its strategies are unaffected; they reproduce exactly.
+- **Round 2:** its strategies reproduced exactly then; that was wrong for
+  two of them (corrected 10 Oct 2026, below).
 - **Round 1:** its harness settles on the first session on or after the
   label, so it never stalled. But it settled a moved expiry up to two
   sessions late, at that later close, and skipped a relabelled month
@@ -1353,6 +1371,36 @@ What the runs say:
 Not re-tuned. A test of Y3 on the future's own opening and closing prices
 would be a new configuration in a later round. The bhavcopy carries futures
 opens, but the F&O store does not keep them yet.
+
+**Settlement re-baseline, 10 Oct 2026 (tracker LN-T20).** The fix above
+followed a relabel only in round 3's code, and only when the old label's
+rows stopped more than a week early; a relabel inside that week (29 Jun 2023
+to 28 Jun) settled a day early, and rounds 1 and 2 never used the map. Now
+one settlement source serves every options backtest:
+- `settlement_sessions` follows a relabel when a label of the same month
+  starts the very next session (recursively: 26 Mar 2026 to 31 Mar to
+  30 Mar), and leaves out a label still trading at the data's end.
+- Rounds 1, 2 and 3 key every contract by the session it settles on
+  (`rekey_to_settlement`): round 1 settles and quotes a moved month on its
+  real day, round 2's future rolls on it and no longer carries a stale mark
+  across a relabel, and Y2 settles June 2023 on the 28th (18,972.10, not the
+  27th's close).
+- Round 1 values an untraded leg on its own settlement session at intrinsic
+  against the exact index close, never the settle column, which has held the
+  index level that day since 2020.
+
+Re-run on Kaggle (2013–25 and 2007–25), same configurations, so N stays 10;
+a data re-baseline, as on 9 Oct. Sharpe, 2013–25, each alone:
+
+| | A1 | A2 | B | X3 | X4 | Y2 |
+|---|---|---|---|---|---|---|
+| Before | 0.816 | −0.273 | 0.256 | 0.502 | 0.139 | 0.317 |
+| After | 0.828 | −0.182 | 0.259 | 0.494 | 0.144 | 0.317 |
+
+A2's phantom −26.3% day (30 Jun 2023: the month settled a session late,
+against that day's close) is gone: 0% that day, −3.5% on the 28th. X1, X2, Y1 and Y3 reproduce
+exactly. Every gate-1 verdict stands: no strategy passes (A1's deflated
+Sharpe 0.897 on round 1's three sleeves, 0.696 at N = 10).
 
 ## 5t. Idle cash earns nothing: cost model 4 (IC1, 10 Oct 2026)
 

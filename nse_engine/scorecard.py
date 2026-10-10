@@ -51,10 +51,11 @@ import pandas as pd
 from scipy import stats as sp_stats
 
 from nse_engine.config import EngineConfig
-from nse_engine.costs import impact_bps, median_traded_value
-from nse_engine.metrics import TRADING_DAYS, compute_metrics, round_trips
+from nse_engine.costs import cap_quantity, impact_bps, median_traded_value
+from nse_engine.metrics import TRADING_DAYS, compute_metrics, drawdown_periods, round_trips
 from nse_engine.validation.diagnostics import alpha_beta, newey_west_cov
-from nse_engine.validation.dsr import daily_rf, deflated_sharpe
+from nse_engine.validation.dsr import (daily_rf, deflated_sharpe, min_track_record_length, probabilistic_sharpe,
+                                       sharpe_estimator_variance)
 
 logger = logging.getLogger(__name__)
 
@@ -74,10 +75,14 @@ WALK_FORWARD_OOS = {"deployed": "data/nse_engine/wf_oos_returns_r12a5.csv",
                     "candidate": "data/nse_engine/wf_oos_returns_r12a5.csv",
                     "e4": "data/nse_engine/wf_oos_returns_r12b5.csv"}
 OPTIONS_RUNS = "data/nse_engine/runs_options"
+#: The Sharpe rules' target, also the bar the probabilistic Sharpe is reported against (tracker LN-T24).
+SHARPE_TARGET = 1.2
 #: Section 1's targets, fixed before any number is read.
-PASS_RULES = (("net Sharpe", "sharpe", ">", 1.2), ("max drawdown", "max_drawdown", ">=", -0.30),
+PASS_RULES = (("net Sharpe", "sharpe", ">", SHARPE_TARGET), ("max drawdown", "max_drawdown", ">=", -0.30),
               ("Calmar", "calmar", ">=", 1.0), ("deflated Sharpe", "dsr", ">=", 0.95),
-              ("walk-forward OOS Sharpe", "oos_sharpe", ">=", 1.2))
+              ("walk-forward OOS Sharpe", "oos_sharpe", ">=", SHARPE_TARGET))
+#: How many of the deepest drawdowns are listed, the book's own and NIFTY 50 TRI's (tracker LN-T25).
+TOP_DRAWDOWNS = 5
 
 
 def _f(x: Any) -> float:
@@ -175,8 +180,34 @@ def cvar(returns: pd.Series, alpha: float = 0.05) -> float:
     return float(r[:k].mean()) if len(r) else float("nan")
 
 
+def drawdowns(equity: pd.Series, bench: pd.Series) -> Dict[str, Any]:
+    """The book's drawdown periods (depth, duration, recovery) and its fall and recovery legs over NIFTY 50
+    TRI's deepest drawdowns (tracker LN-T25).  Descriptive: no pass rule, gate or ladder reads them."""
+    def period(p) -> Dict[str, Any]:
+        return {"peak": str(p.peak.date()), "trough": str(p.trough.date()),
+                "recovery": None if pd.isna(p.recovery) else str(p.recovery.date()), "depth": p.depth, "days": p.days}
+
+    e = equity.dropna().astype("float64")
+    periods = drawdown_periods(e)
+    out: Dict[str, Any] = {"share_of_days_under_water": float((e < e.cummax()).mean()), "n_periods": int(len(periods))}
+    if len(periods):
+        out["longest"] = period(periods.loc[periods["days"].idxmax()])
+        out["deepest"] = [period(p) for p in periods.nsmallest(TOP_DRAWDOWNS, "depth").itertuples()]
+        if pd.isna(periods["recovery"].iloc[-1]):
+            out["open"] = period(periods.iloc[-1])
+    tri = (1 + bench.dropna()).cumprod()
+    episodes = []
+    for p in drawdown_periods(tri).nsmallest(TOP_DRAWDOWNS, "depth").itertuples():
+        end = tri.index[-1] if pd.isna(p.recovery) else p.recovery
+        episodes.append({**period(p), "benchmark_recovery_leg": float(tri.asof(end) / tri.asof(p.trough) - 1.0),
+                         "book_fall_leg": float(e.asof(p.trough) / e.asof(p.peak) - 1.0),
+                         "book_recovery_leg": float(e.asof(end) / e.asof(p.trough) - 1.0)})
+    out["benchmark_episodes"] = episodes
+    return out
+
+
 def return_risk(returns: pd.Series, equity: pd.Series, trades: pd.DataFrame, weights: pd.DataFrame,
-                bench: pd.Series, rf: float, initial_capital: float) -> Dict[str, float]:
+                bench: pd.Series, rf: float, initial_capital: float) -> Dict[str, Any]:
     out = compute_metrics(returns, equity, trades, weights, rf_annual=rf, initial_capital=initial_capital)
     out["cvar_95_daily"] = cvar(returns, 0.05)
     out["cvar_99_daily"] = cvar(returns, 0.01)
@@ -195,6 +226,7 @@ def return_risk(returns: pd.Series, equity: pd.Series, trades: pd.DataFrame, wei
     down = aligned[aligned["b"] < 0]
     if len(down) > 30:
         out["beta_down_market"] = float(np.polyfit(down["b"], down["r"], 1)[0])
+    out["drawdowns"] = drawdowns(equity, bench)
     return out
 
 
@@ -343,9 +375,14 @@ def trading_stats(trades: pd.DataFrame, equity: pd.Series, adv: pd.DataFrame, cf
     years = (equity.index[-1] - equity.index[0]).days / 365.25
     avg_eq = float(equity.mean())
     p = t["participation"].replace([np.inf, -np.inf], np.nan).dropna()
+    # A fill short of its request was cut by the participation cap, or else (buys) scaled down for cash.
+    reduced = (t["requested_quantity"] > t["quantity"]).to_numpy()
+    capped = np.array([cap_quantity(q, px, a, cfg.costs.max_participation) < q
+                       for q, px, a in zip(t["requested_quantity"], t["price"], t["adv"])], dtype=bool)
     out["market_impact"] = {
         "participation_median": float(p.median()), "participation_p95": float(p.quantile(0.95)),
-        "share_of_fills_at_cap": float((t["requested_quantity"] > t["quantity"]).mean()),
+        "n_fills": int(len(t)), "fills_cut_by_cap": int((reduced & capped).sum()),
+        "fills_scaled_for_cash": int((reduced & ~capped).sum()),
         "impact_bps_value_weighted": float(t["impact_inr"].sum() / t["value_inr"].sum() * 1e4),
         "impact_drag_annual": float(t["impact_inr"].sum() / avg_eq / years),
         "statutory_drag_annual": float((t["cost_inr"].sum() - t["impact_inr"].sum()) / avg_eq / years),
@@ -367,26 +404,31 @@ def _adv_at(adv: pd.DataFrame, d: pd.Timestamp, sym: str) -> float:
 def capacity(fills: pd.DataFrame, equity: pd.Series, cfg: EngineConfig, gross_edge_annual: float,
              rungs: Sequence[float] = LADDER_INR, window_days: int = CAPACITY_WINDOW_DAYS) -> Dict[str, Any]:
     """The last ``window_days`` sessions' fills re-sized to each capital (the same weights of the book):
-    modelled impact per year as a share of that capital, the share of fills the participation cap would
-    cut, and the capital at which impact drag reaches half the gross edge."""
+    modelled impact per year as a share of that capital, the share of fills (and of traded value) the
+    participation cap would cut, and the capital at which impact drag reaches half the gross edge.
+
+    Each fill's cap capital (max participation x ADV / weight) is the capital above which the cap cuts it;
+    the assets with the lowest bind first (Lean's LowestCapacityAsset, tracker LN-T23)."""
     f = fills[fills["date"] >= equity.index[-min(window_days, len(equity))]].copy()
     f = f[np.isfinite(f["adv"]) & (f["adv"] > 0)]
     if f.empty:
         return {"error": "no fills with liquidity in the window"}
     f["weight"] = f["value_inr"] / equity.reindex(f["date"], method="ffill").to_numpy()
+    f["cap_capital"] = cfg.costs.max_participation * f["adv"] / f["weight"]
     years = (f["date"].max() - f["date"].min()).days / 365.25 or 1.0
+    w = f["weight"].to_numpy()
 
-    def drag(capital: float) -> Tuple[float, float]:
-        value = f["weight"].to_numpy() * capital
-        part = value / f["adv"].to_numpy()
+    def drag(capital: float) -> Tuple[float, float, float]:
+        value = w * capital
+        over = value / f["adv"].to_numpy() > cfg.costs.max_participation
         bps = np.array([impact_bps(v, a, cfg.costs) for v, a in zip(value, f["adv"].to_numpy())])
-        return float((value * bps / 1e4).sum() / capital / years), float((part > cfg.costs.max_participation).mean())
+        return float((value * bps / 1e4).sum() / capital / years), float(over.mean()), float(w[over].sum() / w.sum())
 
     table = []
     for c in rungs:
-        d, capped = drag(c)
+        d, capped, capped_value = drag(c)
         table.append({"capital_inr": c, "impact_drag_annual": d, "share_of_fills_over_cap": capped,
-                      "edge_left_after_impact": gross_edge_annual - d})
+                      "share_of_value_over_cap": capped_value, "edge_left_after_impact": gross_edge_annual - d})
     target = 0.5 * gross_edge_annual
     lo, hi = math.log10(1e5), math.log10(1e11)
     solved = None
@@ -398,15 +440,43 @@ def capacity(fills: pd.DataFrame, equity: pd.Series, cfg: EngineConfig, gross_ed
             else:
                 hi = mid
         solved = 10 ** ((lo + hi) / 2)
+    sleeves = set(cfg.sleeves.symbols)
+    binding = f.groupby("symbol")["cap_capital"].min().sort_values()
+    core = [s for s in binding.index if s not in sleeves]
+
+    def asset(sym: str) -> Dict[str, Any]:
+        return {"symbol": sym, "sleeve": sym in sleeves, "capital_inr": float(binding[sym])}
+
+    order = np.argsort(f["cap_capital"].to_numpy())
+    cap_sorted, share = f["cap_capital"].to_numpy()[order], np.cumsum(w[order]) / w.sum()
+    at_solved = drag(solved) if solved else (None, None, None)
     return {"window": [str(f["date"].min().date()), str(f["date"].max().date())], "n_fills": int(len(f)),
             "gross_edge_annual": gross_edge_annual, "by_capital": table,
             "capital_where_impact_eats_half_the_edge_inr": solved,
-            "share_of_fills_over_cap_at_that_capital": drag(solved)[1] if solved else None,
+            "share_of_fills_over_cap_at_that_capital": at_solved[1],
+            "share_of_value_over_cap_at_that_capital": at_solved[2],
+            "first_binding": [asset(s) for s in binding.index[:5]],
+            "first_core_binding": asset(core[0]) if core else None,
+            "capital_where_value_over_cap": {f"{q:.0%}": float(cap_sorted[np.searchsorted(share, q)])
+                                             for q in (0.05, 0.25, 0.5)},
             "note": "the engine would cap fills over the participation limit rather than pay the impact shown; "
                     "the capped share says how much of the book would then go untraded"}
 
 
 # ── robustness ─────────────────────────────────────────────────────────────
+
+def sharpe_precision(returns: pd.Series, rf: float) -> Dict[str, Any]:
+    """How much of the annual Sharpe is noise (tracker LN-T24), reported beside the pass rules and never one:
+    its standard error (with the sample's skew and kurtosis), the probabilistic Sharpe against the rules'
+    target, and the minimum track record for 95% confidence the true Sharpe beats 0."""
+    d = deflated_sharpe(returns, n_trials=1, rf_annual=rf)                # the moments, no deflation
+    sr, n, skew, kurt = d["sr_daily"], d["T"], d["skew"], d["kurtosis"]
+    ann = math.sqrt(TRADING_DAYS)
+    min_trl = min_track_record_length(sr, 0.0, skew, kurt)
+    return {"sharpe_se": math.sqrt(sharpe_estimator_variance(sr, n, skew, kurt)) * ann,
+            "psr_target": SHARPE_TARGET, "psr": probabilistic_sharpe(sr, SHARPE_TARGET / ann, n, skew, kurt),
+            "min_trl_sessions": min_trl, "min_trl_years": min_trl / TRADING_DAYS}
+
 
 def walk_forward_oos(path: str, rf: float) -> Dict[str, Any]:
     p = Path(path)
@@ -417,7 +487,8 @@ def walk_forward_oos(path: str, rf: float) -> Dict[str, Any]:
     eq = (1 + r).cumprod()
     m = compute_metrics(r, eq, rf_annual=rf, initial_capital=1.0)
     out = {k: m[k] for k in ("sharpe", "cagr", "max_drawdown", "calmar", "ann_vol", "sortino")}
-    out.update({"start": str(r.index[0].date()), "end": str(r.index[-1].date()), "source": path})
+    out.update({"start": str(r.index[0].date()), "end": str(r.index[-1].date()), "source": path,
+                "sharpe_precision": sharpe_precision(r, rf)})
     stitched = p.with_name(p.name.replace("wf_oos_returns", "wf_stitched").replace(".csv", ".json"))
     if stitched.exists():
         doc = json.loads(stitched.read_text())
@@ -459,6 +530,7 @@ def overfitting(registry, run_id: str, manifest: Dict[str, Any], rf: float, spli
     out["dsr"] = {k: d.get(k) for k in ("dsr", "sr_annual", "sr0_annual", "n_trials_eff", "passed")}
     dc = deflated_sharpe(matrix[run_id], trials_matrix=trials, rf_annual=rf, trial_count="clustered")
     out["dsr_clustered"] = {"dsr": dc.get("dsr"), "n_trials_eff": dc.get("n_trials_eff")}
+    out["sharpe_precision"] = sharpe_precision(matrix[run_id], rf)
     if pbo is not None:
         out["pbo"] = pbo
     return out
@@ -501,7 +573,11 @@ def parameter_sensitivity(registry, run: Dict[str, Any], manifest: Dict[str, Any
 
 def regime_stability(returns: pd.Series, index_close: pd.DataFrame, cfg: EngineConfig, rf: float) -> Dict[str, Any]:
     """Returns split by NIFTY 50 trend (bull: above its 200-day mean and up over 63 days; bear: below and
-    down; sideways: the rest) and by India VIX (elevated at the regime gate's threshold)."""
+    down; sideways: the rest) and by India VIX (elevated at the regime gate's threshold).
+
+    Each day carries the regime known at the previous close (tracker LN-T18): a same-day label pulled the
+    down days that flip the regime into "bear" and "elevated" by their own move, a look-ahead.
+    """
     rc = cfg.regime
     nifty = index_close[rc.index_symbol].astype("float64").ffill()
     vix = index_close[rc.vix_symbol].astype("float64").ffill() if rc.vix_symbol in index_close else None
@@ -510,9 +586,10 @@ def regime_stability(returns: pd.Series, index_close: pd.DataFrame, cfg: EngineC
     trend = pd.Series("sideways", index=nifty.index)
     trend[(nifty > ma) & (r63 > 0)] = "bull"
     trend[(nifty < ma) & (r63 < 0)] = "bear"
-    labels = {"trend": trend.reindex(returns.index).ffill()}
+    labels = {"trend": trend.shift(1).reindex(returns.index).ffill()}     # one session on the index calendar
     if vix is not None:
-        labels["vix"] = pd.Series(np.where(vix.reindex(returns.index).ffill() > rc.vix_elevated, "elevated", "calm"), index=returns.index)
+        state = pd.Series(np.where(vix > rc.vix_elevated, "elevated", "calm"), index=vix.index)
+        labels["vix"] = state.shift(1).reindex(returns.index).ffill()
     rfd = daily_rf(rf)
     out: Dict[str, Any] = {}
     for kind, lab in labels.items():
@@ -569,6 +646,7 @@ def paper_section(dep, schema: Optional[str], rf: float) -> Dict[str, Any]:
     out = {"status": "ok", "sessions": int(len(equity)), "g4": gate}
     if len(returns) > 5:
         out["metrics"] = compute_metrics(returns, equity, rf_annual=rf)
+        out["sharpe_se"] = sharpe_precision(returns, rf)["sharpe_se"]
     return out
 
 
@@ -704,6 +782,12 @@ def _inr(x: Any) -> str:
     return f"Rs {v / 1e5:.1f} L" if abs(v) >= 1e5 else f"Rs {v:,.0f}"
 
 
+def _precision(sp: Dict[str, Any]) -> str:
+    return (f"Sharpe standard error {_num(sp.get('sharpe_se'))}, PSR({_num(sp.get('psr_target'), 1)}) {_num(sp.get('psr'), 3)}, "
+            f"MinTRL vs 0 {_num(sp.get('min_trl_sessions'), 0)} sessions ({_num(sp.get('min_trl_years'), 1)} years); "
+            f"reported, not a pass rule")
+
+
 def render_markdown(r: Dict[str, Any]) -> str:
     rr, tr, mi = r["return_risk"], r["trading"], r["trading"]["market_impact"]
     fx, ad, cap, wf, ov, ps, rg = (r.get(k, {}) for k in ("factor_exposures", "alpha_decay", "capacity", "walk_forward_oos",
@@ -741,6 +825,30 @@ def render_markdown(r: Dict[str, Any]) -> str:
             L.append(f"| {label} | {_pct(rr.get('alpha_annual_market'))} (t {_num(rr.get('alpha_t_market'), 1)}) |")
         else:
             L.append(f"| {label} | {fn(rr.get(key))} |")
+    dd = rr.get("drawdowns") or {}
+    if dd.get("longest"):
+        lg, op = dd["longest"], dd.get("open")
+        L.append("")
+        L.append(f"**Drawdowns** ({dd['n_periods']} periods): the longest under water ran {lg['peak']} to "
+                 f"{lg['recovery'] or 'the end, not recovered'}, {lg['days']} days, {_pct(lg['depth'])} deep; "
+                 f"{_pct(dd['share_of_days_under_water'])} of days under water; "
+                 + (f"the open drawdown is {op['days']} days old (peak {op['peak']}, {_pct(op['depth'])} at its deepest)."
+                    if op else "none open at the end."))
+        L.append("")
+        L.append("| Peak | Trough | Recovered | Depth | Days |")
+        L.append("|---|---|---|---|---|")
+        for d in dd["deepest"]:
+            L.append(f"| {d['peak']} | {d['trough']} | {d['recovery'] or 'open'} | {_pct(d['depth'])} | {d['days']} |")
+    if dd.get("benchmark_episodes"):
+        L.append("")
+        L.append("**Across NIFTY 50 TRI's deepest drawdowns** (descriptive: the fall is peak to trough, the recovery "
+                 "trough to the TRI's recovery or the end)")
+        L.append("")
+        L.append("| TRI peak | Trough | Recovered | TRI fall | Book fall | TRI recovery | Book recovery |")
+        L.append("|---|---|---|---|---|---|---|")
+        for d in dd["benchmark_episodes"]:
+            L.append(f"| {d['peak']} | {d['trough']} | {d['recovery'] or 'open'} | {_pct(d['depth'])} | {_pct(d['book_fall_leg'])} | "
+                     f"{_pct(d['benchmark_recovery_leg'])} | {_pct(d['book_recovery_leg'])} |")
     L.append("")
     L.append("## Attribution: style factors and the alpha left")
     L.append("")
@@ -798,8 +906,8 @@ def render_markdown(r: Dict[str, Any]) -> str:
     L.append(f"| Profit factor | {_num(tr.get('profit_factor'))} |")
     L.append(f"| Average P&L per round trip | {_inr(tr.get('avg_pnl_per_round_trip_inr'))} ({_num(tr.get('avg_pnl_per_round_trip_bp_of_equity'), 0)} bp of equity) |")
     L.append(f"| Largest win / loss | {_inr(tr.get('largest_win_inr'))} / {_inr(tr.get('largest_loss_inr'))} |")
-    L.append(f"| Participation (order / median traded value) | median {_pct(mi['participation_median'], 2)}, p95 {_pct(mi['participation_p95'], 2)}, "
-             f"{_pct(mi['share_of_fills_at_cap'])} of fills cut by the 5% cap |")
+    L.append(f"| Participation (order / median traded value) | median {_pct(mi['participation_median'], 2)}, p95 {_pct(mi['participation_p95'], 2)}; "
+             f"{mi['fills_cut_by_cap']} of {mi['n_fills']:,} fills cut by the 5% cap, {mi['fills_scaled_for_cash']} buys scaled down for cash |")
     L.append(f"| Modelled impact | {_num(mi['impact_bps_value_weighted'], 1)} bp of traded value |")
     L.append("")
     L.append("## Capacity")
@@ -810,14 +918,23 @@ def render_markdown(r: Dict[str, Any]) -> str:
         L.append(f"Fills of {cap['window'][0]} to {cap['window'][1]} ({cap['n_fills']}) re-sized to each capital; "
                  f"gross edge {_pct(cap['gross_edge_annual'])} per year (net excess CAGR plus modelled impact).")
         L.append("")
-        L.append("| Capital | Impact drag per year | Edge left | Fills over the 5% cap |")
-        L.append("|---|---|---|---|")
+        L.append("| Capital | Impact drag per year | Edge left | Fills over the 5% cap | Traded value over it |")
+        L.append("|---|---|---|---|---|")
         for row in cap["by_capital"]:
-            L.append(f"| {_inr(row['capital_inr'])} | {_pct(row['impact_drag_annual'], 2)} | {_pct(row['edge_left_after_impact'])} | {_pct(row['share_of_fills_over_cap'], 0)} |")
+            L.append(f"| {_inr(row['capital_inr'])} | {_pct(row['impact_drag_annual'], 2)} | {_pct(row['edge_left_after_impact'])} | "
+                     f"{_pct(row['share_of_fills_over_cap'])} | {_pct(row['share_of_value_over_cap'])} |")
         L.append("")
         L.append(f"**Impact eats half the edge at {_inr(cap['capital_where_impact_eats_half_the_edge_inr'])}**, where "
-                 f"{_pct(cap.get('share_of_fills_over_cap_at_that_capital'), 0)} of fills would exceed the participation cap. "
-                 f"{cap['note'].capitalize()}.")
+                 f"{_pct(cap.get('share_of_fills_over_cap_at_that_capital'))} of fills ({_pct(cap.get('share_of_value_over_cap_at_that_capital'))} "
+                 f"of traded value) would exceed the participation cap. {cap['note'].capitalize()}.")
+        first, core, q = cap.get("first_binding") or [], cap.get("first_core_binding"), cap.get("capital_where_value_over_cap") or {}
+        if first:
+            L.append("")
+            L.append("The cap binds first on " + ", ".join(f"{a['symbol']}{' (sleeve)' if a['sleeve'] else ''} at {_inr(a['capital_inr'])}"
+                                                           for a in first)
+                     + (f"; the first core stock is {core['symbol']} at {_inr(core['capital_inr'])}" if core else "")
+                     + (f"; {', '.join(q)} of traded value is over it at {', '.join(_inr(v) for v in q.values())}" if q else "")
+                     + ".")
     L.append("")
     L.append("## Robustness")
     L.append("")
@@ -825,14 +942,16 @@ def render_markdown(r: Dict[str, Any]) -> str:
         L.append(f"**Walk-forward OOS** ({wf['start']} to {wf['end']}, {wf.get('n_folds')} folds over {wf.get('n_grid_points')} grid points "
                  f"of the configuration family, base {str(wf.get('base_config_hash') or '')[:8]}; {wf['source']}): Sharpe {_num(wf['sharpe'])}, CAGR {_pct(wf['cagr'])}, MaxDD {_pct(wf['max_drawdown'])}, "
                  f"Calmar {_num(wf['calmar'])}; mean IS {_num(wf.get('mean_is_sharpe'))} vs OOS {_num(wf.get('mean_oos_sharpe'))} per fold "
-                 f"(OOS/IS {_num(wf.get('oos_is_ratio'))}), {wf.get('negative_oos_years')} negative OOS years.")
+                 f"(OOS/IS {_num(wf.get('oos_is_ratio'))}), {wf.get('negative_oos_years')} negative OOS years; "
+                 f"{_precision(wf.get('sharpe_precision') or {})}.")
     if "error" not in ov:
         d, pb = ov.get("dsr", {}), ov.get("pbo", {})
         L.append("")
         L.append(f"**Overfitting** over {ov['n_configurations']} recorded configurations (data {ov['data_hash']}, cost model {ov['cost_model']}): "
                  f"deflated Sharpe {_num(d.get('dsr'), 3)} (annual Sharpe {_num(d.get('sr_annual'))} vs the expected best of "
                  f"{_num(d.get('sr0_annual'))} from {_num(d.get('n_trials_eff'), 0)} trials; clustered {_num(ov.get('dsr_clustered', {}).get('dsr'), 3)}), "
-                 f"PBO {_pct(pb.get('pbo'))}, probability of an OOS loss {_pct(pb.get('prob_oos_loss'))}.")
+                 f"PBO {_pct(pb.get('pbo'))}, probability of an OOS loss {_pct(pb.get('prob_oos_loss'))}; "
+                 f"{_precision(ov.get('sharpe_precision') or {})}.")
     L.append("")
     L.append(f"**Parameter sensitivity**: {ps.get('n_neighbours')} recorded one-setting neighbours "
              f"(Sharpe change {_num(ps.get('delta_sharpe_min'))} to {_num(ps.get('delta_sharpe_max'))}); "
@@ -846,7 +965,7 @@ def render_markdown(r: Dict[str, Any]) -> str:
     for kind, title in (("trend", "NIFTY 50 trend"), ("vix", "India VIX")):
         if rg.get(kind):
             L.append("")
-            L.append(f"**Regime stability by {title}**")
+            L.append(f"**Regime stability by {title}** (the regime known at the previous close)")
             L.append("")
             L.append("| Regime | Days | Annual return | Sharpe | Up days | Worst day |")
             L.append("|---|---|---|---|---|---|")
@@ -876,7 +995,7 @@ def render_markdown(r: Dict[str, Any]) -> str:
         m = p.get("metrics", {})
         if m:
             L.append("")
-            L.append(f"Paper book: Sharpe {_num(m.get('sharpe'))}, CAGR {_pct(m.get('cagr'))}, MaxDD {_pct(m.get('max_drawdown'))}, "
+            L.append(f"Paper book: Sharpe {_num(m.get('sharpe'))} (standard error {_num(p.get('sharpe_se'))}), CAGR {_pct(m.get('cagr'))}, MaxDD {_pct(m.get('max_drawdown'))}, "
                      f"turnover {_num(m.get('annual_turnover'), 1)}x, hit rate {_pct(m.get('hit_rate'))}.")
     L.append("")
     return "\n".join(L)

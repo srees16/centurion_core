@@ -37,6 +37,8 @@ RISK_ON, NEUTRAL, RISK_OFF = "risk_on", "neutral", "risk_off"
 VIX_FALLBACK_WINDOW = 20
 VIX_FALLBACK_MULTIPLIER = 1.25
 INDEX_FALLBACKS = ("NIFTY500",)
+#: A trend carries over a gap of up to this many sessions with no print (tracker LN-T19).
+TREND_CARRY_SESSIONS = 5
 
 
 @dataclass
@@ -54,6 +56,20 @@ class RegimePanel:
         """True on the dates where the confirmed state changed."""
         s = self.state
         return (s != s.shift(1)) & s.shift(1).notna()
+
+
+def sample_trend(close: pd.Series, n: int) -> pd.Series:
+    """1.0 / 0.0 where the close is above / not above the mean of the last ``n`` available closes; NaN
+    before ``n`` closes (tracker LN-T19, Lean's sample-based SMA).
+
+    A day with no print carries the last value, for up to ``TREND_CARRY_SESSIONS``
+    sessions, so one missing print no longer blanks a ``rolling(n, min_periods=n)``
+    mean for ``n`` sessions.  With no gaps it equals ``close > rolling mean``.
+    """
+    valid = close.dropna()
+    ma = valid.rolling(n, min_periods=n).mean()
+    up = (valid > ma).astype("float64").where(ma.notna())
+    return up.reindex(close.index).ffill(limit=TREND_CARRY_SESSIONS)
 
 
 def apply_hysteresis(raw: Sequence[str], confirm_days: int, initial: str = NEUTRAL) -> List[str]:
@@ -98,8 +114,7 @@ def compute_regime(
         logger.warning("index %s missing from index_close; using %s", cfg.index_symbol, col)
     if col is not None:
         nifty = index_close[col].astype("float64")
-        ma = nifty.rolling(cfg.trend_ma_days, min_periods=cfg.trend_ma_days).mean()
-        trend = pd.Series(np.where(ma.notna() & nifty.notna(), (nifty > ma).astype(float), np.nan), index=idx)
+        trend = pd.Series(sample_trend(nifty, cfg.trend_ma_days).to_numpy(), index=idx)
         rv = nifty.pct_change(fill_method=None).rolling(VIX_FALLBACK_WINDOW, min_periods=VIX_FALLBACK_WINDOW).std()
         fallback = rv * 100.0 * np.sqrt(252.0) * VIX_FALLBACK_MULTIPLIER
     else:

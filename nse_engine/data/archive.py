@@ -356,6 +356,11 @@ class BhavcopyArchive:
                 logger.warning("unusable response for %s %s (status %s)", kind, d, status)
         today = today or date.today()
         if all_404 and d < today - RECENT_GRACE:
+            if kind == "indices" and self.existing(candidate_files(self.root, "equity", d)) is not None:
+                # LN-T19: NSE traded that day, so its index file is late, not a holiday; recording it as
+                # one left 12 NIFTY gaps in 2013-16.  The sync retries it while it is in the lookback.
+                logger.warning("indices file for %s not found though the equity session exists: retried", d)
+                return "failed"
             self.mark_missing(kind, d)
             return "holiday"
         return "failed" if not all_404 else "not_published"

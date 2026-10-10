@@ -161,15 +161,50 @@ def breakout_target(close: pd.Series, days: int) -> pd.Series:
 
 
 def settlement_sessions(rows: pd.DataFrame, max_gap_days: int = 7) -> Dict[pd.Timestamp, pd.Timestamp]:
-    """Each expiry label of ``rows`` (futures or options) mapped to the session it settled on: its last row.
+    """Each expiry label of ``rows`` (futures or options) mapped to the session its contracts settled on:
+    one settlement source per contract (Lean's pattern, tracker LN-T20).
 
-    NSE moves an expiry off a holiday (24 Apr 2014 to 23 Apr; 27 Nov 2008 to 28 Nov) and has relabelled
-    a contract part-way through its life (27 Feb 2014 to 26 Feb).  A label whose rows stop more than
-    ``max_gap_days`` before its date is such a relabelled one, or runs past the data, and is left out.
+    A label settles on its last row, which NSE moves off a holiday (24 Apr 2014 to 23 Apr; 27 Nov 2008 to
+    28 Nov).  NSE also relabels contracts part-way through their life (27 Feb 2014 to 26 Feb in December
+    2013; 29 Jun 2023 to 28 Jun; every Thursday expiry to a Tuesday on 1 Aug 2025): when a label's rows
+    stop before its date and a label of the same month starts the very next session, the contracts carry
+    on under that one, so the label settles when it does (the latest-settling such label, followed
+    recursively: 26 Mar 2026 to 31 Mar to 30 Mar).  Left out: a label still trading at the end of
+    ``rows``, and one whose rows stop more than ``max_gap_days`` before its date with no such successor.
     """
-    last = rows.groupby("expiry")["date"].max()
-    last = last[last >= last.index - pd.Timedelta(days=max_gap_days)]
-    return {pd.Timestamp(e): pd.Timestamp(d) for e, d in last.items()}
+    span = rows.groupby("expiry")["date"].agg(["min", "max"])
+    sessions = pd.DatetimeIndex(sorted(rows["date"].unique()))
+    following = dict(zip(sessions[:-1], sessions[1:]))
+    starting = span.reset_index().groupby("min")["expiry"].apply(list).to_dict()
+    settled: Dict[pd.Timestamp, Optional[pd.Timestamp]] = {}
+
+    def resolve(label: pd.Timestamp) -> Optional[pd.Timestamp]:
+        if label not in settled:
+            last = span.at[label, "max"]
+            if label > sessions[-1] and last == sessions[-1]:
+                settled[label] = None                                  # still trading
+            elif last < label:
+                successors = [e for e in starting.get(following.get(last), [])
+                              if e != label and (e.year, e.month) == (label.year, label.month)]
+                if successors:
+                    ends = [t for t in map(resolve, successors) if t is not None]
+                    settled[label] = max(ends) if ends else None
+                else:
+                    settled[label] = last if last >= label - pd.Timedelta(days=max_gap_days) else None
+            else:
+                settled[label] = last
+        return settled[label]
+
+    resolved = {e: resolve(e) for e in span.index}
+    return {pd.Timestamp(e): pd.Timestamp(t) for e, t in resolved.items() if t is not None}
+
+
+def rekey_to_settlement(rows: pd.DataFrame) -> pd.DataFrame:
+    """``rows`` with each contract's expiry replaced by the session it settles on (``settlement_sessions``),
+    so a relabelled contract runs on under one key and settles on the right day.  A label the map leaves
+    out (still trading at the end of ``rows``, or unexplained) keeps its own date."""
+    expiry = rows["expiry"].map(settlement_sessions(rows))
+    return rows.assign(expiry=pd.to_datetime(expiry.fillna(rows["expiry"])))
 
 
 def expiry_week_target(dates: pd.DatetimeIndex, expiries) -> pd.Series:
@@ -236,7 +271,7 @@ def run_strategy(cfg: SignalConfig, store_dir: str, opt_cfg: OptionsConfig = Opt
     start, end = pd.Timestamp(cfg.start), pd.Timestamp(cfg.end)
     load_from = (start - pd.Timedelta(days=int(WARMUP_DAYS * 1.6))).strftime("%Y-%m-%d")
     futures = fo_store.load_futures(store_dir, load_from, cfg.end, cfg.symbol)
-    fut = _Futures(futures)
+    fut = _Futures(rekey_to_settlement(futures))                  # rolls on the settlement session
     dates = pd.DatetimeIndex(sorted(fut.expiries))
     index = fo_store.load_underlying(store_dir, cfg.symbol).reindex(dates).ffill()
 

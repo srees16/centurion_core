@@ -41,6 +41,7 @@ from nse_engine.allocator import allocate, basket_vol
 from nse_engine.config import EngineConfig
 from nse_engine.costs import (COST_MODEL_VERSION, IDLE_CASH_YIELD_ANNUAL, fillable_open, median_traded_value,
                                simulate_fill)
+from nse_engine import live_rules as lr
 from nse_engine.drawdown import NORMAL as DD_NORMAL, DrawdownDecision, DrawdownTracker, summarise as dd_summarise
 from nse_engine.metrics import compute_metrics
 from nse_engine.portfolio import (
@@ -58,6 +59,7 @@ from nse_engine.signals import compute_signal_panels, daily_returns, realised_vo
 from nse_engine.sleeves import compute_sleeve_panels, sleeve_weights
 from nse_engine.types import DATA_HASH_VERSION, BacktestResult, Holding, MarketData, TargetPortfolio, Trade
 from nse_engine.universe import compute_universe_panel
+from nse_engine.validation.trials import runtime_stamp
 
 logger = logging.getLogger(__name__)
 
@@ -484,7 +486,49 @@ def _sell(book: _Book, cache: EngineCache, sym: str, qty: int, price: float, adv
     return fill.quantity
 
 
-def _execute_order(book: _Book, cache: EngineCache, order: _Order, u: int, skip: set) -> None:
+FILL_RULES = ("open", "live")
+
+
+@dataclass(frozen=True)
+class _LiveRules:
+    """Live's order rules for ``fill_rule="live"`` (tracker LN-T21), from the live constants."""
+
+    buy_band: float              # a buy's limit above the decision close
+    sell_band: float             # a sell's limit below it
+    gtt_buffer: float            # a stop GTT's limit below its trigger
+    factor: np.ndarray           # close / as-printed close: a change between decision and fill is an ex-date
+
+
+def _live_rules(data: MarketData) -> _LiveRules:
+    from kite_connect.trading.gtt_stops import DEFAULT_LIMIT_BUFFER_PCT
+    from kite_connect.trading.nse_engine_executor import EXIT_LIMIT_BAND_BPS, ORDER_LIMIT_BAND_BPS
+
+    close = data.close.astype("float64")
+    raw = getattr(data, "close_unadj", None)
+    factor = (close / raw.reindex_like(close).astype("float64")).to_numpy() if raw is not None \
+        else np.ones(close.shape)
+    return _LiveRules(ORDER_LIMIT_BAND_BPS / 1e4, EXIT_LIMIT_BAND_BPS / 1e4, DEFAULT_LIMIT_BUFFER_PCT / 100, factor)
+
+
+def _live_fill(live: _LiveRules, cache: EngineCache, book: _Book, side: str, sym: str, j: int, u: int,
+               dpos: int) -> Optional[float]:
+    """The price live's after-market limit order gets at session ``u``, None when it gets none: an ex-date
+    between decision and fill holds it back, as live does (LN-T4), and an unmarketable day leaves it unfilled."""
+    date = cache.dates[u]
+    f0, f1 = live.factor[dpos, j], live.factor[u, j]
+    if np.isfinite(f0) and np.isfinite(f1) and abs(f1 / f0 - 1.0) > 1e-5:    # above float32 noise (~1e-7)
+        book.notes.append(f"{date.date()} {sym}: live: {side} held back over an ex-date")
+        return None
+    limit = cache.close[dpos, j] * (1 + live.buy_band if side == "BUY" else 1 - live.sell_band)
+    kind, px = lr.limit_fill(side, cache.open[u, j], cache.high[u, j], cache.low[u, j], limit)
+    if kind != lr.OPEN:
+        book.notes.append(f"{date.date()} {sym}: live: {side} " + ("filled at its limit" if kind == lr.AT_LIMIT
+                                                                   else "limit unfilled"))
+    return px
+
+
+def _execute_order(book: _Book, cache: EngineCache, order: _Order, u: int, skip: set,
+                   live: Optional[_LiveRules] = None) -> None:
     cfg = cache.config
     date = cache.dates[u]
     min_val = cfg.portfolio.min_trade_value_inr
@@ -503,6 +547,10 @@ def _execute_order(book: _Book, cache: EngineCache, order: _Order, u: int, skip:
         diff = h.quantity - tgt
         if tgt > 0 and diff * o < min_val:
             continue
+        if live is not None:
+            o = _live_fill(live, cache, book, "SELL", sym, j, u, dpos)
+            if o is None:
+                continue
         got = _sell(book, cache, sym, diff, o, cache.adv[dpos, j], date, order.reasons.get(sym, "rebalance"), True)
         if got < diff:
             book.notes.append(f"{date.date()} {sym}: sell capped {got}/{diff}")
@@ -525,6 +573,10 @@ def _execute_order(book: _Book, cache: EngineCache, order: _Order, u: int, skip:
         if st is not None and o <= st:
             book.notes.append(f"{date.date()} {sym}: open at/below stop, buy skipped")
             continue
+        if live is not None:
+            o = _live_fill(live, cache, book, "BUY", sym, j, u, dpos)
+            if o is None:
+                continue
         fill = simulate_fill("BUY", diff, o, cache.adv[dpos, j], date, cfg.costs, symbol=sym)
         if fill.quantity > 0:
             wanted.append([sym, j, fill])
@@ -578,7 +630,7 @@ def _projected_holdings(
     latest_pos = max(pending)
     order = pending[latest_pos]
     out: Dict[str, Holding] = {}
-    for sym in set(book.positions) | set(order.target_qty):
+    for sym in sorted(set(book.positions) | set(order.target_qty)):
         qty = int(order.target_qty.get(sym, 0))
         h = book.positions.get(sym)
         if qty <= 0 or (h is None and book.stopped_pos.get(sym, -1) > order.decision_pos):
@@ -600,6 +652,7 @@ def run_backtest(
     lag_days: int = 0,
     cache: Optional[EngineCache] = None,
     manifest_extra: Optional[Mapping[str, object]] = None,
+    fill_rule: str = "open",
 ) -> BacktestResult:
     """Simulate the engine between ``config.start`` and ``config.end``.
 
@@ -607,9 +660,18 @@ def run_backtest(
     Pass ``cache`` to reuse precomputed panels across runs with the same
     data and config (e.g. lag sensitivity).  ``manifest_extra`` adds fields to
     the recorded manifest (e.g. ``refresh_of`` for a registry refresh).
+    ``fill_rule="live"`` fills as live's orders would (``nse_engine.live_rules``,
+    tracker LN-T21): a reference run, outside the config hash and never
+    recorded.  No stop fires on a buy's own day (its GTT is placed that
+    evening); a top-up is stopped with the rest of its position.
     """
+    if fill_rule not in FILL_RULES:
+        raise ValueError(f"fill_rule must be one of {FILL_RULES}, not {fill_rule!r}")
+    if fill_rule == "live" and record:
+        raise ValueError("fill_rule='live' is a reference run: pass record=False")
     t0 = time.perf_counter()
     cache = _ensure_cache(data, config, cache)
+    live = _live_rules(data) if fill_rule == "live" else None
     dates = cache.dates
     s0 = int(dates.searchsorted(pd.Timestamp(config.start), side="left"))
     s1 = int(dates.searchsorted(pd.Timestamp(config.end), side="right")) - 1
@@ -644,6 +706,7 @@ def run_backtest(
                 _record_trade(book, date, sym, "SELL", fill, "delisted")
                 book.notes.append(f"{date.date()} {sym}: stopped trading after {dates[lv].date()}; liquidated at last close {px:.2f}")
         stopped_today: set = set()
+        carried: set = set()                              # live: a triggered stop GTT that did not fill today
         # gap stops at the open
         for sym in list(book.positions):
             h = book.positions[sym]
@@ -651,6 +714,15 @@ def run_backtest(
                 continue
             j = cache.sym_index[sym]
             o = cache.open[u, j]
+            if live is not None and np.isfinite(o) and o <= h.stop_price:
+                kind, o = lr.stop_gtt_fill(o, cache.high[u, j], cache.low[u, j], h.stop_price,
+                                           h.stop_price * (1 - live.gtt_buffer))
+                if kind == lr.UNFILLED:
+                    carried.add(sym)
+                    book.notes.append(f"{date.date()} {sym}: live: stop GTT gapped below its limit, carried")
+                    continue
+                if kind == lr.AT_LIMIT:
+                    book.notes.append(f"{date.date()} {sym}: live: stop GTT filled at its limit")
             if np.isfinite(o) and o <= h.stop_price:
                 _sell(book, cache, sym, h.quantity, o, cache.adv[u - 1, j] if u > 0 else np.nan, date, "stop", False)
                 book.stopped_out[sym] = date
@@ -660,12 +732,14 @@ def run_backtest(
         if order is not None:
             # never re-buy a name stopped out after the order was decided
             skip = stopped_today | {s for s, p in book.stopped_pos.items() if p > order.decision_pos}
-            _execute_order(book, cache, order, u, skip)
+            _execute_order(book, cache, order, u, skip, live)
         # intraday stops
         for sym in list(book.positions):
             h = book.positions[sym]
             if h.stop_price is None or sym in sleeve_set:
                 continue
+            if live is not None and (h.entry_date == date or sym in carried):
+                continue                                  # live: its GTT is placed tonight, or already failed today
             j = cache.sym_index[sym]
             px = stop_fill_price(cache.open[u, j], cache.low[u, j], h.stop_price)
             if px is not None:
@@ -808,6 +882,7 @@ def record_run(result: BacktestResult, config: EngineConfig, *, tag: str = "", l
         "metrics": _json_safe(result.metrics),
         "lag_days": int(lag_days),
         "cost_model": COST_MODEL_VERSION,
+        "runtime": runtime_stamp(),
     }
     for key, value in dict(extra or {}).items():
         manifest.setdefault(str(key), _json_safe(value))

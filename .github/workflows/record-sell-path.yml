@@ -1,0 +1,48 @@
+name: Record sell path
+
+# Tracker ST2 step 3 / LN-T2: records the supervised sell test in the live book, the third go-live check.
+# Run it the same evening the test sold: an AMO SELL (CNC) and a triggered single-leg SELL GTT, both
+# COMPLETE today, on shares that were already in the demat account.  Kite's API returns only today's
+# orders, so a later run cannot see them.  It needs that day's Kite login (the reminder email's link).
+# It reads Kite (no order is sent), so it needs no static-IP proxy, and it fails when the check fails.
+on:
+  workflow_dispatch:
+    inputs:
+      ddpi_confirmed_on:
+        description: "DDPI activation date from Console (YYYY-MM-DD)"
+        required: true
+        type: string
+      amo_order_id:
+        description: "Order ID of the AMO SELL (COMPLETE today)"
+        required: true
+        type: string
+      gtt_id:
+        description: "ID of the SELL GTT (triggered today, its order COMPLETE)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  record:
+    # main only, like the nightly job
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04   # pinned: ubuntu-latest becomes Ubuntu 26 from 19 Oct 2026
+    timeout-minutes: 10
+    env:
+      CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
+      ZERODHA_API_KEY: ${{ secrets.ZERODHA_API_KEY }}
+      CENTURION_KITE_TOKEN_KEY: ${{ secrets.CENTURION_KITE_TOKEN_KEY }}
+      DDPI_ON: ${{ inputs.ddpi_confirmed_on }}
+      AMO_ID: ${{ inputs.amo_order_id }}
+      GTT_ID: ${{ inputs.gtt_id }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install --quiet -r requirements-core.txt "kiteconnect==5.1.0"
+      - name: Record the supervised sell test
+        run: python -m kite_connect.trading.live_session --stored-token --dry-run --no-email --record-sell-path "$DDPI_ON" "$AMO_ID" "$GTT_ID"

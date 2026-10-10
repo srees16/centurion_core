@@ -35,9 +35,10 @@ import pandas as pd
 from kite_connect.options.fno_costs import (FNO_COST_MODEL_VERSION, exercise_stt, fill_price,
                                             option_charges)
 from kite_connect.options.options_config import OptionsConfig
+from kite_connect.options.signal_futures import rekey_to_settlement
 from kite_connect.options.sleeves import CANDIDATES, EVENT_DATES, EXTENDED_WINDOW, SLEEVE_WEIGHT, SleeveConfig
 from kite_connect.options.strategies import max_pain
-from kite_connect.options.theory import BUY, CALL, SELL, atm_strike
+from kite_connect.options.theory import BUY, CALL, SELL, atm_strike, intrinsic_value
 from nse_engine.data import fo_store
 
 logger = logging.getLogger(__name__)
@@ -76,18 +77,23 @@ class _Position:
 
 
 class _Market:
-    """Per-session option quotes of one symbol's monthly expiries, plus the index and futures."""
+    """Per-session option quotes of one symbol's monthly expiries, plus the index and futures.
+
+    Contracts are keyed by the session they settle on (``rekey_to_settlement``), so an expiry moved off a
+    holiday or relabelled by NSE settles on its real day and keeps its quotes; the month's latest is its
+    monthly expiry.
+    """
 
     def __init__(self, store_dir: str, cfg: SleeveConfig):
         lo = (pd.Timestamp(cfg.start) - pd.Timedelta(days=45)).strftime("%Y-%m-%d")
-        opts = fo_store.load_options(store_dir, lo, cfg.end, cfg.symbol)
+        opts = rekey_to_settlement(fo_store.load_options(store_dir, lo, cfg.end, cfg.symbol))
         exp = pd.DatetimeIndex(opts["expiry"].unique())
         monthly = pd.Series(exp, index=exp).groupby([exp.year, exp.month]).max()
         self.expiries = sorted(pd.DatetimeIndex(monthly.to_numpy()))
         opts = opts[opts["expiry"].isin(self.expiries)]
         self.quotes = {d: g.set_index(["expiry", "option_type", "strike"]).sort_index()
                        for d, g in opts.groupby("date")}
-        futs = fo_store.load_futures(store_dir, lo, cfg.end, cfg.symbol)
+        futs = rekey_to_settlement(fo_store.load_futures(store_dir, lo, cfg.end, cfg.symbol))
         self.future_settle = {(r.date, r.expiry): r.settle for r in futs.itertuples() if r.settle > 0}
         self.index = fo_store.load_underlying(store_dir, cfg.symbol)
         self.exact = fo_store.load_underlying(store_dir, cfg.symbol, exact_only=True)
@@ -103,13 +109,21 @@ class _Market:
             return pd.DataFrame()
 
     def price(self, d: pd.Timestamp, expiry: pd.Timestamp, strike: float) -> Tuple[float, float]:
-        """(reference price, lot size): close if traded, else settlement; NaN when neither."""
+        """(reference price, lot size): close if traded, else settlement; NaN when neither.
+
+        On the contract's own settlement session an untraded call is worth its intrinsic value against
+        the exact index close, never the settle column, which has held the index level that day since
+        2020 (tracker LN-T20).
+        """
         ch = self.chain(d, expiry)
         if strike not in ch.index:
             return math.nan, math.nan
         row = ch.loc[strike]
         if row["contracts"] > 0 and row["close"] > 0:
             return float(row["close"]), float(row["lot_size"])
+        if d == expiry:
+            s = float(self.exact.get(d, math.nan))
+            return (intrinsic_value(CALL, s, strike) if np.isfinite(s) else math.nan), float(row["lot_size"])
         return (float(row["settle"]) if row["settle"] > 0 else math.nan), float(row["lot_size"])
 
     def spot(self, d: pd.Timestamp) -> float:

@@ -47,18 +47,19 @@ class SleevePanels:
 
 def compute_sleeve_panels(close: pd.DataFrame, cfg: SleeveConfig, vol_lookback: int) -> SleevePanels:
     """Causal trend flags and vols for the enabled sleeve symbols present in ``close``."""
+    from nse_engine.regime import apply_hysteresis, sample_trend
+
     syms = sleeve_symbols(cfg, close.columns)
     c = close.reindex(columns=syms).astype("float64")
-    ma = c.rolling(cfg.trend_ma_days, min_periods=cfg.trend_ma_days).mean()
+    # the mean of the last available closes, carried over a missing print (LN-T19): one gap no longer sells
+    up = pd.DataFrame({s: sample_trend(c[s], cfg.trend_ma_days) for s in syms}, index=c.index, columns=syms)
     hist = c.notna().cumsum()
-    above = c > ma
+    above = up.eq(1.0)
     if cfg.trend_confirm_days > 1:
-        from nse_engine.regime import apply_hysteresis
-
         above = pd.DataFrame({s: apply_hysteresis(["up" if a else "down" for a in above[s]],
                                                   cfg.trend_confirm_days, initial="down")
                               for s in syms}, index=c.index, columns=syms) == "up"
-    in_trend = above & ma.notna() & (hist >= cfg.min_history_days)
+    in_trend = above & up.notna() & (hist >= cfg.min_history_days)
     ret = c.pct_change(fill_method=None)
     vol = ret.rolling(vol_lookback, min_periods=max(vol_lookback // 2, 2)).std() * np.sqrt(252.0)
     return SleevePanels(symbols=syms, in_trend=in_trend, vol=vol)
