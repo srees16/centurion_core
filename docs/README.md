@@ -694,7 +694,7 @@ Real-time Indian equity monitoring, order management, option chain analysis, and
 | `nse/screener.py` | **3-stage NSE screener** — liquidity filter → volatility filter → technical composite score (RSI + MACD + Bollinger + volume surge + price range) |
 | `nse/nse_universe.py` | NSE symbol list download (NIFTY50, BANKNIFTY, full NSE) |
 | `options/option_chain.py` | Concurrent option chain with OI, Greeks, and IV (ThreadPoolExecutor, 20 workers) |
-| `trading/order_service.py` | Market/Limit/SL/SL-M orders, CNC/MIS/NRML products, DAY/IOC validity — **auto-persists every order to DB** (`order_records` table) + **sends email confirmation** + **circuit breaker** (3 failures → 120s halt) |
+| `trading/order_service.py` | Market/Limit/SL/SL-M orders, CNC/NRML products (MIS and cover/bracket orders refused: swing and positional only), DAY/IOC validity — **auto-persists every order to DB** (`order_records` table) + **sends email confirmation** + **circuit breaker** (3 failures → 120s halt) |
 | `trading/auto_executor.py` | End-to-end Carver pipeline: screen → score → forecast → vol-target size → risk-check → order → monitor |
 | `trading/risk_manager.py` | Vol-targeted position sizing, 6-tier drawdown protection, ATR-based SL/TP, VIX/ADX regime scaling, sector limits (30% cap, 3 trades/sector), portfolio correlation filter (reject > 0.60) |
 | `trading/trade_monitor.py` | Post-trade SL/TP lifecycle — SL-M + limit TP after entry fill, **trailing stop** (5% profit lock → 3% trail), **crash recovery** (SQLite WAL persistence, auto-restore on restart), corporate action adjustments, forced exit after max hold period |
@@ -1245,6 +1245,7 @@ centurion_core/
 │       └── time_budget.py        # Query time budget management
 │
 ├── notifications/                # Desktop + email alerts
+│   ├── alerts.py                 # alert(): [Centurion CRITICAL] / [Centurion warning] emails, once per key per IST day (AL1)
 │   └── manager.py                # plyer popups + SMTP HTML email (order confirmations, WSB reports)
 │
 ├── storage/                      # Object storage

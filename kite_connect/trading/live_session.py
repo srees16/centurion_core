@@ -1255,15 +1255,12 @@ def _login_accepted(kite) -> bool:
 
 
 def _email_skip(message: str, label: str = "") -> None:
-    import html
+    """CRITICAL (tracker AL2): no live session today, so no exits or rebalances (GTT stops still hold)."""
+    from services.notifications.alerts import CRITICAL, alert
 
-    try:
-        from services.notifications.manager import NotificationManager
-        NotificationManager._send_html_email(
-            f"Centurion live{f' [{label}]' if label else ''}: no valid Kite login today, session skipped",
-            f"<html><body style='font-family:Segoe UI,Arial,sans-serif;padding:20px;'><p>{html.escape(message)}</p></body></html>")
-    except Exception as exc:                              # noqa: BLE001
-        logger.warning("skip email failed: %s", exc)
+    alert(CRITICAL, f"live_no_login:{label or 'own'}",
+          f"Centurion live{f' [{label}]' if label else ''}: no valid Kite login today, session skipped", [message],
+          book=label or None)
 
 
 def main(argv=None) -> int:

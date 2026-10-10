@@ -319,10 +319,20 @@ async def kite_orders():
 
 @router.post("/kite/orders")
 async def kite_place_order(order: Dict[str, Any]):
-    """Place an order via Kite."""
+    """Place an order via Kite (swing and positional only: an intraday order is refused)."""
+    from kite_connect.trading.order_service import intraday_refusal, same_day_refusal
+
+    refusal = intraday_refusal(order.get("product"), order.get("variety", "regular"))
+    if refusal:
+        raise HTTPException(status_code=422, detail=refusal)
     kite = get_kite_session()
     if not kite:
         raise HTTPException(status_code=409, detail=KITE_SESSION_INACTIVE)
+    refusal = await asyncio.to_thread(same_day_refusal, kite, order.get("tradingsymbol"), order.get("exchange"),
+                                      order.get("transaction_type"), order.get("product"),
+                                      order.get("variety", "regular"))
+    if refusal:
+        raise HTTPException(status_code=422, detail=refusal)
     try:
         variety = order.pop("variety", "regular")
         order_id = await asyncio.to_thread(

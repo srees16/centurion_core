@@ -15,7 +15,6 @@ and email their own results.
 """
 from __future__ import annotations
 
-import html
 import logging
 import os
 import re
@@ -36,30 +35,32 @@ def main() -> int:
     arg = " ".join(sys.argv[1:]) or os.environ.get("GITHUB_RUN_ID", "unknown run")
     match = re.fullmatch(r"\s*(\S+)\s*(?:\((.*)\))?\s*", arg)
     where, label = (match.group(1), (match.group(2) or "").strip()) if match else (arg, "")
-    label = html.escape(label)
     if where.isdigit():
         repo = os.environ.get("GITHUB_REPOSITORY", "srees16/centurion_core")
         where = f"https://github.com/{repo}/actions/runs/{where}"
     now = datetime.now(IST).strftime("%Y-%m-%d %H:%M IST")
-    link = f"<p><a href=\"{where}\">Open the failed run</a> to see why.</p>"
+    link = f"Open the failed run to see why: {where}"
+    # Tracker AL2: a live failure is CRITICAL, a paper one a warning; each once a day per book.
+    from services.notifications.alerts import CRITICAL, WARNING, alert
+
     if label.startswith("live book"):
-        subject = f"Centurion {label} FAILED - {now}"
-        body = (f"<p>The {label} session did not complete at {now}.</p>{link}"
-                "<p>The paper books run in their own steps and email their own results.</p>")
+        sent = alert(CRITICAL, f"session_failed:{label}", f"Centurion {label} FAILED",
+                     [f"The {label} session did not complete at {now}.", link,
+                      "The paper books run in their own steps and email their own results."])
     else:
-        subject = f"Centurion paper session FAILED{f' ({label})' if label else ''} - {now}"
-        body = (f"<p>The paper trading run{f' ({label})' if label else ''} did not complete at {now}.</p>{link}"
-                "<p>The next run catches up: each missed session's stops and the queued orders' fills "
-                "are applied in order, then one plan is made from the latest close (no plan is made "
-                "for the sessions in between). Re-running the workflow the same evening avoids even that.</p>")
-    try:
-        from services.notifications.manager import NotificationManager
-        sent = NotificationManager()._send_html_email(subject, body)
-        logger.info("failure alert %s", "sent" if sent else "NOT sent (check the SMTP secrets)")
-        return 0
-    except Exception as exc:                              # noqa: BLE001 - never mask the real failure
-        logger.warning("failure alert could not be sent: %s", exc)
-        return 0
+        # The workflow sets this when the failure came before the live step and the live book is on.
+        live_skipped = os.environ.get("CENTURION_LIVE_SKIPPED", "").lower() == "true"
+        sent = alert(CRITICAL if live_skipped else WARNING, f"session_failed:{label or 'paper'}",
+                     f"Centurion paper session FAILED{f' ({label})' if label else ''}"
+                     + (", live book not run" if live_skipped else ""),
+                     [f"The paper trading run{f' ({label})' if label else ''} did not complete at {now}.", link,
+                      *(["The live book did not run either: its step comes after the one that failed."]
+                        if live_skipped else []),
+                      "The next run catches up: each missed session's stops and the queued orders' fills are "
+                      "applied in order, then one plan is made from the latest close (no plan is made for the "
+                      "sessions in between). Re-running the workflow the same evening avoids even that."])
+    logger.info("failure alert %s", "sent" if sent else "not sent (already today, or check the SMTP secrets)")
+    return 0                                              # never mask the real failure
 
 
 if __name__ == "__main__":

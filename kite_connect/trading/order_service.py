@@ -16,6 +16,7 @@ import logging
 import os
 import time
 import types
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,47 @@ def order_variety_now() -> str:
     return REGULAR_VARIETY if _is_nse_market_open() else AMO_VARIETY
 
 
+#: Centurion places swing and positional trades only (owner's rule, 10 Oct 2026): Zerodha's
+#: intraday product and its intraday-only varieties (cover, bracket) are refused on every path.
+INTRADAY_PRODUCTS = frozenset({"MIS"})
+INTRADAY_VARIETIES = frozenset({"co", "bo"})
+
+
+def intraday_refusal(product, variety=REGULAR_VARIETY) -> Optional[str]:
+    """Why an order is refused as intraday, or None when it may go (CNC delivery, NRML for F&O)."""
+    if str(product or "").upper() in INTRADAY_PRODUCTS:
+        return f"product {product} is intraday: Centurion places swing and positional trades only (CNC, or NRML for F&O)"
+    if str(variety or "").lower() in INTRADAY_VARIETIES:
+        return f"variety {variety} (cover/bracket) is intraday only: Centurion places swing and positional trades only"
+    return None
+
+
+def same_day_refusal(kite, symbol, exchange, transaction_type, product, variety=REGULAR_VARIETY) -> Optional[str]:
+    """Why a delivery order would close or reverse a trade made today in the same stock, or None.
+
+    Zerodha counts a buy and a sell of one stock on the same day as an intraday
+    trade, whichever lots they touch.  Only a regular CNC order executes today
+    (an after-market order executes at the next session; F&O legs are left to
+    their own unwind rules).  Fails closed when today's positions cannot be
+    read.  Kite itself still accepts such an order: the owner sells there.
+    """
+    if str(product or "").upper() != "CNC" or str(variety or "").lower() != REGULAR_VARIETY:
+        return None
+    side = str(transaction_type).upper()
+    opposite = "buy_quantity" if side == "SELL" else "sell_quantity"
+    try:
+        day = (kite.positions() or {}).get("day", []) or []
+    except Exception as exc:                              # noqa: BLE001 - refuse rather than guess
+        return f"today's trades in {symbol} could not be read ({exc}): the order is refused; use Kite directly"
+    done = sum(int(p.get(opposite) or 0) for p in day
+               if p.get("tradingsymbol") == symbol and (p.get("exchange") or exchange) == exchange)
+    if done:
+        return (f"{symbol} was {'bought' if side == 'SELL' else 'sold'} today ({done} shares): this {side} would "
+                "make an intraday trade. Centurion places swing and positional trades only; use Kite directly "
+                "if it must happen today")
+    return None
+
+
 def place_order(kite, symbol, exchange, transaction_type, quantity,
                 order_type="MARKET", product="CNC", price=None,
                 trigger_price=None, validity="DAY", tag=None, is_exit=False,
@@ -152,7 +194,10 @@ def place_order(kite, symbol, exchange, transaction_type, quantity,
     order_type : str
         ``"MARKET"``, ``"LIMIT"``, ``"SL"``, or ``"SL-M"``.
     product : str
-        ``"CNC"`` (delivery), ``"MIS"`` (intraday), or ``"NRML"``.
+        ``"CNC"`` (delivery) or ``"NRML"`` (F&O, carried overnight); ``"MIS"``
+        (intraday) is refused, as are cover and bracket varieties
+        (``intraday_refusal``) and a regular CNC order that would close or
+        reverse today's trade in the same stock (``same_day_refusal``).
     price : float | None
         Required for LIMIT / SL orders.
     trigger_price : float | None
@@ -175,6 +220,13 @@ def place_order(kite, symbol, exchange, transaction_type, quantity,
         ``{"success": True, "order_id": "..."}`` on success, or
         ``{"success": False, "error": "..."}`` on failure.
     """
+    # ── Swing and positional only: no intraday product, variety or same-day round trip ──
+    refusal = (intraday_refusal(product, variety)
+               or same_day_refusal(kite, symbol, exchange, transaction_type, product, variety))
+    if refusal:
+        logger.error("Order refused for %s: %s", symbol, refusal)
+        return {"success": False, "error": refusal}
+
     # ── G2: KILL SWITCH — halt new risk, but never block reduce-only exits ──
     if is_kill_switch_active():
         allowed, reason = _kill_switch_allows(kite, symbol, exchange, transaction_type,

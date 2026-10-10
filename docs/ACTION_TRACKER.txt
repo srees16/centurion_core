@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 10 Oct 2026, 12:11 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 10 Oct 2026, 13:57 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -320,6 +320,23 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 [ ] P1  LN-T11 AMO funding: after ST2's answer, cap buys at the broker's free
              cash and read rejected orders the same night.  Small.  Detail:
              lean_review.md item 11.
+ ALERTING PLAN (your ask 10 Oct; the relevance table's health, risk and
+ order categories): email only, to you; subjects [Centurion CRITICAL] and
+ [Centurion warning]; healthchecks.io free tier as the dead-man's switch;
+ push channel deferred (AL6).  AL1, AL2 done 10 Oct; AL3, AL4 by ~25 Nov, AL5
+ at go-live.
+[ ] P1  AL3  Risk through alert(): kill criteria, a rung step-down, G4 FAIL
+             at the lowest rung, a position without a stop GTT, a ledger /
+             broker quantity mismatch (CRITICAL); a paper book's G4 FAIL or
+             drawdown-rule change (warning).  0.5-1 day.
+[ ] P1  AL4  Orders, evening (replaces LN-T17): a rejected exit or stop sell
+             is CRITICAL with Kite's reason and a fix hint; a rejected buy a
+             warning (also covers ST2's AMO funding risk).  0.5-1 day.
+[ ] P2  AL5  Orders, market hours, at go-live: Kite postbacks for the
+             engine's own orders (kite_tag): rejected or cancelled ->
+             CRITICAL within a minute, a filled stop -> warning.  Needs Kite's
+             postback URL on the HF Space (your answer pending); test it with
+             ST2's supervised sell.  1 day.
 #1  [ ] P1  D3   Go live on schedule: Rs 6L rung ~mid Dec, once paper G4
                  PASS at 60 sessions + 5 clean dry runs + the sell path
                  recorded (ST2 step 3, LN-T2) (set
@@ -394,9 +411,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              CAGR (deployed), -0.45 pt (E4).  A fix is a backtest rule (no
              fill on a locked day) and a data re-baseline, not an order
              setting.
-[ ] P2  LN-T17 Report rejected stop and exit sells the same evening, with
-             Kite's reason and a fix hint.  Small.  Detail: lean_review.md
-             item 17.
+[ ] P3  AL6  Push channel for CRITICAL alerts (Pushover or Telegram):
+             deferred (your call 10 Oct: fewer than 5 users, email is
+             enough).  Revisit if users grow or email proves too slow.
 [ ] P2  LN-T18 Scorecard regime split labelled with the regime known at the
              previous close (the 'loses ~22% a year in bear phases' figure is
              look-ahead).  Small.  Detail: lean_review.md item 18.
@@ -467,6 +484,53 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+10 Oct  AL2  System health through alert() (with AL2h: your healthchecks.io
+             check "centurion-nightly" and the CENTURION_HEALTHCHECK_URL
+             secret).  CRITICAL: the live session failed (also its refusals:
+             go-live checks, executor, proxy) or was skipped for no Kite
+             login; the heartbeat found no session; canary drift; a failure
+             before the live step with the live book on (no live session
+             tonight).  Warning: a paper session failed; the canary saw the
+             data change; the store seems to miss a session (sent from a step
+             of its own, the build step holds no secrets); the HF Space could
+             not start the nightly job.  Each replaces that event's old email
+             (same text, severity subject, once a day per key).  The nightly
+             job pings healthchecks.io when it finishes (NSE holidays
+             included), so a weekday with no finished run by 23:00 IST emails
+             you from outside GitHub.  Checks: temporary end-to-end script
+             (every hook, both live modes, once a day, the workflow's own
+             snippet) passed and deleted; full suite (220) passes.
+10 Oct  AL1  Severity-routed alerts (alerting plan, email only to you):
+             services/notifications/alerts.py alert(severity, key, title,
+             lines, book) emails "[Centurion CRITICAL] <title>" or
+             "[Centurion warning] <title>"; CRITICAL reads "would-be
+             CRITICAL" until CENTURION_LIVE_MODE is live.  A key alerts at
+             most once per IST day (alerts_sent in the book's Neon state, 7
+             days kept), so the backup runs do not repeat it; a failed send
+             is logged and retried by the next call, never raised; an
+             unreadable history sends anyway.  Reuses the SMTP sender; no
+             caller yet (AL2-AL4 wire them).  Your side: one Outlook rule,
+             subject contains "[Centurion CRITICAL]" -> flag, keep in
+             Focused.  Checks: temporary script passed and deleted.
+10 Oct  NI1  No intraday orders (your rule: Centurion places swing and
+             positional trades only).  The engine was already delivery-only
+             (CNC after-market orders and GTT stops; deployed 2013-25: 0
+             same-day round trips, median hold 30 days).  Now every order
+             path refuses Zerodha's intraday product (MIS) and the
+             intraday-only cover / bracket varieties: order_service.place_order
+             (engine, legacy pipelines, /ind-stocks/orders, options) and the
+             direct /api/v1/kite/orders route (422).  Fly Kite's Quick Trade
+             panel lost its MIS product and Cover Order tab (web repo).  F&O
+             NRML (held overnight) is unaffected.  Same-day round trips: a
+             regular CNC order that would sell a stock bought today (or buy
+             one sold today) is refused on both paths; you sell such shares
+             in Kite itself (your call).  After-market orders and F&O legs
+             (a half-filled spread's unwind) are not blocked.  Left as is:
+             in 2013-25 a GTT stop fired on the day the engine topped up the
+             same stock 4 times (deployed; E4 4, candidate 2), which Zerodha
+             counts as intraday for the topped-up shares.  Checks: temporary
+             scripts passed and deleted; full suite (220) and frontend type
+             check pass.
 10 Oct  IS1  Paper books cannot touch the live book (your ask: verified,
              then four gaps fixed).  Already in place: a candidate book
              cannot send orders (status, no live flags, no Kite secrets in

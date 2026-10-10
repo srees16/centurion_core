@@ -106,16 +106,13 @@ def main() -> int:
     logger.info("paper heartbeat: %s", result)
     if not result["stale"]:
         return 0
-    try:
-        from services.notifications.manager import NotificationManager
-        NotificationManager()._send_html_email(
-            f"Centurion paper book has not traded since {result.get('latest_session')}",
-            f"<p>The paper book is {result.get('weekdays_behind')} weekdays behind "
-            f"(today {result.get('today_ist')} IST).</p><p>{result.get('reason')}</p>"
-            f"<p>Last run recorded: {result.get('last_run_at') or 'never'}.</p>"
-            "<p>Check the Paper Trading Cron workflow and the 19:00 IST dispatch.</p>")
-    except Exception as exc:                              # noqa: BLE001 - the exit code is the real alarm
-        logger.warning("heartbeat email failed: %s", exc)
+    # Tracker AL2: CRITICAL, since no session also means no live session; the exit code stays the backup alarm.
+    from services.notifications.alerts import CRITICAL, alert
+
+    alert(CRITICAL, "heartbeat_stale", f"Centurion paper book has not traded since {result.get('latest_session')}",
+          [f"The paper book is {result.get('weekdays_behind')} weekdays behind (today {result.get('today_ist')} IST).",
+           str(result.get("reason")), f"Last run recorded: {result.get('last_run_at') or 'never'}.",
+           "Check the Paper Trading Cron workflow and the 19:00 IST dispatch."])
     return 1
 
 

@@ -28,6 +28,7 @@ jobs:
       CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
       CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
       CENTURION_HEARTBEAT_TEST_EMAIL: ${{ inputs.send_test_email }}
+      CENTURION_LIVE_MODE: ${{ vars.CENTURION_LIVE_MODE }}   # alert(): CRITICAL or would-be (AL2)
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6

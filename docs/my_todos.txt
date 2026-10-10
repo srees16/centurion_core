@@ -173,8 +173,7 @@ audit the current order workflow beginning with user's ticker input until placin
 1. Where are images stored currently wen i run analysis? Display location or url to access dem on ui pages
 2. Implement same configuration n strategy to give a list of US stocks
 3. Can paper trading for US stocks be possible if not automating buy sell signals?
-4. design n implement kill switch
-5. analyze best scenarios to setup alert & discord bots
+4. design n implement kill switch or dead-man's switch
 
 Reorder per priority for final go-live applicable to all the strategies, both current and future:
 Ensure centurion is survivorship bias free
@@ -188,7 +187,93 @@ refer for applicable improvements:
 
 add a task in action_tracker to perform after the paper trade is completed to ensure that we capture the scores of the metrics like Sharpe ratio, Sortina ratio, Information ratio, Calmar ratio, Max drawdown, volatility, CVaR (Expected Shortfall), Skew and kurtosis, Factor exposures and beta (how much of the return is just market or style factors versus true alpha), Implementation shortfall / slippage, Market impact, Turnover, Hit rate and win/loss ratio, Profit factor, Average P&L per trade, Out-of-sample and walk-forward performance, Deflated Sharpe / probability of backtest overfitting, Parameter sensitivity, Regime stability, Alpha decay, Regime stability, Capacity (how much capital it can run before impact eats the edge), Correlation (to Centurion's existing strategies. A mediocre but uncorrelated Sharpe is often worth more than a great but correlated one), Live vs. backtest tracking error. Investigate whether the Sharpe survives costs, out-of-sample testing, and live trading at the size we want to run. Since Centurion implements non-HFT strategies, robustness and overfitting checks carry far more weight.
 
+Be candid. If something in the current architecture does not meet the stated goal or if adding it now would be premature, say so.
+
 On me:
 Check Console, then Account, for DDPI on your main Zerodha ID. If it isn't active, submit it now, because it takes days.
 what are three ways to handle the funding?
 ST2, LN-T2
+
+I want to evaluate adding a dead man's switch to centurion_core. Before building anything, I want an evidence-based assessment of whether it's needed, what it would take, and how it should be designed for this codebase. Do not implement anything yet; this is analysis only.
+
+## Background (for context, not a spec)
+A dead man's switch reacts when something stops checking in. There are two kinds:
+
+1. **System liveness.** The app sends periodic heartbeats. If they stop, an external watcher alerts me and may take a protective action.
+2. **Operator liveness.** If I haven't acknowledged or checked in within a window during market hours, the system reduces risk on its own (for example, by pausing new entries).
+
+Design principles I care about:
+- **External watcher.** The watcher must run outside the process and machine it monitors, because a crashed process or dead host cannot report its own death.
+- **Heartbeat = healthy, not alive.** Send a heartbeat only when the main loop is progressing, market data is fresh, and the broker connection and auth are valid. A running but stuck process should miss its heartbeat.
+- **Schedule awareness.** Expect heartbeats only during trading hours, accounting for holidays and pre-open. Alert if the system did not start before market open (for example, because a daily broker login or access token expired).
+- **Escalation before action.** First an alert, then a louder alert (push or call), then, only after a grace period, an automatic action.
+- **Low-regret automatic actions.** Prefer "pause new entries" and "cancel open orders" over "flatten positions." Flattening from an external system during a brief network blip is risky.
+- **Broker as source of truth.** After any action, verify open orders and positions against the broker, not internal state.
+- **Latched, persisted halt state.** Once halted, the app stays halted across restarts until I manually reset it with a reason. It never auto-resumes.
+- **Least-privilege credentials.** If the external watcher can act on the broker, it holds credentials and becomes an attack surface. Give it minimal permissions and handle secrets properly, or consider alert-only.
+- **Watch the watcher, minimally.** Use a reputable external service, or have the watcher emit its own periodic heartbeat. No infinite chains.
+
+## Step 1: Understand the app first
+Explore the codebase and summarize, citing the relevant files and functions:
+- What the app does: research/backtest only, paper trading, or live trading? Which markets and brokers? Does it hold positions overnight or intraday only?
+- How it runs: a long-lived process, scheduled jobs, or manual runs? Sync or async? Single or multiple processes and threads? Any auto-restart (systemd, Docker restart policies, supervisors)?
+- Where it is deployed: my local machine, a VPS, the cloud? Is it unattended during market hours?
+- The main loop(s): where progress could be measured, such as the last tick processed, last strategy iteration, or last successful broker call.
+- How the broker session and auth work, including token expiry and refresh, and how auth failures surface today.
+- Existing logging, monitoring, health checks, alerting, or notification code.
+- Config and secrets handling.
+
+## Step 2: Decide whether it's needed at all
+Give a clear verdict, justified with specifics from the code:
+- Not needed
+- System liveness only (alert-only)
+- System liveness with automatic protective action
+- System and operator liveness
+
+If the app is research-only, never runs unattended, or never holds live positions, say so plainly. "Not needed yet" is an acceptable answer.
+
+## Step 3: Trade-offs
+Compare:
+- An external heartbeat service vs. a self-hosted watcher on a separate small server or cloud function vs. an in-process watchdog. Explain why in-process alone is insufficient, and whether it still has a role, for example for detecting stuck loops.
+- Push-based heartbeats (the app pings the watcher) vs. pull-based health checks (the watcher polls an endpoint the app exposes).
+- Alert-only vs. a watcher that can act on the broker: the reliability gained vs. the credential and false-trigger risk added.
+- Possible automatic actions (pause entries, cancel orders, flatten), with the regret profile of each for this app's instruments and holding periods.
+- Whether operator liveness is worth adding for a single user, and what the check-in mechanism would be.
+- Building it now vs. later, given the app's maturity.
+
+## Step 4: Prerequisites
+For each item below, mark it as exists / partial / missing, with file references:
+- A single order-placement chokepoint (gate) that every order passes through and that checks a halt flag. If any code path places orders directly, call it out.
+- A halt or kill-switch state that is atomic, persisted, checked on startup, and requires a manual reset.
+- Broker API functions to list open orders, cancel all orders, and fetch positions, for reconciliation.
+- Measurable health signals: data freshness, loop progress, broker connectivity and auth validity.
+- A trading calendar or market-hours awareness, including holidays.
+- An alerting channel to deliver dead man's switch notifications.
+- An always-on runtime and deployment that the watcher can sit outside of.
+- Secrets management suitable for a second component.
+- Tests and a mock broker capable of simulating timeouts, failures, and partial fills.
+
+## Step 5: Challenges and risks specific to this codebase
+Cover at least:
+- False triggers from network blips, garbage collection pauses, slow broker responses, or clock drift, and appropriate intervals and grace periods.
+- Race conditions between a strategy placing orders and the halt or cancel sequence.
+- Auto-restart resuming trading after a halt.
+- Stale or incorrect internal state vs. broker state.
+- Behavior when the market is closed or instruments are at circuit limits.
+- Broker API rate limits during cancel or flatten.
+- Daily auth or token expiry causing a silent non-start.
+- Credential exposure in the external watcher.
+- How to test it safely (fire drills in paper trading, mocked failures).
+- Ongoing maintenance burden.
+
+## Output format
+1. **Verdict** (one paragraph).
+2. **App summary**, with file references.
+3. **Trade-off analysis**, ending with a recommended design.
+4. **Prerequisites checklist**: exists / partial / missing.
+5. **Risks and challenges**, ranked by severity.
+6. **Proposed design.** Cover what the heartbeat checks, its interval, the grace period, the escalation steps, the automatic action (if any), the reset procedure, and where each piece runs.
+7. **Phased implementation plan.** For each phase, give scope, files touched, rough effort, and how to test it.
+8. **Open questions** you need me to answer before implementation.
+
+Be candid. If the current architecture makes this unsafe or awkward (for example, there's no single order gate), say so, and make fixing that phase 0.

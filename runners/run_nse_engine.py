@@ -598,17 +598,14 @@ def cmd_canary(args) -> None:
         with open(out, "a") as fh:
             fh.write(f"canary={status}\ndrift={'true' if status == 'drift' else 'false'}\n")
     if status in ("drift", "data_differs") and not args.no_email:
-        try:
-            from services.notifications.manager import NotificationManager
+        from services.notifications.alerts import CRITICAL, WARNING, alert
 
-            what = ("the store's data changed under the books (refresh the registry off Actions)"
-                    if status == "data_differs" else "a book's backtest changed with its code and data hashes unchanged")
-            NotificationManager()._send_html_email(
-                f"Centurion canary: {status.replace('_', ' ')}",
-                f"<p>The nightly canary found that {what}.</p><ul>"
-                + "".join(f"<li>{m}</li>" for m in moved) + f"</ul><p>Runtime: {runtime}</p>")
-        except Exception as exc:                          # noqa: BLE001 - the step output still carries it
-            logger.warning("canary email not sent: %s", exc)
+        what = ("the store's data changed under the books (refresh the registry off Actions)"
+                if status == "data_differs" else "a book's backtest changed with its code and data hashes unchanged")
+        # Tracker AL2: drift can hold the live book to a dry run, so it is CRITICAL; a data change a warning.
+        alert(CRITICAL if status == "drift" else WARNING, f"canary_{status}",
+              f"Centurion canary: {status.replace('_', ' ')}",
+              [f"The nightly canary found that {what}.", *moved, f"Runtime: {runtime}"])
 
 
 def cmd_scorecard(args) -> None:

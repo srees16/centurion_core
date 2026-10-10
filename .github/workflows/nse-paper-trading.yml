@@ -299,6 +299,7 @@ jobs:
           EOF
 
       - name: Build NSE store (changed years only)
+        id: store
         env:
           MODE: ${{ steps.window.outputs.mode }}
           SYNC_START: ${{ steps.window.outputs.sync_start }}
@@ -329,8 +330,34 @@ jobs:
           for x in summary.get("suspect_missing_sessions", []):   # LN-T7: a session the archive lacks
               print(f"::error::a session seems missing from the store before {x['date']} "
                     f"({x['mismatched']} of {x['symbols']} prev_close values do not match)")
+          suspect = "; ".join(f"before {x['date']} ({x['mismatched']} of {x['symbols']} prev_close values differ)"
+                              for x in summary.get("suspect_missing_sessions", []))
+          if suspect:   # AL2: the next step warns the owner (this step holds no secrets)
+              with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+                  fh.write(f"suspect={suspect}\n")
           EOF
           du -sh data/nse_engine/store
+
+      # Tracker AL2: the store build holds no secrets, so its warning goes from a step of its own.
+      - name: Tell me when the store seems to miss a session
+        if: steps.store.outputs.suspect != ''
+        continue-on-error: true
+        env:
+          SUSPECT: ${{ steps.store.outputs.suspect }}
+          CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
+          CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
+          CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
+          CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
+          CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+        run: |
+          python - <<'EOF'
+          import os
+          from services.notifications.alerts import WARNING, alert
+          suspect = os.environ["SUSPECT"]
+          alert(WARNING, f"store_missing_session:{suspect[:80]}", "Centurion: the NSE store seems to miss a session",
+                [*suspect.split("; "), "The archive lacks a session NSE traded (tracker LN-T7): sync it, "
+                 "then rebuild the store."])
+          EOF
 
       # Every book's 2013-25 backtest against its expected statistics (tracker LN-T13): a code,
       # dependency or runner change that moves a book with its hashes unchanged is emailed, and
@@ -344,6 +371,7 @@ jobs:
           CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
           CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
           CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+          CENTURION_LIVE_MODE: ${{ vars.CENTURION_LIVE_MODE }}   # alert(): CRITICAL or would-be (AL2)
         run: python -m runners.run_nse_engine canary --tier actions
 
       - name: Regenerate same-period shift reference
@@ -426,6 +454,7 @@ jobs:
           CENTURION_PAPER_TRADE: ${{ vars.CENTURION_LIVE_MODE == 'live' && 'false' || 'true' }}
           CENTURION_NSE_ENGINE_LIVE: ${{ vars.CENTURION_LIVE_MODE == 'live' && 'true' || 'false' }}
           LIVE_MODE: ${{ vars.CENTURION_LIVE_MODE }}
+          CENTURION_LIVE_MODE: ${{ vars.CENTURION_LIVE_MODE }}   # alert(): CRITICAL or would-be (AL2)
         run: |
           if [ -n "$CENTURION_PROXY_HOST" ]; then
             # Kite calls leave from the Oracle VM's reserved IP (the one Zerodha has).
@@ -458,10 +487,12 @@ jobs:
       - name: Tell me when the live session fails
         if: steps.live.outcome == 'failure'
         env:
+          CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}   # alert(): once a day (AL2)
           CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
           CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
           CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
           CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+          CENTURION_LIVE_MODE: ${{ vars.CENTURION_LIVE_MODE }}
         run: python -m tools.session_failed "${{ github.run_id }} (live book)"
 
       # Extra paper books (trackers D1, D5): every config/nse_engine_<book>.json
@@ -509,10 +540,14 @@ jobs:
       - name: Tell me when a session fails
         if: failure()
         env:
+          CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}   # alert(): once a day (AL2)
           CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
           CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
           CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
           CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+          CENTURION_LIVE_MODE: ${{ vars.CENTURION_LIVE_MODE }}
+          # a failure before the live step, with the live book on, means no live session tonight: CRITICAL
+          CENTURION_LIVE_SKIPPED: ${{ steps.live.outcome == 'skipped' && (vars.CENTURION_LIVE_MODE == 'dry_run' || vars.CENTURION_LIVE_MODE == 'live') }}
         run: python -m tools.session_failed "${{ github.run_id }}"
 
       - name: Save NSE archive and store cache
@@ -523,3 +558,14 @@ jobs:
             data/nse_engine/archive
             data/nse_engine/store
           key: nse-engine-data-v1-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # Tracker AL2: the dead-man's switch (healthchecks.io, AL2h).  Every run that gets this far
+      # pings, NSE holidays included; no ping by 23:00 IST on a weekday emails the owner from
+      # outside GitHub.  Without the secret it does nothing.
+      - name: Dead-man's switch ping
+        if: success()
+        env:
+          HC_URL: ${{ secrets.CENTURION_HEALTHCHECK_URL }}
+        run: |
+          [ -n "$HC_URL" ] || { echo "no CENTURION_HEALTHCHECK_URL: no ping"; exit 0; }
+          curl -fsS -m 10 --retry 3 -o /dev/null "$HC_URL" || echo "::warning::dead-man's switch ping failed"
