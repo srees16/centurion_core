@@ -382,7 +382,7 @@ one configuration that paper/live trades: engine config, `status`
 `paper_start_date` and `data_anchor_date`. It is written by
 `runners/run_nse_engine.py promote`, the forward gate (V3, decision U19): a
 paper candidate replaces it only after >= 60 sessions beside the deployed
-book, a G4 PASS and a walk-forward OOS Sharpe within 0.05 of the deployed
+book, a G4 PASS and a 2017-25 backtest Sharpe within 0.05 of the deployed
 config's; PBO, deflated Sharpe, the benchmark gate and the holdout are printed
 but no longer gate. Live trading refuses placeholder and candidate files.
 
@@ -415,9 +415,11 @@ reference (books, the three checks, candidate selection, promotion, go-live
 checklist) is `docs/paper_trade_strategy.md`.
 `docs/books_register.csv` holds one row per book: its configuration and
 one-line `description` (a key of the book file), the backtest scores of the
-registry's like-for-like run (same window, newest cost model), the
-walk-forward OOS Sharpe 2017–25 from that run's returns, PBO / DSR from its
-validation, and, once the Saturday job has filled them, its paper scores and
+registry's like-for-like run (same window, newest cost model), the Sharpe
+of that run's 2017–25 returns (`bt_sharpe_2017_25`, the forward gate's check
+3; not a walk-forward, which re-fits the family and is in the scorecards),
+PBO / DSR from its validation, and, once the Saturday job has filled them,
+its paper scores and
 forward-gate status, with a one-line summary. `python -m nse_engine.books
 register` rebuilds the backtest columns from the run registry (research
 machine only; commit the file). Every Saturday `tools/books_report.py` reads

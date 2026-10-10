@@ -64,14 +64,15 @@ BENCHMARK = "NIFTY50_TRI"
 HORIZONS = (5, 21, 63, 126, 252)
 LADDER_INR = (6e5, 1.2e6, 2.1e6, 3e6, 5e6, 1e7, 2e7, 5e7, 1e8)
 CAPACITY_WINDOW_DAYS = 504
-#: The anchored walk-forward of each book's configuration family (R12 re-run on cost model 4, tracker
-#: IC1, test years 2017-25): arm A re-fits K5's 32-point grid (the deployed rule and the candidate's
-#: neutral 0.6 are grid points), arm B the same grid times exit rank {40, 60} (E4's rule).  The family's
-#: base is bd79bf28, not the book's own hash: a walk-forward re-fits the parameters, so it judges the
-#: family, not one setting.  The cost-model-3 originals stay as wf_oos_returns_r12a.csv / _r12b.csv.
-WALK_FORWARD_OOS = {"deployed": "data/nse_engine/wf_oos_returns_r12a4.csv",
-                    "candidate": "data/nse_engine/wf_oos_returns_r12a4.csv",
-                    "e4": "data/nse_engine/wf_oos_returns_r12b4.csv"}
+#: The anchored walk-forward of each book's configuration family (R12 re-run on cost model 4 and data
+#: hash v2 with point-in-time name ties, trackers IC1 and LN-T15; test years 2017-25): arm A re-fits K5's
+#: 32-point grid (the deployed rule and the candidate's neutral 0.6 are grid points), arm B the same grid
+#: times exit rank {40, 60} (E4's rule).  The family's base is bd79bf28, not the book's own hash: a
+#: walk-forward re-fits the parameters, so it judges the family, not one setting.  Earlier runs stay as
+#: wf_oos_returns_r12a.csv / _r12b.csv (cost model 3) and _r12a4 / _r12b4 (cost model 4, data hash v1).
+WALK_FORWARD_OOS = {"deployed": "data/nse_engine/wf_oos_returns_r12a5.csv",
+                    "candidate": "data/nse_engine/wf_oos_returns_r12a5.csv",
+                    "e4": "data/nse_engine/wf_oos_returns_r12b5.csv"}
 OPTIONS_RUNS = "data/nse_engine/runs_options"
 #: Section 1's targets, fixed before any number is read.
 PASS_RULES = (("net Sharpe", "sharpe", ">", 1.2), ("max drawdown", "max_drawdown", ">=", -0.30),

@@ -315,7 +315,7 @@ def cmd_holdout(args) -> None:
 def cmd_promote(args) -> None:
     """Forward gate (V3, decision U19): replace the deployed config with the
     paper candidate once it has traded >= 60 sessions beside it, its G4 paper
-    gate is PASS and its walk-forward OOS Sharpe is within 0.05 of the
+    gate is PASS and its 2017-25 backtest Sharpe is within 0.05 of the
     deployed config's.  PBO / deflated Sharpe / benchmark / holdout are
     printed with their counts, not gating (``nse_engine.forward_gate``)."""
     from datetime import datetime, timedelta, timezone
@@ -478,7 +478,8 @@ def cmd_paper_gate(args) -> None:
 
 CANARY_BOOKS = {"deployed": "config/nse_engine_deployed.json", "candidate": "config/nse_engine_candidate.json",
                 "e4": "config/nse_engine_e4.json"}
-CANARY_EXPECTED = "config/nse_engine_canary.json"
+#: Not config/nse_engine_<name>.json: that pattern marks a paper book (the workflow trades every match).
+CANARY_EXPECTED = "config/canary_expected.json"
 CANARY_STATE_KEY = "canary_actions"
 CANARY_WINDOW = ("2013-01-01", "2025-12-31")
 

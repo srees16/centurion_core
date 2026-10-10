@@ -12,9 +12,11 @@ instead of blocking.  ``promote`` passes a candidate only when all three hold:
 2. paper gate: the candidate book's latest G4 report (``nse_engine.paper_gate``,
    kept in its Neon state by the daily session) is PASS and covers its latest
    session;
-3. walk-forward out-of-sample Sharpe: the candidate's excess Sharpe over the
-   walk-forward test years (2017-2025, as in K5) is at least the deployed
-   config's minus 0.05.  One-sided: better than base always passes.
+3. 2017-25 Sharpe: the candidate's excess Sharpe over the walk-forward test
+   years (2017-2025, as in K5) in its own recorded backtest is at least the
+   deployed config's minus 0.05.  One-sided: better than base always passes.
+   A fixed configuration's backtest, so not a walk-forward (that re-fits each
+   family's settings fold by fold: ``scorecard.WALK_FORWARD_OOS``).
 
 Reported, not gating: PBO and deflated Sharpe with their configuration
 counts, the benchmark gate, any holdout evaluation, and both books' paper
@@ -84,7 +86,7 @@ def wf_check(candidate_sharpe: float, base_sharpe: float, window: Sequence[str] 
              tolerance: float = WF_SHARPE_TOLERANCE) -> Check:
     floor = base_sharpe - tolerance
     ok = candidate_sharpe == candidate_sharpe and candidate_sharpe >= floor   # NaN fails
-    return ("walk-forward OOS Sharpe", ok,
+    return ("2017-25 Sharpe", ok,
             f"candidate {candidate_sharpe:.3f} vs deployed {base_sharpe:.3f} over {window[0][:4]}-{window[1][:4]} "
             f"(>= {floor:.3f})")
 

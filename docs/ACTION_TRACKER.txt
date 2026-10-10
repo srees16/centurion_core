@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 10 Oct 2026, 00:29 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 10 Oct 2026, 10:53 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -36,6 +36,11 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      22.9% / -22.1%; + exit rank 60 (E4's family) 0.98 / 18.4% / -22.1%
    Haircut (D2), model 4: deployed 0.97 / 19.7% / -23.9%; E4 1.04 /
      21.6% / -27.7%
+   Deployed, RR2 (data hash v2 + 1 Feb 2026 session, LN-T15, Kaggle)
+                                      1.16   23.1%   -23.9%   0.97
+   E4, RR2 the same                   1.14   23.6%   -25.3%   0.93
+   Walk-forward OOS 2017-25, RR2 (r12a5, r12b5): K5 grid 1.24 / 23.1% /
+     -22.1%; + exit rank 60 (E4's family) 1.11 / 20.4% / -21.9%
    Walk-forward OOS 2008-25 (R4)      0.87   16.4%   -32.9%   0.50
    Paper since 17 Sep (10 sessions)    -     +0.59%   -3.5%     -   too early
      (same days: NIFTY 500 -2.0%, NIFTY 50 -2.6%; backtest replay +0.8%)
@@ -43,14 +48,17 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      re-run 27 Sep on complete NIFTY data (K5; was 1.24 / 23.3% / -22.3%).
 
  VERDICT   CAGR 25% + Sharpe 1.2 are NOT jointly reached by any recorded
-           configuration; E4 (23.90% / 1.161 on cost model 4; was 24.64% /
-           1.205) is the closest, on paper from 5 Oct
-   Sharpe 1.2   NO in backtest on cost model 4 (best 1.194 of 61; 17 of 59
-                cleared it while idle cash earned 6%, IC1); walk-forward
-                OOS 1.23 for the deployed family, 0.98 for E4's (R12
-                re-run); live estimate ~1.0 after the haircut.
-   CAGR 25%     NO.  Ceiling 23.9% unlevered (E4, cost model 4; 24.6%
-                before IC1).  Measured dead ends:
+           configuration; E4 (23.55% / 1.139 after RR2; 23.90% / 1.161
+           before it, 24.64% / 1.205 before IC1) is the closest, on paper
+           from 5 Oct
+   Sharpe 1.2   NO in backtest after RR2: only 0381af7f (R11 crash re-entry,
+                closed 28 Sep) reaches it, 1.220; the books 1.16 / 1.16 /
+                1.14 (17 of 59 cleared 1.2 while idle cash earned 6%, IC1).
+                Walk-forward OOS 1.24 for the deployed family (passes the
+                rule), 1.11 for E4's (R12 re-run on RR2 data); live
+                estimate ~1.0 after the haircut.
+   CAGR 25%     NO.  Ceiling 24.3% unlevered after RR2 (E1 refill 942760af,
+                closed; E4 23.6%; 24.6% before IC1).  Measured dead ends:
                 NIFTY sleeve +0.5 pt at most (R5); moving the metal sleeve's
                 capital into the core +0.4 pt but Sharpe 1.03 and MaxDD -34%
                 (the sleeve is the Sharpe engine: corr -0.02 with the core);
@@ -61,7 +69,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
    MaxDD 30%    YES outside crises (-24.7% in 2013-25).  A 2008-type crash
                 costs ~33% even with the drawdown rule (R4); accepted (U22).
    Calmar 1.0   BORDERLINE.  0.92 backtest, 1.05 OOS; more CAGR lowers it.
-   Overfit      PBO 50.5% over 59 configs is a property of the trial set
+   Overfit      PBO 29.2% over 61 configs on excess returns after RR2
+                ("likely real"; 51.2% on the raw basis, LN-T16).  Raw PBO
+                (50.5% over 59 on 28 Sep) is a property of the trial set
                 (near-ties, median correlation 0.87), not of the strategy:
                 20 random junk configs would "lower" it to 26%, deleting the
                 29 weakest raises it to 63%.  The strategy's own checks pass:
@@ -272,6 +282,13 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                 COMPLETE, run: live_session --record-sell-path <DDPI date>
                 <AMO order id> <GTT id>.  Kite is read for both; the first
                 real session refuses to start until this passes.
+[!] P3  LN-T13 Optional, before live month 1: GitHub > srees16/centurion_core
+             > Settings > Secrets and variables > Actions > Variables > New
+             repository variable: CENTURION_CANARY_DRIFT_ACTION = dry-run.
+             Then a night the canary reports drift (a book's backtest moved
+             with its code and data hashes unchanged) runs the live session
+             as a dry run instead of sending orders.  Without it, drift is
+             only emailed.
 --------------------------------------------------------------------------------
  5. IN PROGRESS [~]
 --------------------------------------------------------------------------------
@@ -285,8 +302,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
     backtest recorded, no tuning on 2026 data, CAGR on calendar years.
 --------------------------------------------------------------------------------
  GOAL  the best LIVE CAGR / Sharpe / Calmar.  Ranked by expected effect on
-   the live book, largest first.  Backtest today (cost model 4, IC1): E4
-   23.9% / 1.16 / Calmar 0.93; deployed 23.0% / 1.16 / 0.96.  Live
+   the live book, largest first.  Backtest today (cost model 4, RR2): E4
+   23.6% / 1.14 / Calmar 0.93; deployed 23.1% / 1.16 / 0.97.  Live
    estimate after the haircut: ~20% / ~1.0 / ~0.8.  The haircut (4-5 pt CAGR, 0.2 Sharpe) is bigger
    than any research item, so what measures and shrinks it ranks first
    once real fills exist.  Trial budget: 1 configuration left before
@@ -295,26 +312,14 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
     R14 MON100 sleeve: FAIL 1 Oct (CAGR 22.8%, Sharpe flat; see DONE).
     No research item left adds CAGR; 1 configuration of the trial budget
     remains, held for anything the paper books reveal.
- LEAN PLAN (LN1, docs/lean_review.md): LN-T1..T10, T12, T14, T16 done 10
- Oct (LN-T2's account steps are ST2); LN-T13 and T15 finishing (Kaggle).
- To finish ("finish the walk-forwards"): pull r12a5 / r12b5, stitch, point
- scorecard.WALK_FORWARD_OOS at them, regenerate the scorecards, then delete
- the three 2026-10-10 scorecard lines from .git/info/exclude.
+ LEAN PLAN (LN1, docs/lean_review.md): LN-T1..T10 and T12..T16 done 10
+ Oct (LN-T2's account steps are ST2); LN-T11 waits for ST2's answer.
 [ ] P1  LN-T31 Add NSE's 2027 holidays to nse_engine/nse_calendar.py when
              NSE publishes them (its circular comes in December), before the
              first live session of 2027.
 [ ] P1  LN-T11 AMO funding: after ST2's answer, cap buys at the broker's free
              cash and read rejected orders the same night.  Small.  Detail:
              lean_review.md item 11.
-[ ] P1  LN-T13 Nightly expected-statistics canary for the three books on
-             Actions, after fixing the Actions store's missing NIFTY back-
-             fill (a code or dependency change can move a book with its
-             hashes unchanged, as IC1 did).  ~1 min a night.  Detail:
-             lean_review.md item 13.
-[ ] P1  LN-T15 Break forecast ties by the name in force on the decision date,
-             with a rename-invariant data hash; one Kaggle re-baseline, no
-             trial.  Run with LN-T7 and LN-T16 before the last trial.
-             Detail: lean_review.md item 15.
 #1  [ ] P1  D3   Go live on schedule: Rs 6L rung ~mid Dec, once paper G4
                  PASS at 60 sessions + 5 clean dry runs + the sell path
                  recorded (ST2 step 3, LN-T2) (set
@@ -462,6 +467,35 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+10 Oct  LN-T13, T15  Re-baseline RR2 and the nightly canary (no trial
+             spent).  T15: forecast ties break by the name in force on the
+             decision date (352 renamed columns), and the data hash (version
+             2) is keyed on the names in force at the panel's end and covers
+             every price frame, volume and the ETF set (ba7c0982 ->
+             dab49d3c); relabel gate: 0 of 61 configurations differ.  RR2 on
+             Kaggle (61 configurations, with T7's 1 Feb session and T16's
+             excess-basis PBO; Kaggle = local): deployed 1.163 / 23.13% /
+             -23.9%, candidate 1.157 / 21.88% / -23.6%, E4 1.139 / 23.55% /
+             -25.3%; DSR 0.964 / 0.963 / 0.957; Spearman 0.990; PBO 29.2%
+             excess (51.2% raw); only R11's closed 0381af7f clears 1.2
+             (1.220); benchmark gate passes; expected OOS Sharpe 0.80 /
+             0.79 / 0.85.  Walk-forwards re-run (r12a5, r12b5): deployed
+             family OOS 1.227 -> 1.238, E4's 0.979 -> 1.107 (four of its
+             folds pick other settings).  Scorecards and books register
+             re-scored: deployed and candidate pass the walk-forward rule,
+             E4 misses it; none passes net Sharpe 1.2 or Calmar 1.  T13: a
+             nightly canary step on Actions (run_nse_engine canary) runs
+             the three books' 2013-25 backtests against the registry's
+             figures (config/canary_expected.json) and against the Actions
+             runner's own, recorded in the paper state on its first run
+             after the merge; drift is emailed (caught when the old 6% cash
+             credit was injected) and, with the optional variable (NEEDS
+             YOU), holds the live session to a dry run.  The Actions store
+             now gets the frozen NIFTY 50 history.  The books register's
+             2017-25 column, labelled "walk-forward OOS", is each book's own
+             backtest over those years (the forward gate's check 3): renamed
+             bt_sharpe_2017_25 / "Backtest Sharpe 2017-25", rule unchanged.
+             Plan 5u.
 10 Oct  LN-T7..T10, T12, T14, T16  The Lean plan's P1s that need no one
              (no trial spent).  T7 calendar: the store probes every day (the
              Sunday 1 Feb 2026 Budget session was missing: 2,082 stocks'

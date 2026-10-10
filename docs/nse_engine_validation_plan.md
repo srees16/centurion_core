@@ -1473,8 +1473,20 @@ the raw basis. One configuration now clears Sharpe 1.2: `0381af7f`, the R11
 crash re-entry rule (1.194 → 1.220), which failed its own pre-registered
 rule on 28 Sep (§5f) and stays closed. Benchmark gate passed for all three
 books. Haircut (one-day lag, twice the impact, CSCV selection ×0.82):
-expected OOS Sharpe deployed 0.80, candidate 0.79, E4 0.85. Walk-forwards
-(R12 re-run, r12a5 / r12b5): see below.
+expected OOS Sharpe deployed 0.80, candidate 0.79, E4 0.85.
+
+Walk-forwards (R12 re-run on Kaggle, r12a5 and r12b5), out of sample 2017-25:
+
+| Arm | OOS Sharpe | CAGR | MaxDD |
+|---|---|---|---|
+| A: K5's 32-point grid (deployed, candidate) | 1.227 → 1.238 | 22.85% → 23.07% | −22.1% → −22.1% |
+| B: the same grid × exit rank {40, 60} (E4) | 0.979 → 1.107 | 18.39% → 20.40% | −22.1% → −21.9% |
+
+Arm A picks the same settings in every fold. Arm B's picks change in 2019,
+2020, 2022 and 2024: its in-sample fits sit close together, so a re-ordered
+tie can tip a fold. The scorecards read these runs. Deployed and candidate
+pass the walk-forward rule (1.24 ≥ 1.2) and E4 misses it (1.11). No book
+passes net Sharpe (1.16, 1.16, 1.14) or Calmar (0.97, 0.93, 0.93).
 
 ## 6. Stage D — Paper trading (60–90 trading days)
 

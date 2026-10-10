@@ -11,9 +11,9 @@ the numbers the gate itself uses:
   common sessions, and whether the gap is more than noise (the t statistic
   of the daily return differences);
 * which trial has cleared the three forward-gate checks (60 sessions beside
-  the deployed book, its own G4 PASS, walk-forward OOS Sharpe within 0.05);
+  the deployed book, its own G4 PASS, 2017-25 Sharpe within 0.05);
 * the register ``docs/books_register.csv``: one row per book with its
-  configuration, backtest and walk-forward scores, PBO / DSR, paper scores
+  configuration, backtest scores (2013-25 and its 2017-25 Sharpe), PBO / DSR, paper scores
   and a one-line summary;
 * the promotion review a cleared trial gets, for the owner to read before
   ``run_nse_engine promote``.  Nothing here promotes.
@@ -57,7 +57,7 @@ PASS, FAIL, PENDING, NA = "PASS", "FAIL", "PENDING", "n/a"
 T_SIGNIFICANT = 2.0
 
 STATIC_COLUMNS = ["scored_run_id", "data_hash", "cost_model", "bt_cagr", "bt_sharpe", "bt_max_dd", "bt_calmar",
-                  "bt_turnover", "bt_cost_drag", "wf_oos_sharpe_2017_25", "pbo", "pbo_n", "dsr"]
+                  "bt_turnover", "bt_cost_drag", "bt_sharpe_2017_25", "pbo", "pbo_n", "dsr"]
 PAPER_COLUMNS = ["paper_sessions", "paper_return", "paper_alpha_nifty50", "paper_sharpe", "paper_max_dd", "paper_g4",
                  "paper_as_of", "vs_deployed_pts", "vs_deployed_t", "gate_sessions", "gate_g4", "gate_wf", "gate_cleared"]
 REGISTER_COLUMNS = (["book", "status", "fingerprint", "config_hash", "description", "paper_start", "source_run_id"]
@@ -141,7 +141,7 @@ def _validation(run_dir: Path) -> Optional[Dict[str, Any]]:
 
 
 def static_row(book: Book, runs_dir: Path) -> Dict[str, Any]:
-    """Backtest, walk-forward OOS, PBO and DSR of the book's configuration, from the registry."""
+    """Backtest (2013-25 and its 2017-25 Sharpe), PBO and DSR of the book's configuration, from the registry."""
     from nse_engine.validation.trials import TrialRegistry
 
     row: Dict[str, Any] = {c: np.nan for c in STATIC_COLUMNS}
@@ -153,7 +153,7 @@ def static_row(book: Book, runs_dir: Path) -> Dict[str, Any]:
                bt_cagr=m.get("cagr"), bt_sharpe=m.get("sharpe"), bt_max_dd=m.get("max_drawdown"),
                bt_calmar=m.get("calmar"), bt_turnover=m.get("annual_turnover"), bt_cost_drag=m.get("cost_drag"))
     returns = TrialRegistry(runs_dir).load_returns(run["run_id"])
-    row["wf_oos_sharpe_2017_25"] = fg.oos_sharpe(returns, fg.WF_OOS_WINDOW, RF)
+    row["bt_sharpe_2017_25"] = fg.oos_sharpe(returns, fg.WF_OOS_WINDOW, RF)
     validation = _validation(Path(run["_dir"]))
     if validation is None and book.deployment.source_run_id:
         validation = _validation(Path(runs_dir) / book.deployment.source_run_id)
@@ -260,7 +260,7 @@ def gate_status(trial: PaperBook, base: PaperBook, trial_wf: float, base_wf: flo
     """The three forward-gate checks as PASS / FAIL / PENDING, from ``nse_engine.forward_gate``.
 
     A check that time will settle (sessions, a G4 still gathering data) is
-    PENDING; the walk-forward figures come from the register's recorded runs.
+    PENDING; the 2017-25 Sharpes come from the register's recorded runs.
     """
     from nse_engine import paper_gate
 
@@ -275,7 +275,7 @@ def gate_status(trial: PaperBook, base: PaperBook, trial_wf: float, base_wf: flo
         name, ok, detail = fg.wf_check(float(trial_wf), float(base_wf))
         checks.append({"name": name, "status": PASS if ok else FAIL, "detail": detail + ", from the recorded runs"})
     else:
-        checks.append({"name": "walk-forward OOS Sharpe", "status": PENDING,
+        checks.append({"name": "2017-25 Sharpe", "status": PENDING,
                        "detail": "no recorded same-window run in the register for one of the two books"})
     return {"checks": checks, "cleared": all(c["status"] == PASS for c in checks)}
 
@@ -319,8 +319,8 @@ def summary_line(row: Dict[str, Any], today: Optional[date] = None) -> str:
     if _finite(row.get("bt_sharpe")):
         s = (f"Backtest 2013-25: CAGR {row['bt_cagr']:.1%}, Sharpe {row['bt_sharpe']:.2f}, "
              f"MaxDD {row['bt_max_dd']:.1%}")
-        if _finite(row.get("wf_oos_sharpe_2017_25")):
-            s += f", walk-forward OOS 2017-25 Sharpe {row['wf_oos_sharpe_2017_25']:.2f}"
+        if _finite(row.get("bt_sharpe_2017_25")):
+            s += f", 2017-25 Sharpe {row['bt_sharpe_2017_25']:.2f}"
         parts.append(s)
     else:
         parts.append("Backtest: no recorded same-window run")
@@ -339,7 +339,7 @@ def summary_line(row: Dict[str, Any], today: Optional[date] = None) -> str:
             parts.append("forward gate: all three checks cleared, awaiting your review")
         elif isinstance(row.get("gate_sessions"), str) and row["gate_sessions"] != NA:
             parts.append(f"forward gate: sessions {row['gate_sessions']}, G4 {row.get('gate_g4')}, "
-                         f"walk-forward {row.get('gate_wf')}")
+                         f"2017-25 Sharpe {row.get('gate_wf')}")
     return "; ".join(parts)
 
 
@@ -364,7 +364,7 @@ def build_register(books: Sequence[Book], runs_dir: Optional[Path] = None,
         else:
             row.update({c: np.nan for c in STATIC_COLUMNS})
         rows[b.name] = row
-    base_wf = rows[DEPLOYED].get("wf_oos_sharpe_2017_25") if DEPLOYED in rows else np.nan
+    base_wf = rows[DEPLOYED].get("bt_sharpe_2017_25") if DEPLOYED in rows else np.nan
     for b in books:
         row = rows[b.name]
         pb = paper.get(b.name) if paper else None
@@ -378,7 +378,7 @@ def build_register(books: Sequence[Book], runs_dir: Optional[Path] = None,
                            gate_cleared=NA)
             elif base is not None and base.started:
                 c = pair_comparison(pb.equity, base.equity, benchmark)
-                g = gate_status(pb, base, row.get("wf_oos_sharpe_2017_25"), base_wf)
+                g = gate_status(pb, base, row.get("bt_sharpe_2017_25"), base_wf)
                 row.update(vs_deployed_pts=c["diff_pts"], vs_deployed_t=c["t_stat"],
                            gate_sessions=g["checks"][0]["status"], gate_g4=g["checks"][1]["status"],
                            gate_wf=g["checks"][2]["status"], gate_cleared=g["cleared"])
@@ -441,7 +441,7 @@ def review_sections(trial: str, register: pd.DataFrame, comparison: Optional[Dic
                          "rows": [[c["name"], c["status"], c["detail"]] for c in gate["checks"]]})
     metrics = [("CAGR 2013-25", "bt_cagr", "pct"), ("Excess Sharpe", "bt_sharpe", "num"),
                ("MaxDD", "bt_max_dd", "pct"), ("Calmar", "bt_calmar", "num"), ("Turnover (x/yr)", "bt_turnover", "num"),
-               ("Cost drag (/yr)", "bt_cost_drag", "pct"), ("Walk-forward OOS Sharpe 2017-25", "wf_oos_sharpe_2017_25", "num"),
+               ("Cost drag (/yr)", "bt_cost_drag", "pct"), ("Backtest Sharpe 2017-25", "bt_sharpe_2017_25", "num"),
                ("PBO (n configurations)", "pbo", "pbo"), ("Deflated Sharpe", "dsr", "num3")]
 
     def fmt(kind: str, row: pd.Series, key: str) -> str:
@@ -512,10 +512,11 @@ def rationale(trial: str, t: pd.Series, d: pd.Series, comparison: Optional[Dict[
                            for n, _, diff in better)
         out.append(f"Backtest: {trial} is better on {wins} of {len(better)} ({detail}); MaxDD is a negative number, "
                    f"so a positive difference is a shallower drawdown.")
-    a, b = t.get("wf_oos_sharpe_2017_25"), d.get("wf_oos_sharpe_2017_25")
+    a, b = t.get("bt_sharpe_2017_25"), d.get("bt_sharpe_2017_25")
     if _finite(a) and _finite(b):
-        out.append(f"Out of sample: walk-forward years 2017-25 Sharpe {a:.3f} vs {b:.3f} ({a - b:+.3f}; the gate allows "
-                   f"-{fg.WF_SHARPE_TOLERANCE:.2f}). This is the evidence that outlives the paper sample.")
+        out.append(f"Backtest Sharpe over 2017-25, the walk-forward's test years: {a:.3f} vs {b:.3f} ({a - b:+.3f}; the "
+                   f"gate allows -{fg.WF_SHARPE_TOLERANCE:.2f}). Each book's own backtest, so in sample; each family's "
+                   f"walk-forward is in its scorecard.")
     if _finite(t.get("pbo")) and _finite(t.get("pbo_n")):
         out.append(f"Overfitting context: PBO {t['pbo']:.1%} over {int(t['pbo_n'])} same-window configurations is a "
                    f"property of the trial set (near-duplicates), reported not gating; deflated Sharpe "
@@ -556,7 +557,7 @@ def build_report(books: Sequence[Book], paper: Dict[str, PaperBook], register: p
     as_of = as_of or datetime.now(IST).date()
     reg = register.set_index("book")
     base = paper.get(DEPLOYED)
-    base_wf = reg.loc[DEPLOYED, "wf_oos_sharpe_2017_25"] if DEPLOYED in reg.index else np.nan
+    base_wf = reg.loc[DEPLOYED, "bt_sharpe_2017_25"] if DEPLOYED in reg.index else np.nan
     comparisons: Dict[str, Dict[str, Any]] = {}
     gates: Dict[str, Dict[str, Any]] = {}
     for b in books:
@@ -564,7 +565,7 @@ def build_report(books: Sequence[Book], paper: Dict[str, PaperBook], register: p
         if b.is_deployed or pb is None or not pb.started or base is None or not base.started:
             continue
         comparisons[b.name] = pair_comparison(pb.equity, base.equity, benchmark)
-        gates[b.name] = gate_status(pb, base, reg.loc[b.name, "wf_oos_sharpe_2017_25"] if b.name in reg.index else np.nan,
+        gates[b.name] = gate_status(pb, base, reg.loc[b.name, "bt_sharpe_2017_25"] if b.name in reg.index else np.nan,
                                     base_wf)
     cleared = [n for n, g in gates.items() if g["cleared"]]
     judged = {n: c for n, c in comparisons.items() if c["sessions"] >= 2}
