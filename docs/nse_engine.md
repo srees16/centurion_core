@@ -434,6 +434,23 @@ is attached. Nothing promotes on its own: `promote` stays a hand-run
 command, and `python -m nse_engine.books review --book <book>` prints the
 review from the register alone.
 
+**Metrics journal (tracker JR1).** The register holds each book's numbers
+today; `docs/metrics_journal.csv` keeps how they got there. It is
+append-only, one row per book per new piece of evidence: a `backtest` row
+each time the book's 2013–25 run changes cost model, data hash or results
+(with its 2017–25 Sharpe, DSR, PBO and the haircut's expected live Sharpe
+and CAGR when validated), and a `walk_forward` row each time its family's
+walk-forward (`scorecard.WALK_FORWARD_OOS`) is re-run. `books register`
+appends what is new (`nse_engine.journal record` does it alone, `show`
+prints it), so commit the file with the change that moved the numbers: `git
+log -p docs/metrics_journal.csv` then says why each row exists. It was
+backfilled from the registry on 10 Oct 2026, back to the 14 Sep approval.
+Paper results need no journal of their own: the nightly snapshots in Neon
+are one. The web app's Trade Center > Journal tab (operator only, per book)
+shows the latest numbers against the targets, a chart of each metric over
+time with the paper record week by week, and the journal itself
+(`GET /api/v1/screener/monitor/journal`).
+
 Adding a book: (1) record its 2013–25 backtest in the registry on the
 current cost model (Kaggle, `cloud.kaggle_local`) and `validate` it; (2)
 write `config/nse_engine_<book>.json` with `status: candidate`, the

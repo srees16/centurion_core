@@ -36,7 +36,7 @@ import math
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -111,11 +111,10 @@ def discover_books(root: Path = REPO_ROOT) -> List[Book]:
 
 # ── backtest scores from the registry ────────────────────────────
 
-def latest_run(runs_dir: Path, config_hash: str, window: Sequence[str] = fg.VALIDATION_WINDOW) -> Optional[Dict[str, Any]]:
-    """The registry's like-for-like run of a configuration: same window, newest cost model, then newest."""
-    from nse_engine.validation.trials import LEGACY_COST_MODEL
-
-    best: Optional[Tuple[Tuple[int, str], Dict[str, Any]]] = None
+def same_window_runs(runs_dir: Path, config_hash: str, window: Sequence[str] = fg.VALIDATION_WINDOW) -> List[Dict[str, Any]]:
+    """Every recorded run of a configuration over ``window`` with its returns, oldest first (manifests,
+    with ``_dir`` set)."""
+    runs = []
     for mf in Path(runs_dir).glob("*/manifest.json"):
         try:
             m = json.loads(mf.read_text())
@@ -126,10 +125,17 @@ def latest_run(runs_dir: Path, config_hash: str, window: Sequence[str] = fg.VALI
         if not (mf.parent / "returns.csv").exists():
             continue
         m["_dir"] = str(mf.parent)
-        key = (int(m.get("cost_model") or LEGACY_COST_MODEL), str(m.get("created_at") or ""))
-        if best is None or key > best[0]:
-            best = (key, m)
-    return best[1] if best else None
+        runs.append(m)
+    return sorted(runs, key=lambda m: str(m.get("created_at") or ""))
+
+
+def latest_run(runs_dir: Path, config_hash: str, window: Sequence[str] = fg.VALIDATION_WINDOW) -> Optional[Dict[str, Any]]:
+    """The registry's like-for-like run of a configuration: same window, newest cost model, then newest."""
+    from nse_engine.validation.trials import LEGACY_COST_MODEL
+
+    runs = same_window_runs(runs_dir, config_hash, window)
+    return max(runs, key=lambda m: (int(m.get("cost_model") or LEGACY_COST_MODEL),
+                                    str(m.get("created_at") or ""))) if runs else None
 
 
 def _validation(run_dir: Path) -> Optional[Dict[str, Any]]:
@@ -140,27 +146,38 @@ def _validation(run_dir: Path) -> Optional[Dict[str, Any]]:
         return None
 
 
-def static_row(book: Book, runs_dir: Path) -> Dict[str, Any]:
-    """Backtest (2013-25 and its 2017-25 Sharpe), PBO and DSR of the book's configuration, from the registry."""
+def validation_scores(validation: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """PBO (and its configuration count) and DSR from a run's validation.json; empty when not validated."""
+    if not validation:
+        return {}
+    pbo = validation.get("pbo")
+    return dict(pbo=pbo.get("pbo") if isinstance(pbo, dict) else pbo, pbo_n=validation.get("n_configurations"),
+                dsr=(validation.get("dsr") or {}).get("dsr"))
+
+
+def run_scores(run: Dict[str, Any], runs_dir: Path) -> Dict[str, Any]:
+    """One registry run's backtest columns of the register (manifest from ``same_window_runs``)."""
     from nse_engine.validation.trials import TrialRegistry
 
-    row: Dict[str, Any] = {c: np.nan for c in STATIC_COLUMNS}
-    run = latest_run(runs_dir, book.config_hash)
-    if run is None:
-        return row
     m = run.get("metrics") or {}
-    row.update(scored_run_id=run["run_id"], data_hash=run.get("data_hash"), cost_model=run.get("cost_model"),
+    row = dict(scored_run_id=run["run_id"], data_hash=run.get("data_hash"), cost_model=run.get("cost_model"),
                bt_cagr=m.get("cagr"), bt_sharpe=m.get("sharpe"), bt_max_dd=m.get("max_drawdown"),
                bt_calmar=m.get("calmar"), bt_turnover=m.get("annual_turnover"), bt_cost_drag=m.get("cost_drag"))
     returns = TrialRegistry(runs_dir).load_returns(run["run_id"])
     row["bt_sharpe_2017_25"] = fg.oos_sharpe(returns, fg.WF_OOS_WINDOW, RF)
-    validation = _validation(Path(run["_dir"]))
-    if validation is None and book.deployment.source_run_id:
-        validation = _validation(Path(runs_dir) / book.deployment.source_run_id)
-    if validation:
-        pbo = validation.get("pbo")
-        row.update(pbo=pbo.get("pbo") if isinstance(pbo, dict) else pbo, pbo_n=validation.get("n_configurations"),
-                   dsr=(validation.get("dsr") or {}).get("dsr"))
+    row.update(validation_scores(_validation(Path(run["_dir"]))))
+    return row
+
+
+def static_row(book: Book, runs_dir: Path) -> Dict[str, Any]:
+    """Backtest (2013-25 and its 2017-25 Sharpe), PBO and DSR of the book's configuration, from the registry."""
+    row: Dict[str, Any] = {c: np.nan for c in STATIC_COLUMNS}
+    run = latest_run(runs_dir, book.config_hash)
+    if run is None:
+        return row
+    row.update(run_scores(run, runs_dir))
+    if _validation(Path(run["_dir"])) is None and book.deployment.source_run_id:
+        row.update(validation_scores(_validation(Path(runs_dir) / book.deployment.source_run_id)))
     return row
 
 
@@ -636,7 +653,8 @@ def build_report(books: Sequence[Book], paper: Dict[str, PaperBook], register: p
 def main(argv: Optional[Sequence[str]] = None) -> int:
     p = argparse.ArgumentParser(description="Paper books register and promotion review (tracker V4)")
     sub = p.add_subparsers(dest="cmd", required=True)
-    r = sub.add_parser("register", help="rebuild the register's backtest columns from the run registry")
+    r = sub.add_parser("register", help="rebuild the register's backtest columns from the run registry and "
+                                        "append new evidence to the metrics journal")
     r.add_argument("--runs-dir", default=EngineConfig().runs_dir)
     r.add_argument("--out", default=str(REPO_ROOT / REGISTER_PATH))
     v = sub.add_parser("review", help="print a trial's promotion review from the register")
@@ -651,6 +669,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         for _, row in df.iterrows():
             print(f"{row['book']:10s} {row['fingerprint']}  {row['summary']}")
         print(f"written: {path}")
+        from nse_engine import journal
+
+        added = journal.record(books, Path(args.runs_dir))
+        print(f"metrics journal: {len(added)} new row(s) in {journal.JOURNAL_PATH}")
         return 0
     register = read_register(Path(args.register))
     print(render_review(review_sections(args.book, register, None, None)))

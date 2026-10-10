@@ -173,10 +173,9 @@ audit the current order workflow beginning with user's ticker input until placin
 1. Where are images stored currently wen i run analysis? Display location or url to access dem on ui pages
 2. Implement same configuration n strategy to give a list of US stocks
 3. Can paper trading for US stocks be possible if not automating buy sell signals?
-4. Create pipelines to enable multiple paper trade runs based on future enhancements without affecting live trade underway
+4. verify if pipelines are created to enable running paper trade based on future enhancements or better strategies without affecting live trade when it is underway
 5. design n implement kill switch
-6. create space for journalling
-7. analyze best scenarios to setup alert & discord bots
+6. analyze best scenarios to setup alert & discord bots
 
 Reorder per priority for final go-live applicable to all the strategies, both current and future:
 Ensure centurion is survivorship bias free

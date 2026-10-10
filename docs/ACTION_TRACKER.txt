@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 10 Oct 2026, 10:53 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 10 Oct 2026, 11:52 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -467,6 +467,21 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+10 Oct  JR1  Metrics journal (your ask): how each book's numbers moved.
+             Stored in git (docs/metrics_journal.csv, append-only): a row per
+             book per re-baseline of its 2013-25 backtest (CAGR, Sharpe,
+             MaxDD, Calmar, 2017-25 Sharpe, DSR, PBO, expected live Sharpe
+             and CAGR, cost model, data hash, run id) and per re-run of its
+             family's walk-forward.  books register appends what is new;
+             commit it with the change that moved it.  Backfilled to the 14
+             Sep approval: 31 rows (deployed Sharpe 1.219 -> 1.187 K5 ->
+             1.206 D4 -> 1.158 IC1 -> 1.163 RR2).  Paper stays in Neon (the
+             nightly snapshots).  Web: Trade Center > Journal (operator
+             only): latest vs targets, each metric over time with paper
+             weekly, the journal table.  Not Kaggle (compute only, outputs
+             scattered) nor Neon for research rows (needs the database key
+             on the Mac, skips your review).  The tab's code is in the web
+             repo (centurion_core-fe), deployed separately.
 10 Oct  LN-T13, T15  Re-baseline RR2 and the nightly canary (no trial
              spent).  T15: forecast ties break by the name in force on the
              decision date (352 renamed columns), and the data hash (version
