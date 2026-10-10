@@ -416,7 +416,8 @@ def cmd_promote(args) -> None:
     dep = load_deployment(out)  # validates the file we just wrote
     print(f"promoted {cand.engine.config_hash()[:8]} -> {out} (paper from {dep.paper_start_date}). "
           f"The candidate book still trades it in schema {args.schema!r}: retire or replace "
-          f"{args.candidate} before the next session.")
+          f"{args.candidate} before the next session, then run `python -m nse_engine.books register` "
+          f"(the live kill threshold reads the new configuration's backtest MaxDD from it) and commit.")
 
 
 def cmd_shift_reference(args) -> None:
@@ -476,8 +477,6 @@ def cmd_paper_gate(args) -> None:
         print(paper_gate.format_report(report, title=f"Paper gate (G4) - {label}"))
 
 
-CANARY_BOOKS = {"deployed": "config/nse_engine_deployed.json", "candidate": "config/nse_engine_candidate.json",
-                "e4": "config/nse_engine_e4.json"}
 #: Not config/nse_engine_<name>.json: that pattern marks a paper book (the workflow trades every match).
 CANARY_EXPECTED = "config/canary_expected.json"
 CANARY_STATE_KEY = "canary_actions"
@@ -503,47 +502,56 @@ def canary_stats(data, cfg) -> dict:
             "final_equity": float(res.equity.iloc[-1])}
 
 
-def canary_compare(now: dict, expected: dict) -> Tuple[str, List[str]]:
-    """("ok" | "data_differs" | "drift", what moved) for every book in ``expected``."""
-    moved, data_moved = [], False
-    for book, exp in expected.items():
-        got = now.get(book)
-        if got is None:
-            moved.append(f"{book}: not run")
+def canary_compare(now: dict, expected: dict) -> Tuple[str, List[str], List[str]]:
+    """("ok" | "data_differs" | "drift", what moved, books to record) for every book in ``now``.
+
+    A book that is new or now trades another configuration (a promotion, a
+    replaced paper book) has nothing to be compared with: it is to be
+    recorded, never drift.  A book no longer run is not compared.
+    """
+    moved, fresh, data_moved = [], [], False
+    for book, got in now.items():
+        exp = expected.get(book)
+        if exp is None or exp["config_hash"] != got["config_hash"]:
+            fresh.append(book)
             continue
         if got["data_hash"] != exp["data_hash"]:
             data_moved = True
             moved.append(f"{book}: data {exp['data_hash']} -> {got['data_hash']}")
             continue
-        for k in ("config_hash", "cost_model", "n_trades", "trades_sha256"):
+        for k in ("cost_model", "n_trades", "trades_sha256"):
             if got[k] != exp[k]:
                 moved.append(f"{book}: {k} {exp[k]} -> {got[k]}")
         for k, tol in (("sharpe", 1e-9), ("cagr", 1e-9), ("max_drawdown", 1e-9), ("final_equity", 0.01)):
             if abs(float(got[k]) - float(exp[k])) > tol:
                 moved.append(f"{book}: {k} {exp[k]} -> {got[k]}")
-    return ("data_differs" if data_moved else "drift" if moved else "ok"), moved
+    return ("data_differs" if data_moved else "drift" if moved else "ok"), moved, fresh
 
 
 def cmd_canary(args) -> None:
-    """Nightly canary: the three books' 2013-25 backtests against their expected statistics (tracker LN-T13).
+    """Nightly canary: every book's 2013-25 backtest against its expected statistics (tracker LN-T13).
 
     Nothing else catches a code, dependency or runner change that moves a
-    book while its hashes stay the same (cost model 4 did).  Tiers: the
+    book while its hashes stay the same (cost model 4 did).  The books are
+    the paper books the workflow trades (``books.discover_books``).  Tiers: the
     registry's figures in ``CANARY_EXPECTED`` (information), and the Actions
-    runner's own, recorded in the paper book's state on its first run (the
-    alarm: Actions and the Mac/Kaggle runtimes have never been compared).
-    A data change is reported, never refreshed here; drift sets the step
-    output ``drift=true`` for the workflow to act on.  Exits 0: alerts go by
-    email and step output, never by failing the nightly job.
+    runner's own, kept in the paper book's state (the alarm: Actions and the
+    Mac/Kaggle runtimes have never been compared).  A new or re-configured
+    book is recorded, not compared; re-recording the registry tier
+    (``--record-registry``, part of every re-baseline) restarts the Actions
+    tier on its next run.  A data change is reported, never refreshed here;
+    drift sets the step output ``drift=true`` for the workflow to act on.
+    Exits 0: alerts go by email and step output, never by failing the job.
     """
+    import hashlib
     import platform
 
     import numpy as np
 
-    from nse_engine.deployment import load_deployment
+    from nse_engine.books import discover_books
 
-    books = {b: load_deployment(path).engine.replace(start=CANARY_WINDOW[0], end=CANARY_WINDOW[1])
-             for b, path in CANARY_BOOKS.items()}
+    books = {b.name: b.deployment.engine.replace(start=CANARY_WINDOW[0], end=CANARY_WINDOW[1])
+             for b in discover_books()}
     data = _load_data(next(iter(books.values())), data_start="2012-01-02")
     now = {b: canary_stats(data, cfg) for b, cfg in books.items()}
     runtime = {"python": platform.python_version(), "numpy": np.__version__, "pandas": pd.__version__,
@@ -554,24 +562,35 @@ def cmd_canary(args) -> None:
         print(f"recorded the registry tier in {CANARY_EXPECTED}")
         return
     try:
-        registry = json.loads(Path(CANARY_EXPECTED).read_text())["registry"]
+        expected_text = Path(CANARY_EXPECTED).read_text()
+        registry = json.loads(expected_text)["registry"]
     except (OSError, ValueError, KeyError) as exc:
         raise SystemExit(f"{CANARY_EXPECTED} unreadable ({exc}): record it with canary --record-registry")
-    reg_status, reg_moved = canary_compare(now, registry)
-    report = {"runtime": runtime, "registry": {"status": reg_status, "moved": reg_moved}}
+    reg_status, reg_moved, reg_fresh = canary_compare(now, registry)
+    report = {"runtime": runtime, "registry": {"status": reg_status, "moved": reg_moved, "not_recorded": reg_fresh}}
     status, moved = reg_status, reg_moved
     if args.tier == "actions":
         from database.paper_cloud import get_paper_cloud
 
         cloud = get_paper_cloud()
         stored = json.loads((cloud.read_state() or {}).get(CANARY_STATE_KEY) or "null") if cloud else None
-        if cloud and stored is None:
-            cloud.sync_state({CANARY_STATE_KEY: json.dumps({"books": now, "runtime": runtime,
-                                                             "recorded": date.today().isoformat()})})
-            status, moved = "recorded", []
-        elif stored is not None:
-            status, moved = canary_compare(now, stored["books"])
-        report["actions"] = {"status": status, "moved": moved}
+        stamp = hashlib.sha256(expected_text.encode()).hexdigest()[:16]
+        if stored is not None and stored.get("registry_stamp") != stamp:
+            stored = None                                 # the registry tier was re-recorded: start again
+        fresh: List[str] = []
+        if cloud:
+            if stored is None:
+                status, moved, fresh, kept = "recorded", [], list(now), {}
+            else:
+                status, moved, fresh = canary_compare(now, stored["books"])
+                kept = {b: stored["books"][b] for b in now if b not in fresh}
+            if fresh or stored is None or set(stored["books"]) != set(now):   # new, re-configured or retired books
+                cloud.sync_state({CANARY_STATE_KEY: json.dumps({
+                    "books": {**kept, **{b: now[b] for b in fresh}}, "runtime": runtime,
+                    "recorded": date.today().isoformat(), "registry_stamp": stamp})})
+            if fresh and status == "ok":
+                status = "recorded"
+        report["actions"] = {"status": status, "moved": moved, "recorded": fresh}
     report["status"] = status
     _print_json(report)
     out = os.environ.get("GITHUB_OUTPUT")
@@ -697,7 +716,7 @@ def main(argv=None) -> None:
     p.add_argument("--json-dir", default="data/nse_engine/scorecard")
     p.set_defaults(func=cmd_scorecard)
 
-    p = sub.add_parser("canary", help="the three books' 2013-25 backtests against their expected statistics "
+    p = sub.add_parser("canary", help="every book's 2013-25 backtest against its expected statistics "
                                       "(LN-T13)")
     p.add_argument("--tier", choices=("registry", "actions"), default="registry",
                    help="actions: also compare with (or record) the Actions runner's own figures")

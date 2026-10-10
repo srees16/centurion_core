@@ -399,13 +399,23 @@ from its file name: `CENTURION_NSE_DEPLOYMENT` (the file),
 snapshots, fills, sessions, weekly checkpoints, state - lives in that
 Postgres schema; `PaperCloudSync(schema=)` qualifies raw SQL and uses
 `schema_translate_map` for the ORM, never `search_path`, which Neon's pooler
-drops between transactions; the live book's schema is refused),
+drops between transactions; a schema starting with `live`, the live books'
+own, is refused),
 `CENTURION_PAPER_DB_PATH` (its own local SQLite), its own same-period shift
 reference `data/shift_reference_<book>.csv`, and `CENTURION_PAPER_BOOK_LABEL`
 (its emails read `Centurion paper [<book> <fingerprint>] ...`). A book is
 skipped before its `paper_start_date`. Adding a book is adding its file. The
 books share only the paper switch and never write the switch row's run
-status; a failing book emails and the next one still runs. The trade
+status; a failing book emails and the next one still runs. They run after
+the live session, and the whole job runs only from `main`: a dispatch from
+another branch is skipped rather than trading the live book with unmerged
+code. The nightly canary (LN-T13) finds the same books: a new or promoted
+one is recorded on its first night, a retired one dropped, and
+re-recording `config/canary_expected.json` (`run_nse_engine canary
+--record-registry`, part of every re-baseline) restarts its Actions tier.
+After a `promote`, run `nse_engine.books register` and commit: the live
+kill threshold reads the deployed configuration's backtest MaxDD from the
+register (`capital_ladder.backtest_maxdd_for`). The trade
 monitor shows any of them (G12): `GET /api/v1/screener/monitor/books` lists
 the books from the config files, and the monitor endpoints take `?book=<book>`
 (the deployed book without it; an unknown book is 404).

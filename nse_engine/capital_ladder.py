@@ -60,19 +60,21 @@ book, while the paper book only trades changes to what it holds.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import pandas as pd
 
+logger = logging.getLogger(__name__)
+
 RUNGS: Tuple[float, ...] = (600_000.0, 1_200_000.0, 2_100_000.0, 3_000_000.0)
 MIN_SESSIONS_PER_RUNG = 20            # about one month of sessions
 KILL_DD_MULTIPLE = 1.5
-# MaxDD of the deployed configuration's backtest, 2013-25 (679cbd0c, cost model 4,
-# data ba7c0982; tracker IC1b, was 0.247 from cost model 1).  Change it when the
-# deployment changes (candidate 2d64ba4c 0.243, E4 93cf6c4d 0.257 on cost model 4):
-# the scheduled workflow does not pass CENTURION_BACKTEST_MAXDD to the session.
+# MaxDD of the deployed configuration's backtest, 2013-25 (679cbd0c, cost model 4;
+# tracker IC1b, was 0.247 from cost model 1): the fallback of backtest_maxdd_for,
+# which reads the books register so a promotion moves the kill threshold with it.
 BACKTEST_MAXDD_DEFAULT = 0.239
 GO_LIVE_MIN_PAPER_SESSIONS = 60
 GO_LIVE_MIN_DRY_RUNS = 5
@@ -142,6 +144,29 @@ def _status(gate: Optional[Dict[str, Any]], name: str) -> Optional[str]:
         if c.get("name") == name:
             return c.get("status")
     return None
+
+
+def backtest_maxdd_for(config_hash: str) -> float:
+    """The kill threshold's backtest MaxDD (positive) for the configuration live trades.
+
+    ``CENTURION_BACKTEST_MAXDD`` when set; else the books register's like-for-like
+    2013-25 MaxDD of that configuration (``nse_engine.books register`` re-scores
+    it after a promotion or a re-baseline); else ``BACKTEST_MAXDD_DEFAULT``.
+    """
+    if os.environ.get("CENTURION_BACKTEST_MAXDD"):
+        return float(os.environ["CENTURION_BACKTEST_MAXDD"])
+    try:
+        from nse_engine.books import read_register
+
+        reg = read_register()
+        dd = pd.to_numeric(reg.loc[reg["config_hash"] == config_hash, "bt_max_dd"], errors="coerce").dropna()
+        if len(dd) and dd.iloc[0] != 0:
+            return abs(float(dd.iloc[0]))
+        logger.warning("books register has no backtest MaxDD for %s: kill threshold from %.1f%%",
+                       config_hash[:8], BACKTEST_MAXDD_DEFAULT * 100)
+    except Exception as exc:                              # noqa: BLE001 - the constant still guards
+        logger.warning("books register unreadable (%s): kill threshold from %.1f%%", exc, BACKTEST_MAXDD_DEFAULT * 100)
+    return BACKTEST_MAXDD_DEFAULT
 
 
 def evaluate(state: LadderState, session: str, *, gate: Optional[Dict[str, Any]], drawdown_state: str,

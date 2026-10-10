@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 10 Oct 2026, 11:52 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 10 Oct 2026, 12:11 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -467,6 +467,24 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+10 Oct  IS1  Paper books cannot touch the live book (your ask: verified,
+             then four gaps fixed).  Already in place: a candidate book
+             cannot send orders (status, no live flags, no Kite secrets in
+             its step), has its own Neon schema, runs after the live session
+             and its failures never stop the job.  Fixed: (1) the nightly job
+             runs only from main (a dispatch from a branch would have run the
+             live session and every paper book on unmerged code); (2) the
+             canary finds books as the workflow does, records a new, promoted
+             or retired book instead of flagging drift, and restarts its
+             Actions tier when config/canary_expected.json is re-recorded;
+             (3) the live kill threshold reads the deployed configuration's
+             backtest MaxDD from the books register (still 23.9% today; E4
+             would be 25.3%), promote says to rebuild it; (4) paper schemas
+             starting with "live" are refused (live_<id> accounts).  Checks:
+             temporary script (guard, schemas, threshold, canary lifecycle)
+             passed and deleted; real canary on the Mac ok (3 books, 34 s);
+             fast suite passes.  Open: options strategies have no nightly
+             paper pipeline (build it if a sleeve passes).
 10 Oct  JR1  Metrics journal (your ask): how each book's numbers moved.
              Stored in git (docs/metrics_journal.csv, append-only): a row per
              book per re-baseline of its 2013-25 backtest (CAGR, Sharpe,

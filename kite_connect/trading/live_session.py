@@ -1183,6 +1183,7 @@ def _ladder_step(ex, data, view, dep, ledger: dict, state: Dict[str, str], book,
                            drawdown_state=getattr(dd, "state", "normal") if dd is not None else "normal",
                            book_dd=cl.current_drawdown(history), nifty_dd=cl.current_drawdown(nifty),
                            shift_multipliers=mults, requested_capital=float(req) if req else None,
+                           backtest_maxdd=cl.backtest_maxdd_for(dep.engine.config_hash()),
                            capital_setting=f"{label}'s capital on Fly Kite" if label else ENV_LIVE_CAPITAL)
     return decision, gate, lstate                     # saved by the caller with the ledger (LN-T10)
 

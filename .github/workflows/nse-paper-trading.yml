@@ -177,8 +177,10 @@ jobs:
   nse-engine-paper:
     needs: engine-window
     # !cancelled(): a dispatch skips engine-window, which must not skip this job.
+    # main only: a dispatch from another branch would run the live book and write
+    # every paper book with code that was never merged.
     if: >-
-      !cancelled() && vars.CENTURION_NSE_ENGINE == 'true'
+      !cancelled() && github.ref == 'refs/heads/main' && vars.CENTURION_NSE_ENGINE == 'true'
       && (github.event_name == 'workflow_dispatch'
           || (github.event.schedule != '' && github.event.schedule != '0 2 * * 6'
               && needs.engine-window.outputs.in_window == 'true'))
@@ -330,7 +332,7 @@ jobs:
           EOF
           du -sh data/nse_engine/store
 
-      # The three books' 2013-25 backtests against their expected statistics (tracker LN-T13): a code,
+      # Every book's 2013-25 backtest against its expected statistics (tracker LN-T13): a code,
       # dependency or runner change that moves a book with its hashes unchanged is emailed, and
       # drift=true lets CENTURION_CANARY_DRIFT_ACTION=dry-run hold the live book to a dry run.
       - name: Book regression canary
