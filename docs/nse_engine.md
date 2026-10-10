@@ -11,7 +11,8 @@ Scope: NSE equities and NSE-listed metal ETFs only. No BTC, US stocks or options
 
 - **Point-in-time everything.** A decision dated `t` uses data dated `<= t`.
   `generate_targets(data.until(t), ...)` must equal `generate_targets(data, ...)`
-  at `t` (tested).
+  at `t` (tested). `until()` cuts every frame on the calendar, the as-printed
+  `close_unadj` included (it was dropped until 10 Oct 2026, LN-T8).
 - **Survivorship-free data.** Prices come from NSE bhavcopy archives (every
   traded security, including later-delisted ones). The universe is chosen
   point-in-time by liquidity, so no index-membership file is needed.
@@ -32,7 +33,9 @@ Scope: NSE equities and NSE-listed metal ETFs only. No BTC, US stocks or options
   U25; every run records `cost_model`, and runs are compared only within one
   version). An ETF's open is often a stray first trade, so an ETF fills at
   its open held within 3% of the day's close (cost model 3, D4). Gross
-  exposure is at most 1 (CNC); idle cash earns a yield.
+  exposure is at most 1 (CNC). Idle cash earns nothing, as in a Kite account
+  (cost model 4, IC1; models 1-3 credited 6% a year that no paper or live
+  path earns).
 - **Honest statistics.** Sharpe uses excess returns over the risk-free rate
   and sqrt(252); CAGR compounds over calendar years (days / 365.25) in the
   engine, the validation reports and the paper book alike — never sessions
@@ -160,9 +163,28 @@ when a store has one (gaps only; NSE's values win). The cache is built by
 before that (98.4% agreement on the 200-day trend state), and the previous
 close on the few special sessions neither covers; every row records its
 source. Both stores have it since 27 Sep 2026 (tracker K4, K5).
-`MarketData.compute_hash()`, the run manifests' `data_hash`, covers dates,
-symbols, closes, traded value and, since K5, the index closes: a change to
-an index cache moves the fingerprint, so run `refresh-registry` after it.
+`MarketData.compute_hash()`, the run manifests' `data_hash`, is version 2
+since LN-T15 (manifests record `data_hash_version`). It covers dates, every
+price frame (close, open, high, low, the as-printed close), volume, traded
+value, the ETF set and, since K5, the index closes, so a change to any of
+them moves it; run `refresh-registry` after one. Columns are named and
+ordered by the name in force on the panel's last date, with the renames
+inside the window hashed, so a rename after the window (a 2026 rename and a
+2013-25 panel) no longer moves it. `MarketData.trade_names` keeps each
+renamed column's names by first date, and the engine breaks forecast ties by
+the name in force on the decision date (it used the latest name, so a later
+rename could reorder an earlier decision). `corporate_events` and
+`dividend_events` carry the adjustments behind the back-adjusted prices for
+the paper and live books (LN-T4); neither is hashed.
+
+The calendar is the store's: every day is probed (NSE has held Saturday and
+Sunday sessions: Budget days, Muhurat, drills; the Sunday 1 Feb 2026 Budget
+session was missing until 10 Oct 2026), and the special sessions in
+`nse_engine.nse_calendar` are re-checked on every sync. `build_store` records
+dates where more than 20% of EQ prev_close values disagree with the last
+close (a missing session) in its manifest; `build-store` fails on a new one.
+`nse_engine.nse_calendar` is the one list of holidays and special sessions
+the live code uses (the Muhurat session is not traded live).
 
 ### Engine (`nse_engine.engine`)
 
@@ -202,7 +224,8 @@ git_dirty, data_hash, start, end, created_at, metrics, lag_days, and
 TrialRegistry(runs_dir).list_trials() -> pd.DataFrame
 TrialRegistry(runs_dir).returns_matrix(start=None, end=None, dedupe_config=True) -> pd.DataFrame  # date x run_id
 refresh_registry(registry, data, from_hash, window, dry_run=False) -> dict  # re-run same-window configs on new data
-cscv_pbo(returns_matrix: pd.DataFrame, n_splits: int = 16) -> dict  # pbo, logits, n_combinations, ...
+cscv_pbo(returns_matrix: pd.DataFrame, n_splits: int = 16, rf_annual: float = 0.0) -> dict  # pbo, logits, ...
+# rf_annual: trials ranked on excess returns, as the deflated Sharpe (every engine caller passes 6.5%, LN-T16)
 deflated_sharpe(returns: pd.Series, trials_matrix: pd.DataFrame | None = None,
                 n_trials: float | None = None, rf_annual: float = 0.0) -> dict
 run_walk_forward(data, base_config, param_grid: dict[str, list], train_years=4,
@@ -244,9 +267,16 @@ to the next deployment.
 `CENTURION_NSE_ENGINE_LIVE=true`, an approved deployment and a Kite session;
 otherwise `execute()` runs the paper path. The live branch is built from
 `live_orders(plan)`: sells before buys, LIMIT + CNC at the plan's limit
-prices, one idempotent tag per order (`NE<yymmdd><B|S><symbol>`, skipped if
-already in the order book), and **variety `amo` whenever the market is
-closed** — the engine decides after the close, and a regular order placed
+prices on each stock's own NSE tick (from Kite's instruments dump, read once
+a day; since April 2025 NSE ticks run from Rs 0.01 below Rs 250 to Rs 5 above
+Rs 20,000, so a fixed 5-paise grid put about a third of limit prices off-tick:
+sells round down, buys up; without the dump, the next coarser slab's tick
+and an alert), Kite's tradingsymbol (`SYM-BE` for a stock in series BE; a
+stock Kite does not list is not sent, with an alert), one idempotent tag per
+order (`NE<yymmdd><B|S><symbol>`, letters and digits only, so M&M is `MM`;
+skipped if already in today's order book at any stage short of rejection,
+`AMO REQ RECEIVED` included; if the book cannot be read, nothing is sent),
+and **variety `amo` whenever the market is closed** — the engine decides after the close, and a regular order placed
 then is refused by the market-hours guard in `order_service.place_order`.
 Under the kill switch only reduce-only SELLs go through; a rejection or a
 transient failure of one order never stops the others (three retries, then
@@ -262,8 +292,84 @@ end to end: previous orders' outcomes into `paper_fills`, the book's
 snapshot at the close, plan, orders, stops, session record and a LIVE email,
 all in the Neon schema `live`. The book is a ledger of its own capital,
 cash and quantities, so holdings outside it are never sold and their stops
-are never touched (`reconcile_stop_gtts(quantities=, scope=)`). `--dry-run`
-rehearses it against the real broker and writes nothing.
+are never touched (`reconcile_stop_gtts(quantities=, scope=)`). The ledger
+also keeps what the backtest keeps on each `Holding` (LS1): each position's
+entry session (`entries`, its first BUY fill) and its last stop (`stops`,
+seeded from the stop planned with its BUY order). So live stops ratchet
+from the highest close since entry, as in the backtest and paper, and are
+never lowered: the plan starts from the higher of the broker's GTT trigger
+and the ledger's last stop. A GTT that was not raised (a failed modify, an
+edit at Kite) keeps the book's level with an alert. A trigger is rounded up
+to the stock's tick, so rounding raises none. When the GTTs cannot be read, or a GTT is gone (it
+triggered without a sale, expired or was deleted), the last stop is kept
+with an alert, so the engine still exits through it. Each stop keeps the
+close it was set against (`stop_basis`), so when the store back-adjusts
+prices for a dividend, split or demerger, the stop and the broker's
+trigger move with them, as the backtest's adjusted data does. A quantity
+that differs at the broker raises an alert. If the data shows no corporate
+action for it, the broker's GTT is used, or the stop is recomputed when
+there is none. A stop already above the price, so no GTT can be placed,
+raises an alert too. Settlement: every NSE share settles T+1 (T+0 is
+an optional window for about 500 large caps; the book does not use it),
+and since 7 Oct 2024 Zerodha credits 100% of a sale the same day for new
+buys, except a sale of T1 holdings (shares bought the session before),
+credited the next day. So the planner spends the proceeds of tonight's
+sells on tonight's buys, as the backtest does at the open, but leaves out
+the shares the book bought at today's open, with a note in the email.
+
+The broker's view decides when the book's own record cannot (tracker
+LN-T4..T6). After a missed or failed session, whose fills have left Kite's
+one-day order book, the broker's quantities are explained by the orders
+still pending, then by stop GTTs that triggered since, and adopted at the
+fill session's open within the limit; anything left unexplained holds back
+new buys and asks for `live_session --reconcile SYM=QTY@PX`. On a split,
+bonus or consolidation (NSE's ratios in the store) the ledger's quantity
+moves into the new units once, and while the broker has not yet credited
+the new shares the position is valued whole and sells are capped at what
+the broker can deliver; rights, demergers and price-only factors move only
+the stops. Orders in a stock whose corporate action goes ex at the next open
+are held back a night. A dividend is paid to the bank account, not the
+book: the ex-date drop is booked as income withdrawn, so it is not a loss
+in G4 or the drawdown rule. A renamed stock (the store's change table, or
+the same ISIN at the broker under a new name) moves to its new name, and its
+stop GTT is re-armed on the new instrument before the old one is deleted. A
+merger, delisting or exit offer announced within five sessions sells the
+position, with an alert. The paper book applies the same events: renames,
+splits and bonuses rebase its lots and pending orders, dividends are paid
+in cash, stops move with the prices, and a merged stock that stops trading
+is sold at its last close, as the backtest does. The paper book also catches
+up: every store session since the last processed one gets its stops and the
+open's fills in order (a weekend Budget or Muhurat session, or a missed
+run), then one plan is made from the latest close.
+
+Exits are protected against gapped and circuit-bound opens (LN-T14). A
+reduce-only SELL sits 500 bp under the close (`EXIT_LIMIT_BAND_BPS`), never
+below the next session's lower circuit (tonight's band, from Kite's quote,
+applied to tonight's price), or 190 bp under when the quotes cannot be read;
+BUYs stay 100 bp over. A stop GTT's limit is 2% under its trigger, floored at
+the same circuit. An engine SELL that did not fill (or filled in part) is
+sent again the next evening under a new tag, unless that night's plan trades
+the stock or wants to keep the shares. Over 2013-25 these choices left the
+fewest sells unfilled at the model's CAGR; a stock locked at its lower
+circuit cannot be sold at any limit (see the tracker). A stopped-out stock
+stays blocked for 5 sessions, as in the backtest (`recent_stops` in the
+ledger, LN-T9).
+
+A real session fails closed on its own book (LN-T10): the equity history,
+fills and sessions are read strictly (an outage raises instead of reading
+as "no history", which would let the drawdown rule read normal); the ledger
+and the ladder's state, configuration marker and gate are written in one
+transaction; the orders about to be sent are written first, as INTENDED,
+and nothing is sent when that write fails; a failed write after sending
+raises, and the backup run dedupes by tag. Dry runs and the paper books
+keep their "never block a run" behaviour. The nightly dry run is also
+Kite's preflight (LN-T12): every order and stop must name an NSE equity
+instrument in Kite's dump and sit on its tick, so a dry run counts as clean
+only when Kite would accept it all; in a real session the same findings are
+advisory, and only a BUY of a stock Kite does not list is held back.
+
+`--dry-run` rehearses it
+against the real broker and writes nothing.
 
 
 Real orders require `CENTURION_PAPER_TRADE=false` and `CENTURION_NSE_ENGINE_LIVE=true`.
@@ -276,7 +382,7 @@ one configuration that paper/live trades: engine config, `status`
 `paper_start_date` and `data_anchor_date`. It is written by
 `runners/run_nse_engine.py promote`, the forward gate (V3, decision U19): a
 paper candidate replaces it only after >= 60 sessions beside the deployed
-book, a G4 PASS and a walk-forward OOS Sharpe within 0.05 of the deployed
+book, a G4 PASS and a 2017-25 backtest Sharpe within 0.05 of the deployed
 config's; PBO, deflated Sharpe, the benchmark gate and the holdout are printed
 but no longer gate. Live trading refuses placeholder and candidate files.
 
@@ -293,13 +399,23 @@ from its file name: `CENTURION_NSE_DEPLOYMENT` (the file),
 snapshots, fills, sessions, weekly checkpoints, state - lives in that
 Postgres schema; `PaperCloudSync(schema=)` qualifies raw SQL and uses
 `schema_translate_map` for the ORM, never `search_path`, which Neon's pooler
-drops between transactions; the live book's schema is refused),
+drops between transactions; a schema starting with `live`, the live books'
+own, is refused),
 `CENTURION_PAPER_DB_PATH` (its own local SQLite), its own same-period shift
 reference `data/shift_reference_<book>.csv`, and `CENTURION_PAPER_BOOK_LABEL`
 (its emails read `Centurion paper [<book> <fingerprint>] ...`). A book is
 skipped before its `paper_start_date`. Adding a book is adding its file. The
 books share only the paper switch and never write the switch row's run
-status; a failing book emails and the next one still runs. The trade
+status; a failing book emails and the next one still runs. They run after
+the live session, and the whole job runs only from `main`: a dispatch from
+another branch is skipped rather than trading the live book with unmerged
+code. The nightly canary (LN-T13) finds the same books: a new or promoted
+one is recorded on its first night, a retired one dropped, and
+re-recording `config/canary_expected.json` (`run_nse_engine canary
+--record-registry`, part of every re-baseline) restarts its Actions tier.
+After a `promote`, run `nse_engine.books register` and commit: the live
+kill threshold reads the deployed configuration's backtest MaxDD from the
+register (`capital_ladder.backtest_maxdd_for`). The trade
 monitor shows any of them (G12): `GET /api/v1/screener/monitor/books` lists
 the books from the config files, and the monitor endpoints take `?book=<book>`
 (the deployed book without it; an unknown book is 404).
@@ -309,9 +425,11 @@ reference (books, the three checks, candidate selection, promotion, go-live
 checklist) is `docs/paper_trade_strategy.md`.
 `docs/books_register.csv` holds one row per book: its configuration and
 one-line `description` (a key of the book file), the backtest scores of the
-registry's like-for-like run (same window, newest cost model), the
-walk-forward OOS Sharpe 2017–25 from that run's returns, PBO / DSR from its
-validation, and, once the Saturday job has filled them, its paper scores and
+registry's like-for-like run (same window, newest cost model), the Sharpe
+of that run's 2017–25 returns (`bt_sharpe_2017_25`, the forward gate's check
+3; not a walk-forward, which re-fits the family and is in the scorecards),
+PBO / DSR from its validation, and, once the Saturday job has filled them,
+its paper scores and
 forward-gate status, with a one-line summary. `python -m nse_engine.books
 register` rebuilds the backtest columns from the run registry (research
 machine only; commit the file). Every Saturday `tools/books_report.py` reads
@@ -325,6 +443,23 @@ and the rationale) with READY FOR YOUR REVIEW in the subject. The register
 is attached. Nothing promotes on its own: `promote` stays a hand-run
 command, and `python -m nse_engine.books review --book <book>` prints the
 review from the register alone.
+
+**Metrics journal (tracker JR1).** The register holds each book's numbers
+today; `docs/metrics_journal.csv` keeps how they got there. It is
+append-only, one row per book per new piece of evidence: a `backtest` row
+each time the book's 2013–25 run changes cost model, data hash or results
+(with its 2017–25 Sharpe, DSR, PBO and the haircut's expected live Sharpe
+and CAGR when validated), and a `walk_forward` row each time its family's
+walk-forward (`scorecard.WALK_FORWARD_OOS`) is re-run. `books register`
+appends what is new (`nse_engine.journal record` does it alone, `show`
+prints it), so commit the file with the change that moved the numbers: `git
+log -p docs/metrics_journal.csv` then says why each row exists. It was
+backfilled from the registry on 10 Oct 2026, back to the 14 Sep approval.
+Paper results need no journal of their own: the nightly snapshots in Neon
+are one. The web app's Trade Center > Journal tab (operator only, per book)
+shows the latest numbers against the targets, a chart of each metric over
+time with the paper record week by week, and the journal itself
+(`GET /api/v1/screener/monitor/journal`).
 
 Adding a book: (1) record its 2013–25 backtest in the registry on the
 current cost model (Kaggle, `cloud.kaggle_local`) and `validate` it; (2)

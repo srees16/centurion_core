@@ -254,6 +254,8 @@ class EngineConfig:
     start: str = "2013-01-01"
     end: str = "2025-12-31"
     initial_capital: float = 500_000.0
+    # Ignored since cost model 4 (idle cash earns costs.IDLE_CASH_YIELD_ANNUAL: nothing, as
+    # in a Kite account); kept at its legacy value so every recorded config hash stands.
     cash_yield_annual: float = 0.06
     risk_free_annual: float = 0.065
     runs_dir: str = "data/nse_engine/runs"

@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 
 MODES = ("dry_run", "paper", "live")
 FILLED, PARTIAL, NOT_FILLED, NOT_SENT = "FILLED", "PARTIAL", "NOT FILLED", "NOT SENT (dry run)"
+UNKNOWN = "UNKNOWN (check Kite)"
 POLL_SECONDS = 1.0
 
 
@@ -108,6 +109,11 @@ class BasketExecutor:
 
     def execute(self, legs: Sequence[LegOrder], tag: str = "") -> ExecutionReport:
         report = ExecutionReport(self.mode, [])
+        refusal = self._kill_switch_refusal(legs) if self.mode == "live" else None
+        if refusal:                                       # checked before any leg: a refused basket sends nothing
+            logger.error("basket %s refused: %s", tag, refusal)
+            report.stopped = refusal
+            return report
         for leg in execution_order(legs):
             result = self._one(leg, tag)
             report.results.append(result)
@@ -117,6 +123,22 @@ class BasketExecutor:
         for warning in report.naked_shorts():
             logger.error("NAKED SHORT after basket %s: %s", tag, warning)
         return report
+
+    def _kill_switch_refusal(self, legs: Sequence[LegOrder]) -> Optional[str]:
+        """While the kill switch is on (tracker DM0), only an exit goes: every leg must reduce an open
+        position (a sell of a long, a buy of a short).  None when the basket may go."""
+        from kite_connect.trading.order_service import is_kill_switch_active
+
+        if not is_kill_switch_active():
+            return None
+        try:
+            net = {p.get("tradingsymbol"): int(p.get("quantity") or 0) for p in self.broker.positions()}
+        except Exception as exc:                          # noqa: BLE001 - refuse rather than guess
+            return f"KILL SWITCH active and the positions could not be read ({exc})"
+        opening = [f"{leg.side} {leg.contract.tradingsymbol}" for leg in legs
+                   if (net.get(leg.contract.tradingsymbol, 0) if leg.side == SELL
+                       else -net.get(leg.contract.tradingsymbol, 0)) < leg.quantity]
+        return f"KILL SWITCH active: only exits go, and {', '.join(opening)} would open risk" if opening else None
 
     # ── one leg ─────────────────────────────────────────────────
     def _one(self, leg: LegOrder, tag: str) -> LegResult:
@@ -145,19 +167,42 @@ class BasketExecutor:
     def _live(self, leg: LegOrder, tag: str) -> LegResult:
         try:
             placed = self.broker.place_limit(leg.contract.tradingsymbol, leg.side, leg.quantity, leg.limit, tag)
+            order_ids, errors = placed.order_ids, placed.errors
         except OrderError as exc:
-            return LegResult(leg, NOT_FILLED, message=str(exc))
-        orders = self._wait(placed.order_ids)
+            # A lost response may still have booked slices (LN-T3): find them by tag, symbol and side,
+            # since every leg of a basket shares one tag; an unreadable book stops the basket.
+            booked = self._booked(leg, tag)
+            if booked is None:
+                return LegResult(leg, UNKNOWN, message=f"{exc}; the order book could not be read")
+            if not booked:
+                return LegResult(leg, NOT_FILLED, message=str(exc))
+            order_ids, errors = booked, [str(exc)]
+        orders = self._wait(order_ids)
         for oid, o in orders.items():
             if o.get("status") not in FINAL_STATUSES:
                 self.broker.cancel(oid)
                 orders[oid] = self._last(oid) or o
         filled = sum(int(o.get("filled_quantity") or 0) for o in orders.values())
         value = sum(int(o.get("filled_quantity") or 0) * float(o.get("average_price") or 0) for o in orders.values())
-        notes = placed.errors + [str(o.get("status_message")) for o in orders.values()
+        notes = errors + [str(o.get("status_message")) for o in orders.values()
                                  if o.get("status") in ("REJECTED", "CANCELLED") and o.get("status_message")]
         status = FILLED if filled >= leg.quantity else PARTIAL if filled else NOT_FILLED
-        return LegResult(leg, status, filled, value / filled if filled else 0.0, placed.order_ids, "; ".join(notes))
+        return LegResult(leg, status, filled, value / filled if filled else 0.0, order_ids, "; ".join(notes))
+
+    def _booked(self, leg: LegOrder, tag: str) -> Optional[List[str]]:
+        """Order ids booked for ``leg`` under ``tag`` (any stage short of failure); None if unknowable."""
+        from kite_connect.trading.order_status import kite_tag, order_placed
+
+        if not tag:
+            return None
+        try:
+            book = self.broker.orders()
+        except Exception as exc:                          # noqa: BLE001 - the caller reports UNKNOWN
+            logger.error("order book unreadable after a failed placement of %s: %s", leg.contract.tradingsymbol, exc)
+            return None
+        return [str(o.get("order_id")) for o in book
+                if o.get("tag") == kite_tag(tag) and o.get("tradingsymbol") == leg.contract.tradingsymbol
+                and str(o.get("transaction_type")).upper() == leg.side and order_placed(o.get("status"))]
 
     def _last(self, order_id: str) -> Optional[dict]:
         history = self.broker.order_history(order_id)

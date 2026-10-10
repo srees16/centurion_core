@@ -14,7 +14,8 @@ Benchmarks (daily net simple returns on the trading calendar within
 * ``nifty50_price_index`` -- NIFTY50 PRICE index (no dividends, no costs);
 * ``nifty50_tri`` -- NIFTY50 total return index when ``index_close`` has it;
   informational only.
-* ``cash`` -- ``config.cash_yield_annual`` accrued daily.
+* ``cash`` -- what idle cash earns, ``costs.IDLE_CASH_YIELD_ANNUAL`` accrued daily
+  (nothing since cost model 4, as in a Kite account).
 
 Execution (same as the engine): decide after the close of the first session
 ``>= start`` and of the last session of each month; fill at the next open;
@@ -23,7 +24,7 @@ median traded value read at the decision date; per-side costs =
 ``nse_engine.costs`` statutory charges + square-root impact (if that module
 cannot be imported, a flat 15 bp per side is used and the series is flagged
 in ``Series.attrs["cost_model"]``); gross <= 1 (target values are set on equity
-net of estimated costs); idle cash earns the cash yield.  Positions in a
+net of estimated costs); idle cash earns what the engine credits.  Positions in a
 symbol that stops trading are marked at its last close and written out at
 that price (with sell costs) after ``stale_days`` sessions without a close.
 """
@@ -99,6 +100,15 @@ def decision_positions(dates: pd.DatetimeIndex, s0: int, s1: int) -> np.ndarray:
     return np.array(sorted(set([s0] + pos)), dtype=int)
 
 
+def _idle_cash_yield() -> float:
+    """The engine's idle-cash yield (``costs.IDLE_CASH_YIELD_ANNUAL``); 0 if that module cannot load."""
+    try:
+        from nse_engine.costs import IDLE_CASH_YIELD_ANNUAL
+    except Exception:  # noqa: BLE001 - same fallback as the cost function
+        return 0.0
+    return float(IDLE_CASH_YIELD_ANNUAL)
+
+
 def simulate_weights(data: Any, targets: Dict[int, Dict[int, float]], s0: int, s1: int,
                      config: Any, cost_fn: CostFn, stale_days: int = 21) -> pd.Series:
     """Daily net returns of a target-weight schedule.
@@ -118,7 +128,7 @@ def simulate_weights(data: Any, targets: Dict[int, Dict[int, float]], s0: int, s
             config.costs.adv_lookback_days, min_periods=1).median()
     adv = adv_df.to_numpy(dtype="float64")
     m = cls.shape[1]
-    y_daily = float(config.cash_yield_annual) / 252.0  # same accrual as the engine
+    y_daily = _idle_cash_yield() / 252.0  # same accrual as the engine
     max_part = float(config.costs.max_participation)
 
     q = np.zeros(m)
@@ -249,7 +259,7 @@ def run_benchmarks(data: Any, config: Any,
         tri.attrs["note"] = f"{tri_col} total return index (dividends reinvested, no costs)"
         out["nifty50_tri"] = tri
 
-    y = float(config.cash_yield_annual) / 252.0
+    y = _idle_cash_yield() / 252.0
     out["cash"] = pd.Series(y, index=dates[s0:s1 + 1], name="cash")
     return out
 

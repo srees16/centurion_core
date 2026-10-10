@@ -23,6 +23,7 @@ import os
 import sys
 from datetime import date
 from pathlib import Path
+from typing import List, Tuple
 
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
@@ -99,9 +100,13 @@ def cmd_build_store(args) -> None:
     from nse_engine.data.store import build_store
 
     cfg = EngineConfig()
-    _print_json(build_store(ARCHIVE_DIR, cfg.data.store_dir))
+    summary = build_store(ARCHIVE_DIR, cfg.data.store_dir)
+    _print_json(summary)
     sectors = build_sector_map(ARCHIVE_DIR)
     print(f"sector map: {len(sectors)} symbols")
+    if summary.get("suspect_missing_sessions"):                 # tracker LN-T7: a failing check
+        raise SystemExit("a session seems missing from the store before: "
+                         + ", ".join(x["date"] for x in summary["suspect_missing_sessions"]))
     if getattr(args, "skip_registry_check", False):
         print("registry fingerprint check skipped (--skip-registry-check)")
         return
@@ -197,7 +202,9 @@ def cmd_validate(args) -> None:
     report["dsr_clustered"] = deflated_sharpe(returns, trials_matrix=trials, rf_annual=run_cfg.risk_free_annual,
                                               trial_count="clustered")
     if n_configs >= 2:
-        pbo = {k: v for k, v in cscv_pbo(matrix, n_splits=args.splits).items() if k != "logits"}
+        pbo = {k: v for k, v in cscv_pbo(matrix, n_splits=args.splits,
+                                         rf_annual=run_cfg.risk_free_annual).items() if k != "logits"}
+        pbo["pbo_raw_basis"] = float(cscv_pbo(matrix, n_splits=args.splits)["pbo"])   # LN-T16: one cycle beside
         pbo["verdict"] = ("likely real" if pbo["pbo"] < 0.30
                           else "caution" if pbo["pbo"] <= 0.50 else "reject")
         report["pbo"] = pbo
@@ -265,7 +272,7 @@ def cmd_refresh_registry(args) -> None:
         mat = registry.returns_matrix(data_hash=h, window=window)
         out = {"n_configurations": int(mat.shape[1])}
         if mat.shape[1] >= 2:
-            out["pbo"] = float(cscv_pbo(mat, n_splits=args.splits)["pbo"])
+            out["pbo"] = float(cscv_pbo(mat, n_splits=args.splits, rf_annual=cfg.risk_free_annual)["pbo"])
             out["dsr"] = {col.split("_")[-1]: float(deflated_sharpe(mat[col], trials_matrix=mat,
                                                                      rf_annual=cfg.risk_free_annual)["dsr"])
                           for col in mat.columns}
@@ -308,7 +315,7 @@ def cmd_holdout(args) -> None:
 def cmd_promote(args) -> None:
     """Forward gate (V3, decision U19): replace the deployed config with the
     paper candidate once it has traded >= 60 sessions beside it, its G4 paper
-    gate is PASS and its walk-forward OOS Sharpe is within 0.05 of the
+    gate is PASS and its 2017-25 backtest Sharpe is within 0.05 of the
     deployed config's.  PBO / deflated Sharpe / benchmark / holdout are
     printed with their counts, not gating (``nse_engine.forward_gate``)."""
     from datetime import datetime, timedelta, timezone
@@ -409,7 +416,8 @@ def cmd_promote(args) -> None:
     dep = load_deployment(out)  # validates the file we just wrote
     print(f"promoted {cand.engine.config_hash()[:8]} -> {out} (paper from {dep.paper_start_date}). "
           f"The candidate book still trades it in schema {args.schema!r}: retire or replace "
-          f"{args.candidate} before the next session.")
+          f"{args.candidate} before the next session, then run `python -m nse_engine.books register` "
+          f"(the live kill threshold reads the new configuration's backtest MaxDD from it) and commit.")
 
 
 def cmd_shift_reference(args) -> None:
@@ -467,6 +475,137 @@ def cmd_paper_gate(args) -> None:
     else:
         label = f"{dep.status} {dep.engine.config_hash()[:8]}" + (f", schema {args.schema}" if args.schema else "")
         print(paper_gate.format_report(report, title=f"Paper gate (G4) - {label}"))
+
+
+#: Not config/nse_engine_<name>.json: that pattern marks a paper book (the workflow trades every match).
+CANARY_EXPECTED = "config/canary_expected.json"
+CANARY_STATE_KEY = "canary_actions"
+CANARY_WINDOW = ("2013-01-01", "2025-12-31")
+
+
+def canary_stats(data, cfg) -> dict:
+    """What a book's 2013-25 backtest produces, to the last trade (tracker LN-T13)."""
+    import hashlib
+
+    from nse_engine.costs import COST_MODEL_VERSION
+    from nse_engine.engine import run_backtest
+
+    res = run_backtest(data, cfg, record=False)
+    t = res.trades.copy()
+    t["date"] = pd.to_datetime(t["date"]).dt.strftime("%Y-%m-%d")
+    t = t.sort_values(["date", "symbol", "side", "quantity"])
+    blob = "\n".join(f"{r.date},{r.symbol},{r.side},{int(r.quantity)},{float(r.price):.4f}" for r in t.itertuples())
+    m = res.metrics
+    return {"config_hash": cfg.config_hash(), "data_hash": data.data_hash, "cost_model": COST_MODEL_VERSION,
+            "n_trades": int(len(t)), "trades_sha256": hashlib.sha256(blob.encode()).hexdigest(),
+            "sharpe": float(m["sharpe"]), "cagr": float(m["cagr"]), "max_drawdown": float(m["max_drawdown"]),
+            "final_equity": float(res.equity.iloc[-1])}
+
+
+def canary_compare(now: dict, expected: dict) -> Tuple[str, List[str], List[str]]:
+    """("ok" | "data_differs" | "drift", what moved, books to record) for every book in ``now``.
+
+    A book that is new or now trades another configuration (a promotion, a
+    replaced paper book) has nothing to be compared with: it is to be
+    recorded, never drift.  A book no longer run is not compared.
+    """
+    moved, fresh, data_moved = [], [], False
+    for book, got in now.items():
+        exp = expected.get(book)
+        if exp is None or exp["config_hash"] != got["config_hash"]:
+            fresh.append(book)
+            continue
+        if got["data_hash"] != exp["data_hash"]:
+            data_moved = True
+            moved.append(f"{book}: data {exp['data_hash']} -> {got['data_hash']}")
+            continue
+        for k in ("cost_model", "n_trades", "trades_sha256"):
+            if got[k] != exp[k]:
+                moved.append(f"{book}: {k} {exp[k]} -> {got[k]}")
+        for k, tol in (("sharpe", 1e-9), ("cagr", 1e-9), ("max_drawdown", 1e-9), ("final_equity", 0.01)):
+            if abs(float(got[k]) - float(exp[k])) > tol:
+                moved.append(f"{book}: {k} {exp[k]} -> {got[k]}")
+    return ("data_differs" if data_moved else "drift" if moved else "ok"), moved, fresh
+
+
+def cmd_canary(args) -> None:
+    """Nightly canary: every book's 2013-25 backtest against its expected statistics (tracker LN-T13).
+
+    Nothing else catches a code, dependency or runner change that moves a
+    book while its hashes stay the same (cost model 4 did).  The books are
+    the paper books the workflow trades (``books.discover_books``).  Tiers: the
+    registry's figures in ``CANARY_EXPECTED`` (information), and the Actions
+    runner's own, kept in the paper book's state (the alarm: Actions and the
+    Mac/Kaggle runtimes have never been compared).  A new or re-configured
+    book is recorded, not compared; re-recording the registry tier
+    (``--record-registry``, part of every re-baseline) restarts the Actions
+    tier on its next run.  A data change is reported, never refreshed here;
+    drift sets the step output ``drift=true`` for the workflow to act on.
+    Exits 0: alerts go by email and step output, never by failing the job.
+    """
+    import hashlib
+    import platform
+
+    import numpy as np
+
+    from nse_engine.books import discover_books
+
+    books = {b.name: b.deployment.engine.replace(start=CANARY_WINDOW[0], end=CANARY_WINDOW[1])
+             for b in discover_books()}
+    data = _load_data(next(iter(books.values())), data_start="2012-01-02")
+    now = {b: canary_stats(data, cfg) for b, cfg in books.items()}
+    runtime = {"python": platform.python_version(), "numpy": np.__version__, "pandas": pd.__version__,
+               "platform": platform.platform()}
+    if args.record_registry:
+        Path(CANARY_EXPECTED).write_text(json.dumps({"registry": now, "registry_runtime": runtime,
+                                                      "recorded": date.today().isoformat()}, indent=1, sort_keys=True))
+        print(f"recorded the registry tier in {CANARY_EXPECTED}")
+        return
+    try:
+        expected_text = Path(CANARY_EXPECTED).read_text()
+        registry = json.loads(expected_text)["registry"]
+    except (OSError, ValueError, KeyError) as exc:
+        raise SystemExit(f"{CANARY_EXPECTED} unreadable ({exc}): record it with canary --record-registry")
+    reg_status, reg_moved, reg_fresh = canary_compare(now, registry)
+    report = {"runtime": runtime, "registry": {"status": reg_status, "moved": reg_moved, "not_recorded": reg_fresh}}
+    status, moved = reg_status, reg_moved
+    if args.tier == "actions":
+        from database.paper_cloud import get_paper_cloud
+
+        cloud = get_paper_cloud()
+        stored = json.loads((cloud.read_state() or {}).get(CANARY_STATE_KEY) or "null") if cloud else None
+        stamp = hashlib.sha256(expected_text.encode()).hexdigest()[:16]
+        if stored is not None and stored.get("registry_stamp") != stamp:
+            stored = None                                 # the registry tier was re-recorded: start again
+        fresh: List[str] = []
+        if cloud:
+            if stored is None:
+                status, moved, fresh, kept = "recorded", [], list(now), {}
+            else:
+                status, moved, fresh = canary_compare(now, stored["books"])
+                kept = {b: stored["books"][b] for b in now if b not in fresh}
+            if fresh or stored is None or set(stored["books"]) != set(now):   # new, re-configured or retired books
+                cloud.sync_state({CANARY_STATE_KEY: json.dumps({
+                    "books": {**kept, **{b: now[b] for b in fresh}}, "runtime": runtime,
+                    "recorded": date.today().isoformat(), "registry_stamp": stamp})})
+            if fresh and status == "ok":
+                status = "recorded"
+        report["actions"] = {"status": status, "moved": moved, "recorded": fresh}
+    report["status"] = status
+    _print_json(report)
+    out = os.environ.get("GITHUB_OUTPUT")
+    if out:
+        with open(out, "a") as fh:
+            fh.write(f"canary={status}\ndrift={'true' if status == 'drift' else 'false'}\n")
+    if status in ("drift", "data_differs") and not args.no_email:
+        from services.notifications.alerts import CRITICAL, WARNING, alert
+
+        what = ("the store's data changed under the books (refresh the registry off Actions)"
+                if status == "data_differs" else "a book's backtest changed with its code and data hashes unchanged")
+        # Tracker AL2: drift can hold the live book to a dry run, so it is CRITICAL; a data change a warning.
+        alert(CRITICAL if status == "drift" else WARNING, f"canary_{status}",
+              f"Centurion canary: {status.replace('_', ' ')}",
+              [f"The nightly canary found that {what}.", *moved, f"Runtime: {runtime}"])
 
 
 def cmd_scorecard(args) -> None:
@@ -573,6 +712,14 @@ def main(argv=None) -> None:
     p.add_argument("--md-dir", default="docs/scorecards")
     p.add_argument("--json-dir", default="data/nse_engine/scorecard")
     p.set_defaults(func=cmd_scorecard)
+
+    p = sub.add_parser("canary", help="every book's 2013-25 backtest against its expected statistics "
+                                      "(LN-T13)")
+    p.add_argument("--tier", choices=("registry", "actions"), default="registry",
+                   help="actions: also compare with (or record) the Actions runner's own figures")
+    p.add_argument("--record-registry", action="store_true", help=f"write the registry tier to {CANARY_EXPECTED}")
+    p.add_argument("--no-email", action="store_true")
+    p.set_defaults(func=cmd_canary)
 
     p = sub.add_parser("validate", help="DSR, PBO and benchmark gate for a recorded run")
     p.add_argument("--run-id")

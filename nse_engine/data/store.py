@@ -400,6 +400,32 @@ def _write_spans_and_calendar(store: Path) -> Dict[str, int]:
     return summary
 
 
+#: A session whose bhavcopy no archive has: NSE's Saturday 24 Jun 2006 session, seen on the 26th.
+KNOWN_MISSING_SESSIONS = ("2006-06-26",)
+
+
+def suspect_missing_sessions(store: Path, share: float = 0.2, min_symbols: int = 25) -> List[Dict[str, object]]:
+    """Dates where more than ``share`` of EQ symbols carry a prev_close that is not their last close.
+
+    That is a session missing from the store just before the date (the Sunday
+    1 Feb 2026 Budget session made 2,082 of them on 2 Feb; tracker LN-T7), not
+    corporate actions, which touch a few symbols a day.
+    """
+    parts = [pd.read_parquet(p, columns=["date", "symbol", "series", "close", "prev_close"])
+             for p in sorted((store / "equity").glob("*.parquet"))]
+    if not parts:
+        return []
+    rows = pd.concat(parts, ignore_index=True)
+    rows = rows[rows["series"].astype(str) == "EQ"].sort_values(["symbol", "date"])
+    last = rows.groupby("symbol", sort=False)["close"].shift(1)
+    ok = last.notna() & rows["prev_close"].notna() & (last > 0)
+    off = ok & ((rows["prev_close"] / last - 1.0).abs() > 0.005)
+    by_day = pd.DataFrame({"date": rows["date"], "ok": ok, "off": off}).groupby("date")[["ok", "off"]].sum()
+    hit = by_day[(by_day["off"] > np.maximum(min_symbols, share * by_day["ok"]))]
+    return [{"date": pd.Timestamp(d).date().isoformat(), "mismatched": int(r.off), "symbols": int(r.ok),
+             "known": pd.Timestamp(d).date().isoformat() in KNOWN_MISSING_SESSIONS} for d, r in hit.iterrows()]
+
+
 def _write_events(store: Path, actions: Optional[pd.DataFrame] = None) -> Dict[str, int]:
     """Derive corporate_actions.parquet and dividends.parquet from the raw corpact tables."""
     if actions is None:
@@ -457,6 +483,13 @@ def build_store(archive_root: PathLike, store_dir: PathLike, workers: Optional[i
         int(y) for y in manifest["years"] if int(y) not in results)}
     if results or not (store / "spans.parquet").exists():
         summary.update(_write_spans_and_calendar(store))
+        suspects = suspect_missing_sessions(store)
+        manifest["suspect_missing_sessions"] = suspects
+        new = [x for x in suspects if not x["known"]]
+        if new:
+            summary["suspect_missing_sessions"] = new
+            logger.error("build_store: a session seems missing just before %s (prev_close mismatches): "
+                         "fetch it, then rebuild", ", ".join(x["date"] for x in new))
     elif manifest.get("events_version") != EVENTS_VERSION or not (store / "dividends.parquet").exists():
         summary.update(_write_events(store))
     manifest["store_version"] = STORE_VERSION

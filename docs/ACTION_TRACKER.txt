@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 08 Oct 2026, 23:33 IST
+  CENTURION IND STOCKS — ACTION TRACKER            updated 10 Oct 2026, 14:40 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -29,6 +29,18 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
    Haircut (D2): E4 the same         1.08   22.2%   -26.5%   0.84
    2007-25 with 2008 (R4), B1 + rule  1.03   21.1%   -32.9%   0.64
    Deployed, cost model 3 (D4, Kaggle)  1.21   23.7%   -23.1%   1.03
+   Deployed, cost model 4 (IC1, Kaggle; idle cash earns nothing)
+                                      1.16   23.0%   -23.9%   0.96
+   E4, cost model 4 (IC1, Kaggle)     1.16   23.9%   -25.7%   0.93
+   Walk-forward OOS 2017-25, model 4 (IC1, R12 re-run): K5 grid 1.23 /
+     22.9% / -22.1%; + exit rank 60 (E4's family) 0.98 / 18.4% / -22.1%
+   Haircut (D2), model 4: deployed 0.97 / 19.7% / -23.9%; E4 1.04 /
+     21.6% / -27.7%
+   Deployed, RR2 (data hash v2 + 1 Feb 2026 session, LN-T15, Kaggle)
+                                      1.16   23.1%   -23.9%   0.97
+   E4, RR2 the same                   1.14   23.6%   -25.3%   0.93
+   Walk-forward OOS 2017-25, RR2 (r12a5, r12b5): K5 grid 1.24 / 23.1% /
+     -22.1%; + exit rank 60 (E4's family) 1.11 / 20.4% / -21.9%
    Walk-forward OOS 2008-25 (R4)      0.87   16.4%   -32.9%   0.50
    Paper since 17 Sep (10 sessions)    -     +0.59%   -3.5%     -   too early
      (same days: NIFTY 500 -2.0%, NIFTY 50 -2.6%; backtest replay +0.8%)
@@ -36,10 +48,17 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      re-run 27 Sep on complete NIFTY data (K5; was 1.24 / 23.3% / -22.3%).
 
  VERDICT   CAGR 25% + Sharpe 1.2 are NOT jointly reached by any recorded
-           configuration; E4 (24.64% / 1.205) is the closest, on paper from 5 Oct
-   Sharpe 1.2   YES in backtest (17 of 59 configs), 1.27 walk-forward OOS
-                (R12); live estimate ~1.0 after the haircut.
-   CAGR 25%     NO.  Ceiling 24.6% unlevered (E4).  Measured dead ends:
+           configuration; E4 (23.55% / 1.139 after RR2; 23.90% / 1.161
+           before it, 24.64% / 1.205 before IC1) is the closest, on paper
+           from 5 Oct
+   Sharpe 1.2   NO in backtest after RR2: only 0381af7f (R11 crash re-entry,
+                closed 28 Sep) reaches it, 1.220; the books 1.16 / 1.16 /
+                1.14 (17 of 59 cleared 1.2 while idle cash earned 6%, IC1).
+                Walk-forward OOS 1.24 for the deployed family (passes the
+                rule), 1.11 for E4's (R12 re-run on RR2 data); live
+                estimate ~1.0 after the haircut.
+   CAGR 25%     NO.  Ceiling 24.3% unlevered after RR2 (E1 refill 942760af,
+                closed; E4 23.6%; 24.6% before IC1).  Measured dead ends:
                 NIFTY sleeve +0.5 pt at most (R5); moving the metal sleeve's
                 capital into the core +0.4 pt but Sharpe 1.03 and MaxDD -34%
                 (the sleeve is the Sharpe engine: corr -0.02 with the core);
@@ -50,7 +69,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
    MaxDD 30%    YES outside crises (-24.7% in 2013-25).  A 2008-type crash
                 costs ~33% even with the drawdown rule (R4); accepted (U22).
    Calmar 1.0   BORDERLINE.  0.92 backtest, 1.05 OOS; more CAGR lowers it.
-   Overfit      PBO 50.5% over 59 configs is a property of the trial set
+   Overfit      PBO 29.2% over 61 configs on excess returns after RR2
+                ("likely real"; 51.2% on the raw basis, LN-T16).  Raw PBO
+                (50.5% over 59 on 28 Sep) is a property of the trial set
                 (near-ties, median correlation 0.87), not of the strategy:
                 20 random junk configs would "lower" it to 26%, deleting the
                 29 weakest raises it to 63%.  The strategy's own checks pass:
@@ -196,63 +217,82 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
-[!] P0  SEC1 Security (audit 7 Oct), in this order.  Done 8 Oct: 1 (new
-             passwords), 3 (merged, deployed) and 4 (checked 14:16: the old
-             passwords are refused, reads need a session, the published
-             file is gone; you signed in with the new password), 2 (Space
-             secrets), 5 (Space history squashed: 1 commit, 14:34) and 6
-             (Kite API secret regenerated, Space updated; confirm with the
-             next login); 7a not needed (Trade Center reads Neon through
-             Vercel: its DATABASE_URL is current) and 7b (Neon clean:
-             roles neondb_owner + Neon's own, schemas candidate / e4 /
-             live / public + Neon Auth's neon_auth, one branch) and 8 (VM
-             sshd re-run, same IP and host key).  Left: confirm 6 at the
-             next Kite login ("Kite login complete"), then SEC1 is done.
-             1. TODAY: the production logins are admin/admin123 and
-                analyst/analyst123, published in docs/README.md and in the
-                public Space's auth/credentials.yaml; anyone can sign in.
-                Make new strong passwords, put their bcrypt hashes in the
-                CREDENTIALS_YAML GitHub secret, then commit + merge (the
-                deploy now sends them to the Space as a secret and deletes
-                the published file).
-             2. Space secrets: CENTURION_API_SECRET_KEY (python -c "import
-                secrets; print(secrets.token_hex(32))") and
-                CENTURION_KITE_USER_ID (your Zerodha id).
-             3. Wipe the Space's history (old credentials.yaml, the old
-                Neon password): HfApi().super_squash_history(
-                "srees16/centurion-core", repo_type="space").
-             4. A Kite API key + secret are in public GitHub history
-                (commit 9e6e7b7, 21 Feb; key starts "hzcj").  If your key
-                starts so, regenerate the API secret at developers.kite.trade
-                and update ZERODHA_API_SECRET in GitHub and on the Space.
-             5. Vercel's DATABASE_URL: still the pre-U30 Neon password?
-                Update it.  In Neon, check pg_roles and schemas for anything
-                you did not create (owner access was public 14 Apr-1 Oct).
-             6. Re-run deployment/oracle-proxy/setup_tunnel_user.sh on the
-                VM (stricter sshd: no socket/tunnel forwarding).
-             7. Consider a private GitHub repo: Actions logs are public (the
-                live step now prints counts only; the executor still logs
-                book equity).
+[!] P1  O1d  MONDAY 12 OCT, MORNING: your steps for the options demo in
+             market hours (your ask 9 Oct).  Mac and VS Code not needed:
+             1. Log in to Kite from the 09:00 IST email (phone is fine).
+             2. Around 10:00 IST, on phone or browser: GitHub >
+                srees16/centurion_core > Actions > "Options paper demo" >
+                Run workflow (NIFTY, moderate_bull, 1).  When it finishes
+                (about 2 min), Run workflow again with moderate_bear.  Any
+                time before 15:00 IST works if 10:00 slips.
+             3. Watch your phone for two notifications from claude.ai
+                routines (read-only): 10:12 IST, a reminder with the link
+                if no run has started; 11:37 IST, the report.
+             4. Later, in VS Code, say "log the O1d results": Claude reads
+                the runs and records them here (routines cannot edit local
+                files).
+             Why by hand: a claude.ai routine cannot start the workflow
+             (tested 9 Oct: Claude's GitHub App has Actions read, not
+             write, HTTP 403), and GitHub's own cron ran 5-7 h late here
+             (29-30 Sep).  Routines: claude.ai/code/routines (10:12
+             trig_01PZ8pTAjMTYWzMEKpPEcHjc, 11:37 trig_01HMT6kEBKm2ha4bgJJ6gdUp).
 [!] P1  MU2  Self-service accounts: merged and live 8 Oct (sign-up on the
              login page; email secrets copied by the deploy; the data key on
              the Space with a copy kept off it); frontend in production
              (NX1 merge deployed 22:33 IST).  Left: sign up with a spare
              email: activation email, sign-in, Fly Kite, Settings > Delete
              account.
-[!] P3  O1d  Run the options paper demo once: after a Kite login, GitHub
-             Actions > "Options paper demo" > Run (NIFTY, moderate_bull, 1
-             lot; paper only); read the artifact.  Commit + merge first.
-[!] P3  O3   Options round 2: your go/no-go and candidate list.  Round 1
-             (O2) failed on all three sleeves; the F&O data, store and
-             harness exist, so a round is one pre-registered set and one
-             Kaggle run.  Evidence points at a protective bear put spread
-             judged on the combined book's MaxDD / Calmar, or weekly-expiry
-             versions (history from 2019 only).  Plan 5q.
+[!] P3  O5   Options round 4: your go/no-go.  Rounds 1-3 failed gate 1 on
+             all ten configurations.  Open ideas: Y3 (overnight drift) on
+             the future's own open and close (needs futures opens in the
+             F&O store; the bhavcopy has them); a protective bear put
+             spread judged on the combined book; weekly expiries.
 [!] P1  U23  Log in to Kite once every trading day: tap the link in the
              09:00 / 17:30 IST email (valid until 06:00 next day).  The first
              live dry run is Thu 1 Oct 19:00 IST (Fri 2 Oct is a holiday);
              it needs that day's login.  Check its email ("live dry run");
              5 clean dry runs are part of go-live readiness (D3).
+[!] P0  ST2  Before live month 1 (mid-Dec), two account checks.  Web
+             research 10 Oct (Zerodha support + Kite forum staff, 2020):
+             equity AMOs are validated "before market open" and sent at
+             09:00 (ETF AMOs 09:15); sale credit is usable only after the
+             early pay-in, i.e. after the sell executes.  So tonight's sell
+             AMOs very likely do NOT fund tonight's buy AMOs: on 58% of the
+             deployed backtest's buying sessions (24% of its buying; E4 63%
+             / 43%) those buys would be rejected and go through a session
+             late.
+             1. Console > Account > DDPI: is DDPI active?  Without DDPI (or
+                POA) every sell AMO needs a CDSL TPIN authorisation by hand,
+                so the automated 19:00 session cannot sell at all.  If not
+                active, submit DDPI online now (takes days).
+             2. Ask Zerodha support to confirm: "Is a CNC BUY AMO's margin
+                checked at 09:00 before same-account SELL AMOs (from settled
+                holdings, DDPI active) execute, so their proceeds cannot
+                fund it?"  Then choose one: (a) keep a cash buffer in the
+                account outside the book, so buys clear the 09:00 check while
+                the sells refill it (Lean plan: Rs 0.8 lakh covers 90% of
+                sessions at the Rs 6 lakh rung, Rs 1.75 lakh 95%); (b) sale
+                credit 0, buys only from night cash, the rest a session later
+                (about -0.7 pt CAGR a year); (c) a 09:20 second pass after the
+                sells fill (needs a login before 09:08).
+             3. Once DDPI is active (LN-T2, before ~12 Dec), one supervised
+                evening with 2 shares of a cheap liquid stock outside the
+                book: an AMO SELL (CNC), and a single-leg SELL GTT with its
+                trigger just under the price.  The next evening, with both
+                COMPLETE, run: live_session --record-sell-path <DDPI date>
+                <AMO order id> <GTT id>.  Kite is read for both; the first
+                real session refuses to start until this passes.
+[!] P3  LN-T13 Optional, before live month 1: GitHub > srees16/centurion_core
+             > Settings > Secrets and variables > Actions > Variables > New
+             repository variable: CENTURION_CANARY_DRIFT_ACTION = dry-run.
+             Then a night the canary reports drift (a book's backtest moved
+             with its code and data hashes unchanged) runs the live session
+             as a dry run instead of sending orders.  Without it, drift is
+             only emailed.
+[!] P1  DMfd After the next merge to main: the dead man's switch fire drill
+             with Claude (your call 10 Oct): a manual /fail ping, and the
+             check's schedule set a few minutes ahead once, to see both
+             emails arrive.
 --------------------------------------------------------------------------------
  5. IN PROGRESS [~]
 --------------------------------------------------------------------------------
@@ -266,9 +306,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
     backtest recorded, no tuning on 2026 data, CAGR on calendar years.
 --------------------------------------------------------------------------------
  GOAL  the best LIVE CAGR / Sharpe / Calmar.  Ranked by expected effect on
-   the live book, largest first.  Backtest today: E4 24.6% / 1.21 / Calmar
-   1.00; deployed 23.7% / 1.21 / 1.03.  Live estimate after the haircut:
-   ~19% / ~1.0 / ~0.7.  The haircut (4-5 pt CAGR, 0.2 Sharpe) is bigger
+   the live book, largest first.  Backtest today (cost model 4, RR2): E4
+   23.6% / 1.14 / Calmar 0.93; deployed 23.1% / 1.16 / 0.97.  Live
+   estimate after the haircut: ~20% / ~1.0 / ~0.8.  The haircut (4-5 pt CAGR, 0.2 Sharpe) is bigger
    than any research item, so what measures and shrinks it ranks first
    once real fills exist.  Trial budget: 1 configuration left before
    January (R14 used one).
@@ -276,8 +316,32 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
     R14 MON100 sleeve: FAIL 1 Oct (CAGR 22.8%, Sharpe flat; see DONE).
     No research item left adds CAGR; 1 configuration of the trial budget
     remains, held for anything the paper books reveal.
+ LEAN PLAN (LN1, docs/lean_review.md): LN-T1..T10 and T12..T16 done 10
+ Oct (LN-T2's account steps are ST2); LN-T11 waits for ST2's answer.
+[ ] P1  LN-T31 Add NSE's 2027 holidays to nse_engine/nse_calendar.py when
+             NSE publishes them (its circular comes in December), before the
+             first live session of 2027.
+[ ] P1  LN-T11 AMO funding: after ST2's answer, cap buys at the broker's free
+             cash and read rejected orders the same night.  Small.  Detail:
+             lean_review.md item 11.
+ ALERTING PLAN (your ask 10 Oct; the relevance table's health, risk and
+ order categories): email only, to you; subjects [Centurion CRITICAL] and
+ [Centurion warning]; healthchecks.io free tier as the dead-man's switch;
+ push channel deferred (AL6).  AL1-AL4 done 10 Oct; AL5 at go-live.
+[ ] P2  AL5  Orders, market hours, at go-live: Kite postbacks for the
+             engine's own orders (kite_tag): rejected or cancelled ->
+             CRITICAL within a minute, a filled stop -> warning.  Postback URL
+             set 10 Oct on your Kite app: https://srees16-centurion-core.hf.space
+             /stream/postback (route live: a bad-checksum test got 403).  To
+             confirm with ST2's supervised sell: whether Kite posts back
+             GTT-triggered sells (it may only post the app's own orders; if
+             not, those come from the order book).  1 day.
+ DEAD MAN'S SWITCH (your ask 10 Oct): alert-only, external (healthchecks.io,
+ AL2); no broker action from the watcher (it would need your daily login),
+ no separate operator check-in (the daily Kite login is one).
 #1  [ ] P1  D3   Go live on schedule: Rs 6L rung ~mid Dec, once paper G4
-                 PASS at 60 sessions + 5 clean dry runs (set
+                 PASS at 60 sessions + 5 clean dry runs + the sell path
+                 recorded (ST2 step 3, LN-T2) (set
                  CENTURION_LIVE_CAPITAL=600000, CENTURION_LIVE_MODE=live).
                  Every live session is the only data that moves the live
                  metrics; the ladder's auto step-down guards Calmar.
@@ -342,10 +406,67 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  7. BACKLOG (after the queue)
 --------------------------------------------------------------------------------
-[ ] P3  NX2  Next.js 15.5 -> 16: clears the last 2 npm advisories (the PostCSS
-             bundled inside Next; build-time, our own CSS only).  Breaking:
-             middleware.ts becomes proxy.ts, sync request APIs removed (none
-             used), next lint gone (ESLint already removed in NX1).
+[ ] P2  LN-T30 Locked lower circuits in the backtest (LN-T14 replay): the
+             model fills gap stops and exits on days a stock opens locked at
+             its lower circuit, which no order can sell (CASTEXTECH, Jul-Oct
+             2015: locked 59 sessions, -3.2% of equity).  Worth about -0.3 pt
+             CAGR (deployed), -0.45 pt (E4).  A fix is a backtest rule (no
+             fill on a locked day) and a data re-baseline, not an order
+             setting.
+[ ] P3  AL6  Push channel for CRITICAL alerts (Pushover or Telegram):
+             deferred (your call 10 Oct: fewer than 5 users, email is
+             enough).  Revisit if users grow or email proves too slow.
+[ ] P2  LN-T18 Scorecard regime split labelled with the regime known at the
+             previous close (the 'loses ~22% a year in bear phases' figure is
+             look-ahead).  Small.  Detail: lean_review.md item 18.
+[ ] P2  LN-T19 One missing NIFTY or sleeve print blanks the 200-day means for
+             200 sessions: fix the archive rule and add a nightly presence
+             alert.  Small.  Detail: lean_review.md item 19.
+[ ] P2  LN-T20 Options: one label-to-contract settlement map for every options
+             backtest, plus a guard on the settle column.  Small plus one
+             Kaggle job; needed before any O5 round.  Detail: lean_review.md
+             item 20.
+[ ] P2  LN-T21 Model the orders live actually sends (limit and GTT outcomes
+             observed in paper, a hash-neutral live-rule reference).  Medium.
+             Detail: lean_review.md item 21.
+[ ] P3  LN-T22 Remove hash-seed dependence so reruns are bit-identical.  Two
+             lines.  Detail: lean_review.md item 22.
+[ ] P3  LN-T23 Capacity: name the assets that bind first (sleeve rebalances,
+             ~Rs 6.4 crore) and fix the 'cut by the 5% cap' mislabel.  Small.
+             Detail: lean_review.md item 23.
+[ ] P3  LN-T24 Report the Sharpe standard error, PSR against 1.2 and MinTRL
+             beside the pass rules (deployed 1.16 +/- 0.29).  Small.  Detail:
+             lean_review.md item 24.
+[ ] P3  LN-T25 Drawdown periods (depth, duration, recovery) and behaviour
+             across NIFTY TRI's drawdown episodes.  Small.  Detail:
+             lean_review.md item 25.
+[ ] P3  LN-T26 Stamp the runtime in every run manifest; warn when a trial set
+             mixes platforms.  Small.  Detail: lean_review.md item 26.
+[ ] P3  LN-T27 Options toolkit: ITM legs take their OTM mirror's IV, so Greeks
+             and the volatility stop are never lost.  Small; needed before
+             any O5 round.  Detail: lean_review.md item 27.
+[ ] P3  LN-T28 Document the missing 2006-09 corporate actions in store_ext2006
+             (2007-25 runs only; none flips); optionally import ~17 events.
+             Small.  Detail: lean_review.md item 28.
+[ ] P3  LN-T29 After go-live: consider sweeping idle cash into a liquid ETF
+             with hysteresis (~+0.3 pt CAGR after tax; would be cost model
+             5).  Medium.  Detail: lean_review.md item 29.
+[ ] P3  LS2  Live ledger, found in the LS1 review, not fixed (rare or
+             outside LS1): a second run of the same night uses tonight's
+             stop as the previous one (manual re-run only); a
+             GTT sale that part-filled and was cancelled is not taken off
+             the ledger; `live_session --dry-run --record` writes the
+             ledger, so the first real session would skip the D3 go-live
+             checks (the scheduled dry runs do not pass --record).
+[ ] P3  IC2  Cost-model stamping, latent (IC1 review; none bites today):
+             walk-forward fold files, the stitched summary and holdout.lock
+             carry no cost model; the books register's validation fallback
+             can pair model-4 columns with an older run's PBO/DSR;
+             refresh-registry's before/after PBO and the Kaggle grid's
+             "already recorded" skip ignore the cost model; a non-0.06
+             cash_yield_annual would make a duplicate trial; options runs
+             are stamped with the equity cost model.  Fix together at the
+             next cost-model change.
 [ ] P3  U20  Refill exits: now tested through E4 / D5 in the queue (was a
              decision due ~24 Dec).  Drop it if E4 fails.
 [ ] P3  E3   MTF-levered variant: only after U20 (b), ~24 Dec.   Prompt: do E3
@@ -365,6 +486,390 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+10 Oct  DM0-2 Dead man's switch, alert-only (your calls).  DM2: one latched
+             kill switch in Neon (kite_connect/trading/kill_switch.py), read
+             by every order path on Actions and the HF Space; on / off only
+             with a reason, via Actions > Kill switch (main only; the log
+             shows on / off, the reason is emailed); a configured but
+             unreadable Neon counts as on; the repo variable still works.
+             DM0: the direct Quick Trade route (423) and live option baskets
+             (exits only, checked before any leg) obey it.  DM1: the nightly
+             ping says healthy only when the paper book and, with the live
+             book on, the live session reached the last NSE session (a
+             no-login skip passes); else /fail with the reason.  Checks:
+             temporary script passed and deleted; full suite (220).
+10 Oct  AL4  Orders, evening (LN-T17 closed): every sell of a ledger name
+             that did not go through today gets one line with Kite's own text
+             and a fix hint (order_status.rejection_hint: DDPI / TPIN, more
+             shares than held, a circuit band; for buys, the 09:00 cash check
+             of ST2).  failed_stop_sells: a stop GTT that changed today whose
+             order failed, was rejected or cancelled short, on a name the
+             broker still holds (not after the engine's own exit sold it), and
+             a CNC sell placed outside the engine that was rejected.  The line
+             replaces scoped_book's generic "no stop GTT" line.  The engine's
+             own rejected orders carry the hint in their fill note.  A sell
+             not done joins the CRITICAL email (AL3); unfilled buys send one
+             warning.  The reconcile reuses the same GTT read (one call, not
+             two).  Checks: LN-T17's test cases (a)-(f) plus older / foreign
+             GTTs and manual sells in a temporary script, passed and deleted
+             (it caught two bugs, fixed); full suite (220) passes.
+10 Oct  AL3  Risk through alert().  Live (CRITICAL, one email per session
+             listing every item, after the ladder): a kill criterion, a rung
+             step-down, G4 FAIL at the lowest rung (LadderDecision.critical),
+             a ledger / broker quantity mismatch, a stop GTT the broker does
+             not have or that could not be read (scoped_book's critical
+             list).  Paper (warning, per book): G4 FAIL, a drawdown-rule
+             change.  Advice (a GO allowed, a capital that is not a rung, a
+             pending split credit, a GTT below the book's stop) stays in the
+             nightly email only.  The ladder runs only in real sessions, so
+             its items cannot appear in a dry run.  Checks: temporary script
+             (each case, critical and not) passed and deleted; full suite
+             (220) passes.
+10 Oct  AL2  System health through alert() (with AL2h: your healthchecks.io
+             check "centurion-nightly" and the CENTURION_HEALTHCHECK_URL
+             secret).  CRITICAL: the live session failed (also its refusals:
+             go-live checks, executor, proxy) or was skipped for no Kite
+             login; the heartbeat found no session; canary drift; a failure
+             before the live step with the live book on (no live session
+             tonight).  Warning: a paper session failed; the canary saw the
+             data change; the store seems to miss a session (sent from a step
+             of its own, the build step holds no secrets); the HF Space could
+             not start the nightly job.  Each replaces that event's old email
+             (same text, severity subject, once a day per key).  The nightly
+             job pings healthchecks.io when it finishes (NSE holidays
+             included), so a weekday with no finished run by 23:00 IST emails
+             you from outside GitHub.  Checks: temporary end-to-end script
+             (every hook, both live modes, once a day, the workflow's own
+             snippet) passed and deleted; full suite (220) passes.
+10 Oct  AL1  Severity-routed alerts (alerting plan, email only to you):
+             services/notifications/alerts.py alert(severity, key, title,
+             lines, book) emails "[Centurion CRITICAL] <title>" or
+             "[Centurion warning] <title>"; CRITICAL reads "would-be
+             CRITICAL" until CENTURION_LIVE_MODE is live.  A key alerts at
+             most once per IST day (alerts_sent in the book's Neon state, 7
+             days kept), so the backup runs do not repeat it; a failed send
+             is logged and retried by the next call, never raised; an
+             unreadable history sends anyway.  Reuses the SMTP sender; no
+             caller yet (AL2-AL4 wire them).  Your side: one Outlook rule,
+             subject contains "[Centurion CRITICAL]" -> flag, keep in
+             Focused.  Checks: temporary script passed and deleted.
+10 Oct  NI1  No intraday orders (your rule: Centurion places swing and
+             positional trades only).  The engine was already delivery-only
+             (CNC after-market orders and GTT stops; deployed 2013-25: 0
+             same-day round trips, median hold 30 days).  Now every order
+             path refuses Zerodha's intraday product (MIS) and the
+             intraday-only cover / bracket varieties: order_service.place_order
+             (engine, legacy pipelines, /ind-stocks/orders, options) and the
+             direct /api/v1/kite/orders route (422).  Fly Kite's Quick Trade
+             panel lost its MIS product and Cover Order tab (web repo).  F&O
+             NRML (held overnight) is unaffected.  Same-day round trips: a
+             regular CNC order that would sell a stock bought today (or buy
+             one sold today) is refused on both paths; you sell such shares
+             in Kite itself (your call).  After-market orders and F&O legs
+             (a half-filled spread's unwind) are not blocked.  Left as is:
+             in 2013-25 a GTT stop fired on the day the engine topped up the
+             same stock 4 times (deployed; E4 4, candidate 2), which Zerodha
+             counts as intraday for the topped-up shares.  Checks: temporary
+             scripts passed and deleted; full suite (220) and frontend type
+             check pass.
+10 Oct  IS1  Paper books cannot touch the live book (your ask: verified,
+             then four gaps fixed).  Already in place: a candidate book
+             cannot send orders (status, no live flags, no Kite secrets in
+             its step), has its own Neon schema, runs after the live session
+             and its failures never stop the job.  Fixed: (1) the nightly job
+             runs only from main (a dispatch from a branch would have run the
+             live session and every paper book on unmerged code); (2) the
+             canary finds books as the workflow does, records a new, promoted
+             or retired book instead of flagging drift, and restarts its
+             Actions tier when config/canary_expected.json is re-recorded;
+             (3) the live kill threshold reads the deployed configuration's
+             backtest MaxDD from the books register (still 23.9% today; E4
+             would be 25.3%), promote says to rebuild it; (4) paper schemas
+             starting with "live" are refused (live_<id> accounts).  Checks:
+             temporary script (guard, schemas, threshold, canary lifecycle)
+             passed and deleted; real canary on the Mac ok (3 books, 34 s);
+             fast suite passes.  Open: options strategies have no nightly
+             paper pipeline (build it if a sleeve passes).
+10 Oct  JR1  Metrics journal (your ask): how each book's numbers moved.
+             Stored in git (docs/metrics_journal.csv, append-only): a row per
+             book per re-baseline of its 2013-25 backtest (CAGR, Sharpe,
+             MaxDD, Calmar, 2017-25 Sharpe, DSR, PBO, expected live Sharpe
+             and CAGR, cost model, data hash, run id) and per re-run of its
+             family's walk-forward.  books register appends what is new;
+             commit it with the change that moved it.  Backfilled to the 14
+             Sep approval: 31 rows (deployed Sharpe 1.219 -> 1.187 K5 ->
+             1.206 D4 -> 1.158 IC1 -> 1.163 RR2).  Paper stays in Neon (the
+             nightly snapshots).  Web: Trade Center > Journal (operator
+             only): latest vs targets, each metric over time with paper
+             weekly, the journal table.  Not Kaggle (compute only, outputs
+             scattered) nor Neon for research rows (needs the database key
+             on the Mac, skips your review).  The tab's code is in the web
+             repo (centurion_core-fe), deployed separately.
+10 Oct  LN-T13, T15  Re-baseline RR2 and the nightly canary (no trial
+             spent).  T15: forecast ties break by the name in force on the
+             decision date (352 renamed columns), and the data hash (version
+             2) is keyed on the names in force at the panel's end and covers
+             every price frame, volume and the ETF set (ba7c0982 ->
+             dab49d3c); relabel gate: 0 of 61 configurations differ.  RR2 on
+             Kaggle (61 configurations, with T7's 1 Feb session and T16's
+             excess-basis PBO; Kaggle = local): deployed 1.163 / 23.13% /
+             -23.9%, candidate 1.157 / 21.88% / -23.6%, E4 1.139 / 23.55% /
+             -25.3%; DSR 0.964 / 0.963 / 0.957; Spearman 0.990; PBO 29.2%
+             excess (51.2% raw); only R11's closed 0381af7f clears 1.2
+             (1.220); benchmark gate passes; expected OOS Sharpe 0.80 /
+             0.79 / 0.85.  Walk-forwards re-run (r12a5, r12b5): deployed
+             family OOS 1.227 -> 1.238, E4's 0.979 -> 1.107 (four of its
+             folds pick other settings).  Scorecards and books register
+             re-scored: deployed and candidate pass the walk-forward rule,
+             E4 misses it; none passes net Sharpe 1.2 or Calmar 1.  T13: a
+             nightly canary step on Actions (run_nse_engine canary) runs
+             the three books' 2013-25 backtests against the registry's
+             figures (config/canary_expected.json) and against the Actions
+             runner's own, recorded in the paper state on its first run
+             after the merge; drift is emailed (caught when the old 6% cash
+             credit was injected) and, with the optional variable (NEEDS
+             YOU), holds the live session to a dry run.  The Actions store
+             now gets the frozen NIFTY 50 history.  The books register's
+             2017-25 column, labelled "walk-forward OOS", is each book's own
+             backtest over those years (the forward gate's check 3): renamed
+             bt_sharpe_2017_25 / "Backtest Sharpe 2017-25", rule unchanged.
+             Plan 5u.
+10 Oct  LN-T7..T10, T12, T14, T16  The Lean plan's P1s that need no one
+             (no trial spent).  T7 calendar: the store probes every day (the
+             Sunday 1 Feb 2026 Budget session was missing: 2,082 stocks'
+             prev_close disagreed on 2 Feb); 1 Feb backfilled locally and in
+             the Kaggle store (the Actions cache fetches it on its first run
+             after the merge: special sessions are re-checked every sync);
+             build-store flags a missing session (manifest, failing check);
+             one calendar (nse_engine/nse_calendar.py: 2025-26 holidays,
+             special sessions; 15 Jan 2026 was missing from the live list);
+             the paper book catches up session by session (Friday's orders
+             fill at the 8 Nov Muhurat open instead of being cancelled).
+             2026 holdout, deployed: Sharpe 0.49 -> 0.58, CAGR 15.1% ->
+             17.5%, MaxDD -18.7% -> -17.4%; 4 stops move to the 1 Feb bar.
+             T8: MarketData.until() keeps every frame: the candidate's and
+             E4's paper plans had used adjusted prices for their as-printed
+             filter (2,394 of 3,410 universe sessions differed to 1 Oct
+             2025; now none); from the merge their paper books plan as their
+             registered runs.  T9: the live book keeps the 5-session stop
+             cooldown across sessions (recent_stops in the ledger).  T10: a
+             real session fails closed on its book (strict reads; ledger,
+             ladder, marker and gate in one write; INTENDED orders written
+             before sending).  T12: the dry run is Kite's preflight (symbol,
+             tick, stops; an unreadable dump leaves it unclean).  T14:
+             replayed 2013-25 first; exit sells 500 bp under the close
+             clamped to the next lower circuit (190 bp without quotes), GTT
+             limit 2% floored at it, unfilled sells sent again (on 24 Aug
+             2015 all 19 sells missed at 100 bp, 1 at 500 bp; no gap stop
+             that was not circuit-locked misses at 2%).  T16: PBO on excess
+             returns: 60.4% raw -> 37.2% (caution), expected OOS Sharpe
+             deployed 0.78, candidate 0.76, E4 0.83 (x0.80 selection).
+10 Oct  LN-T1..T6  The Lean plan's six P0s, live and paper (no backtest
+             change, no trial).  T1 ticks: every live limit, unwind and GTT
+             price on the stock's NSE tick from Kite's instruments dump
+             (sells down, buys up, triggers up; coarser slab and an alert
+             without it); off-grid GTTs are modified onto it.  T2 sell path:
+             a third go-live check (DDPI, a supervised AMO sell and a
+             triggered GTT sell COMPLETE on the logged-in Kite user), with
+             live_session --record-sell-path to verify and record it; your
+             steps are ST2.  T3 duplicates: any booked status counts as
+             placed (AMO REQ RECEIVED included), an unreadable order book
+             sends nothing (NOT_SENT) and a retry that cannot read it
+             returns UNKNOWN, tags are letters and digits (M&M -> MM; no
+             clash over 3,143 symbols), the options basket finds slices
+             booked before a lost response.  T4 corporate actions: the
+             store's split/bonus factors and dividends ride on the market
+             data (hash unchanged); paper lots, pending orders and stops
+             rebase once, dividends pay cash; the live ledger rebases,
+             waits up to 5 sessions for the broker's credit (valued whole,
+             sells capped at what is held), books dividends as income
+             withdrawn, holds orders back the night before an ex-date, and
+             alerts on a 10%+ as-printed gap the store cannot explain.  T5
+             identity: SYM-BE for series BE, an unlisted stock blocked,
+             Kite's names mapped back (no false match over 247 hyphenated
+             symbols), renames (change table or ISIN) re-key the ledger and
+             paper lots, the GTT re-armed before the old one is deleted,
+             mergers/delistings sell (paper at the last close).  T6 missed
+             session: unresolved orders carried, broker quantities explained
+             by them and by triggered GTTs, the rest blocks buys until
+             live_session --reconcile SYM=QTY@PX.  Checks: 43 temporary
+             tests (fake Kite that rejects off-tick prices, AMO timeouts,
+             five-night sessions, real-store BSE / GOLDBEES / RELIANCE
+             splits, PTC dividend, ZOMATO -> ETERNAL, HEG -> HEGAM, GSPL
+             merger) passed and were deleted; full suite and core-only fast
+             suite pass.
+10 Oct  LN1  QuantConnect Lean compared with Centurion (your ask 9 Oct):
+             60 review agents, 48 candidates verified (9 confirmed, 34
+             partly, 5 refuted), 29 ranked items in docs/lean_review.md.
+             Verdict: patterns only.  Lean cannot be used as an engine,
+             library, CLI, cloud service or broker plugin (.NET 10 with
+             pinned pandas 2.3.3 / numpy 1.26.4, no NSE data, stale India
+             calendar, a weaker Zerodha plugin that needs a paid licence).
+             Centurion is ahead on data integrity, costs and validation; the
+             gaps are in the paper and live books.  Already acted on: IC1,
+             IC1b, LS1, ST1.  The 29 items are tracked as LN-T1..T29.
+10 Oct  ST1  Settlement before buys (your ask).  Facts: every NSE share
+             settles T+1 since 27 Jan 2023 (T+0 is an optional window for
+             ~500 large caps; no NSE share is T+2 or T+3); since 7 Oct 2024
+             Zerodha credits 100% of a sale the same day for new buys,
+             except a sale of T1 holdings (bought the session before),
+             credited the next day.  The live planner already spent
+             tonight's sale proceeds on tonight's buys (as the backtest
+             does); it now leaves out the shares the book bought at today's
+             open (from its own fills), with a note in the email.  Measured
+             2013-25: deployed sold such shares on 2 sessions (0.3% of its
+             buying waits a day), E4 on 29 (0.9%); backtests unchanged.
+             Open question for you: AMO funding (NEEDS YOU, ST2).
+10 Oct  IC1b Kill threshold re-based (your call): the capital ladder's
+             drawdown kill alert now uses the deployed backtest's MaxDD on
+             cost model 4, 23.9% (was 24.7%, cost model 1), so it fires at
+             a live drawdown of 35.8% instead of 37.1% (and only when worse
+             than NIFTY's).  Alert only; you decide on the kill switch.
+             Change the constant at a promotion: candidate 24.3%, E4 25.7%.
+10 Oct  IC1  Idle cash earns nothing: cost model 4 (your call: Kite pays no
+             interest).  Every backtest and benchmark had credited 6% a year
+             on idle cash; on the deployed book's 27 all-cash sessions the
+             model-3 run gains exactly 6%/252 a day, model 4 exactly 0.
+             costs.IDLE_CASH_YIELD_ANNUAL = 0.0, COST_MODEL_VERSION = 4;
+             cash_yield_annual stays 0.06, unused, so config hashes stand.
+             Re-baselined on Kaggle (61 configurations, Kaggle = local):
+             deployed 1.158 / 22.97% / -23.9% (was 1.206 / 23.74%),
+             candidate 1.132 / 21.38% / -24.3%, E4 1.161 / 23.90% / -25.7%;
+             no configuration clears Sharpe 1.2 (best 1.194); PBO 57.8% ->
+             60.4%; benchmark gate passes; D2 haircut deployed 0.97, E4
+             1.04.  R12 walk-forwards re-run (r12a4, r12b4): deployed
+             family OOS 1.15 -> 1.23, E4's family 1.27 -> 0.98 (without
+             the cash credit the folds pick more-invested settings; E4's own
+             configuration loses only 0.04 Sharpe 2017-25).  Scorecards
+             (docs/scorecards/2026-10-10_*) and books register re-scored;
+             the scorecard now scores only 2013-25 runs (a 2007-25 run had
+             displaced E4's).  Options gates now combine model-4 E4 runs
+             and refuse a base on another cost model (review finding); O2,
+             O3 and O4 verdicts unchanged (all closed at gate 1).  Plan 5t.
+10 Oct  LS1  Live stops keep their entry dates (your call).  The live ledger
+             keeps each position's first-fill session and last stop; the
+             planner gets both, as the backtest's Holding does.  A stop is
+             never lowered and never dropped: a GTT left below the ledger's
+             stop, an unreadable GTT book, or a GTT that is gone (triggered
+             without a sale, expired, deleted) keeps the ledger's level with
+             an alert, so the engine still exits through it (before, such a
+             position was never stopped out).  Stops follow the store's
+             dividend / split / demerger adjustments (stop_basis), as the
+             backtest's adjusted prices do.  New alerts: broker quantity
+             above the ledger's, a stop already above the price; none for
+             the metal ETFs or tick rounding.  Checks: whole-history replay
+             with Kite's 5-paise GTTs rebuilds the backtest's holdings on
+             all 3,219 nights (3,183 differ with the old code); five live
+             nights through an ex-date and a vanished GTT with fakes; full
+             suite and core-only fast suite pass; temporary tests deleted.
+             Two reviews found the issues fixed here; the rest is LS2.
+9 Oct   O4   Options round 3 (your ask): awesome-systematic-trading compared
+             and its newly testable strategies run; FAIL, closed, no paper
+             book.  The repository is a curated list (136 libraries, books,
+             a paywalled table of the 61 strongest of 1,687 paper
+             replications, gross of costs) plus 61 older QuantConnect
+             scripts, unchanged since 1 Aug, which Centurion screened on 17
+             Sep: every long-only price strategy rejected (residual
+             momentum, 52-week high, low beta lowered the book's Sharpe).
+             New since then is Centurion's F&O data, which made three files
+             testable.  Pre-registered 20:47 IST (plan 5s; amended 20:50:
+             NIFTYBEES opens are stray first trades, so Y3 uses NSE's index
+             open and close at futures costs).  Kaggle, 2013-25, N = 10: Y1
+             option-expiry week -0.16 Sharpe (DSR 0.001); Y2 volatility risk
+             premium 0.34 (0.10, MaxDD -47.8%; holding the future alone 0.48);
+             Y3 overnight with sentiment 1.04 (0.884), the strongest of three
+             rounds but below 0.95, and optimistic (closing average and
+             auction fills, Rs 6.0 lakh of charges on Rs 7.5 lakh).  A defect
+             found in the first result and fixed before the re-run: Y2
+             stalled at the April 2014 expiry, which NSE moved off a holiday
+             (9 of 237 monthly expiries moved or relabelled); expiries now
+             settle on their contracts' last session (settlement_sessions).
+             Round 1 settled 3 of its months late; not re-run.  Built:
+             kite_connect/options/fo_anomalies.py, the expiry-week rule,
+             NIFTY 50 open and close in market.parquet.  8 synthetic checks
+             (holiday expiries included) deleted after use; round 2 still
+             reproduces exactly; suite 220 myenv, 215 + 1 skipped core-only.
+9 Oct   O1d  Options paper demo run (your go): GitHub Actions run
+             37954572538, 21:20 IST, NIFTY / moderate_bull / 1 lot, paper.
+             Every step worked on live Kite data with today's login:
+             - chain: expiry 13 Oct (3.8 days), spot 22,520, ATM 22500, ATM
+               IV 11.5%, max pain 22500, PCR 1.09, 62 contracts quoted
+             - selector: bull call spread, BUY CE 22500 / SELL CE 22650
+             - pre-trade report: net debit Rs 4,960, max profit Rs 4,790,
+               breakeven 22,576 (+0.21 SD), Kite basket margin Rs 34,197
+             - charges: the model's Rs 59 (STT 6, brokerage 40) equals
+               Kite's to the rupee
+             - paper fill at the touch, both legs; monitor: delta +13.5,
+               theta -205/day, no alerts
+             - order log: 2 paper rows, nothing sent
+             Two caveats.  It ran after the close, so the fills used the
+             day's last prices, not live bid / ask: a run between 09:15 and
+             15:30 shows real spreads.  On CI the IV history and FII
+             positioning are skipped, since the F&O store is local and
+             Kaggle-only; the demo said so and carried on, as designed.
+9 Oct   SEC1 Security audit closed.  Its last step (6, the regenerated
+             Kite API secret) is confirmed by today's runs on it: the 19:00
+             live dry run passed the login check (kite.profile(), which
+             skips the session on a rejected token) and ran in full, and
+             the options demo read quotes and basket margins with the same
+             login.  Items 1-5, 7 and 8 were done on 8 Oct.
+9 Oct   O3   Options round 2 (your ask): PyPatel's repository compared
+             and its strategies tested; FAIL, closed, no paper book.  The
+             repository (github PyPatel/Options-Trading-Strategies-in-
+             Python, last commit Aug 2019) trades no options: PCR and TRIN
+             Bollinger-band crossings and a VIX >= 22 level time the S&P 500
+             future, and a 55-day breakout trades three US stocks; plus a
+             textbook Monte Carlo call pricer in C++ (does not compile).
+             None runs as published (indentation errors, Python 2, swapped
+             datasets, a retired Quandl feed, a hard-coded API key); stops
+             with sign errors; no costs; same-close fills; about a year of
+             2017-18 data; no risk metrics.  Centurion already has far more
+             (Varsity toolkit, 12 strategies, Black-Scholes / IV / Greeks,
+             F&O costs by date, 27 years of F&O data, pre-registered gates);
+             what it lacked was these signals, so they were tested.
+             Pre-registered 19:41 IST (plan 5r) before any code: the
+             repository's parameters on NSE data (NIFTY options PCR by
+             volume, NSE breadth TRIN, India VIX, NIFTY 50), the near-month
+             NIFTY future, fill at the next close, unlevered, fno_costs,
+             three code bugs fixed.  Built: kite_connect/options/
+             signal_futures.py (signals, simulator, gates), fo_store
+             market.parquet (VIX + breadth from the equity stores; data hash
+             unchanged), the Kaggle options task takes X1-X4.  Kaggle,
+             2013-25, N = 7: X1 PCR -0.12 Sharpe (DSR 0.01), X2 TRIN 0.67
+             (0.67), X3 VIX 0.50 (0.42), X4 breakout 0.14 (0.07): none passes
+             DSR 0.95, so no gate 2, nothing in the book's registry, no
+             paper book.  Holding the future: 0.48.  2007-25 (reported): X2
+             0.21, X3 0.31 with MaxDD -46%.  X1's shorts lose (PCR falling is
+             no sell signal); X3 is 2020's dip-buy; charges ate 1.4 pts/yr
+             of X2.  Not re-tuned.  One kernel mounted the old store version
+             and stopped; its partial run discarded unread and relaunched.
+             6 synthetic checks deleted after use; suite 220 myenv, 215 +
+             1 skipped core-only.
+9 Oct   NX2  Next.js 15.5.27 -> 16.4.0 (your ask, brought forward from the
+             week of 12 Oct).  npm advisories 2 -> 0 (Next 16 bundles
+             PostCSS 8.5.23; the 4 PostCSS advisories were <= 8.5.22).
+             Changes: middleware.ts -> proxy.ts (function proxy; Node
+             runtime, same cookie gate and matcher), tsconfig jsx react-jsx
+             + .next/dev/types (Next's mandatory edits), a comment in
+             use-auth.ts.  React 19.3 / types already current.  Turbopack
+             now builds and serves dev: build 18 s -> 8 s.  Nothing else
+             to migrate (no sync request APIs, dynamic or parallel routes,
+             next/image, webpack config, removed config keys).  Checked
+             against a Next 15 baseline on a fake backend: 18 screenshots
+             (desktop + mobile) identical or sub-threshold anti-aliasing;
+             backtest's mock-data error page differs only in a minified
+             name; redirects (trade-monitor 308, signed-out 307 to
+             /login?redirect=), public pages, cookie access and security
+             headers the same in build and dev; tsc clean.  Note: next dev
+             writes AGENTS.md when it detects a coding agent (not on your
+             own runs); delete it if one appears.
+9 Oct   LAW1 Terms (kite_connect/auth/terms.py, draft 2026-10-08-draft2) and
+             the plan doc sent to your lawyer (you, per MU1).  Waiting on
+             counsel's route; until then CENTURION_ALGO_PROVIDER_ID /
+             CENTURION_SEBI_REGISTRATION stay unset and other people's
+             accounts run dry runs only (U35).  When counsel replies: the
+             terms get a new version (every holder re-accepts) and the two
+             values are set, or the plan changes.
 8 Oct   SC1  Strategy scorecard built and run (your ask, brought forward
              from mid Dec).  nse_engine/scorecard.py + `run_nse_engine
              scorecard`: one report per book from its latest recorded run

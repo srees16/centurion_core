@@ -177,8 +177,10 @@ jobs:
   nse-engine-paper:
     needs: engine-window
     # !cancelled(): a dispatch skips engine-window, which must not skip this job.
+    # main only: a dispatch from another branch would run the live book and write
+    # every paper book with code that was never merged.
     if: >-
-      !cancelled() && vars.CENTURION_NSE_ENGINE == 'true'
+      !cancelled() && github.ref == 'refs/heads/main' && vars.CENTURION_NSE_ENGINE == 'true'
       && (github.event_name == 'workflow_dispatch'
           || (github.event.schedule != '' && github.event.schedule != '0 2 * * 6'
               && needs.engine-window.outputs.in_window == 'true'))
@@ -297,10 +299,15 @@ jobs:
           EOF
 
       - name: Build NSE store (changed years only)
+        id: store
         env:
           MODE: ${{ steps.window.outputs.mode }}
           SYNC_START: ${{ steps.window.outputs.sync_start }}
         run: |
+          # NIFTY 50 sessions before NSE's daily index files (Feb 2012): the frozen copy the research
+          # store uses, so this store hashes as the registry's (tracker LN-T13)
+          ext=data/nse_engine/store/external/nifty50_history.parquet
+          [ -f "$ext" ] || install -D -m 644 config/external/nifty50_history.parquet "$ext"
           python - <<'EOF'
           import json, logging, os
           from datetime import date
@@ -318,9 +325,54 @@ jobs:
               # recently synced years, plus any year whose parquet is missing
               years = [y for y in archive_years(archive)
                        if y >= first or not (store / "equity" / f"{y}.parquet").exists()]
-          print(json.dumps(build_store(archive, store, years=years), indent=2))
+          summary = build_store(archive, store, years=years)
+          print(json.dumps(summary, indent=2))
+          for x in summary.get("suspect_missing_sessions", []):   # LN-T7: a session the archive lacks
+              print(f"::error::a session seems missing from the store before {x['date']} "
+                    f"({x['mismatched']} of {x['symbols']} prev_close values do not match)")
+          suspect = "; ".join(f"before {x['date']} ({x['mismatched']} of {x['symbols']} prev_close values differ)"
+                              for x in summary.get("suspect_missing_sessions", []))
+          if suspect:   # AL2: the next step warns the owner (this step holds no secrets)
+              with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+                  fh.write(f"suspect={suspect}\n")
           EOF
           du -sh data/nse_engine/store
+
+      # Tracker AL2: the store build holds no secrets, so its warning goes from a step of its own.
+      - name: Tell me when the store seems to miss a session
+        if: steps.store.outputs.suspect != ''
+        continue-on-error: true
+        env:
+          SUSPECT: ${{ steps.store.outputs.suspect }}
+          CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
+          CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
+          CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
+          CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
+          CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+        run: |
+          python - <<'EOF'
+          import os
+          from services.notifications.alerts import WARNING, alert
+          suspect = os.environ["SUSPECT"]
+          alert(WARNING, f"store_missing_session:{suspect[:80]}", "Centurion: the NSE store seems to miss a session",
+                [*suspect.split("; "), "The archive lacks a session NSE traded (tracker LN-T7): sync it, "
+                 "then rebuild the store."])
+          EOF
+
+      # Every book's 2013-25 backtest against its expected statistics (tracker LN-T13): a code,
+      # dependency or runner change that moves a book with its hashes unchanged is emailed, and
+      # drift=true lets CENTURION_CANARY_DRIFT_ACTION=dry-run hold the live book to a dry run.
+      - name: Book regression canary
+        id: canary
+        continue-on-error: true
+        env:
+          CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
+          CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
+          CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
+          CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
+          CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+          CENTURION_LIVE_MODE: ${{ vars.CENTURION_LIVE_MODE }}   # alert(): CRITICAL or would-be (AL2)
+        run: python -m runners.run_nse_engine canary --tier actions
 
       - name: Regenerate same-period shift reference
         continue-on-error: true
@@ -391,6 +443,8 @@ jobs:
           CENTURION_PROXY_HOST_KEY: ${{ secrets.CENTURION_PROXY_HOST_KEY }}
           CENTURION_KITE_STATIC_IP: ${{ vars.CENTURION_KITE_STATIC_IP }}
           CENTURION_LIVE_CAPITAL: ${{ vars.CENTURION_LIVE_CAPITAL }}
+          CANARY_DRIFT: ${{ steps.canary.outputs.drift }}
+          CANARY_DRIFT_ACTION: ${{ vars.CENTURION_CANARY_DRIFT_ACTION }}
           # MU1: Centurion's registration, which unlocks the connected accounts' live orders
           CENTURION_ALGO_PROVIDER_ID: ${{ vars.CENTURION_ALGO_PROVIDER_ID }}
           CENTURION_SEBI_REGISTRATION: ${{ vars.CENTURION_SEBI_REGISTRATION }}
@@ -400,6 +454,7 @@ jobs:
           CENTURION_PAPER_TRADE: ${{ vars.CENTURION_LIVE_MODE == 'live' && 'false' || 'true' }}
           CENTURION_NSE_ENGINE_LIVE: ${{ vars.CENTURION_LIVE_MODE == 'live' && 'true' || 'false' }}
           LIVE_MODE: ${{ vars.CENTURION_LIVE_MODE }}
+          CENTURION_LIVE_MODE: ${{ vars.CENTURION_LIVE_MODE }}   # alert(): CRITICAL or would-be (AL2)
         run: |
           if [ -n "$CENTURION_PROXY_HOST" ]; then
             # Kite calls leave from the Oracle VM's reserved IP (the one Zerodha has).
@@ -412,6 +467,9 @@ jobs:
             export CENTURION_KITE_PROXY="socks5h://127.0.0.1:1080"
           fi
           dry=""; [ "$LIVE_MODE" = "live" ] || dry="--dry-run"
+          if [ "$CANARY_DRIFT" = "true" ] && [ "$CANARY_DRIFT_ACTION" = "dry-run" ]; then
+            dry="--dry-run"; echo "::warning::canary drift: the live session runs as a dry run (CENTURION_CANARY_DRIFT_ACTION)"
+          fi
           status=0
           python -m kite_connect.trading.live_session --stored-token $dry || status=$?
           python -m kite_connect.auth.accounts mask || { echo "::error::accounts skipped: log masks not set"; exit 1; }
@@ -429,10 +487,12 @@ jobs:
       - name: Tell me when the live session fails
         if: steps.live.outcome == 'failure'
         env:
+          CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}   # alert(): once a day (AL2)
           CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
           CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
           CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
           CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+          CENTURION_LIVE_MODE: ${{ vars.CENTURION_LIVE_MODE }}
         run: python -m tools.session_failed "${{ github.run_id }} (live book)"
 
       # Extra paper books (trackers D1, D5): every config/nse_engine_<book>.json
@@ -480,10 +540,14 @@ jobs:
       - name: Tell me when a session fails
         if: failure()
         env:
+          CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}   # alert(): once a day (AL2)
           CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
           CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
           CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
           CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+          CENTURION_LIVE_MODE: ${{ vars.CENTURION_LIVE_MODE }}
+          # a failure before the live step, with the live book on, means no live session tonight: CRITICAL
+          CENTURION_LIVE_SKIPPED: ${{ steps.live.outcome == 'skipped' && (vars.CENTURION_LIVE_MODE == 'dry_run' || vars.CENTURION_LIVE_MODE == 'live') }}
         run: python -m tools.session_failed "${{ github.run_id }}"
 
       - name: Save NSE archive and store cache
@@ -494,3 +558,16 @@ jobs:
             data/nse_engine/archive
             data/nse_engine/store
           key: nse-engine-data-v1-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # Trackers AL2 / DM1: the dead-man's switch (healthchecks.io, AL2h).  A run that gets this far
+      # pings when it left the books healthy (the paper book and, with the live book on, the live
+      # session reached the last NSE session; a no-login skip passes), else /fail with the reason.
+      # Holidays pass.  No ping by 23:00 IST on a weekday emails the owner from outside GitHub.
+      # Without the secret it does nothing.
+      - name: Dead-man's switch ping
+        if: success()
+        env:
+          CENTURION_HEALTHCHECK_URL: ${{ secrets.CENTURION_HEALTHCHECK_URL }}
+          CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
+          CENTURION_LIVE_MODE: ${{ vars.CENTURION_LIVE_MODE }}
+        run: python -m tools.paper_heartbeat --ping

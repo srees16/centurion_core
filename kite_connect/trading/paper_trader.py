@@ -1210,6 +1210,156 @@ class PaperTrader:
             conn.close()
         self._sync_engine_state()
 
+    # ── corporate actions and dividends (tracker LN-T4) ─────────
+
+    def corporate_actions_applied(self) -> List[str]:
+        """Keys of the corporate actions and dividends already applied to this book."""
+        conn = sqlite3.connect(str(_DB_PATH))
+        try:
+            row = conn.execute("SELECT value FROM paper_state WHERE key='engine_ca_applied'").fetchone()
+        finally:
+            conn.close()
+        try:
+            return list(json.loads(row[0])) if row and row[0] else []
+        except ValueError:
+            return []
+
+    def _mark_applied(self, key: str) -> None:
+        keys = (self.corporate_actions_applied() + [key])[-500:]
+        conn = sqlite3.connect(str(_DB_PATH))
+        try:
+            conn.execute("INSERT OR REPLACE INTO paper_state (key, value) VALUES ('engine_ca_applied', ?)",
+                         (json.dumps(keys),))
+            conn.commit()
+        finally:
+            conn.close()
+        self._sync_engine_state()
+
+    def apply_share_change(self, symbol: str, share_factor: float, price_factor: float, close_unadj: float,
+                           key: str, session_date) -> Optional[dict]:
+        """A split, bonus or consolidation on ``symbol``: lots and PENDING orders move to the new units.
+
+        Quantity / ``share_factor`` rounded down (the fraction paid in cash at
+        the as-printed close), entry price x ``share_factor`` (the cost basis is
+        kept), stop x ``price_factor`` (every adjustment since the last
+        session, as the backtest's prices moved).  Once per ``key``.
+        """
+        from kite_connect.trading.book_events import rebase_quantity
+
+        if key in self.corporate_actions_applied():
+            return None
+        day = pd.Timestamp(session_date).date().isoformat()
+        before = after = 0
+        in_lieu = 0.0
+        for pos in [p for p in self._positions if p.is_open and p.symbol == symbol]:
+            q, frac = rebase_quantity(pos.quantity, share_factor)
+            before, after, in_lieu = before + pos.quantity, after + q, in_lieu + frac * float(close_unadj or 0.0)
+            pos.quantity = q
+            pos.entry_price = round(pos.entry_price * share_factor, 4)
+            pos.stop_loss = round(pos.stop_loss * price_factor, 2) if pos.stop_loss else pos.stop_loss
+            pos.peak_price = round(pos.peak_price * price_factor, 4) if pos.peak_price else pos.peak_price
+            if q <= 0:
+                self._book_close(pos, float(close_unadj or 0.0), "CORPORATE_ACTION", when=f"{day}T09:15:00+05:30",
+                                 sell_cost=0.0)
+                continue
+            try:
+                conn = sqlite3.connect(str(_DB_PATH))
+                conn.execute("UPDATE paper_positions SET quantity=?, entry_price=?, stop_loss=? "
+                             "WHERE symbol=? AND is_open=1 AND opened_at=?",
+                             (pos.quantity, pos.entry_price, pos.stop_loss, pos.symbol, pos.opened_at))
+                conn.commit()
+                conn.close()
+            except Exception as exc:                      # noqa: BLE001 - the cloud copy below still moves
+                logger.warning("paper lot rebase not saved locally for %s: %s", symbol, exc)
+            cloud = self._get_cloud()
+            if cloud:
+                cloud.sync_position(pos.to_dict())
+        conn = sqlite3.connect(str(_DB_PATH))
+        try:
+            for o in self.pending_orders():
+                if o["symbol"] != symbol:
+                    continue
+                conn.execute("UPDATE paper_pending_orders SET quantity=?, target_qty=?, ref_price=?, stop_price=? "
+                             "WHERE id=?", (rebase_quantity(o["quantity"], share_factor)[0],
+                                            rebase_quantity(o["target_qty"], share_factor)[0],
+                                            float(o["ref_price"] or 0) * price_factor,
+                                            float(o["stop_price"] or 0) * price_factor, o["id"]))
+            conn.commit()
+        finally:
+            conn.close()
+        if in_lieu > 0:
+            self.cash += in_lieu
+            self._save_cash()
+        self._record_fill(order_id=key, session_date=day, source="corporate_action", symbol=symbol, side="",
+                          status=FILLED, requested_qty=before, quantity=after, ref_price=float(share_factor),
+                          fill_price=float(close_unadj or 0.0), impact_bps=0.0, costs_inr=0.0, pnl=0.0,
+                          note=f"split/bonus factor {share_factor:.4g}: {before} -> {after} shares"
+                               + (f", Rs {in_lieu:,.2f} cash in lieu" if in_lieu > 0 else ""),
+                          occurred_at=f"{day}T09:15:00+05:30")
+        self._mark_applied(key)
+        logger.info("PAPER corporate action %s factor %.4g: %d -> %d shares", symbol, share_factor, before, after)
+        return {"symbol": symbol, "factor": share_factor, "before": before, "after": after, "cash_in_lieu": in_lieu}
+
+    def rename_symbol(self, old: str, new: str, key: str, session_date) -> int:
+        """Lots and PENDING orders of ``old`` carry on as ``new`` (an NSE rename, tracker LN-T5), once.
+
+        The cloud row of each lot under the old name is closed as RENAMED (no
+        P&L), and the lot continues under the new name from the same entry.
+        """
+        if key in self.corporate_actions_applied():
+            return 0
+        day = pd.Timestamp(session_date).date().isoformat()
+        cloud = self._get_cloud()
+        n = 0
+        for pos in [p for p in self._positions if p.is_open and p.symbol == old]:
+            if cloud:
+                cloud.sync_position({**pos.to_dict(), "is_open": False, "closed_at": f"{day}T09:15:00+05:30",
+                                     "exit_reason": f"RENAMED to {new}", "exit_price": 0.0, "pnl": 0.0, "pnl_pct": 0.0})
+            conn = sqlite3.connect(str(_DB_PATH))
+            try:
+                conn.execute("UPDATE paper_positions SET symbol=? WHERE symbol=? AND is_open=1 AND opened_at=?",
+                             (new, old, pos.opened_at))
+                conn.commit()
+            finally:
+                conn.close()
+            pos.symbol = new
+            if cloud:
+                cloud.sync_position(pos.to_dict())
+            n += 1
+        conn = sqlite3.connect(str(_DB_PATH))
+        try:
+            conn.execute("UPDATE paper_pending_orders SET symbol=? WHERE symbol=? AND status=?", (new, old, PENDING))
+            conn.commit()
+        finally:
+            conn.close()
+        if old in self._price_overrides:
+            self._price_overrides[new] = self._price_overrides.pop(old)
+        self._record_fill(order_id=key, session_date=day, source="corporate_action", symbol=new, side="",
+                          status=FILLED, requested_qty=n, quantity=n, ref_price=0.0, fill_price=0.0, impact_bps=0.0,
+                          costs_inr=0.0, pnl=0.0, note=f"{old} renamed to {new}", occurred_at=f"{day}T09:15:00+05:30")
+        self._mark_applied(key)
+        logger.info("PAPER rename %s -> %s (%d lots)", old, new, n)
+        return n
+
+    def credit_dividend(self, symbol: str, per_share: float, ex_date, key: str) -> Optional[dict]:
+        """Cash dividend on the lots held at the close before ``ex_date``, once per ``key``."""
+        if key in self.corporate_actions_applied():
+            return None
+        qty = sum(p.quantity for p in self._positions if p.is_open and p.symbol == symbol)
+        self._mark_applied(key)
+        if qty <= 0:
+            return None
+        amount = qty * float(per_share)
+        self.cash += amount
+        self._save_cash()
+        day = pd.Timestamp(ex_date).date().isoformat()
+        self._record_fill(order_id=key, session_date=day, source="dividend", symbol=symbol, side="", status=FILLED,
+                          requested_qty=qty, quantity=qty, ref_price=float(per_share), fill_price=float(per_share),
+                          impact_bps=0.0, costs_inr=0.0, pnl=round(amount, 2),
+                          note=f"dividend Rs {per_share:g} x {qty}", occurred_at=f"{day}T09:15:00+05:30")
+        logger.info("PAPER dividend %s Rs %.4g x %d = Rs %.2f", symbol, per_share, qty, amount)
+        return {"symbol": symbol, "per_share": per_share, "quantity": qty, "amount": amount}
+
     def _record_fill(self, **row) -> None:
         """Buffer one execution event for Neon (see ``_flush_fills``)."""
         self._fill_events.append(row)
@@ -1239,7 +1389,8 @@ class PaperTrader:
                    for o in self.pending_orders()]
         last = self.engine_last_session()
         cloud.sync_state({"engine_pending_orders": json.dumps(pending),
-                          "engine_last_session": last.isoformat() if last else ""})
+                          "engine_last_session": last.isoformat() if last else "",
+                          "engine_ca_applied": json.dumps(self.corporate_actions_applied())})
 
     def _restore_engine_state_from_cloud(self, cloud) -> None:
         """Restore PENDING engine orders and the last processed session."""
@@ -1266,6 +1417,9 @@ class PaperTrader:
             if state.get("engine_last_session"):
                 conn.execute("INSERT OR REPLACE INTO paper_state (key, value) VALUES ('engine_last_session', ?)",
                              (state["engine_last_session"],))
+            if state.get("engine_ca_applied"):
+                conn.execute("INSERT OR REPLACE INTO paper_state (key, value) VALUES ('engine_ca_applied', ?)",
+                             (state["engine_ca_applied"],))
             conn.commit()
         finally:
             conn.close()

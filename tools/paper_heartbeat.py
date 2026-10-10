@@ -9,16 +9,24 @@ fails the workflow, so GitHub's own failure notification reaches the owner.
 A single NSE holiday must not raise the alarm, so the book is only stale when
 it is more than one weekday behind.
 
+``--ping`` is the nightly job's last step (tracker DM1): it pings the
+healthchecks.io dead man's switch (``CENTURION_HEALTHCHECK_URL``) only when
+the run left the books healthy (``nightly_health``), and otherwise sends its
+``/fail`` ping with the reason, so a run that finished without doing its job
+is reported from outside GitHub too.
+
     python -m tools.paper_heartbeat            # exits 1 when stale
+    python -m tools.paper_heartbeat --ping     # the nightly job's dead man's switch ping
 """
 from __future__ import annotations
 
 import logging
 import os
 import sys
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
@@ -80,6 +88,58 @@ def check(max_behind: int = 1) -> dict:
     }
 
 
+def nightly_health(now: Optional[datetime] = None) -> Tuple[bool, str]:
+    """(healthy, why) when the nightly job ends: a heartbeat means healthy, not just alive (tracker DM1).
+
+    Healthy: the deployed paper book reached the last completed NSE session
+    and, while the live book is on (``CENTURION_LIVE_MODE`` dry_run or live),
+    the live session ran for it or was skipped for no Kite login (that has its
+    own CRITICAL alert, so it does not fail the heartbeat: the owner's call).
+    Weekends and holidays pass by the same rule.  An unreadable book does not.
+    """
+    from database.connection import get_db_manager
+    from database.paper_cloud import PaperCloudSync
+    from kite_connect.trading.live_session import (LIVE_DRY_LAST_SESSION_KEY, LIVE_LAST_SESSION_KEY,
+                                                   LIVE_SKIP_NOTIFIED_KEY, live_schema)
+    from services.execution.carver_pipeline import last_completed_nse_session
+
+    expected = last_completed_nse_session(now).isoformat()
+    live_on = (os.environ.get("CENTURION_LIVE_MODE") or "").strip().lower() in ("dry_run", "live")
+    try:
+        mgr = get_db_manager()
+        paper = PaperCloudSync(mgr, schema=None).read_state()
+        live = PaperCloudSync(mgr, schema=live_schema()).read_state() if live_on else {}
+    except Exception as exc:                              # noqa: BLE001 - unreadable is unhealthy
+        return False, f"Neon unreadable: {exc}"[:200]
+    if str(paper.get("active", "")).lower() in ("false", "0") and not paper.get("epoch"):
+        return True, "no paper book started"
+    done = str(paper.get("engine_last_session") or "")
+    if done < expected:
+        return False, f"the paper book's last session is {done or 'none'}, expected {expected}"
+    if live_on:
+        ran = max(str(live.get(k) or "") for k in (LIVE_LAST_SESSION_KEY, LIVE_DRY_LAST_SESSION_KEY,
+                                                   LIVE_SKIP_NOTIFIED_KEY))
+        if ran < expected:
+            return False, f"the live session has not run for {expected} (last {ran or 'never'})"
+    return True, f"session {expected} done"
+
+
+def ping(url: str, healthy: bool, why: str) -> bool:
+    """Ping healthchecks.io: success, or ``/fail``, with ``why`` as the body.  Never logs the URL."""
+    import urllib.request
+
+    target = url.rstrip("/") + ("" if healthy else "/fail")
+    for attempt in range(1, 4):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(target, data=why.encode()[:10000], method="POST"),
+                                        timeout=10):
+                return True
+        except Exception as exc:                          # noqa: BLE001 - retried, then reported
+            logger.warning("dead man's switch ping failed (attempt %d): %s", attempt, type(exc).__name__)
+            time.sleep(2 * attempt)
+    return False
+
+
 def send_test_email() -> int:
     """Prove the SMTP secrets work. Returns 0 when the mail was accepted.
 
@@ -100,22 +160,29 @@ def send_test_email() -> int:
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    if "--ping" in sys.argv[1:]:                          # DM1: never fails the nightly job itself
+        url = os.environ.get("CENTURION_HEALTHCHECK_URL", "")
+        if not url:
+            logger.info("no CENTURION_HEALTHCHECK_URL: no ping")
+            return 0
+        healthy, why = nightly_health()
+        sent = ping(url, healthy, why)
+        logger.info("dead man's switch: %s (%s)%s", "healthy" if healthy else "FAIL", why,
+                    "" if sent else " - ping not delivered")
+        return 0
     if os.environ.get("CENTURION_HEARTBEAT_TEST_EMAIL", "").lower() in ("true", "1", "yes"):
         return send_test_email()
     result = check(max_behind=int(os.environ.get("CENTURION_HEARTBEAT_MAX_BEHIND", "1")))
     logger.info("paper heartbeat: %s", result)
     if not result["stale"]:
         return 0
-    try:
-        from services.notifications.manager import NotificationManager
-        NotificationManager()._send_html_email(
-            f"Centurion paper book has not traded since {result.get('latest_session')}",
-            f"<p>The paper book is {result.get('weekdays_behind')} weekdays behind "
-            f"(today {result.get('today_ist')} IST).</p><p>{result.get('reason')}</p>"
-            f"<p>Last run recorded: {result.get('last_run_at') or 'never'}.</p>"
-            "<p>Check the Paper Trading Cron workflow and the 19:00 IST dispatch.</p>")
-    except Exception as exc:                              # noqa: BLE001 - the exit code is the real alarm
-        logger.warning("heartbeat email failed: %s", exc)
+    # Tracker AL2: CRITICAL, since no session also means no live session; the exit code stays the backup alarm.
+    from services.notifications.alerts import CRITICAL, alert
+
+    alert(CRITICAL, "heartbeat_stale", f"Centurion paper book has not traded since {result.get('latest_session')}",
+          [f"The paper book is {result.get('weekdays_behind')} weekdays behind (today {result.get('today_ist')} IST).",
+           str(result.get("reason")), f"Last run recorded: {result.get('last_run_at') or 'never'}.",
+           "Check the Paper Trading Cron workflow and the 19:00 IST dispatch."])
     return 1
 
 

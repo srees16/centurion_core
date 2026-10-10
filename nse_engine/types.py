@@ -9,13 +9,19 @@ live execution (``kite_connect.trading.nse_engine_executor``).
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Dict, FrozenSet, List, Mapping, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
 PRICE_FIELDS = ("open", "high", "low", "close", "volume", "value")
+
+
+#: Version of ``MarketData.compute_hash``, recorded in run manifests (2: rename-invariant and widened, LN-T15).
+DATA_HASH_VERSION = 2
+#: MarketData fields that are event tables (one row per dated event), not frames on ``dates``.
+EVENT_FIELDS = ("corporate_events", "dividend_events")
 
 
 @dataclass
@@ -55,6 +61,15 @@ class MarketData:
     sector_history: Optional[List[Tuple[pd.Timestamp, Dict[str, str]]]] = None
     source: str = "unknown"
     data_hash: str = ""
+    #: The adjustments behind the back-adjusted prices, one row per (date, symbol): ``factor`` and
+    #: its ``source`` (``panel.SOURCE_NAMES``), and the cash ``dividend`` per share on ex-dates.  The
+    #: paper and live books apply them to their own quantities, stops and cash (tracker LN-T4); not
+    #: part of ``data_hash``.
+    corporate_events: Optional[pd.DataFrame] = None
+    dividend_events: Optional[pd.DataFrame] = None
+    #: {column: [(first session, name traded under), ...]} for columns renamed in the data: decisions break
+    #: ties by the name in force that day (tracker LN-T15); empty when no column was renamed.
+    trade_names: Dict[str, List[Tuple[pd.Timestamp, str]]] = field(default_factory=dict)
 
     @property
     def symbols(self) -> List[str]:
@@ -84,33 +99,69 @@ class MarketData:
 
         Used by tests (and live) to prove that decisions at ``as_of`` never
         read later data.
+
+        Every date-indexed frame is cut, ``close_unadj`` included, so a book
+        that filters on as-printed prices plans as its registered runs did
+        (tracker LN-T8: the candidate and E4 books had planned on adjusted
+        prices); the event tables keep the rows dated <= ``as_of``; anything
+        else passes through.  A field added later is cut without being listed.
         """
         as_of = pd.Timestamp(as_of)
         n = int(self.dates.searchsorted(as_of, side="right"))
-        cut = lambda f: None if f is None else f.iloc[:n]  # noqa: E731
-        return MarketData(
-            dates=self.dates[:n],
-            open=cut(self.open), high=cut(self.high), low=cut(self.low),
-            close=cut(self.close), volume=cut(self.volume), value=cut(self.value),
-            index_close=cut(self.index_close), delivery_pct=cut(self.delivery_pct),
-            etfs=self.etfs, sectors=self.sectors, sector_history=self.sector_history, source=self.source,
-            data_hash=self.data_hash,
-        )
+        kw = {}
+        for f in fields(self):
+            v = getattr(self, f.name)
+            if f.name == "dates":
+                v = v[:n]
+            elif f.name in EVENT_FIELDS:
+                v = None if v is None else v[v["date"] <= as_of]
+            elif isinstance(v, pd.DataFrame):
+                v = v.iloc[:n]
+            kw[f.name] = v
+        return MarketData(**kw)
+
+    def names_at_end(self) -> List[str]:
+        """Each column's name in force on the panel's last date (a column renamed later keeps its old one)."""
+        last = pd.Timestamp(self.dates[-1]) if len(self.dates) else None
+        out = []
+        for c in self.close.columns:
+            name = str(c)
+            for d, n in (self.trade_names or {}).get(str(c), ()):
+                if last is not None and pd.Timestamp(d) <= last:
+                    name = n
+            out.append(name)
+        return out
 
     def compute_hash(self) -> str:
-        """Deterministic content hash of the panel: dates, symbols, closes,
-        traded value and the index closes the regime gate reads.
+        """Deterministic content hash of the panel (version ``DATA_HASH_VERSION``).
 
-        Index closes are included since 27 Sep 2026 (tracker K5): NIFTY 50
-        gaps had left the regime's trend leg undefined for 2014-16, and a run
-        on the gap-filled data must never share a hash with one on the blind
-        data.  Missing index values hash as -1, distinct from any real close.
+        Version 2 (tracker LN-T15): columns are named and ordered by the name in
+        force on the panel's last date, and the renames inside the window are
+        hashed, so a rename after the window never moves the hash (version 1
+        keyed on the latest names: a 2026 rename re-hashed 2013-25); and every
+        price frame (close, open, high, low, the as-printed close), volume,
+        traded value, the ETF set and the index closes the regime gate reads are
+        hashed (index closes since 27 Sep 2026, tracker K5), so a change to any
+        of them does move it.  Missing index values hash as -1.
         """
+        names = self.names_at_end()
+        order = np.argsort(np.array(names, dtype=object), kind="stable")
+        last = pd.Timestamp(self.dates[-1]) if len(self.dates) else None
         h = hashlib.sha256()
+        h.update(f"v{DATA_HASH_VERSION}".encode())
         h.update(np.asarray(self.dates.asi8).tobytes())
-        h.update("|".join(map(str, self.close.columns)).encode())
-        h.update(np.nan_to_num(self.close.to_numpy(dtype="float64")).round(4).tobytes())
-        h.update(np.nan_to_num(self.value.to_numpy(dtype="float64")).round(0).tobytes())
+        h.update("|".join(names[i] for i in order).encode())
+        for frame, decimals in ((self.close, 4), (self.open, 4), (self.high, 4), (self.low, 4),
+                                (self.close_unadj, 4), (self.volume, 0), (self.value, 0)):
+            if frame is not None:
+                h.update(np.nan_to_num(frame.to_numpy(dtype="float64")[:, order]).round(decimals).tobytes())
+        renames = sorted((names[i], [(pd.Timestamp(d).date().isoformat(), n) for d, n in segs if pd.Timestamp(d) <= last])
+                         for i, c in enumerate(self.close.columns)
+                         for segs in [(self.trade_names or {}).get(str(c), [])]
+                         if len([d for d, _ in segs if last is not None and pd.Timestamp(d) <= last]) > 1)
+        h.update(repr(renames).encode())
+        at_end = dict(zip(map(str, self.close.columns), names))
+        h.update("|".join(sorted(at_end.get(str(e), str(e)) for e in self.etfs)).encode())
         ic = self.index_close
         if ic is not None and len(ic.columns):
             h.update("|".join(map(str, ic.columns)).encode())

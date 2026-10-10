@@ -213,6 +213,23 @@ def canonicalise(rows: pd.DataFrame, changes: pd.DataFrame, series: Sequence[str
     return out
 
 
+def traded_names(rows: pd.DataFrame, dates: pd.DatetimeIndex) -> Dict[str, List[Tuple[pd.Timestamp, str]]]:
+    """{canonical: [(first session, name traded under), ...]} for columns not traded only under their name.
+
+    The rows' ``symbol`` is the name a session printed; ``canonical`` the
+    latest one, which a later rename changes.  Decisions break ties by the
+    name in force on their date (tracker LN-T15), so a rename after a window
+    never changes a decision inside it.
+    """
+    seg = rows.groupby(["canonical", "symbol"], observed=True)["_di"].min().reset_index()
+    seg["canonical"], seg["symbol"] = seg["canonical"].astype(str), seg["symbol"].astype(str)
+    renamed = set(seg.loc[seg["symbol"] != seg["canonical"], "canonical"])
+    out: Dict[str, List[Tuple[pd.Timestamp, str]]] = {}
+    for canon, g in seg[seg["canonical"].isin(renamed)].groupby("canonical"):
+        out[canon] = [(dates[int(i)], str(n)) for i, n in sorted(zip(g["_di"], g["symbol"]))]
+    return out
+
+
 def pivot(rows: pd.DataFrame, column: str, dates: pd.DatetimeIndex, symbols: Sequence[str],
           dtype: str = "float64") -> pd.DataFrame:
     """Dense date x symbol frame of ``column`` (NaN where not traded)."""
@@ -585,6 +602,10 @@ def adjustment_multipliers(close: pd.DataFrame, prev_close: pd.DataFrame, open_:
     mult = np.cumprod(f[::-1], axis=0)[::-1] / f  # product of factors with ex-date > t
     factor_frame = pd.DataFrame(factors, index=idx, columns=cols).dropna(how="all", axis=1)
     factor_frame.attrs["source_counts"] = counts
+    t_i, s_i = np.nonzero(np.isfinite(factors))
+    #: one row per applied factor: the books (paper, live) change share counts only for NSE ratios
+    factor_frame.attrs["events"] = [(idx[t], cols[s], float(factors[t, s]), int(sources[t, s]))
+                                    for t, s in zip(t_i, s_i)]
     factor_frame.attrs["rejected_counts"] = {SOURCE_NAMES[k]: v for k, v in rejected_counts.items()}
     return pd.DataFrame(mult, index=idx, columns=cols), factor_frame
 
@@ -818,6 +839,7 @@ def load_market_data(
                 start_ts.date(), end_ts.date(), len(dates), len(all_syms), len(keep), min_median_value_inr)
     rows = rows[rows["canonical"].isin(set(keep))].drop(columns=["series", "date"])
     value = value[keep]
+    trade_names = traded_names(rows, dates)
 
     close = pivot(rows, "close", dates, keep)
     open_ = pivot(rows, "open", dates, keep)
@@ -829,6 +851,9 @@ def load_market_data(
     mult, factors = adjustment_multipliers(close, pivot(rows, "prev_close", dates, keep), open_, events,
                                            _face_values(store), isin_change=isin_change, dividend_amounts=div_amounts)
     del isin_change
+    share_events = pd.DataFrame(factors.attrs.pop("events", []), columns=["date", "symbol", "factor", "source"])
+    div_events = pd.DataFrame([(dates[t], keep[s], float(div_amounts[t, s])) for t, s in zip(*np.nonzero(div_amounts > 0))],
+                              columns=["date", "symbol", "dividend"])
     n_adj = int(factors.notna().to_numpy().sum())
     logger.info("applied %d corporate-action adjustments across %d symbols", n_adj, factors.shape[1])
     price_mult = mult
@@ -884,6 +909,9 @@ def load_market_data(
         sectors=sectors,
         sector_history=sector_history,
         source=f"nse_bhavcopy:{store}" + ("" if adjust_dividends else ":price_only"),
+        corporate_events=share_events,
+        dividend_events=div_events,
+        trade_names=trade_names,
     )
     data.data_hash = data.compute_hash()
     data.validate()

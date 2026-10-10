@@ -6,7 +6,7 @@ Reads each book's Neon schema, scores it over its whole record and over the
 sessions it shares with the deployed book, applies the forward gate's three
 checks, and emails one report.  A trial that has cleared all three gets its
 promotion review in the same mail, with READY FOR YOUR REVIEW in the subject.
-Backtest and walk-forward columns come from the committed register
+Backtest columns come from the committed register
 (``nse_engine.books register`` rebuilds them from the run registry, which
 lives only on the research machine).  Nothing here promotes.
 

@@ -1,6 +1,6 @@
 # Centurion Capital LLC — Enterprise AI Trading Platform
 
-A Python-based enterprise trading platform built on a **Carver systematic trading framework** (23 forecast sources, FDM combination, volatility-targeted position sizing with AFML meta-labeling). Combines multi-source news scraping, AI-powered sentiment analysis, fundamental & technical analysis, strategy backtesting, HMM regime detection, 7-layer drawdown protection, RL confidence modifier, and automated live Indian market trading via Zerodha Kite Connect. Includes a RAG-powered document intelligence pipeline for research and a **walk-forward signal weight optimizer** (R21a) with Kaggle cloud compute support. Built with a **Next.js 15 frontend** (React 19, TanStack Query, Tailwind CSS 4) and a **FastAPI backend**. Backed by PostgreSQL/Neon persistence, MinIO/Cloudflare R2 object storage, Upstash Redis caching, ChromaDB vector search, multi-provider LLM integration (Claude / OpenAI / Ollama), Sentry error tracking, and Better Stack log aggregation. Deployable on HF Spaces + Vercel with GitHub Actions CI/CD.
+A Python-based enterprise trading platform built on a **Carver systematic trading framework** (23 forecast sources, FDM combination, volatility-targeted position sizing with AFML meta-labeling). Combines multi-source news scraping, AI-powered sentiment analysis, fundamental & technical analysis, strategy backtesting, HMM regime detection, 7-layer drawdown protection, RL confidence modifier, and automated live Indian market trading via Zerodha Kite Connect. Includes a RAG-powered document intelligence pipeline for research and a **walk-forward signal weight optimizer** (R21a) with Kaggle cloud compute support. Built with a **Next.js 16 frontend** (React 19, TanStack Query, Tailwind CSS 4) and a **FastAPI backend**. Backed by PostgreSQL/Neon persistence, MinIO/Cloudflare R2 object storage, Upstash Redis caching, ChromaDB vector search, multi-provider LLM integration (Claude / OpenAI / Ollama), Sentry error tracking, and Better Stack log aggregation. Deployable on HF Spaces + Vercel with GitHub Actions CI/CD.
 
 ---
 
@@ -157,7 +157,7 @@ Jump to **Section 15: Troubleshooting** or **Section 12: Installation** for deta
 
 **Paper Trading Frontend** — Trade Center page (`/ind-stocks/trade-center`) with Paper Validation tab showing cumulative performance metrics (Sharpe, Sortino, Calmar, CAGR, Max DD, Win Rate), equity curve, daily P&L, weekly checkpoints, signal audit, and pass/fail verdict. Daily Detail tab for per-day drill-down. Automated via GitHub Actions.
 
-**Single frontend** — Next.js 15 is the sole frontend; the legacy Python UI is removed.
+**Single frontend** — Next.js 16 is the sole frontend; the legacy Python UI is removed.
 
 **Signal Quality Evaluator** — New `services/signals/signal_quality_evaluator.py` provides regime-conditioned signal analysis with CAGR estimation, stress testing, and auto-generated documentation.
 
@@ -291,7 +291,7 @@ New `services/research/aronson_validator.py` implements Evidence-Based Technical
 The application follows a modular, deferred-import architecture with a **Carver-inspired systematic trading pipeline** at its core:
 
 ```
-Next.js 15 Frontend (primary — port 3000)
+Next.js 16 Frontend (primary — port 3000)
   ├── React 19, TypeScript, Tailwind CSS 4, TanStack Query v5
   ├── JWT auth (Zustand store) + next-themes dark/light mode
   ├── API proxy rewrites → FastAPI backend (port 9001)
@@ -694,7 +694,7 @@ Real-time Indian equity monitoring, order management, option chain analysis, and
 | `nse/screener.py` | **3-stage NSE screener** — liquidity filter → volatility filter → technical composite score (RSI + MACD + Bollinger + volume surge + price range) |
 | `nse/nse_universe.py` | NSE symbol list download (NIFTY50, BANKNIFTY, full NSE) |
 | `options/option_chain.py` | Concurrent option chain with OI, Greeks, and IV (ThreadPoolExecutor, 20 workers) |
-| `trading/order_service.py` | Market/Limit/SL/SL-M orders, CNC/MIS/NRML products, DAY/IOC validity — **auto-persists every order to DB** (`order_records` table) + **sends email confirmation** + **circuit breaker** (3 failures → 120s halt) |
+| `trading/order_service.py` | Market/Limit/SL/SL-M orders, CNC/NRML products (MIS and cover/bracket orders refused: swing and positional only), DAY/IOC validity — **auto-persists every order to DB** (`order_records` table) + **sends email confirmation** + **circuit breaker** (3 failures → 120s halt) |
 | `trading/auto_executor.py` | End-to-end Carver pipeline: screen → score → forecast → vol-target size → risk-check → order → monitor |
 | `trading/risk_manager.py` | Vol-targeted position sizing, 6-tier drawdown protection, ATR-based SL/TP, VIX/ADX regime scaling, sector limits (30% cap, 3 trades/sector), portfolio correlation filter (reject > 0.60) |
 | `trading/trade_monitor.py` | Post-trade SL/TP lifecycle — SL-M + limit TP after entry fill, **trailing stop** (5% profit lock → 3% trail), **crash recovery** (SQLite WAL persistence, auto-restore on restart), corporate action adjustments, forced exit after max hold period |
@@ -950,7 +950,7 @@ details = minio.list_runs_detailed()         # metadata: size, chart count, stra
 
 ### Next.js Frontend (Primary UI)
 
-A modern React-based frontend built with Next.js 15, Tailwind CSS 4, and TanStack Query (React Query v5). Connects to the FastAPI backend at `http://localhost:9001`.
+A modern React-based frontend built with Next.js 16, Tailwind CSS 4, and TanStack Query (React Query v5). Connects to the FastAPI backend at `http://localhost:9001`.
 
 | Feature | Description |
 |---------|-------------|
@@ -966,7 +966,7 @@ A modern React-based frontend built with Next.js 15, Tailwind CSS 4, and TanStac
 | **Verdict Pages** | 5-layer IntegratedScorer verdict for both US and IND stocks with composite scores, layer breakdowns, and reasoning |
 | **Calendar Popover** | `react-day-picker` v9 date pickers with Radix Popover, styled for dark theme |
 
-**Tech stack:** Next.js 15, React 19, TypeScript, Tailwind CSS 4, Radix UI primitives, TanStack Query v5, Zustand (auth state), `next-themes`, `react-day-picker` v9, `date-fns`, Lucide icons.
+**Tech stack:** Next.js 16, React 19, TypeScript, Tailwind CSS 4, Radix UI primitives, TanStack Query v5, Zustand (auth state), `next-themes`, `react-day-picker` v9, `date-fns`, Lucide icons.
 
 ### Authentication
 - YAML-based credentials (`auth/credentials.yaml`)
@@ -1245,6 +1245,7 @@ centurion_core/
 │       └── time_budget.py        # Query time budget management
 │
 ├── notifications/                # Desktop + email alerts
+│   ├── alerts.py                 # alert(): [Centurion CRITICAL] / [Centurion warning] emails, once per key per IST day (AL1)
 │   └── manager.py                # plyer popups + SMTP HTML email (order confirmations, WSB reports)
 │
 ├── storage/                      # Object storage
@@ -1902,7 +1903,7 @@ docker-compose down -v
 
 | Category | Packages |
 |---|---|
-| **Web Framework** | **Next.js 15** (React 19, Tailwind CSS 4, TanStack Query v5, react-day-picker v9, date-fns), plotly |
+| **Web Framework** | **Next.js 16** (React 19, Tailwind CSS 4, TanStack Query v5, react-day-picker v9, date-fns), plotly |
 | **Data** | pandas, numpy, openpyxl |
 | **Financial Data** | yfinance |
 | **Crypto Data** | Binance public REST API (no key required) |
@@ -2008,11 +2009,11 @@ The FastAPI backend runs on Hugging Face Spaces using a Docker container.
 
 ### 17.2 Vercel (Frontend)
 
-The Next.js 15 frontend deploys to Vercel with API rewrites to the HF Spaces backend.
+The Next.js 16 frontend deploys to Vercel with API rewrites to the HF Spaces backend.
 
 | Setting | Value |
 |---------|-------|
-| **Framework** | Next.js 15 (auto-detected) |
+| **Framework** | Next.js 16 (auto-detected) |
 | **Build** | `next build` |
 | **Config** | `vercel.json` — API rewrites to HF Spaces URL |
 | **Auth** | JWT token via signed cookies (8-hour TTL) |

@@ -115,7 +115,8 @@ def _dispatch_nse_paper_workflow():
     def report(status: str, detail: str = "") -> None:
         """Leave a breadcrumb in Neon: the Space's own logs are not reachable
         from outside, so without this a silent day cannot be told apart from a
-        day the Space never tried."""
+        day the Space never tried.  A failed dispatch also warns the owner
+        (tracker AL2)."""
         try:
             from database.paper_cloud import get_paper_cloud
             cloud = get_paper_cloud()
@@ -125,6 +126,12 @@ def _dispatch_nse_paper_workflow():
                                   "nse_dispatch_detail": str(detail)[:200]})
         except Exception as exc:                          # noqa: BLE001 - reporting only
             logger.debug("dispatch breadcrumb failed: %s", exc)
+        if status not in ("dispatched", "no_token"):
+            from services.notifications.alerts import WARNING, alert
+
+            alert(WARNING, "nse_dispatch_failed", "Centurion: the HF Space could not start the nightly job",
+                  [f"{status}: {str(detail)[:200]}", "GitHub's own crons (20:05, 21:05, 22:05 IST) are the backup; "
+                   "the healthchecks.io switch emails you if no run finishes by 23:00 IST."])
 
     token = os.environ.get("CENTURION_GH_DISPATCH_TOKEN", "")
     if not token:
