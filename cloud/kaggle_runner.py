@@ -59,44 +59,57 @@ def on_kaggle() -> bool:
     return KAGGLE_WORKING.is_dir()
 
 
-def find_store_dir(explicit: Optional[str] = None) -> str:
-    """Locate the parquet store: an explicit path, an attached dataset, or the repo.
+def find_dataset_dir(marker: str, default: str, explicit: Optional[str] = None) -> str:
+    """Locate a store by a file only it has: an explicit path, an attached dataset, or the repo.
 
     A dataset may hold the store as a directory or as the ``store.tar.gz`` that
-    ``cloud.kaggle_local push-store`` uploads; the archive is unpacked once into
-    /kaggle/working, since datasets themselves are read-only.
+    ``cloud.kaggle_local push-store`` uploads; archives are unpacked into
+    /kaggle/working, since datasets themselves are read-only.  Kaggle unpacks
+    an uploaded archive into a folder named after it, so the store can sit one
+    or two levels deeper than the dataset root: the marker is searched for
+    rather than a layout assumed.
     """
     if explicit:
         return explicit
     if not KAGGLE_INPUT.is_dir():
-        return "data/nse_engine/store"
-
-    # Kaggle unpacks an uploaded archive into a folder named after it, so the
-    # store can sit one or two levels deeper than the dataset root. Look for the
-    # file every store has rather than assuming a layout.
-    found = _find_marker(KAGGLE_WORKING, "calendar.parquet") or _find_marker(KAGGLE_INPUT, "calendar.parquet")
+        return default
+    found = _find_marker(KAGGLE_WORKING, marker) or _find_marker(KAGGLE_INPUT, marker)
     if found:
         return str(found)
+    import shutil
+
     for archive in sorted(KAGGLE_INPUT.rglob("store.tar.gz")):
         logger.info("unpacking %s", archive)
         KAGGLE_WORKING.mkdir(parents=True, exist_ok=True)
-        import shutil
-
         shutil.unpack_archive(str(archive), str(KAGGLE_WORKING))
-        found = _find_marker(KAGGLE_WORKING, "calendar.parquet")
+        found = _find_marker(KAGGLE_WORKING, marker)
         if found:
             return str(found)
-    return "data/nse_engine/store"
+    return default
+
+
+def find_store_dir(explicit: Optional[str] = None) -> str:
+    """The equity parquet store."""
+    return find_dataset_dir("calendar.parquet", "data/nse_engine/store", explicit)
+
+
+def find_fo_store_dir(explicit: Optional[str] = None) -> str:
+    """The F&O store (tracker O2)."""
+    return find_dataset_dir("underlying.parquet", "data/nse_engine/fo_store", explicit)
+
+
+def find_fundamentals_dir(explicit: Optional[str] = None) -> str:
+    """The point-in-time results store (tracker GT1)."""
+    return find_dataset_dir("board_meetings.parquet", "data/nse_engine/fundamentals", explicit)
+
+
+def find_mcx_store_dir(explicit: Optional[str] = None) -> str:
+    """The MCX commodity-futures store (tracker GT2)."""
+    return find_dataset_dir("continuous.parquet", "data/nse_engine/mcx_store", explicit)
 
 
 def _find_marker(root: Path, marker: str, max_depth: int = 8) -> Optional[Path]:
-    """Directory holding ``marker`` somewhere under ``root``.
-
-    Kaggle images differ on where datasets mount (``/kaggle/input/<slug>`` on
-    some, ``/kaggle/input/datasets/<owner>/<slug>`` on others) and unpack an
-    archive into a folder named after it, so the marker is searched for rather
-    than assumed.
-    """
+    """Directory holding ``marker`` somewhere under ``root`` (at most ``max_depth`` levels down)."""
     if not root.is_dir():
         return None
     base_depth = len(root.parts)
@@ -104,26 +117,6 @@ def _find_marker(root: Path, marker: str, max_depth: int = 8) -> Optional[Path]:
         if len(hit.parts) - base_depth <= max_depth:
             return hit.parent
     return None
-
-
-def find_fo_store_dir(explicit: Optional[str] = None) -> str:
-    """Locate the F&O store (tracker O2) the way ``find_store_dir`` finds the equity store."""
-    if explicit:
-        return explicit
-    if not KAGGLE_INPUT.is_dir():
-        return "data/nse_engine/fo_store"
-    found = _find_marker(KAGGLE_WORKING, "underlying.parquet") or _find_marker(KAGGLE_INPUT, "underlying.parquet")
-    if found:
-        return str(found)
-    import shutil
-
-    for archive in sorted(KAGGLE_INPUT.rglob("store.tar.gz")):
-        logger.info("unpacking %s", archive)
-        shutil.unpack_archive(str(archive), str(KAGGLE_WORKING))
-        found = _find_marker(KAGGLE_WORKING, "underlying.parquet")
-        if found:
-            return str(found)
-    return "data/nse_engine/fo_store"
 
 
 def default_out_dir() -> Path:

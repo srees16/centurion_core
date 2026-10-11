@@ -61,13 +61,18 @@ state their unit, usually lakhs):
 * ``partial``: some values were found;
 * ``unparsed``: the document gave none;
 * ``not_fetched``: the document was not downloaded;
-* ``missing``: the filing has no document, or the document answered 404.
+* ``missing``: the filing has no document; NSE answered 404 or an empty page; or it
+  answered without the document on ``MAX_STRIKES`` passes while serving others.
 
 **Coverage.**  Documents are fetched only for names in the top
 ``DOC_TOP_N`` by the engine's universe rule (126-session median traded
 value, every 21 sessions since 2012, no price floor).  That is a superset
 of any point-in-time universe of that size.  Every other filing keeps its
 dates, with no values.
+
+Every list week and document is written as it arrives, so an interrupted
+sync resumes where it stopped.  ``sync`` exits 1 when anything failed after
+its retries (network, NSE throttling); re-running it fetches only those.
 
 CLI::
 
@@ -117,6 +122,9 @@ INTEGRATED_PAGE_SIZE = 500
 BOARD_LOOKAHEAD = timedelta(days=60)
 DOC_TOP_N = 500
 MISSING_DOCS = "docs"
+#: A document NSE refuses (an error page, 403, 5xx) on this many passes, each time while it
+#: still serves a document it served before, is recorded as missing, so the run can finish.
+MAX_STRIKES = 3
 #: A filing published at or after this time of day reaches the next session's close.
 MARKET_CLOSE = pd.Timedelta(hours=15, minutes=30)
 
@@ -243,10 +251,10 @@ class FilingsArchive:
                 break
         return rows
 
-    def sync_lists(self, start: date, end: date, today: Optional[date] = None) -> Dict[str, int]:
+    def sync_lists(self, start: date, end: date, today: Optional[date] = None) -> Dict[str, Dict[str, int]]:
         """Fetch every week not yet saved; weeks too recent to be complete are re-fetched."""
         today = today or date.today()
-        counts: Dict[str, int] = {}
+        counts: Dict[str, Dict[str, int]] = {}
         for kind in LIST_KINDS:
             lo = max(start, INTEGRATED_START) if kind == "integrated" else start
             hi = end + BOARD_LOOKAHEAD if kind == "board_meetings" else end
@@ -262,20 +270,38 @@ class FilingsArchive:
                     continue
                 archive.atomic_write(path, json.dumps(rows).encode())
                 fetched += 1
-            counts[kind] = fetched
+            counts[kind] = {"fetched": fetched, "failed": failed}
             logger.info("lists %s: %d weeks fetched, %d failed", kind, fetched, failed)
         return counts
 
+    def _serves(self, url: str) -> bool:
+        """Whether NSE serves the (already saved) document at ``url`` right now."""
+        status, content = self.docs.fetch(url)
+        return status == 200 and _looks_like_document(url, content)
+
     def sync_docs(self, filings: pd.DataFrame, log_every: int = 1000) -> Dict[str, int]:
-        """Download the documents of ``filings`` (``doc_url``, ``disseminated``) not yet saved."""
+        """Download the documents of ``filings`` (``doc_url``, ``disseminated``) not yet saved.
+
+        A failed document is re-checked against one NSE served before: if that
+        one still comes back, the failure is the document's own (a strike);
+        if not, the network or NSE is down and nothing is held against it.
+        After ``MAX_STRIKES`` strikes, on separate passes, it is recorded as
+        missing, so the run can finish.
+        """
+        for stale in (self.root / "docs").glob("*/.*.tmp*"):  # left by a hard stop mid-write
+            stale.unlink(missing_ok=True)
         missing = self.docs.missing.setdefault(MISSING_DOCS, set())
+        strikes_path = self.root / "manifest" / "strikes.json"
+        strikes: Dict[str, int] = json.loads(strikes_path.read_text()) if strikes_path.exists() else {}
         counts: Counter = Counter()
+        canary: Optional[str] = None
         todo = filings.dropna(subset=["doc_url"]).sort_values("disseminated")
         for i, (url, stamp) in enumerate(zip(todo["doc_url"], todo["disseminated"]), 1):
             key = doc_key(url, stamp)
             path = self.root / "docs" / key
             if path.exists():
                 counts["have"] += 1
+                canary = canary or url
             elif key in missing:
                 counts["missing"] += 1
             else:
@@ -283,15 +309,31 @@ class FilingsArchive:
                 if status == 200 and _looks_like_document(url, content):
                     archive.atomic_write(path, gzip.compress(content))
                     counts["fetched"] += 1
-                elif status == 404:
-                    missing.add(key)
+                    canary = url
+                elif status == 404 or (status == 200 and not content.strip()):
+                    missing.add(key)  # NSE has no document: gone, or an empty page every time
                     counts["missing"] += 1
+                elif canary is not None and self._serves(canary):
+                    strikes[key] = strikes.get(key, 0) + 1
+                    if strikes[key] >= MAX_STRIKES:
+                        del strikes[key]
+                        missing.add(key)
+                        counts["gave_up"] += 1
+                        logger.warning("%s: refused on %d passes while NSE served others; recorded as missing",
+                                       url, MAX_STRIKES)
+                    else:
+                        counts["failed"] += 1
+                        logger.warning("%s: refused (strike %d of %d); the next sync retries it",
+                                       url, strikes[key], MAX_STRIKES)
                 else:
                     counts["failed"] += 1
+                    logger.warning("%s: no answer (network or NSE down); the next sync retries it", url)
             if i % log_every == 0:
                 self.docs.save_missing()
+                archive.atomic_write(strikes_path, json.dumps(strikes, indent=1, sort_keys=True).encode())
                 logger.info("docs %d/%d: %s", i, len(todo), dict(counts))
         self.docs.save_missing()
+        archive.atomic_write(strikes_path, json.dumps(strikes, indent=1, sort_keys=True).encode())
         return dict(counts)
 
 
@@ -627,16 +669,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 0
     filings_root = Path(args.archive) / "filings"
     mirror = FilingsArchive(filings_root)
-    mirror.sync_lists(archive.to_date(args.start), archive.to_date(args.end))
+    lists = mirror.sync_lists(archive.to_date(args.start), archive.to_date(args.end))
+    failed = sum(c["failed"] for c in lists.values())
     if args.lists_only:
-        return 0
+        return 1 if failed else 0
     filings = read_filings(filings_root)
     filings["canonical"] = canonical_symbols(filings["symbol"], filings["isin"], filings["disseminated"], args.store)
     names = doc_universe(args.store, args.top)
     wanted = filings[filings["canonical"].isin(names)]
     logger.info("documents: %d filings of %d names (top %d)", len(wanted), wanted["canonical"].nunique(), args.top)
-    logger.info("docs done: %s", mirror.sync_docs(wanted))
-    return 0
+    docs = mirror.sync_docs(wanted)
+    logger.info("docs done: %s", docs)
+    failed += docs.get("failed", 0)
+    if failed:
+        logger.warning("sync incomplete: %d lists or documents failed; re-run to fetch them", failed)
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

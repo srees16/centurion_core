@@ -1,9 +1,17 @@
 """Drive a Kaggle research job from here: upload, push, watch, pull.
 
-Two datasets, so a code change does not re-upload 200 MB of prices:
+Separate datasets, so a code change does not re-upload 200 MB of prices:
 
-    <user>/centurion-nse-code    nse_engine/, runners/, cloud/, config/, job.json
-    <user>/centurion-nse-store   data/nse_engine/store (the parquet store)
+    <user>/centurion-nse-code            nse_engine/, runners/, cloud/, config/, job.json
+    <user>/centurion-nse-store           data/nse_engine/store (the parquet store)
+    <user>/centurion-nse-fundamentals    data/nse_engine/fundamentals (GT1, for GT4 / GT7)
+    <user>/centurion-mcx-store           data/nse_engine/mcx_store (GT2, for GT5)
+
+A kernel always attaches the code and one store (``--store-slug``); ``--attach``
+adds more, e.g. the fundamentals beside the equity store.  The runner finds
+each by a file only it has (``cloud.kaggle_runner.find_*_dir``).  Upload the
+two newer stores with ``push-store --store-dir <dir> --slug <slug>`` after
+each rebuild, once their task files (run.sh, sync.log) are gone.
 
 Typical run of the 2013–2025 walk-forward, four folds at a time:
 
@@ -31,7 +39,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
@@ -41,6 +49,8 @@ logger = logging.getLogger("kaggle_local")
 
 CODE_SLUG = "centurion-nse-code"
 STORE_SLUG = "centurion-nse-store"
+FUNDAMENTALS_SLUG = "centurion-nse-fundamentals"
+MCX_SLUG = "centurion-mcx-store"
 KERNEL_SLUG = "centurion-nse-research"   # default; --kernel-suffix runs a second one alongside
 STAGE_DIR = _ROOT / "data" / "kaggle" / "stage"
 OUT_DIR = _ROOT / "data" / "nse_engine" / "kaggle_out"
@@ -260,11 +270,12 @@ def kernel_ref(suffix: str = "") -> str:
 
 
 def push_kernel(enable_internet: bool = False, suffix: str = "", code_slug: str = CODE_SLUG,
-                store_slug: str = STORE_SLUG) -> str:
-    """Push the kernel that runs cloud/kaggle_entry.py against both datasets.
+                store_slug: str = STORE_SLUG, attach: Sequence[str] = ()) -> str:
+    """Push the kernel that runs cloud/kaggle_entry.py against the code, the store and ``attach``.
 
     ``suffix`` names a separate kernel (its own queue and output), so a second
-    job can run while the first is still going.
+    job can run while the first is still going.  ``attach`` lists more of your
+    dataset slugs (e.g. ``FUNDAMENTALS_SLUG``) to mount beside the store.
     """
     user = kaggle_username()
     slug = f"{KERNEL_SLUG}-{suffix}" if suffix else KERNEL_SLUG
@@ -280,7 +291,7 @@ def push_kernel(enable_internet: bool = False, suffix: str = "", code_slug: str 
         "is_private": True,
         "enable_gpu": False,
         "enable_internet": enable_internet,
-        "dataset_sources": [f"{user}/{code_slug}", f"{user}/{store_slug}"],
+        "dataset_sources": [f"{user}/{s}" for s in dict.fromkeys([code_slug, store_slug, *attach])],
         "competition_sources": [],
         "kernel_sources": [],
     }, indent=2))
@@ -360,6 +371,8 @@ def main(argv: Optional[List[str]] = None) -> None:
                            help="run as a separate kernel (e.g. 'b') so it can run alongside the default one")
             p.add_argument("--store-slug", default=STORE_SLUG,
                            help="store dataset to attach (one uploaded with push-store --slug)")
+            p.add_argument("--attach", action="append", default=[], metavar="SLUG",
+                           help=f"another dataset to mount, repeatable ({FUNDAMENTALS_SLUG}, {MCX_SLUG})")
 
     p = sub.add_parser("watch", help="poll kernel status until it stops")
     p.add_argument("--kernel")
@@ -390,7 +403,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         push_code(args.task, job_args, args.heartbeat_url, pins)
     elif args.command == "run":
         code_slug = push_code(args.task, job_args, args.heartbeat_url, pins, args.kernel_suffix)
-        print(f"kernel pushed: {push_kernel(args.internet or bool(pins), args.kernel_suffix, code_slug, args.store_slug)}")
+        print(f"kernel pushed: {push_kernel(args.internet or bool(pins), args.kernel_suffix, code_slug, args.store_slug, args.attach)}")
     elif args.command == "watch":
         print(watch(args.kernel, args.interval, args.max_hours))
     elif args.command == "status":
