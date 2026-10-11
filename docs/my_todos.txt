@@ -13,7 +13,7 @@ Goal is to have the best possible alpha, Sharpe and CAGR, lowest possible maxDD
 ├──────────────┼────────┼────────┼────────┼────────┼─────────┼────────┤
 │ R21A-GM2     │  1.571 │ 61.0%  │ 31.6%  │ 1.932  │ N/A*    │★CHAMP  │
 ├──────────────┼────────┼────────┼────────┼────────┼─────────┼────────┤
-
+6 lines selected are scored during backtest with survivorship bias, right?
 ┌──────────────────────────────────────────────────────────────────────┐
 │  PAPER TRADING READINESS CHECKLIST                                  │
 ├──────────────────────────────────────────────────────────────────────┤
@@ -109,7 +109,7 @@ Study, evaluate and implement the stategies which could potentially result in a 
 
 ~~~~~~
 
-1. Explore feasibility for agentic implementation
+1. Explore feasibility for agentic implementation (give this more context and my expectations)
 2. binance api https://www.youtube.com/watch?v=ZiBBVYB5PuU
                 https://www.youtube.com/watch?v=P_SIZDsI3Ro
 
@@ -126,7 +126,6 @@ Study, evaluate and implement the stategies which could potentially result in a 
 1. Where are images stored currently wen i run analysis? Display location or url to access dem on ui pages
 2. Implement same configuration n strategy to give a list of US stocks
 3. Can paper trading for US stocks be possible if not automating buy sell signals?
-4. design n implement kill switch or dead-man's switch
 
 ~~~~~~~
 
@@ -136,7 +135,7 @@ dataset dates cover all the way back to 2008 in both options n stocks do capture
 Backtest is exhaustive and robust
 out of sample forward walk is fit to go-live
 Paper trade metrics are in line with goal
-5 Live dry run is as expected
+Atleast 5 Live dry runs are as expected
 
 ~~~~~~~
 
