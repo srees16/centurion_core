@@ -1536,6 +1536,470 @@ tie can tip a fold. The scorecards read these runs. Deployed and candidate
 pass the walk-forward rule (1.24 ≥ 1.2) and E4 misses it (1.11). No book
 passes net Sharpe (1.16, 1.16, 1.14) or Calmar (0.97, 0.93, 0.93).
 
+## 5v. Options research pipeline (O5 onward, the owner's directive, 10 Oct 2026)
+
+The general research rules (families, budgets, pre-registration, gates)
+live in `docs/research_protocol.md` (GT10); this section is the options
+family's part of them.
+
+**Directive.** Options strategies are researched continuously until ones that
+make money consistently are onboarded. The owner supplies sources: PDFs,
+GitHub repositories, research papers. Each is studied, implemented, tested
+and, if it passes, paper-traded. The objective is that options trading adds
+to the book's CAGR, alpha and Sharpe. Written before any O5 result.
+
+**Per source (one round each, labelled O5, O6, …):**
+1. **Intake note:**
+   - what the source claims and the evidence behind it;
+   - its rules, instruments, holding period and capital per position;
+   - the data it needs.
+   A rule that needs intraday prices or a same-day exit is out of scope:
+   Centurion is swing and positional only, and the F&O store holds
+   end-of-day bhavcopies. Anything that needs data the store lacks is logged
+   with the data that would unlock it.
+2. **Pre-registration:** at most 3 configurations, with parameters taken from
+   the source, not fitted. Pass rules and costs (`fno_costs`, the current F&O
+   cost model) are written before any run.
+3. **Backtest.**
+   - 2013–25 on Kaggle (one environment), recorded in the options registry
+     (U32), every configuration counted in the options family's N.
+   - The 2007–25 window is reported, never gating.
+   - Settlement and IVs come from LN-T20 and LN-T27.
+4. **Gate 1, unchanged:** each configuration alone has excess Sharpe > 0 and
+   a deflated Sharpe ≥ 0.95 at the options family's N, and the family's PBO
+   stays ≤ 30%.
+5. **Gate 2, revised from O5 to match the objective.**
+   - The base is the live book's recorded run (the deployed book today; E4
+     if V3 promotes it), overlaid with 0.25 × the strategy, as in 5q.
+   - The combined book must **raise CAGR, excess Sharpe and annual alpha
+     against NIFTY 50 TRI** over the base, with MaxDD no more than 2 points
+     worse.
+   - The combined book's deflated Sharpe at the total trial count (book plus
+     options) is reported.
+   - This replaces the fixed 25% CAGR bar, which E4's model-4 CAGR had moved
+     to "+1.5 points". Rounds O2–O4 keep their own gates.
+6. **Paper trading:**
+   - A passing strategy runs in an options paper book, decided after the
+     close and filled by the strategy's own rule, with G4-style tracking
+     against its backtest replay.
+   - It runs for at least 60 sessions and at least 6 cycles of the
+     strategy.
+   - The scheduled paper runner is built when the first strategy passes, not
+     before.
+7. **Onboarding:**
+   - Live at small size, under the kill switch and the live risk limits.
+   - The order route is the typed-confirmation toolkit, or an automated
+     route if the owner decides so at that point.
+   - Sized in lots: one NIFTY lot is about Rs 15 lakh of notional.
+
+**What carries over from rounds O2–O4:**
+- Option premium selling and index-timing rules have failed after costs.
+- India's F&O STT reportedly rose from 1 Apr 2026 (to be confirmed in the
+  cost model before O5's first run).
+- Each configuration raises N, so a strong source should be tested with one
+  or two configurations, not three.
+
+## 5w. Pre-announcement drift on NSE (GT13; pre-registered 10 Oct 2026, 22:11 IST)
+
+**Source.** Lucca & Moench, "The Pre-FOMC Announcement Drift" (JF 2015).
+From 1994 to 2011 the S&P 500 earned about 80% of its excess return over
+cash in the 24 hours before the eight scheduled FOMC statements a year, and
+nothing on the news itself. The effect has largely faded since 2011, except
+before meetings with a press conference. It is reported gross of costs.
+
+**Question.** Does Indian equity drift up while it waits for a scheduled
+policy announcement, enough to pay for a NIFTYBEES round trip? The windows
+are chosen so that Centurion's after-market orders can trade them, with no
+intraday order.
+
+**Hypotheses**, fixed before any number is read, scheduled announcements
+only (an unscheduled one cannot be waited for):
+- **H1, RBI** (announcements land during the session, 10:00–12:00 IST): long
+  from the **open of the session before the announcement day to the open of
+  the announcement day**. A buy AMO and a sell AMO, both filled at the open,
+  hold exactly the waiting stretch.
+- **H2, FOMC** (the statement lands after the Indian close, 23:30 or 00:30
+  IST): the Indian session on or before the US decision date is all waiting.
+  - Tradable window: **that session's open to the next session's open**. It
+    includes the reaction, which the paper finds flat on average.
+  - Reported only: the pure waiting window, previous close to that close.
+
+**Data.**
+- NIFTY 50 index opens and closes (gross).
+- NIFTYBEES opens and closes, net of a round trip at Rs 6 lakh: statutory
+  charges from `nse_engine.costs` with ETF STT, plus the impact model.
+- Excess over cash at 6.5% a year.
+- 2013-01-01 to 2025-12-31.
+
+**Pass rule, per hypothesis**, which makes it a candidate sleeve for idle
+cash, to paper-trade under GT10:
+- NIFTYBEES mean excess return per window, net of costs, is above 0 with
+  t ≥ 2.0. The effect is published, so this is a replication, not a
+  discovery.
+- The net mean is positive in both 2013–19 and 2020–25.
+- Two hypotheses, N = 2, both reported.
+
+**Reported, never gating:**
+- the share of NIFTY's excess return earned inside the windows (the "80%");
+- the fraction of sessions they occupy;
+- the hit rate;
+- the move after the announcement (RBI: announcement-day open to close;
+  FOMC: next session open to close);
+- 2026 to date, as a holdout opened once.
+
+**Amendment after the first run (10 Oct 2026, between 22:11 and 23:17 IST).**
+- NIFTYBEES's bhavcopy opens are stray first prints (tracker D4). Its open
+  gap differs from the index's by a median of 32 bp, and by more than 50 bp
+  on 36% of days.
+- Its traded value grew from about Rs 2.6 crore a day (2013) to Rs 150 crore
+  (2025), so a cost averaged over the whole period overstates today's.
+- So the tradable estimate became the **index window less a NIFTYBEES round
+  trip at its latest year's liquidity**: 18.5 bp, statutory charges plus the
+  conservative stock-calibrated impact model. Round 3 did the same for Y3.
+- The verdict is the same on every basis: the index fails t ≥ 2 before any
+  cost.
+
+**Result, 10 Oct 2026: both hypotheses FAIL; no sleeve.**
+
+| 2013–25 | Events | NIFTY 50 gross per window | Net of the round trip | Halves (net, 2013–19 / 2020–25) | Share of NIFTY's excess return | After the announcement |
+|---|---|---|---|---|---|---|
+| H1 RBI | 78 | +10.8 bp, t 1.16, 56% up | −7.7 bp, t −0.83 | −11.6 / −2.7 bp | 12.8% in 2.4% of sessions | −13.9 bp |
+| H2 FOMC | 103 | +8.4 bp, t 0.91, 50% up | −10.1 bp, t −1.10 | −9.4 / −11.0 bp | 12.9% in 3.2% of sessions | −12.0 bp |
+
+What the result says:
+- **The direction matches the paper.** Windows that wait on the RBI or the
+  Fed earn about 4–5× their share of time, and the market gives some back
+  after the news.
+- **It is not significant, even before costs, and nowhere near the 80% of
+  the US 1994–2011 sample.**
+- **FOMC's pure waiting window** (previous close to that session's close)
+  is the most consistent: +11.4 bp, t 1.61. Trading it needs orders at the
+  close, which Centurion's after-market orders do not place, and it is still
+  under the cost.
+- **2026 (holdout, opened once):** RBI +97 bp over 5 events; FOMC
+  tradable −27 bp, pure window +70 bp over 6 events, all up. Too few events
+  to read.
+- **Not re-tuned:** any other window would be a new trial. The module
+  (`nse_engine/event_drift.py`) stays as the tool for re-checking with new
+  data.
+
+## 5x. Options rounds O5–O8 from the owner's books (pre-registered 10 Oct 2026, 23:17 IST)
+
+**Sources.** Five books, placed in `research_inbox/` on 10 Oct 2026 and read
+in full by intake agents:
+- Cordier & Gross, *The Complete Guide to Option Selling* (O5).
+- Natenberg, *Option Volatility and Pricing* (O6).
+- Jabbour & Budwick, *The Option Trader Handbook* (O7).
+- Ursone, *How to Calculate Options Prices and Their Greeks* (O8).
+- Minervini, *Trade Like a Stock Market Wizard* (O9). It is an equity
+  method, not options; it is studied separately (below).
+
+None of the books contains a backtest. Each round follows plan 5v.
+
+**Common to every configuration:**
+- **Instrument and data:** NIFTY monthly options, 2013-01-01 to 2025-12-31,
+  every contract keyed by its settlement session (LN-T20).
+- **Timing:** decided at the close, filled at the next close. A leg fills at
+  its close when it traded, else its settlement price, with `fno_costs`
+  slippage and charges at the dated rates (2026 STT included). Legs settle
+  at intrinsic against the exact index close; long ITM legs pay exercise
+  STT.
+- **Greeks:** Black-76 on the expiry's futures close, else spot carried at
+  the risk-free rate. An ITM strike takes its OTM mirror's IV.
+- **Entries:** only on strikes that traded that day.
+- **Capital and sizing:** Rs 7.5 lakh, sized in lots so the position's
+  maximum loss (or, for a naked short, 10% of notional as an assumed margin)
+  stays within 50% of equity.
+- **Monthly decision date:** the first session after a monthly expiry (one
+  entry per month; positions may overlap).
+- **Regime label:** Centurion's own, from data up to that close. Bull is
+  NIFTY above its 200-day mean and up over 63 sessions; bear is below and
+  down; range is otherwise.
+- **IV labels:** IV rank is the 30-day ATM IV's percentile over 252
+  sessions.
+- **Volatility forecast:** σF = 0.40·HV30 + 0.30·HV60 + 0.20·HV130 +
+  0.10·HV260, zero-mean close-to-close (Natenberg's 6/12/26/52-week blend).
+  σLR is the expanding mean of HV30.
+- **The "2–6 months" translation:** every book's 2–6-month horizon becomes
+  the **second monthly expiry (≈ 55–60 days)**. Third-month NIFTY strikes
+  3–10% out of the money traded on only 12–25% of entry days from 2018, so
+  the books' own liquidity rule rules them out.
+
+### O5 (Cordier & Gross): 2 configurations
+
+**O5-A, trend-side credit spread** (the book's S4 with the 200% and 10%
+rules).
+- **Direction:** bull regime → bull put spread; bear regime → bear call
+  spread; range → no trade.
+- **Expiry:** the second monthly.
+- **Short leg:** the traded strike with the largest |Δ| ≤ 0.20.
+- **Long leg:** the first further-OTM traded strike whose premium is ≤ 1/3
+  of the short's.
+- **Entry filter:** credit ≥ 10% of (width − credit).
+- **Exits:** close when the spread's value is ≥ 2× the entry credit (the
+  200% rule), or ≤ 10% of it (the 10% rule). Otherwise settle at expiry.
+
+**O5-B, trend-side naked short** (S1). Same direction, expiry, strike rule
+and exits, on the option alone. Margin is assumed at 10% of notional.
+
+### O6 (Natenberg): 2 configurations
+
+**O6-A, long at-the-forward calendar.**
+- **Legs:** sell the front-month call at the strike nearest the front
+  forward; buy the second-month call at the same strike.
+- **Entry:** only if forward volatility from front to back is ≤ σLR − 2
+  points, and the front ATM IV is ≥ σF.
+- **Hedge:** front futures whenever |net Δ| ≥ 0.5 lot.
+- **Exits:** at the session before the front expiry, or earlier if forward
+  volatility rises to ≥ σLR.
+
+**O6-B, conditional short iron butterfly** (the book's Spread 3; a
+falsification test of the failed short-vol result).
+- **Expiry and legs:** the second monthly. Sell the at-the-forward straddle;
+  buy wings at ±0.6 SD (SD = F·IV·√T, the nearest traded strikes beyond).
+- **Entry:** only if ATM IV is ≥ σF + 2 points and no Budget or election
+  date (`sleeves.EVENT_DATES`) falls before expiry.
+- **Size:** scaled by the margin, ×min(1, margin / 7 points).
+- **Hedge:** 0.5-lot futures band.
+- **Exits:** when ATM IV falls to ≤ σF, or at 7 days to expiry.
+
+### O7 (Jabbour & Budwick): 2 configurations
+
+**O7-A, regime debit sleeve, no adjustments.** One "strike step" w = 5% of
+spot, rounded to 100 points; that is the book's own range of strike gaps.
+
+| Regime | IV rank | Position |
+|---|---|---|
+| Bull | < 33 | Long ATM call, second monthly |
+| Bull | ≥ 33 | Bull call spread K / K+w, second monthly |
+| Bear | < 33 | Long ATM put, second monthly |
+| Bear | ≥ 33 | Bear put spread K / K−w, second monthly |
+| Range | > 67 | Long ATM call butterfly ±w, front month |
+| Range | otherwise | Flat. The book's calendar needs a 3-month long leg, which is illiquid. |
+
+**Exits:**
+- single long options at 30 days to expiry;
+- other structures at the session before expiry;
+- any position at a decision date whose regime label has changed.
+
+**O7-B, the same plus the book's adjustments.**
+- **Long-option lock-in:** sell C(K+w) or P(K−w) once its price is ≥ the
+  entry debit.
+- **Butterfly to condor:** add the adjacent butterfly, once, when spot closes
+  beyond a breakeven with ≥ 7 days left.
+
+### O8 (Ursone): 1 configuration
+
+**O8-A, post-spike term-structure calendar straddle.**
+- **Entry:** near-month ATM IV minus next-month ATM IV ≥ 3 points, IV rank ≥
+  70, and the front expiry 14–30 days away.
+- **Legs:** sell the front at-the-forward straddle; buy the second-month
+  straddle at the same strike, in equal lots, only for a net debit.
+- **Exits:**
+  - at the session before the front expiry;
+  - when the term spread falls to ≤ 0;
+  - when spot moves more than one front straddle (its entry price) from the
+    strike.
+
+**Clarification (10 Oct 2026, after a 2014-only debugging run, before any
+recorded run).**
+- **The problem:** the engine sized each new position at 50% of equity.
+  Positions overlap month to month, so total risk could exceed the cap: the
+  long-option sleeve reached a −69% drawdown in 2014.
+- **The fix:** the 50% applies to **the maximum loss of all open positions
+  together**. That is the book's own rule (Cordier & Gross: total margin
+  ≤ 50% of capital), and the only reading under which overlapping positions
+  respect the cap.
+- **Not changed:** no other parameter.
+
+### Gates and what follows
+
+- **Gates:** plan 5v. Gate 1: deflated Sharpe ≥ 0.95 at the options family's
+  N, which these 7 take from 10 to 17. Gate 2: beside the live book, the
+  strategy raises CAGR, Sharpe and alpha, with MaxDD no more than 2 points
+  worse.
+- **2007–25** is reported, never gating.
+- **Not re-tuned:** no parameter above changes after a result.
+- **Bug fixes** are logged with their date.
+
+### Results, 10 Oct 2026: O5–O8 all closed; nothing to paper-trade
+
+**Runs.** Kaggle, 2013–25, recorded in the options registry, which now
+holds N = 17; the options family's PBO is 14.1%.
+- **Gate 1:** none clears it.
+- **Gate 2:** every overlay lowers the book's Sharpe from 1.163.
+- **Base for gate 2:** the deployed book, CAGR 23.1%, Sharpe 1.163, MaxDD
+  −23.9%, alpha 12.6%.
+
+| Configuration | Positions | Sharpe | CAGR | MaxDD | DSR | Book + 0.25×: Sharpe / MaxDD |
+|---|---|---|---|---|---|---|
+| O5-A trend credit spread | 59 | 0.25 | 2.4% | −31.4% | 0.04 | 1.150 / −26.7% |
+| O5-B trend naked short | 87 | 0.26 | 2.3% | −31.2% | 0.04 | 1.129 / −25.8% |
+| O6-A long calendar | 49 | 0.24 | 0.2% | −66.2% | 0.03 | 1.009 / −23.2% |
+| O6-B conditional iron fly | 18 | 0.20 | 1.8% | −44.2% | 0.02 | 1.146 / −30.3% |
+| O7-A regime debit sleeve | 19 | −0.54 | −30.0% | −99.0% | 0.00 | 0.492 / −45.8% |
+| O7-B with adjustments | 19 | −0.44 | −32.5% | −99.4% | 0.00 | 0.477 / −50.1% |
+| O8-A term-structure calendar straddle | 34 | 0.06 | −3.1% | −65.1% | 0.01 | 0.981 / −29.4% |
+
+**What the runs say:**
+- **Cordier & Gross:** the trend-side 200% and 10% rules make about
+  2% a year on NIFTY. The naked version is no better, and their own caveat
+  about index options holds.
+- **Natenberg:** conditioning on volatility forecasts does not rescue
+  short volatility (O6-B), and the cheap-forward calendar earns nothing
+  (O6-A).
+- **Jabbour & Budwick:** buying premium by outlook loses steadily. The
+  adjustments change almost nothing: −32.5% against −30.0%.
+- **Ursone:** the post-spike calendar is flat to negative.
+- **The edge:** none of the books' structures adds an edge after costs
+  on NIFTY end-of-day data.
+
+**Diagnostics** (reported, not trials):
+- **Sizing is not the cause.** At a 10% risk budget instead of 50% (local
+  runs), Sharpe stays between −0.33 and 0.20, and CAGR is at most 0.6%.
+  O7's −99% is its 50%-of-equity debit sizing compounding a negative
+  edge; at 10% it is still −72%.
+- **Stale back-month prints.** The second-month leg of a calendar trades
+  thinly, and its bhavcopy close is often a stale print. On 14 Dec 2017
+  O6-A's January call marked 251.0 while spot rose, then 337.75 the next
+  day, a ±30% swing in sleeve equity at this size. That inflates the
+  multi-expiry configurations' volatility and drawdown, but not their
+  return: O6-A earns about 0% a year however it is marked.
+- **Gate 2 can be fooled by mark noise.** Noise that swings −30% then
+  +30% has a positive arithmetic mean, so a 0.25 overlay of it raises the
+  book's measured CAGR and alpha with no real profit: O6-A shows 25.8% and
+  15.4%. Every overlay still lowers Sharpe, so no verdict changes.
+  - **Before the next multi-expiry round:** mark an untraded or thin leg
+    at a model price from its own expiry's smile (OP1).
+
+**2007–25, reported only** (Kaggle, recorded, never gating): no better.
+
+| Configuration | Sharpe | CAGR | MaxDD |
+|---|---|---|---|
+| O5-A | 0.09 | 0.0% | −49.4% |
+| O5-B | 0.28 | 2.8% | −39.3% |
+| O6-A | 0.17 | −2.5% | −77.7% |
+| O6-B | 0.10 | −2.3% | −68.4% |
+| O7-A | 0.09 | −23.8% | −99.6% |
+| O7-B | −0.37 | equity below zero after 2 positions | — |
+| O8-A | −0.01 | −9.7% | −92.1% |
+
+**O7-B's negative equity is an engine flaw.** Its adjustments buy
+additional debit without checking available cash, which a broker would
+refuse; folded into OP1. The verdict does not depend on it: O7-A, with no
+adjustments, loses as well.
+
+
+### O9 (Minervini): an equity sleeve, separately (O9-A pre-registered 10 Oct 2026, 23:25 IST)
+
+**Status.** The SEPA breakout sleeve is its own family:
+- registry `data/nse_engine/runs_sepa`, so it never enters the core's
+  trial matrix;
+- 1 configuration;
+- book numbers, with my translations marked (A).
+
+Its filter on the core and the risk-rule tests (a 10% max-loss cap, a
+breakeven move, progressive exposure, no topping up losers) belong to the
+core family, after V3. The earnings screen waits for GT1.
+
+**O9-A, SEPA-lite breakout sleeve.** 2013-01-01 to 2025-12-31, adjusted
+store prices, the core's universe (top 300 by liquidity, refreshed every 21
+sessions).
+
+**Trend Template** (all eight, at the close):
+- close above both the 150- and 200-day means; the 150-day above the
+  200-day;
+- the 200-day mean higher than 21 sessions earlier;
+- the 50-day mean above the 150- and 200-day means; close above the 50-day;
+- close ≥ 1.30 × the 52-week low and ≥ 0.75 × the 52-week high;
+- 12-month return percentile in the universe ≥ 70 (A: the in-house stand-in
+  for IBD's rating).
+
+**VCP base.**
+- **Swing points:** confirmed 5 sessions after they print (A). A swing high
+  is the highest high of its ±5 sessions; a swing low likewise.
+- **Base:** starts at the latest swing high that no close has exceeded since,
+  15–325 sessions ago (3–65 weeks).
+- **Contractions:** each swing high to its following swing low, 2–6 of them.
+  Each is no deeper than the one before (A: the book says about half). The
+  first is ≤ 35% (≤ 50% when NIFTY 50 is more than 20% below its 52-week
+  high, A). The last is ≤ 10% (A).
+- **Depth against the market:** when NIFTY 50 fell ≥ 8% over the base, the
+  base is no deeper than 2.5× that fall (A).
+- **Volume dry-up:** average volume over the last contraction is below its
+  50-day average, with at least one day within 1.1× the base's lowest
+  volume.
+
+**Entry.**
+- **Pivot:** the last contraction's swing high.
+- **Trigger:** a close above the pivot on volume above the 50-day average.
+- **Fill:** buy at the next open, only if the open is ≤ pivot × 1.03 (A: "a
+  few percent"); otherwise the trade is logged as missed.
+
+**Market gate.** NIFTY 50 is above its 200-day mean, and new 52-week highs
+outnumber new lows in the universe. With the gate off, no new entries;
+positions keep their stops.
+
+**Size and exposure.** 10 slots of 10% of equity. Only 5 are open to new
+entries unless the last 5 closed trades are net positive (the book's
+progressive exposure, A).
+
+**Stops and exits.**
+- **Initial stop:** 7.5% below entry (half a 15% average gain; hard cap
+  10%). It is live from the next session, so there is no same-day exit, and
+  fills at the stop or at a lower open.
+- **Breakeven:** the stop moves to entry once a close is ≥ +22.5% (3× the
+  risk).
+- **Exits at the next open:**
+  - a close below the 20-day mean within 10 sessions of the breakout;
+  - the largest one-day fall since the breakout on above-average volume;
+  - a close below the 50-day mean.
+
+**Costs.** The equity cost model (cost model 4), delivery charges and impact.
+
+**Clarifications (10 Oct 2026, written before any O9 run).**
+- **"Largest fall":** it means the largest one-day fall since **the base
+  began**, which is the book's stage-2 reference (p.105). "Since the
+  breakout" would fire on the first heavy down day of every trade.
+- **New highs and lows** are counted on the day's high and low.
+- **The pivot** is the latest confirmed swing high.
+
+**Gates.**
+- **Gate 1:** deflated Sharpe ≥ 0.95. N = 1 in this family, so this is the
+  probabilistic Sharpe against 0.
+- **Gate 2:** the live book with 25% of its capital moved to the sleeve:
+  0.75 × book + 0.25 × sleeve, funded from the core, as R14 did. The
+  combined book must raise CAGR, excess Sharpe and alpha against NIFTY 50
+  TRI, with MaxDD no more than 2 points worse.
+- **Next step if it passes:** paper trading.
+
+**Result, 11 Oct 2026: O9 closed; nothing to paper-trade.**
+- **Run:** Kaggle, 2013–25, its own registry (`runs_sepa`, N = 1).
+- **Trades:** 80, plus 47 missed because the breakout opened more than 3%
+  above the pivot.
+- **Per trade:** hit rate 30%, win/loss 2.39. That is a slightly positive
+  expectancy, about +0.02 of the risk per trade.
+- **The catch:** the Trend Template plus the VCP rules leave the sleeve only
+  **4% invested on average**.
+- **Sleeve:** CAGR 0.05%, volatility 2.9%, Sharpe −2.24 against the 6.5%
+  risk-free rate, MaxDD −12.9%. Daily correlation with the book is 0.27.
+- **Gate 1:** DSR 0.00.
+- **Gate 2:** 0.75 × book + 0.25 × sleeve gives CAGR 17.1%, Sharpe 0.98,
+  alpha 7.8% against 23.1%, 1.16 and 12.6%. MaxDD improves to −18.5%,
+  because a quarter of the capital sits in near-cash.
+- **Exits:** 28 below the 20-day mean, 27 below the 50-day mean, 16 on the
+  largest fall since the base began, 9 on the stop.
+
+**What carries forward** (core family, after V3; the backlog item for the
+Minervini rules on the core): the book's ideas that do not need a sleeve.
+- VCP entry timing as a filter on the core's buys;
+- a 10% max-loss cap;
+- the breakeven move;
+- progressive exposure;
+- no topping up losers.
+
+The earnings screen waits for GT1.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast
