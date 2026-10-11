@@ -438,7 +438,7 @@ yield, and lever last.
 | Phase | When | What | Gate to the next phase |
 |---|---|---|---|
 | 0. Build, no trials | Oct–Dec 2026 | Go live with the core as planned (D3). GT1: point-in-time fundamentals and results dates. GT2: MCX bhavcopy and continuous roll series. GT3: cash-engine decision (after tax). GT10: research protocol written. Scoping looks (one look each, nothing recorded) allowed | Data stores built and fingerprinted; protocol and pre-registrations written |
-| 1. Sleeve trials | Jan–Mar 2027 | GT4: selective value / quality sleeve (≤3 configurations; a beta-hedged variant only once capital covers a NIFTY lot). Core family, one configuration each after V3: GT7 earnings-drift overlay, GT9 tranches and exit bands, GT11 exclusion filters. GT5: MCX commodity trend (≤3). All on Kaggle, one environment, 2013–25, cost model 5 (IC2 first). Walk-forward OOS 2017–25 for each passer | Per sleeve: net Sharpe ≥ 0.5; monthly correlation with the core ≤ 0.3; combined Sharpe ≥ core + 0.10 at the fixed weight; family PBO ≤ 30%; t ≥ 3 for a new signal |
+| 1. Sleeve trials | Jan–Mar 2027 | GT4: selective value / quality sleeve (≤3 configurations; a beta-hedged variant only once capital covers a NIFTY lot). Core family, one configuration each after V3: GT7 earnings-drift overlay, GT9 tranches and exit bands, GT11 exclusion filters. GT5: MCX commodity trend (≤3). All on Kaggle, one environment, 2013–25, cost model 5 (IC2 first). Walk-forward OOS 2017–25 for each passer | Per sleeve: net Sharpe ≥ 0.5; combined Sharpe ≥ core + 0.10 at the fixed weight; monthly correlation with the core reported, not a gate (owner, 11 Oct); family PBO ≤ 30%; t ≥ 3 for a new signal |
 | 2. Combination | Mar–Apr 2027 | GT6: the combined book at fixed equal-risk weights with a portfolio drawdown cushion; walk-forward 2017–25; combined deflated Sharpe at total N | Combined backtest Sharpe ≥ 1.30, MaxDD ≤ 1.6σ, PBO ≤ 30% |
 | 3. Paper, then live | Apr 2027 → | Sleeves paper-traded beside the live core (≥ 60 sessions, G4-style tracking per sleeve), then ladder in at small weight | Tracking within G4 limits; costs ≤ 1.5× model |
 | 4. Leverage | Capital ≥ about Rs 1 crore and ≥ 12 months of live combined tracking | GT8: futures leverage at ≤ 1.3–1.5×, at most half-Kelly on a haircut Sharpe of 0.7; floor cushion on | Live tracking within limits; drawdown inside the simulated 95th percentile |
@@ -466,6 +466,7 @@ Ranked by expected value at Rs 6–30 lakh.
 | 5 | NIFTY index deletions (anti-momentum; +4–7% abnormal over days 60–240) | 0.2–0.4 | 0.2–0.4 | Rs 1–2 lakh | In hand | Marginal: 5–15 events a year |
 | 6 | Buyback tenders | +0.5–1 pt a year | About 0.3 | Rs 2 lakh per event | In hand | Marginal: tendering is in Console, outside the API |
 | 7 | FII participant-OI overlay on exposure | ≤ +0.2 | Overlay | 0 | `participant_oi.parquet` | Marginal: the same family as the rejected PCR / VIX timing |
+| 8 | Listed REITs / InvITs (owner's ask, 11 Oct 2026): 6–14% distributions | 0.47 measured (2017–25) | 0.16 daily / 0.26 monthly | Rs 1–5 lakh | Raw bhavcopies, series RR / IV | **Closed (GT14, 11 Oct)**: Sharpe 0.47 alone (REITs 0.31, InvITs 0.67, with imputed payouts). Every blend lowers CAGR 2–4 pts, so it fails gate 2. Fell 25% in the Covid crash vs the book's 14.5% |
 | — | Option premium selling (NIFTY put-writes, condors) | Negative net, 2015–25 | Long beta in the tails | Rs 14.5 lakh a lot | In hand | **Not viable** (O2–O4 agree) |
 | — | Pairs / sector-neutral stock futures | About 0.1 | About 0 | Rs 30–50 lakh+ | In hand | Not viable |
 | — | USDINR, G-sec futures | — | — | — | — | Closed: RBI exposure rule; no liquidity |
@@ -566,7 +567,11 @@ before acting:
   family's cost model (`fno_costs`).
 - The repo rate reportedly at 5.50% from 7 Oct 2026.
 - The 8–10% pledge haircut on liquid ETFs.
-- The commodity transaction tax rate after Budget 2026.
+- ~~The commodity transaction tax rate after Budget 2026.~~ Checked 11 Oct
+  2026 on Zerodha's charges page: CTT is still 0.01% of sell notional on
+  non-agricultural futures. The same page shows equity futures STT at 0.05%
+  on sells, which confirms the futures part of the first item. Encoded in
+  `nse_engine/mcx_costs.py` (GT2).
 
 ## Sources
 

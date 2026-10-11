@@ -2000,6 +2000,335 @@ Minervini rules on the core): the book's ideas that do not need a sleeve.
 
 The earnings screen waits for GT1.
 
+## 5y. GT5: MCX commodity trend sleeve (pre-registered 11 Oct 2026, 13:10 IST)
+
+**Status: written before any backtest.** GT2's checks read some prices: lot
+multipliers, one roll, and outlier returns in Jan–Apr 2015 and Aug–Oct 2025.
+No trend signal or sleeve return has been computed. The runs come in
+Jan–Mar 2027, on Kaggle, after GT2's close-out.
+
+**Hypothesis.** Time-series momentum: a futures contract that rose over the
+past year tends to keep rising. Two sources:
+- Moskowitz, Ooi & Pedersen, "Time Series Momentum", JFE 2012 (MOP).
+- Hurst, Ooi & Pedersen, "A Century of Evidence on Trend-Following
+  Investing", 2017 (HOP).
+
+Both find it in commodities and every other asset class. They explain it by
+slow-moving information, hedging pressure and herding. For Centurion the
+case is diversification: commodity trend tends to earn in crises, when
+equity momentum loses. The review (section 6, item 3) expects a Sharpe of 0.3–0.5
+alone and a correlation with the core of −0.2 to +0.1.
+
+**Family and budget.** A new family, commodity, with registry
+`data/nse_engine/runs_mcx`. This round uses 2 of its 3 configurations, so N
+goes from 0 to 2.
+
+**Data and window.**
+- **Store:** GT2's store (`nse_engine/data/mcx_store`), data hash
+  8350d7128f3d6fe6 at GT2's close-out (11 Oct 2026), 2005-01-03 to
+  2026-10-09.
+- **Test window:** 2013-01-01 to 2025-12-31.
+- **Reported only:** 2007–25, using data from 2005 for lookbacks.
+- **2026:** sealed.
+
+**Instruments (6).** Silver, crude oil, natural gas, aluminium, zinc and
+lead: the review's list.
+- **Traded contracts:** the minis, SILVERMIC, CRUDEOILM, NATGASMINI,
+  ALUMINI, ZINCMINI and LEADMINI.
+- **Price series:** each mini's own continuous series (GT2's roll rule).
+  Before a mini's first session in the store, the large contract's series
+  (SILVER, CRUDEOIL, NATURALGAS, ALUMINIUM, ZINC, LEAD), sized in the mini's
+  first known lot. **(A)** This is a synthetic mini, and it changes only lot
+  rounding.
+- **Excluded:**
+  - gold, because the live metal sleeve holds it;
+  - copper, whose 2.5 MT lot (about Rs 22 lakh) is beyond the sleeve;
+  - farm contracts, which are thin and taxed differently.
+- **Silver overlap:** silver overlaps the metal sleeve's SILVERBEES; gate 2
+  measures the effect.
+
+**Signals.** Each is decided at the close of the last MCX session of each
+calendar month **(A: MOP rebalance monthly)**.
+- **GT5-A, 12-month time-series momentum (MOP):** s = the sign of the
+  instrument's return over the past 252 sessions, giving +1 or −1. s is 0
+  with fewer than 252 sessions of history.
+- **GT5-B, multi-horizon trend (HOP):** s = the mean of the signs of the
+  21-, 63- and 252-session returns, giving ±1 or ±1/3.
+
+**Sizing (both configurations).**
+1. **Sleeve equity:** E starts at **Rs 5 lakh**, the owner's choice of
+   11 Oct: 25% of a Rs 20 lakh book. Equity compounds and nothing is
+   withdrawn or added.
+2. **Target notional:** at each rebalance, target_i = s_i × E × (40% / σ_i) / 6.
+   - σ_i is the annualised EWMA volatility of the instrument's daily
+     continuous returns, with a centre of mass of 60 sessions, × √261, and
+     at least 63 sessions of returns. This is MOP's 40% per-instrument
+     ex-ante volatility, averaged over the 6 instruments.
+3. **Lots:** target_i / (multiplier × close), rounded to the nearest integer,
+   with a half rounded towards 0. At Rs 5 lakh, one base-metal lot is often
+   bigger than its target, so it often rounds to 0.
+4. **Margin:** assumed at 25% of gross notional **(A: MCX's SPAN plus
+   exposure margin is about 10–30% for these contracts)**. It must stay
+   within 80% of E. Otherwise every target scales down by the same factor
+   and the lots are rounded again.
+5. **Between rebalances:** the lots are held, with no daily resizing.
+
+**Rolls.** At the continuous series' roll closes, close the old lots and
+open as many in the new contract at the same close, charging both sides.
+GT2's rule holds the most-open-interest contract more than 10 days from
+expiry. **(A)** The series reads that close's open interest, which is
+published with the bhavcopy; a live roll would use the previous close's.
+The one-session difference is not modelled.
+
+**Timing and fills.** Each decision is made at a close and filled at the
+next session's close, at `mcx_costs.fill_price`.
+- **Daily P&L:** lots × multiplier × the change in the held contract's raw
+  close. On a roll day the old contract runs to the roll close and the new
+  one from it.
+- **Swing and positional only:** monthly decisions, no same-day exits.
+
+**Costs.** `nse_engine.mcx_costs` version 1 at its dated rates:
+- CTT 0.01% of sells from Jul 2013;
+- MCX transaction charge 0.0026%, then 0.0021% from Oct 2024;
+- stamp duty, SEBI fee and GST;
+- brokerage, the lower of Rs 20 and 0.03%.
+
+Slippage is fixed here at 0.05% of price a side. Idle cash and margin earn
+nothing (cost model 4).
+
+**Pass rules.**
+- **Gate 1:** the sleeve's deflated Sharpe ≥ 0.95 at the family's N, on
+  excess returns over 6.5%. That is the book's convention, as for O9, since
+  the capital comes from the core.
+- **Gate 2:** 0.75 × the live book (deployed run
+  20261010T032441064151Z_679cbd0c) + 0.25 × the sleeve, daily. The combined
+  book must raise CAGR, excess Sharpe and alpha against NIFTY 50 TRI, with
+  MaxDD at most 2 points worse. The same as R14 and O9.
+- **Also required (review section 5, phase 1):**
+  - net Sharpe ≥ 0.5 alone;
+  - combined Sharpe ≥ the book's + 0.10.
+- **Significance:** t ≥ 2, as the replication of a published effect.
+- **Reported, not gates:**
+  - monthly return correlation with the book (a gate until the
+    clarification below);
+  - the 2007–25 window;
+  - each instrument's P&L;
+  - lots traded and the share of months each instrument held 0 lots,
+    which is what Rs 5 lakh costs in diversification;
+  - roll and fee costs;
+  - the trades.
+
+**What a result leads to.**
+- **Pass:** no walk-forward is needed, since no parameter is fitted. Next
+  come at least 60 sessions of paper trading, judged on tracking (protocol
+  6), then live once the book reaches about Rs 20 lakh.
+- **Fail:** recorded, never re-tuned. The family's third configuration stays
+  unused unless a new source justifies it.
+
+**Clarification (11 Oct 2026, 14:49 IST, before any run; owner's decision).** Monthly correlation with the book ≤ 0.3 is no longer a pass rule; it is reported. Gate 2 and "combined Sharpe ≥ the book's + 0.10" already test what low correlation is for, a better combined book. A sleeve that passes both at a higher correlation is a real improvement the correlation bar alone would have rejected.
+
+## 5z. GT4: selective value / quality sleeve (pre-registered 11 Oct 2026, 14:17 IST)
+
+**Status: written before any backtest, and before GT1's store is built.**
+GT1's tests read only sample filings. Coverage-dependent rules are fixed
+below. Dated clarifications are allowed until the first run, Jan–Mar 2027,
+on Kaggle with `run --attach centurion-nse-fundamentals`.
+
+**Hypothesis.** Cheap stocks with real profits earn a premium. Sources:
+- Basu 1977 and Fama & French 1992 (E/P and value);
+- Asness, Frazzini & Pedersen, "Quality Minus Junk", RAS 2019 (quality:
+  profitability, growth, safety);
+- Agarwalla, Jacob & Varma's IIMA Indian factor data (an Indian value
+  premium).
+
+For Centurion the case is diversification: value earns in the rebounds that
+momentum misses. The review's bar (section 6, item 2) is that the sleeve
+must reach Sharpe of about 0.8 alone to lift the book. Unhedged, it will
+correlate about 0.4–0.5 with the core.
+
+**Family and budget.** A new family, value, with registry
+`data/nse_engine/runs_value`. This round uses 2 of its 3 configurations, so
+N goes from 0 to 2. The third is kept for the beta-hedged variant. It is
+not registered now: a NIFTY lot (about Rs 19 lakh of notional) is beyond a
+Rs 5 lakh sleeve, so it fails the protocol's broker-feasible sizing.
+
+**Data and window.**
+- **Stores:** the equity store, for prices, corporate actions and the
+  calendar. GT1's fundamentals store (`nse_engine/data/fundamentals`) for
+  results, read only through `point_in_time` (a filing counts from its
+  `available_from` session). Its data hash is recorded at GT1's close-out.
+- **Test window:** 2013-01-01 to 2025-12-31. Filings start in 2012, which
+  is enough for trailing twelve months (TTM) by early 2013.
+- **Reported only:** none earlier; the filings start in 2012.
+- **2026:** sealed.
+
+**Universe.** The engine's universe rule at top 500, refreshed every 21
+sessions:
+- median traded value ≥ Rs 1 crore over 126 sessions;
+- 252 sessions of history;
+- printed close ≥ Rs 20;
+- ETFs excluded.
+
+This matches GT1's download set.
+
+**Fundamentals, point in time.** At a decision date, take each company's
+four latest quarters known by then.
+- **Basis:** consolidated if all four are consolidated, else standalone if
+  all four are; otherwise the company has no TTM that month.
+- **Profit:** profit to owners where given (consolidated), else profit for
+  the period.
+- **Market capitalisation:** the latest filing's share count (paid-up ÷
+  face value), adjusted for splits and bonuses after it with the store's
+  corporate-action factors, × that day's printed close.
+- **Missing data:** a company without a TTM (gaps, such as the Q1 FY19
+  filings NSE never published) is not ranked that month. Nothing is
+  imputed.
+
+**Configurations.** Both are decided at the close of the last session of
+each month, filled at the next session's open (CNC, the core's fills and
+cost model 4), and held to the next decision.
+- **GT4-A, cheap and profitable:**
+  - **Eligible:** TTM profit > 0, latest quarter's profit > 0, TTM revenue
+    > 0.
+  - **Rank:** by E/P = TTM profit ÷ market capitalisation.
+  - **Holdings:** the top 25, equal weight.
+  - **Exits:** a holding is sold only when it leaves the top 50, an exit
+    band like the core's 20/40 **(A)**.
+- **GT4-B, value plus quality (QMJ-lite):**
+  - **Eligible:** the same as GT4-A.
+  - **Composite:** the mean of four percentile ranks within the eligible
+    set:
+    1. E/P (value);
+    2. TTM profit before tax ÷ TTM revenue (profitability);
+    3. TTM profit ÷ TTM profit a year earlier − 1, with a negative base
+       ranked lowest (growth);
+    4. minus the 252-session volatility of daily returns (safety).
+  - **Holdings and exits:** the same as GT4-A, on the composite.
+- **Common to both:**
+  - **Capital:** Rs 5 lakh, 25% of a Rs 20 lakh book, matching GT5.
+  - **Weights:** equal, re-weighted only at decisions.
+  - **Banks and NBFCs:** included. Revenue is total income for banks, as
+    the store defines it.
+  - **Risk controls:** no stops and no regime gate. The sleeve is meant to
+    hold through the momentum book's bad stretches.
+
+**Pass rules.**
+- **Gate 1:** deflated Sharpe ≥ 0.95 at the family's N, on excess returns
+  over 6.5%.
+- **Gate 2:** 0.75 × the live book (deployed run
+  20261010T032441064151Z_679cbd0c) + 0.25 × the sleeve, daily. It must
+  raise CAGR, excess Sharpe and alpha against NIFTY 50 TRI, with MaxDD at
+  most 2 points worse.
+- **Also required (review section 5, phase 1):**
+  - Sharpe ≥ 0.5 alone;
+  - combined Sharpe ≥ the book's + 0.10.
+- **Significance:** t ≥ 2, as the replication of a published effect.
+- **Reported, not gates:**
+  - monthly correlation with the book (a gate until the clarification
+    below; unhedged it will likely be 0.4–0.5);
+  - the share of the universe with a TTM each month;
+  - turnover;
+  - the sector mix;
+  - each year's return beside the book's.
+
+**What a result leads to.**
+- **Pass:** at least 60 sessions of paper trading, judged on tracking.
+- **Fail:** recorded, never re-tuned.
+
+**Clarification (11 Oct 2026, 14:49 IST, before any run; owner's decision).** Monthly correlation with the book ≤ 0.3 is no longer a pass rule; it is reported. Gate 2 and "combined Sharpe ≥ the book's + 0.10" already test what low correlation is for, a better combined book. A sleeve that passes both at a higher correlation is a real improvement the correlation bar alone would have rejected.
+
+## 5aa. Core tests after V3: GT7 earnings drift and MV1 Minervini rules (pre-registered 11 Oct 2026, 14:17 IST)
+
+**Status: written before any backtest, and before GT1's store is built.**
+Both are **core-family** trials, so they count in the core's N, which is at
+the PBO bar. Under the research protocol (section 1), each queued core test
+takes **one configuration**. MV1's rules are therefore one bundled
+configuration, not one per rule: this supersedes the tracker's earlier
+"one configuration each". They run after V3's promotion decision in January
+2027, each against the configuration V3 leaves live. That is the
+"reference" below, today the deployed engine. Dated clarifications are
+allowed until each runs.
+
+**Common to both.**
+- **Engine:** the core engine, 2013-01-01 to 2025-12-31, cost model 4.
+- **Universe and portfolio:** the reference's universe, portfolio, regime,
+  sleeves and drawdown overlay. Only the changes below differ.
+- **Fundamentals:** read point in time from GT1's store, as in 5z (basis,
+  profit, missing data).
+- **Pass rules:**
+  - **Gate 1:** deflated Sharpe ≥ 0.95 at the core family's N.
+  - **Beat the reference:** CAGR, excess Sharpe and alpha against NIFTY 50
+    TRI all higher, MaxDD at most 2 points worse.
+  - **Family PBO:** ≤ 30% after the trial is added.
+  - **Significance:** t ≥ 2 on the daily return difference against the
+    reference.
+- **Promotion:** a pass goes to the forward gate on paper, as V3 does.
+  Nothing is promoted on the backtest alone.
+
+### GT7: post-earnings-announcement drift as a fourth forecast group
+
+**Hypothesis.** Prices underreact to earnings surprises and drift toward
+them for about 60 sessions (Bernard & Thomas 1989; Chan, Jegadeesh &
+Lakonishok 1996, whose earnings momentum adds to price momentum). The
+review expects +0.1 to +0.2 to the core.
+
+**Rule.**
+- **Surprise:** for each company's latest quarter known at the date,
+  standardised unexpected earnings:
+  SUE = (profit_q − profit_q−4) ÷ the standard deviation of
+  (profit − profit four quarters earlier) over the previous 8 quarters,
+  which needs at least 4.
+  - **(A)** It uses profit, not EPS, so splits and bonuses do not distort
+    it.
+  - **Basis:** consolidated when both quarters are consolidated, else
+    standalone.
+- **Group:** a new forecast group, "earnings":
+  - the centred rank of SUE within the universe, normalised like the other
+    rank groups (`centred_rank` → `normalise_forecast`);
+  - a name with no SUE known within 126 sessions scores 0, not NaN. With
+    NaN the engine would renormalise that name onto trend alone.
+- **Weights:** fast_trend 1/3, slow_trend 1/3, earnings 1/3 **(A)**: equal,
+  hand-set, as the engine's default three groups. The forecast
+  diversification multiplier (FDM) and caps are unchanged.
+
+### MV1: Minervini's rules on the core, one bundled configuration
+
+**Source.** Minervini, *Trade Like a Stock Market Wizard* (2013), in
+`research_inbox/`. O9-A's definitions are reused.
+
+**The rules, all at once:**
+1. **Earnings screen on new buys** (ch. 7–8; pp. 127–158 of the book):
+   - **Growth:** profit growth of at least 20% year on year in each of the
+     latest two quarters. The book: "a minimum of 20 to 25 percent
+     year-over-year increases in the most recent one, two, or three
+     quarters" **(A: 20%, two quarters, profit not EPS)**.
+   - **Turnarounds:** a quarter with a year-ago loss qualifies only if
+     profit is positive now and the other quarter grew ≥ 100%. The book:
+     turnarounds "+100 percent or better".
+   - **Sales support:** the latest quarter's revenue is higher than a
+     year earlier (A of "earnings supported by revenue").
+   - **Missing data:** a name with no filing data passes, so data gaps do
+     not change the core.
+   - **Held names:** never sold for failing the screen.
+2. **VCP timing on new buys:** a name the core would buy is bought only if:
+   - in the last 5 sessions it closed above its latest confirmed VCP pivot
+     on volume above its 50-day average (O9-A's swing, base, contraction
+     and volume rules, `nse_engine.sepa`);
+   - and the next open is ≤ pivot × 1.03.
+
+   Otherwise its slot waits for the next rebalance. Names already held are
+   unaffected.
+3. **Max-loss cap:** the stop is the higher of the reference's 6-ATR stop
+   and 10% below the entry price.
+4. **Breakeven:** once a close is ≥ 20% above entry, the stop rises to
+   entry and never falls back.
+5. **Progressive exposure:** after the regime gate re-opens from risk-off,
+   new entries may fill only half the target positions (10 of 20). The rest
+   open once the last 5 closed trades are net positive (O9-A's
+   translation).
+6. **No topping up below entry:** a rebalance never adds to a position
+   whose close is below its average entry price.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast

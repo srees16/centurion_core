@@ -27,6 +27,8 @@ trials never enter another family's PBO or deflated-Sharpe matrix.
 | Core (the live engine and its variants) | `data/nse_engine/runs` | **Closed** except V3's forward gate: one configuration left before January. After V3, queued core tests (MV1, GT7, GT9, GT11) take **one configuration each**. |
 | Options (U32) | `data/nse_engine/runs_options` | **At most 3 configurations per source**, one round each (O5, O6, …). N = 17 after O8; PBO 14.1%. Rounds needing bid/ask, calendars or weeklies wait for the OX bridge. |
 | Equity sleeves | `data/nse_engine/runs_<sleeve>` (O9: `runs_sepa`) | At most 3 configurations per sleeve. A new sleeve gets its own registry. |
+| Commodity (GT5, MCX futures) | `data/nse_engine/runs_mcx` | At most 3 configurations. 2 pre-registered 11 Oct (plan 5y), to run Jan–Mar 2027. |
+| Value (GT4) | `data/nse_engine/runs_value` | At most 3 configurations. 2 pre-registered 11 Oct (plan 5z); the third is kept for a beta-hedged variant once capital covers a NIFTY lot. |
 | Event studies (e.g. GT13) | none; the verdict goes in the plan | The study's hypotheses count as its N (GT13: N = 2). A study that becomes a sleeve then starts a family. |
 
 **Budget rules:**
@@ -51,7 +53,7 @@ containing:
    Any translation (an expiry horizon, a strike step, a missing threshold)
    is fixed here and marked (A).
 4. **Data and window.** The 2013–25 test window; the 2007–25 window,
-   reported only; 2026 is the sealed holdout, opened once per family. Also
+   reported only; 2026 is the sealed holdout, opened once per family. Each January the window rolls forward (RF1, from Jan 2027): the past year joins the test window and the new year becomes the sealed holdout. Also
    the store and its data hash.
 5. **Costs and sizing.** The current cost model (`nse_engine.costs`;
    `fno_costs` for F&O) at its dated rates. Size against broker-feasible
@@ -74,6 +76,18 @@ Centurion is swing and positional only.
 - **Counting:** every recorded configuration counts in its family's N and is
   never deleted. A re-run of the same configuration on new data replaces it
   in the matrix (newest run wins). It is not a new trial.
+
+### How new data is used
+
+- **Daily:** live and paper decisions read every new close. The GitHub paper
+  workflow re-syncs NSE before each run, so the regime gate, trends and
+  rankings respond to new data through the rules themselves.
+- **Weekly:** the research stores (equity, F&O, MCX, fundamentals) are
+  refreshed by `runners/refresh_data.py` (DR1). Forward-gate checks,
+  scorecards and diagnostics run on current data.
+- **Quarterly:** every book is re-scored on the refreshed data (GT12).
+- **Never:** new data does not re-tune a configuration. 2026 stays the
+  sealed holdout until it is opened, once per family.
 
 ## 4. Changes after pre-registration
 
