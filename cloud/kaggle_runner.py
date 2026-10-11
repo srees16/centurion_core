@@ -534,12 +534,31 @@ def run_configs(args) -> Dict[str, Any]:
     return state
 
 
+def run_sepa_task(args) -> Dict[str, Any]:
+    """The SEPA-lite breakout sleeve (tracker O9-A, plan 5x): one configuration, its own registry."""
+    from dataclasses import replace
+
+    from nse_engine.sepa import SepaConfig, record, run_sepa
+
+    cfg = SepaConfig()
+    res = run_sepa(replace(cfg, start=args.start or cfg.start, end=args.end or cfg.end),
+                   store_dir=find_store_dir(args.store_dir))
+    runs_dir = args.runs_dir or default_runs_dir()
+    state = {"task": "sepa", "run_dir": record(res, runs_dir), "metrics": res.metrics, "provenance": provenance()}
+    out_dir = Path(args.out_dir or default_out_dir())
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "sepa_results.json").write_text(json.dumps(state, indent=2, default=str))
+    return state
+
+
 def run_options(args) -> Dict[str, Any]:
     """Backtest the pre-registered options-family candidates (O2 sleeves, O3 signal futures, O4 F&O
     anomalies) and record them."""
     from dataclasses import replace
 
-    from kite_connect.options import fo_anomalies, signal_futures
+    from kite_connect.options import book_rounds, fo_anomalies, signal_futures
+    from kite_connect.options.structures import record as record_structure
+    from kite_connect.options.structures import run_structure
     from kite_connect.options.backtest import record, run_sleeve
     from kite_connect.options.sleeves import CANDIDATES
 
@@ -551,6 +570,11 @@ def run_options(args) -> Dict[str, Any]:
             cfg = signal_futures.CANDIDATES[key]
             res = signal_futures.run_strategy(replace(cfg, start=args.start or cfg.start, end=args.end or cfg.end), store)
             results[key] = {"run_dir": signal_futures.record(res, runs_dir), "metrics": res.metrics}
+            logger.info("%s recorded in %s", key, results[key]["run_dir"])
+            continue
+        if key in book_rounds.CANDIDATES:              # rounds O5 onward: the owner's books (plan 5x)
+            res = run_structure(book_rounds.CANDIDATES[key], store, args.start or "2013-01-01", args.end or "2025-12-31")
+            results[key] = {"run_dir": record_structure(res, runs_dir, book_rounds.round_of(key)), "metrics": res.metrics}
             logger.info("%s recorded in %s", key, results[key]["run_dir"])
             continue
         if key in fo_anomalies.CANDIDATES:             # round 3 (plan 5s)
@@ -629,7 +653,16 @@ def main(argv: Optional[List[str]] = None) -> None:
     p.add_argument("--tag", default="refresh")
     p.set_defaults(func=run_configs)
 
-    p = sub.add_parser("options", help="the pre-registered options-family candidates (O2 A1/A2/B, O3 X1-X4, O4 Y1-Y3)")
+    p = sub.add_parser("sepa", help="the SEPA-lite breakout sleeve (O9-A, plan 5x)")
+    p.add_argument("--start")
+    p.add_argument("--end")
+    p.add_argument("--store-dir", help="equity store (default: attached dataset, else repo)")
+    p.add_argument("--runs-dir", help="registry (default: /kaggle/working/runs)")
+    p.add_argument("--out-dir")
+    p.set_defaults(func=run_sepa_task)
+
+    p = sub.add_parser("options", help="the pre-registered options-family candidates (O2 A1/A2/B, O3 X1-X4, O4 Y1-Y3, "
+                                       "O5-O8 from kite_connect.options.book_rounds)")
     p.add_argument("--candidates", default="A1,A2,B")
     p.add_argument("--start", help="window override (plan 5q addendum: 2007-01-02)")
     p.add_argument("--end")

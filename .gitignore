@@ -157,3 +157,6 @@ data/kaggle/
 # Oracle tunnel SSH keys (deployment/oracle-proxy): never in the repo
 kite_tunnel
 kite_tunnel.pub
+
+# Third-party research sources for the options pipeline (plan 5v): never in the public repo
+research_inbox/
