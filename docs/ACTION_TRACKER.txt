@@ -16,6 +16,13 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
           (U27 proposes these replace "PBO <= 30%"; PBO stays reported)
           (* soft, U5; not in a 2008-type crisis, where rebound capture comes first, U22)
           (Sharpe = excess over 6.5% rf; Calmar = CAGR / MaxDD)
+ STRETCH  Golden target (GT0, your call 10 Oct; a stretch goal, the TARGET
+          above stays the plan): Sharpe >= 1.4 | CAGR >= 35% | MaxDD <= 35%
+          | Calmar >= 1 | PBO <= 30%, all PRE-TAX.  The legs fit together
+          at Sharpe ~1.4 and ~23% vol only if drawdowns are held to ~1.5x
+          vol (today 1.8x: then Sharpe ~1.55 is needed).  Researched and
+          refined continuously (GT12).  Route and odds:
+          docs/golden_target_review.md.
 
  EVIDENCE  deployed config 679cbd0c, honest data (B1), model costs, unlevered
                                      Sharpe   CAGR    MaxDD   Calmar
@@ -254,12 +261,11 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              (NX1 merge deployed 22:33 IST).  Left: sign up with a spare
              email: activation email, sign-in, Fly Kite, Settings > Delete
              account.
-[!] P3  O5   Options round 4: your go/no-go.  Rounds 1-3 failed gate 1 on
-             all ten configurations.  Open ideas: Y3 (overnight drift) on
-             the future's own open and close (needs futures opens in the
-             F&O store; the bhavcopy has them); a protective bear put
-             spread judged on the combined book; weekly expiries.  Its
-             prerequisites LN-T20 and LN-T27 are done (10 Oct).
+[!] P3  GT0  Golden target: (a) and (b) decided 10 Oct (a stretch goal,
+             pre-tax, Sharpe >= 1.4; section 1 STRETCH).  Left: (c) drop
+             R6?  More price signals in the core are a dead end (review
+             3.3: residual momentum, 52-week high, low beta, delivery all
+             diluted it).
 [!] P1  U23  Log in to Kite once every trading day: tap the link in the
              09:00 / 17:30 IST email (valid until 06:00 next day).  The first
              live dry run is Thu 1 Oct 19:00 IST (Fri 2 Oct is a holiday);
@@ -313,6 +319,66 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  5. IN PROGRESS [~]
 --------------------------------------------------------------------------------
+[~] P2  O5+  Options research pipeline (your directive 10 Oct; plan 5v):
+             options strategies researched continuously until consistent
+             earners are onboarded; the aim is more CAGR, alpha and Sharpe
+             for the book.  You supply sources: put PDFs in research_inbox/
+             (gitignored, because this repo is public; the folder is its own
+             git repo, pushed to the private srees16/centurion-research)
+             or give a GitHub / paper link,
+             then say "study <source> for options".  Each source is one
+             round (O5, O6, ...): intake note, <= 3 pre-registered
+             configurations from the source's own parameters, Kaggle
+             backtest 2013-25, gate 1 (DSR >= 0.95 alone at the options N),
+             gate 2 (beside the live book: raises CAGR, Sharpe and alpha,
+             MaxDD within 2 pts), then >= 60 sessions / 6 cycles of paper,
+             then live at small size.  Out of scope: intraday prices or
+             same-day exits.  Left-over leads: Y3 on the future's own open /
+             close (needs futures opens in the store), a protective put
+             spread, weekly expiries (all weak, review of 10 Oct).
+             Rounds O5-O9 (your five books, 10-11 Oct): all closed, nothing
+             to paper-trade (plan 5x).  Next source: drop it in
+             research_inbox/ and say "study <source> for options".  Rounds
+             needing bid/ask, calendars or weeklies wait for the OX bridge
+             (backlog, low priority).
+[~] P1  GT12 Continuous research toward the stretch target (your directive
+             10 Oct): research, refine and improve the strategy without
+             end, under GT10's protocol (docs/research_protocol.md) so it
+             cannot overfit.  Cadence:
+             - monthly: one research cycle; take the top idea from the GT
+               pipeline (review 6), write its hypothesis and pass rule
+               first, run it on Kaggle inside its family's budget, record
+               the verdict here and in the validation plan;
+             - quarterly: re-score every book (scorecard), refresh the
+               scoping against the stretch, re-rank the pipeline;
+             - always: watch live tracking (G4) and the canary; new data
+               (GT1, GT2) opens new families.
+             What it never does: re-tune the live core outside V3's forward
+             gate, or spend more than a family's trial budget; every attempt
+             counts in its family's N.
+[~] P1  GT1  Point-in-time results store (nse_engine/data/fundamentals.py;
+             unblocks GT4, GT7 and MV1's earnings screen).  Full run started
+             11 Oct 10:10 IST, detached; script and log are in
+             data/nse_engine/fundamentals/.  It resumes where it stopped,
+             so after a reboot run run.sh again.  Stages:
+             - filing lists, 2012 onward: about 45 min;
+             - about 90k result documents for the ~1,500 names ever in the
+               top 500: about 12-20 h at 2 requests/s;
+             - the build.
+             What it holds:
+             - every quarterly result from 2012, for all companies, with
+               the time NSE published it and the first session that could
+               use it;
+             - revenue, profit, EPS and share count for the top-500 names,
+               2012-25.  NSE's old result pages run to mid-2018 and XBRL
+               after; about a quarter of Q1 FY19 filings have neither;
+             - book equity from the Q2 and Q4 XBRL filings (2018 onward);
+             - board-meeting dates (sparse before 2016).
+             It is a separate store with its own data hash; the engine's
+             fingerprint is unchanged.
+             Left: check coverage when the run ends, then record DONE with
+             the hash.  Before GT4 runs on Kaggle, stage this store in the
+             dataset.
 [~] P1  P3   Paper trading to 60-90 sessions (10 done; ~Jan 2027).  Judged on
              behaviour: tracking error <= 8%/yr, costs <= 1.5x model, MaxDD
              vs backtest: the G4 gate, in every daily email.  Mon 28 Sep is the first session
@@ -389,8 +455,12 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                  realised-vs-model cost gap (model 2.4-2.8%/yr of CAGR);
                  sized by G4's cost ratio.  Needs >= 30 real fills (~Jan).
                                                                   Prompt: do X1
-#5  [ ] P3  R6   R21A rules as signal groups (+/-0.1 Sharpe)    Prompt: do R6
-#6  [ ] P3  R9   Universe size 150 / 300 / 500 (+/-0.1)        Prompt: do R9
+#5  [ ] P2  GT2  Data: MCX bhavcopy (silver micro, crude / natural gas mini,
+                 base-metal minis) and continuous roll series.  For GT5.
+                                                           Prompt: do GT2
+#6  [ ] P3  R6   R21A rules as signal groups (+/-0.1 Sharpe)    Prompt: do R6
+                 GT review 3.3: price signals dilute the core; drop? (GT0)
+#7  [ ] P3  R9   Universe size 150 / 300 / 500 (+/-0.1)        Prompt: do R9
  OCT-NOV  research and housekeeping while the books accumulate (no trials)
    Measured 1 Oct: 147k lines of Python; the trading engine is 9k.  Two
    modules hold the daily path: scheduler.py 3,211 lines / 30 jobs, all
@@ -417,6 +487,81 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  7. BACKLOG (after the queue)
 --------------------------------------------------------------------------------
+[ ] P3  OX   Options execution bridge (your call 11 Oct: low priority; revisit
+             once the rest of the setup is robust and reliable).  Why: the
+             five books (O5-O9) assume synchronous bid/ask prices, intraday
+             risk control, broker-feasible margin and many underlyings;
+             Centurion has end-of-day closes, end-of-day actions and NIFTY
+             monthly only.  Sensibull is NOT a dependency: no official
+             public API (unofficial scrapers are fragile and against its
+             terms), and it is built on Kite Connect, which we already use.
+             Not bridgeable under the current rules: market making / spread
+             capture, intraday delta hedging, leverage finer than whole lots
+             (one NIFTY lot ~Rs 15 lakh notional).  Steps, cheapest first:
+[ ] P3  OX1  Chain recorder: NIFTY (later SENSEX) option chain ~3 snapshots a
+             day from Kite quotes (5-level bid/ask, OI, our IV) into our own
+             store; records only, never trades; needs the daily login.  Its
+             value grows with time, so start it first when OX resumes.
+[ ] P3  OX2  Expired-option minute data 2019-25 (ICICI Breeze, reported ~3
+             years down to seconds; or Dhan HQ; Upstox reported unreliable;
+             paid NSE vendors TrueData / Global Datafeeds for tick bid/ask).
+             Kite has none for expired options.  Verify coverage and cost,
+             then rebuild the options backtests on synchronous 15:15 prices:
+             the root fix for OP1's stale marks.
+[ ] P3  OX3  Margin model (was OP2): Kite's basket-margin API live, NSE's daily
+             SPAN risk-parameter files for history; size every structure
+             within broker margin, not only maximum loss (O6-A's calendars
+             reached ~Rs 5.1 crore notional on Rs 7.5 lakh).
+[ ] P3  OX4  Execution layer: limit orders anchored on the mid with a bounded
+             walk, no fills in the opening minutes (options have no opening
+             auction), server-side GTT stops on option legs (they trigger
+             without a login), and a scheduled options paper book.
+[ ] P3  OX5  Breadth: NIFTY weeklies (data in hand) and BSE SENSEX weeklies
+             (needs BSE F&O bhavcopies; Kite trades BFO).  Stock options stay
+             capital-blocked (Rs 5-15 lakh lots, physical settlement).
+[ ] P3  OX6  After OX1-OX4: re-test the books' ideas where data was binding -
+             Natenberg's implied-vs-forecast volatility trades, calendars,
+             defined-risk weekly credit spreads held overnight - as new
+             pre-registered rounds.  Decide then (yours): judge overlays on
+             gate 2 plus a significance test on the Sharpe improvement
+             instead of standalone DSR at raw N (DSR >= 0.95 at N = 17 needs
+             an observed Sharpe of ~0.9 over 13 years).
+[ ] P3  OP1  Options engine: mark an untraded or thin leg at a model price from
+             its own expiry's smile, not its stale last close (O6-A's Jan
+             2018 call: 251.0 then 337.75 with spot up).  Mark noise
+             inflates multi-expiry volatility and fools gate 2's CAGR /
+             alpha (a -30%/+30% swing has a positive arithmetic mean).
+             Also: refuse an adjustment the cash cannot pay for (O7-B's
+             2007-25 equity went below zero).  Before any further calendar,
+             diagonal or adjustment round; superseded at the root by OX2.
+[ ] P3  MV1  Minervini's rules on the core (core family; after V3, Jan): VCP
+             entry timing as a filter on the core's buys; a 10% max-loss
+             cap; breakeven stop at +20%; progressive exposure after the
+             gate re-opens; no topping up a position below its entry.  One
+             configuration each, pre-registered.  The earnings screen
+             waits for GT1.
+[ ] P2  GT4  Selective value / quality sleeve (needs GT1, GT10): <= 3
+             pre-registered configurations, Jan-Mar 2027; a beta-hedged
+             variant only once capital covers a NIFTY lot.  Factor-index
+             ETFs fail (they lowered Sharpe 1.22 -> 1.05-1.18 in scoping,
+             review 1.1).  Gate: Sharpe >= 0.5, monthly corr <= 0.3, combined
+             Sharpe +0.10.
+[ ] P2  GT5  MCX commodity trend sleeve (needs GT2, GT10): <= 3
+             configurations; trade once capital reaches ~Rs 15-20 lakh.
+[ ] P2  GT6  Combine passing sleeves at fixed equal-risk weights with a
+             portfolio drawdown cushion; walk-forward 2017-25; combined DSR
+             at total N.  Gate: Sharpe >= 1.30, MaxDD <= 1.6 x vol.
+[ ] P3  GT7  Earnings-drift overlay on the core ranking (needs GT1; core
+             family: one configuration, after V3).
+[ ] P3  GT8  Futures leverage <= 1.3-1.5x (never MTF): only at >= ~Rs 1
+             crore (lots ~Rs 15 lakh) and after 12+ months of live combined
+             tracking; half-Kelly on a haircut Sharpe of 0.7.
+[ ] P3  GT9  Costs and tax: staggered rebalance tranches and wider exit
+             bands (core family, one configuration, after V3); 20% STCG
+             takes ~5 pts a year.
+[ ] P3  GT11 Exclusion filters (NSE ASM/GSM lists; promoter pledge > 20%)
+             and live benchmarks (NIFTY200 Momentum 30, Midcap150 Momentum
+             50, Alpha Low-Vol 30) in the scorecard.
 [ ] P2  LN-T30 Locked lower circuits in the backtest (LN-T14 replay): the
              model fills gap stops and exits on days a stock opens locked at
              its lower circuit, which no order can sell (CASTEXTECH, Jul-Oct
@@ -439,6 +584,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              with hysteresis (~+0.3 pt CAGR after tax; would be cost model
              5).  Medium.  PREREQUISITE: do IC2 first, before the first
              cost-model-5 run is recorded.  Detail: lean_review.md item 29.
+             GT3 (11 Oct) confirmed the vehicle and size: a growth-type
+             liquid ETF on the exchange (not LIQUIDBEES, not an arbitrage
+             fund); the book is 12.8% idle on average, so +0.3-0.4 pt after
+             tax.  Also waits for ST2 / LN-T11's funding answer.
 [ ] P3  IC2  Cost-model stamping, latent (IC1 review; none bites today):
              walk-forward fold files, the stitched summary and holdout.lock
              carry no cost model; the books register's validation fallback
@@ -468,6 +617,73 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+11 Oct  GT3  Cash engine decided (golden_target_review.md section 6.1): park
+             idle cash in a growth-type liquid ETF on the exchange
+             (LIQUIDCASE / CASHIETF / LIQUIDADD) through the existing CNC
+             path, with LN-T29's hysteresis, after go-live.  Measured on the
+             deployed run: idle cash averages 12.8% (median 5.6%; half or
+             more idle on 8.8% of days, in spells of a median 3 sessions),
+             because risk-off weight goes to the metal sleeve.  Worth
+             +0.83 pt a year at most pre-tax, +0.3-0.4 pt after tax with
+             hysteresis, not the +2-3 the research memo assumed (the review
+             is corrected).  Arbitrage funds rejected: at most +0.09 pt more
+             after tax, and fund orders (Kite place_mf_order) deal at NAV
+             after cut-off and redeem in 1-3 days, too slow for 3-session
+             spells.  No code; carried out by LN-T29 after IC2.
+11 Oct  GT10 Research protocol: docs/research_protocol.md.  Families and
+             their registries and budgets (core closed except V3; options
+             <= 3 per source, N 17; equity sleeves own registry; event
+             studies), pre-registration contents and template, Kaggle-only,
+             debugging runs and scoping looks, what may change before and
+             after a run, gates 1 and 2 (overlay and funded-sleeve forms),
+             paper by tracking, live haircuts, leverage, the never-list, how
+             a result is recorded.  A document, no trial.
+11 Oct  O9   Minervini's SEPA as an equity sleeve (nse_engine/sepa.py; own
+             registry runs_sepa, N = 1; pre-registered plan 5x, 23:25 IST
+             10 Oct): CLOSED.  Trend Template + VCP bases from confirmed
+             swing points + pivot breakouts, 7.5% stops, 10 slots.  Kaggle
+             2013-25: 80 trades (47 more missed on gap-ups), hit 30%,
+             win/loss 2.39, but only 4% invested on average: CAGR 0.05%,
+             Sharpe -2.24 (vs 6.5% rf), DSR 0.00.  0.25 of the book in it:
+             CAGR 23.1% -> 17.1%, Sharpe 1.16 -> 0.98.  Its rules for the
+             core are backlog MV1 (after V3).
+10 Oct  O5-O8 Your five books (research_inbox/) as options rounds: all
+             closed, nothing to paper-trade.  Intake agents read each book
+             in full.  Pre-registered in plan 5x (23:17 IST) before any run.
+             New engine kite_connect/options/structures.py (multi-leg,
+             delta-hedged, settlement-keyed) and book_rounds.py (7
+             configurations).  Kaggle 2013-25, options N 10 -> 17:
+             Cordier & Gross trend credit spread / naked short Sharpe 0.25 /
+             0.26 (~2% a year); Natenberg calendar 0.24 (~0%), conditional
+             iron fly 0.20; Jabbour & Budwick regime debit sleeve -0.54 /
+             -0.44 with adjustments; Ursone term calendar 0.06.  DSR <= 0.04
+             (bar 0.95); every overlay lowers the book's Sharpe (1.163).
+             At a 10% risk budget instead of 50%: Sharpe -0.33 to 0.20, so
+             sizing is not the cause.  Found: thin second-month closes are
+             stale prints that swing marks +/-30% (OP1).  2007-25
+             (reported): no better.
+10 Oct  GT13 Pre-announcement drift on NSE (your ask: the "8 days, 80% of
+             gains" Fed paper, Lucca & Moench 2015): FAIL, no sleeve.
+             Pre-registered (plan 5w, 22:11 IST) before any number:
+             H1 long NIFTY from the open of the session before an RBI policy
+             announcement to the announcement day's open; H2 the Indian
+             session before an FOMC statement, open to next open; both
+             AMO-tradable.  Verified dates (rbi.org.in, federalreserve.gov):
+             92 scheduled RBI, 119 FOMC.  2013-25: RBI +10.8 bp a window
+             (t 1.16), FOMC +8.4 bp (t 0.91); after an 18.5 bp NIFTYBEES
+             round trip both negative.  The windows hold ~13% of NIFTY's
+             excess return in 2.4-3.2% of sessions: the paper's direction,
+             not significant, far from 80%.  nse_engine/event_drift.py (with
+             a schedule command for upcoming events); NIFTYBEES priced at the
+             ETF STT rate in costs.py (as MON100).
+10 Oct  GT   Golden target review: docs/golden_target_review.md (three web
+             research memos, an engine audit, scoping on the deployed book's
+             returns; nothing recorded, no trial).  Futures leverage 1.75x:
+             35% CAGR at -42% MaxDD, Sharpe 1.13; MTF lowers Sharpe;
+             volatility targeting hurts this book (Sharpe 1.07-1.09);
+             factor-index ETF blends lower Sharpe.  The target needs a live
+             Sharpe ~1.4: new data (fundamentals, MCX), a cash engine, then
+             leverage at >= Rs 1 crore.  GT0-GT11 opened.
 10 Oct  LN-T27 Options toolkit IVs for ITM legs (Lean's smoothing rule).  The
              live chain adds iv_strike (the OTM option's IV for both options
              at a strike, else the other's) and iv_source (own / mirror /
