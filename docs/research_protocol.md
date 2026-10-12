@@ -27,8 +27,8 @@ trials never enter another family's PBO or deflated-Sharpe matrix.
 | Core (the live engine and its variants) | `data/nse_engine/runs` | **Closed** except V3's forward gate: one configuration left before January. After V3, queued core tests (MV1, GT7, GT9, GT11) take **one configuration each**. |
 | Options (U32) | `data/nse_engine/runs_options` | **At most 3 configurations per source**, one round each (O5, O6, …). N = 17 after O8; PBO 14.1%. Rounds needing bid/ask, calendars or weeklies wait for the OX bridge. |
 | Equity sleeves | `data/nse_engine/runs_<sleeve>` (O9: `runs_sepa`) | At most 3 configurations per sleeve. A new sleeve gets its own registry. |
-| Commodity (GT5, MCX futures) | `data/nse_engine/runs_mcx` | At most 3 configurations. 2 pre-registered 11 Oct (plan 5y), to run Jan–Mar 2027. |
-| Value (GT4) | `data/nse_engine/runs_value` | At most 3 configurations. 2 pre-registered 11 Oct (plan 5z); the third is kept for a beta-hedged variant once capital covers a NIFTY lot. |
+| Commodity (GT5, MCX futures) | `data/nse_engine/runs_mcx` | At most 3 configurations. N = 2 after GT5 (12 Oct, plan 5y: both FAIL, closed); the third stays unused unless a new source justifies it. |
+| Value (GT4) | `data/nse_engine/runs_value` | At most 3 configurations. N = 2 after GT4 (12 Oct, plan 5z: both FAIL, closed); the third is kept for a beta-hedged variant once capital covers a NIFTY lot. |
 | Event studies (e.g. GT13) | none; the verdict goes in the plan | The study's hypotheses count as its N (GT13: N = 2). A study that becomes a sleeve then starts a family. |
 
 **Budget rules:**

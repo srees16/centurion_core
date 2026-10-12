@@ -359,6 +359,19 @@ jobs:
                  "then rebuild the store."])
           EOF
 
+      # Tracker CR1: a facts-only email when NIFTY first closes 20/30/40% below its peak in a
+      # fall, or its 50-day average closes back above the 200-day; each level once per fall.
+      # No buy wording: no buy rule passed its test (plan 5ab / 5ac).
+      - name: NIFTY fall levels (facts only)
+        continue-on-error: true
+        env:
+          CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
+          CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
+          CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
+          CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
+          CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+        run: python -m nse_engine.crash_recovery alert
+
       # Every book's 2013-25 backtest against its expected statistics (tracker LN-T13): a code,
       # dependency or runner change that moves a book with its hashes unchanged is emailed, and
       # drift=true lets CENTURION_CANARY_DRIFT_ACTION=dry-run hold the live book to a dry run.

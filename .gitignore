@@ -90,6 +90,7 @@ data/rl_models/
 # ============ Secrets & Credentials ============
 .env
 .env.*
+!.env.example
 *.pem
 *.key
 secrets/

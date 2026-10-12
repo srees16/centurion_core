@@ -49,3 +49,6 @@ stable-baselines3
 shimmy
 # a2a-sdk[http-server]==0.3.20
 sensibull-quotes
+
+# Kaggle CLI: research runs (cloud.kaggle_local) and the off-machine backup (cloud.backup).
+kaggle==2.2.4

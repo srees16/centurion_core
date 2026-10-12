@@ -132,7 +132,11 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                recorded and counted (V2).
   3 Drawdown   -24.7% leaves 5 points of budget; gross 1.0 spends 3.5, 1.2x
                all of it.  The drawdown rule (E2) trims 1.5 points at 20/30/35
-               and its half / risk-off legs never fired in-sample.  2008
+               and its half / risk-off legs never fired in-sample.  Re-measured
+               11 Oct (DD1) on today's deployed book: 2013-25 it costs 0.3 pt
+               CAGR and 1.7 pts of MaxDD (-25.6% vs -23.9%; Sharpe 1.151 vs
+               1.164).  2007-10 it saves 5 pts (2008 -31.9% vs -37.0%; MaxDD
+               -35.4% vs -40.3%).  Crash insurance, kept.  2008
                tested (R4): with the rule the book lost 32.9% (the rule
                went half for 26% and halt for 17% of 2008), past the soft
                30% but inside 35%; the candidate lost 26.9%.
@@ -357,48 +361,6 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              What it never does: re-tune the live core outside V3's forward
              gate, or spend more than a family's trial budget; every attempt
              counts in its family's N.
-[~] P1  GT1  Point-in-time results store (nse_engine/data/fundamentals.py;
-             unblocks GT4, GT7 and MV1's earnings screen).  Full run started
-             11 Oct 10:10 IST, detached; script and log are in
-             data/nse_engine/fundamentals/.  Every list and document is
-             saved as it arrives.  A login agent
-             (~/Library/LaunchAgents/com.centurion.gt1-fundamentals.plist)
-             opens run.sh in Terminal at every login.  run.sh hands over at
-             once to a detached worker, so the Terminal window can be closed
-             and cannot stall a shutdown.  The worker retries every 10
-             minutes until the store is built.  Sleep and lost internet
-             only pause it; a shutdown stops it, and the next login resumes
-             it (both tested 11 Oct).  On mains power it keeps the Mac
-             awake.  A document NSE refuses on 3 passes, while still serving
-             others, is recorded as missing, so the run always finishes.
-             When it finishes it writes run.done.  At GT1's DONE, remove
-             the agent:
-               launchctl bootout gui/$(id -u)/com.centurion.gt1-fundamentals
-               rm ~/Library/LaunchAgents/com.centurion.gt1-fundamentals.plist
-             Stages:
-             - filing lists, 2012 onward: about 45 min;
-             - about 90k result documents for the ~1,500 names ever in the
-               top 500: about 12-20 h at 2 requests/s;
-             - the build.
-             What it holds:
-             - every quarterly result from 2012, for all companies, with
-               the time NSE published it and the first session that could
-               use it;
-             - revenue, profit, EPS and share count for the top-500 names,
-               2012-25.  NSE's old result pages run to mid-2018 and XBRL
-               after; about a quarter of Q1 FY19 filings have neither;
-             - book equity from the Q2 and Q4 XBRL filings (2018 onward);
-             - board-meeting dates (sparse before 2016).
-             It is a separate store with its own data hash; the engine's
-             fingerprint is unchanged.
-             Left: check coverage when the run ends, then record DONE with
-             the hash.  Kaggle staging is ready (11 Oct).  At close-out,
-             delete run.sh, sync.log, run.pid and run.done, then upload:
-               python -m cloud.kaggle_local push-store --store-dir
-                 data/nse_engine/fundamentals --slug centurion-nse-fundamentals
-             GT4 then runs with "run --attach centurion-nse-fundamentals"
-             (beside the equity store), and finds the store with
-             cloud.kaggle_runner.find_fundamentals_dir.
 [~] P1  P3   Paper trading to 60-90 sessions (10 done; ~Jan 2027).  Judged on
              behaviour: tracking error <= 8%/yr, costs <= 1.5x model, MaxDD
              vs backtest: the G4 gate, in every daily email.  Mon 28 Sep is the first session
@@ -499,12 +461,14 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                     Add a 2026 walk-forward fold (OOS 2017-26).  Record the
                     new baselines (scorecard, metrics journal).
                  3. Bundle LN-T30 (no fills on locked lower circuits), which
-                    waits for "the next re-baseline".  If that bumps the cost
-                    model, do IC2 first.
+                    waits for "the next re-baseline", and LN-T29 (idle cash
+                    into a liquid ETF; your call 11 Oct).  LN-T29 makes cost
+                    model 5, so do IC2 first.
                  4. Other families (options, sepa, value, commodity): move
                     each onto 2013-26 before its next trial.
-                 5. Before their first runs, change GT4, GT5, GT7 and MV1's
-                    window to 2013-26 (5y, 5z, 5aa) by dated clarification.
+                 5. Before their first runs, change GT7 and MV1's window
+                    to 2013-26 (5aa) by dated clarification (GT4 and GT5
+                    ran on 2013-25, 12 Oct).
                  6. Docs: the protocol's window rule, the plan's stage gates,
                     CK1's first January run.
                  Never: re-tune on the new year.  It enters as evidence;
@@ -602,81 +566,6 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              year in each of the last 2 quarters, revenue up, turnarounds
              >= +100%.  It runs after V3, against the configuration V3
              leaves live.                                Prompt: do MV1
-[ ] P2  GT4  Selective value / quality sleeve (needs GT1, GT10): <= 3
-             pre-registered configurations, Jan-Mar 2027; a beta-hedged
-             variant only once capital covers a NIFTY lot.  Factor-index
-             ETFs fail (they lowered Sharpe 1.22 -> 1.05-1.18 in scoping,
-             review 1.1).  Gate: Sharpe >= 0.5 and combined Sharpe +0.10,
-             with monthly correlation reported (your call 11 Oct: no longer a
-             pass rule).
-             Pre-registered 11 Oct 14:17 IST (plan 5z), 2 of 3
-             configurations; the third is kept for the beta-hedged variant:
-             - GT4-A, cheap and profitable: top 25 by E/P among profitable
-               names, exit band 50;
-             - GT4-B, QMJ-lite: E/P, margin, growth and low volatility
-               ranks.
-             Both use a top-500 universe, monthly decisions, a Rs 5 lakh
-             sleeve, no stops and no regime gate, and read GT1's data point
-             in time.  Correlation is reported, not a gate (your call
-             11 Oct; plan 5z clarification).             Prompt: do GT4
-[ ] P2  GT5  MCX commodity trend sleeve (needs GT2, GT10): <= 3
-             configurations; trade once capital reaches ~Rs 15-20 lakh.
-             Pre-registered 11 Oct 13:10 IST (plan 5y), 2 of 3
-             configurations:
-             - GT5-A: the 12-month time-series momentum sign;
-             - GT5-B: the 1/3/12-month multi-horizon signal.
-             Both trade 6 minis (silver micro, crude mini, natural gas mini,
-             aluminium, zinc and lead minis), rebalanced monthly, sized to
-             40% volatility per instrument / 6.  Your capital choice (11
-             Oct): a Rs 5 lakh sleeve, 25% of a Rs 20 lakh book, in whole
-             lots.  Gates:
-             - gate 1 (DSR >= 0.95 over 6.5%);
-             - gate 2 (0.75 book + 0.25 sleeve raises CAGR, Sharpe and
-               alpha; MaxDD within 2 pts);
-             - Sharpe >= 0.5; combined Sharpe +0.10; t >= 2;
-             - monthly correlation is reported, not a gate (your call
-               11 Oct; plan 5y clarification).
-             Clarifications are allowed until the first run, dated in 5y.
-             Runs Jan-Mar 2027 on Kaggle (run --attach centurion-mcx-store);
-             the sleeve code is written then.            Prompt: do GT5
-             IF GT5 PASSES (plan 5y; research protocol 6), in order:
-             1. GT6: combine the passing sleeves (GT4 / GT5) at fixed
-                equal-risk weights.  Walk-forward 2017-25; combined DSR at
-                the total N; gate Sharpe >= 1.30.  A pass on its own does
-                not go to paper.
-             2. You: activate the commodity segment on Zerodha (it needs
-                income proof).  Confirm the margin and the auto square-off
-                before the tender period on physically settled contracts;
-                GT5's 10-day roll guard assumes an exit before it.
-             3. Me: build an MCX paper book, in three parts:
-                - data: daily marks.  GitHub's runners may not reach MCX's
-                  site (NSE's archive timed out there), so read Kite's
-                  daily candles for MCX futures in the paper workflow;
-                - logic: the monthly decision and the rolls, from GT5's
-                  rules and the store;
-                - a shadow backtest beside it.  The daily email reports
-                  tracking error, cost ratio and drawdown, as G4 does.
-             4. Paper: at least 60 sessions, about 3 monthly rebalances and
-                their rolls.  Judged on tracking, not Sharpe.  No real
-                orders.
-             5. Me: build the live path before going live:
-                - Kite orders on MCX, product NRML, placed in the evening
-                  session near the close (MCX trades to about 23:30);
-                - roll orders as two legs;
-                - the kill switch and live risk limits extended to the
-                  sleeve;
-                - CRITICAL alerts for rejected or unfilled orders.
-                Test it once supervised, as ST2 did for equity sells.
-             6. Live, at small size, once the book reaches about Rs 20
-                lakh (a Rs 5 lakh sleeve, 25%).  Plan on 0.6-0.7x the
-                backtest Sharpe.  A drawdown beyond the simulated 95th
-                percentile triggers a review.  Tax: MCX profits are business
-                income, taxed at your slab rate.
-             IF IT FAILS: record it in DONE and 5y; no re-tuning.  The MCX
-             store stays for any future commodity idea.
-[ ] P2  GT6  Combine passing sleeves at fixed equal-risk weights with a
-             portfolio drawdown cushion; walk-forward 2017-25; combined DSR
-             at total N.  Gate: Sharpe >= 1.30, MaxDD <= 1.6 x vol.
 [ ] P3  GT7  Earnings-drift overlay on the core ranking (needs GT1; core
              family: one configuration, after V3).  Pre-registered 11 Oct
              14:17 IST (plan 5aa): standardised unexpected earnings (SUE) as
@@ -686,6 +575,14 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 [ ] P3  GT8  Futures leverage <= 1.3-1.5x (never MTF): only at >= ~Rs 1
              crore (lots ~Rs 15 lakh) and after 12+ months of live combined
              tracking; half-Kelly on a haircut Sharpe of 0.7.
+             L5 (11 Oct) tightened this:
+             - static leverage only; monthly re-estimated Kelly lost out
+               of sample;
+             - cap 1.25x until the book's Sharpe nears 1.4 (P(MaxDD >
+               35%) is 21% at 1.25x and 50% at 1.5x);
+             - stock futures need about Rs 2 crore (median lot Rs 9
+               lakh, about half the book's weight eligible);
+             - paper-trade the futures mechanics first.
 [ ] P3  GT9  Costs and tax: staggered rebalance tranches and wider exit
              bands (core family, one configuration, after V3); 20% STCG
              takes ~5 pts a year.
@@ -719,6 +616,12 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              liquid ETF on the exchange (not LIQUIDBEES, not an arbitrage
              fund); the book is 12.8% idle on average, so +0.3-0.4 pt after
              tax.  Also waits for ST2 / LN-T11's funding answer.
+             Your call 11 Oct: do it inside RF1's January re-baseline (one
+             re-baseline, not two), after IC2.  Not gilt or Bharat Bond ETFs
+             (rate risk of 5-10% on a 1% yield move; thin trading).  Not
+             GOLDBEES (about 15% volatility; the metals sleeve already holds
+             gold when it trends).  It also removes the flat-equity case
+             DD1 guards against.
 [ ] P3  IC2  Cost-model stamping, latent (IC1 review; none bites today):
              walk-forward fold files, the stitched summary and holdout.lock
              carry no cost model; the books register's validation fallback
@@ -737,9 +640,14 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              14.6% (every step of leverage lowers Sharpe).  At L4's terms
              the one backtest candidate is E1 at 1.1x: 25.4% / -28.6% /
              Sharpe 1.15 (scaled, no margin calls; below 25% after a live
-             haircut).  Must model docs/leverage_due_diligence.md section 6
-             (funding per calendar day, MTF fees, eligible names only,
-             80%-loss square-off, T+5 shortfall).  Proposed pass rule
+             haircut).  Must model, as the L4 study listed:
+             - funding of 0.04% per calendar day from T+1;
+             - Rs 20 per MTF order and Rs 17.70 per pledge / unpledge;
+             - eligible names only, at their margin (VaR + 3x or 5x ELM;
+               proxy 25-40%);
+             - daily mark-to-market calls; square-off at an 80% loss of
+               the funded amount; liquidation after a T+5 shortfall;
+             - no collateral margin from MTF-pledged shares.  Proposed pass rule
              (change first if you like): net CAGR >= 25%, MaxDD <= 35%,
              Sharpe within 0.05.
 [ ] P3  L2   NIFTY futures overlay: CLOSED on evidence.  Reopen only if L4
@@ -748,6 +656,206 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+12 Oct  SEC3 Credentials in public git history: CLOSED, nothing left to
+             rotate.  Prompted by your question about the API key in the
+             login email.
+             - The API key in the login URL is the app's public id.  It is
+               masked in Actions logs (0 occurrences on 12 Oct).
+             - A history scan found your Zerodha user id and an old login
+               password in 82d1906 (Feb), and the same password as Finviz's
+               in 7b9f7f1 (Nov 2025).  You changed it in March, updated it
+               everywhere, and log in with the authenticator app.
+             - Already rotated: the API secret (SEC1), the session key (env
+               since 8 Oct), Neon (U30), the default admin logins (SEC1).
+             - The rest are README placeholders or local dev defaults.
+12 Oct  GT5  MCX commodity trend sleeve: FAIL, closed; GT6 closed with it
+             (no passing sleeve to combine).  Run now instead of Jan-Mar
+             2027 (your call), on 2013-25 as pre-registered (plan 5y).
+             Clarification fixed before the run (08:46 IST): MCX delisted
+             the crude and base-metal minis from 2019-20 to 2023, so the
+             large contract stands in there, as before a mini's first
+             session.  Kaggle, commodity family N = 2 (runs_mcx):
+             - GT5-A (12-month sign, MOP): CAGR 2.4%, Sharpe -0.06, MaxDD
+               -54%, DSR 0.40;
+             - GT5-B (1/3/12-month signs, HOP): 3.4% / -0.09 / -39%, DSR
+               0.37.
+             Correlation with the book was about 0 (0.04 / -0.01), and 0.25
+             of the book in it cuts MaxDD by 3-6 pts.  But the sleeve earns
+             less than the 6.5% hurdle: book CAGR 23.1% -> 18.4%, Sharpe
+             1.16 -> 0.96-1.01.  Gross trend P&L was positive on all six
+             (about Rs 4-5 lakh on Rs 5 lakh over 13 years).  Costs took 3-4%
+             a year, mostly slippage on monthly roll legs.  Even with margin
+             cash earning 6.5% (one look): Sharpe 0.19 / 0.25.  2008: A
+             -6%, B +31%.  2026, opened once (to 9 Oct): A +21%, B +18%,
+             against NIFTY 50 TRI -13%, reported only.  Code:
+             nse_engine/mcx_trend.py (Kaggle task "mcx"; evaluate);
+             nse_engine/validation/sleeve_gates.py now holds the sleeve
+             pass rules for GT4 and GT5.  For the golden target, both
+             diversifiers failed.  Left: GT7 and MV1 (core, after V3), then
+             GT8 (leverage).
+12 Oct  GT4  Selective value / quality sleeve: FAIL, closed; nothing to
+             paper-trade.  Run now instead of Jan-Mar 2027 (your call), on
+             2013-25 as pre-registered (plan 5z).  Clarifications were fixed
+             before the run (08:05 IST):
+             - quarters of at most 100 days; four consecutive quarters per
+               TTM;
+             - an owners' profit of 0 beside a real profit counts as blank;
+             - a data guard: profit / market cap must agree within 2x with
+               EPS / price.  NSE's older pages have mis-scaled amounts and
+               swapped share counts; without the guard, 3-9 of the top 25
+               were faults.
+             Kaggle, value family N = 2 (runs_value):
+             - GT4-A (top 25 by E/P): CAGR 14.7%, Sharpe 0.43, MaxDD -68%,
+               DSR 0.88 -> fails every rule;
+             - GT4-B (E/P + margin + growth + low vol): 16.8% / 0.69 /
+               -41%, DSR 0.98 (gate 1 passes), alpha +4.8% (t 1.65), beta
+               0.73.  Fails gate 2: 0.25 of the book in it gives 21.7% /
+               1.135 / -26.5% vs the book's 23.1% / 1.163 / -23.9%.
+             Correlation with the book was 0.56-0.63, not the 0.4-0.5
+             hoped for.  Value earned in 2020, 2022 and 2023 but lost more
+             in 2013 and 2018-19.  2026, opened once (to 9 Oct): A +5.9%,
+             B -6.8%, NIFTY 50 TRI -13.0%.  The beta-hedged third
+             configuration stays reserved: B's information ratio is about
+             0.46, under the 0.5 bar.  Code: nse_engine/value.py (Kaggle
+             task "value"; evaluate); kaggle_local stages
+             kite_connect/trading/book_events.py.  For the golden target:
+             the equity-side diversifier is gone; GT5 (MCX trend) and GT7
+             remain.
+12 Oct  BK1  Off-Mac backup and "clone and code" pipeline: DONE.  Everything
+             that lives only on disk goes to private Kaggle datasets,
+             centurion-backup-* (about 8 GB):
+             - the core trial registry, one dataset per ISO week;
+             - the raw archive, one per year;
+             - the stores;
+             - a state piece: the runs_* registries, walk-forward results,
+               scorecards, holdout.lock, manifests, scheduler scripts and
+               the assistant's memory.
+             Only changed pieces go up; the weekly refresh (DR1) pushes as
+             its last step.  Single writer: centurion-backup-lock names this
+             Mac; take-over moves it.  Each piece is one file
+             (<slug>.tgz.blob), which Kaggle keeps as is.  The first push let
+             Kaggle unpack .tar.gz files, and then 4 pieces would not
+             download (404) and restore put stores one folder too high; both
+             were fixed and everything re-pushed 11 Oct (23:08-00:28).
+             End-to-end test in a temp copy of the repo: the 3 pieces
+             restored matched this Mac file for file (MCX store 24, archive
+             2008 1,045 and registry week 41 11,712 files, 1.2 GB in 3 min).
+             The MCX store loads, memory went to both folder keys, and a
+             re-run skips current pieces.  Code: cloud/backup.py and
+             cloud/devsetup.py, plus CLAUDE.md, .github/copilot-
+             instructions.md and .env.example; not committed yet.  New
+             laptop steps: docs/README.md, Quick Start, "Engine, research
+             data and coding assistants".
+12 Oct  GT1  Point-in-time results store: DONE.  Data hash 83fd93702acbf1d1
+             (fundamentals v2): 166,910 results and 163,688 board meetings,
+             data/nse_engine/fundamentals (24 MB; code
+             nse_engine/data/fundamentals.py).  Run 11 Oct 10:10 -> 12 Oct
+             02:39 IST: 95,342 documents for the ~1,500 names ever in the top
+             500.  Of their filings, 7,143 have no usable document, half of
+             them in 2018-19 (the switch from result pages to XBRL).
+             Coverage, the share of the top-500 universe with four known
+             quarters of profit at each refresh: 89-91% in 2013-18, 93% in
+             2019, 95-98% in 2020-25 (93% overall); revenue the same.
+             Fixed at close-out: the Dec 2011 and Mar 2012 quarter pages say
+             "Net Sales/Income from Operation" (singular), so their revenue
+             was missed and only 51% of 2013's universe had TTM revenue; now
+             91%.  One regex; version 2 re-parsed every year from the saved
+             documents (1 min); status counts unchanged.
+             Uploaded to Kaggle as centurion-nse-fundamentals; GT4 attaches
+             it.  Task files and the login agent removed.  From now on the
+             weekly refresh (DR1) syncs and rebuilds it, and BK1 backs it up.
+11 Oct  CR1b Crash-recovery tranches on recovery signals (your 30/40/30
+             idea): FAIL; CR1 closes for good, no advisory.  Pre-registered
+             (plan 5ac, 22:10 IST) after CR1 failed, with CR1's two rules,
+             dividends added (India 1.3%, Japan 1%, others 2%) and a new
+             rule 3: beats cash >= 70% in each half of history.
+             - D: 30% on a 10% bounce off the low, 40% at a 60-day high,
+               30% on the 50/200-day cross: beats cash 72%, median +0.190,
+               worst 0.537 vs L20 0.368; halves 61% / 82% -> FAIL, rule 3;
+             - E: 30% at -30%, 40% at -40%, 30% on the cross: 74%, +0.182,
+               worst 0.555; halves 61% / 87% -> FAIL, rule 3;
+             - F: everything at a 60-day high: 70%, worst 0.325 (it bought
+               the 1930 rally) -> FAIL, rules 1-3.
+             The older half (before Jun 2000) fails on slow bears: Japan
+             1990, Asia 1997-99, early dot-com, 1929.  Reported only: at 5
+             years, D and E would pass (76% / 79%, halves >= 71%); without
+             2000-03 too; India D and E 85%.  Choosing those after the
+             result would be fitting.  Takeaway for your own decisions:
+             buying after a deep fall pays about 3 times in 4 if you can
+             wait 5 years, and ending on the 50/200 cross halved the worst
+             case against a lump sum.  No rule times it at 3 years.  The
+             family has 6 trials; no further variants.  Code:
+             nse_engine/crash_recovery.py report-b (CR1 report unchanged,
+             checked identical).
+             Facts-only alert (your OK): the daily paper job (step "NIFTY
+             fall levels") emails a warning when NIFTY first closes 20%,
+             30% or 40% below its peak in a fall, and when its 50-day
+             average closes back above the 200-day.  Each level is sent once
+             per fall: alert(once=True) in services/notifications/alerts.py;
+             a 3-session lookback covers a missed run.  No buy wording.
+             Local: python -m nse_engine.crash_recovery status | alert
+             --dry-run.  Today: NIFTY -14.5% from its peak; an episode
+             starts at 21,063.  Live after you merge to main.
+11 Oct  CR1  Crash-recovery capital advisory (your idea): FAIL, closed; no
+             advisory built.  Pre-registered (plan 5ab, 21:17 IST): fresh
+             money into a NIFTY ETF after an index falls 20%+, in stages;
+             pass = beats 4% cash in >= 70% of episodes with median excess
+             > 0, and a worst episode better than a lump sum at -20% (L20).
+             89 episodes in 13 indices (1929-2022), reserve after 3 years:
+             - A (1/3 at -30%, 1/3 at -40%, rest on the 200-day reclaim):
+               beats cash 66%, median +0.120, worst 0.331 vs L20 0.347;
+             - B (all on the reclaim): 66%, +0.110, worst 0.283;
+             - C (1/2 at -30%, 1/2 at -40%): 65%, +0.104, worst 0.355.
+             Every arm's median trails L20's.  A third of episodes still
+             trail cash after 3 years.  The 200-day reclaim fires before
+             -30% in 51 of 89 episodes.  The worst episode is the S&P 500
+             in 1929 for every arm.  India only (NIFTY + Sensex, about 8
+             independent falls; reported): C would pass (77%, worst 0.83).
+             Too few falls to build on.  Caveat: price indices, so the
+             equity arms miss about 2% a year of dividends.  One crude look
+             puts all three at 73-78%, but a total-return re-run designed
+             after that look is not clean evidence.  Fixed before recording:
+             NIFTY's cash was at 6.5% in the gate; now 4% as pre-registered
+             (same verdict).  nse_engine/crash_recovery.py stays (report;
+             status shows NIFTY against the levels).  The drawdown rule and
+             DD1 are unchanged.
+11 Oct  DD1  Drawdown rule re-arm fixed (plan 5e, pre-registered 17:37 IST).
+             An all-cash book (flat equity) never re-armed from halt, half or
+             risk-off: the re-arm needed equity strictly above its 60-session
+             high.  Now it is "at or above", so a flat book re-arms after 60
+             sessions and the regime gate still decides exposure.
+             nse_engine/drawdown.py, one comparison; the backtest and the
+             live executor share it.  PASS:
+             - 2013-25 and 2007-10 equity paths identical before and after
+               (no-op on all history; never triggered);
+             - synthetic halt or risk-off with flat equity re-arms at
+               exactly 60 sessions; falling equity never re-arms;
+             - suite 216 passed.
+             Not a trial; nothing recorded.  Found on the way: on today's
+             book the rule costs 2013-25 a little and saves 2008 about 5
+             pts (note 3 under VERDICT updated).
+11 Oct  L5   Leverage re-check (your ask): no leverage now.  One scoping
+             look on the deployed run's daily returns, 2013-25, cost model
+             4; not a trial.
+             - Leverage lifts CAGR, not Sharpe; Calmar falls at every step.
+               Futures-like (rf+1%): 1.25x 26.9% / 1.146 / -30.2%; 1.5x
+               30.7% / 1.135 / -36.7%; 1.75x 34.5% / 1.127 / -42.7%.  MTF
+               at 15%: 1.5x Sharpe 0.95.  NIFTY overlay +0.25x: 1.10 /
+               -32.3%.
+             - Bootstrap P(MaxDD > 35%): 4% unlevered, 21% at 1.25x, 50%
+               at 1.5x, 76% at 1.75x.  The 5th-percentile CAGR improves
+               only 13.5% -> 16.5%.
+             - Out of sample 2017-25: static 1.25x Sharpe 1.30 vs 1.32
+               unlevered.  Dynamic half-Kelly 1.11: it de-levered into
+               2020-21, the best years.
+             - Stock futures: about half the weight is eligible; median lot
+               Rs 9 lakh, so they need about Rs 2 crore; carry rf + about
+               1%.
+             - The golden target's 35% CAGR needs about 1.75x, at MaxDD
+               about -43%: it fails the MaxDD and Calmar legs.  Sharpe
+               first (GT4 / GT5 / GT7), then GT8.
+             No backtest, walk-forward or paper trade was needed: constant
+             leverage scales returns.  New finding: DD1.
 11 Oct  DR1  Weekly research-data refresh (your ask: keep every store
              current past 7 Oct).  Code: runners/refresh_data.py, one
              command for all stores, each step its own process:
@@ -764,7 +872,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              20:30 and at login.  It runs ~/Library/Application Support/
              Centurion/refresh-due.sh, which opens
              data/nse_engine/refresh/run.sh in Terminal only when the last
-             clean refresh is 6+ days old.  That runs as a detached worker,
+             clean refresh is 6+ days old.  Last step since 11 Oct: the off-Mac backup
+             (BK1).  That runs as a detached worker,
              up to 3 attempts an hour apart, and stamps refresh_last_ok on
              success.
              First run 11 Oct 15:37:
@@ -2496,7 +2605,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              2006-09 stay unadjusted (ONGC 2006-10-27 -31.6%), so 2008
              drawdowns read ~1 pt too deep; same-data comparisons are
              unaffected (plan 5e).
-27 Sep  L4   Leverage due diligence: docs/leverage_due_diligence.md.
+27 Sep  L4   Leverage due diligence (its doc was deleted 11 Oct at your
+             request; the key facts are kept here and in E3).
              Permitted: MTF for Group I stocks, pledged to the broker;
              collateral margin cannot fund delivery, so MTF is the only
              route.  Operable after 5 account checks: DDPI makes pledges

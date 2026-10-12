@@ -31,6 +31,7 @@ Account → Create New API Token); ``check`` reports what is missing.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import logging
 import os
@@ -59,11 +60,13 @@ OUT_DIR = _ROOT / "data" / "nse_engine" / "kaggle_out"
 # options sleeves (tracker O2) need kite_connect/options; its package file is
 # copied after the directory that creates its parent.
 CODE_PATHS = ["nse_engine", "runners", "cloud", "config", "requirements.txt",
-              "kite_connect/options", "kite_connect/__init__.py"]
+              "kite_connect/options", "kite_connect/__init__.py",
+              "kite_connect/trading/__init__.py", "kite_connect/trading/book_events.py"]   # GT4's share-count rule
 
 
 # ── kaggle CLI ───────────────────────────────────────────────────
 
+@functools.lru_cache(maxsize=1)
 def kaggle_username() -> str:
     """Resolve the account name, whichever way the CLI is authenticated.
 
@@ -143,7 +146,8 @@ def _dataset_metadata(path: Path, slug: str, title: str) -> None:
     }, indent=2))
 
 
-def _push_dataset(path: Path, slug: str, title: str, message: str) -> None:
+def _push_dataset(path: Path, slug: str, title: str, message: str, wait: bool = True) -> None:
+    """Create or version the dataset (old versions deleted); ``wait`` blocks until Kaggle lists it."""
     _dataset_metadata(path, slug, title)
     existing = _kaggle("datasets", "list", "-m", "-s", slug, capture=True)
     # -t keeps files as they are (Kaggle converts tabular files to CSV otherwise);
@@ -153,7 +157,8 @@ def _push_dataset(path: Path, slug: str, title: str, message: str) -> None:
         _kaggle("datasets", "version", "-p", str(path), "-m", message, "-d", "-t", "-r", "tar")
     else:
         _kaggle("datasets", "create", "-p", str(path), "-t", "-r", "tar")
-    wait_dataset_ready(slug)
+    if wait:
+        wait_dataset_ready(slug)
 
 
 def wait_dataset_ready(slug: str, timeout: int = 900, interval: int = 20) -> bool:
@@ -220,6 +225,7 @@ def stage_code(task: str, args: List[str], heartbeat_url: Optional[str] = None,
             shutil.copytree(src, tree / rel,
                             ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "runs", "store"))
         else:
+            (tree / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, tree / rel)
     job = {"task": task, "args": args,
            "heartbeat_url": heartbeat_url or os.getenv("CENTURION_HEARTBEAT_URL", ""),
@@ -358,7 +364,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                             ("push-code", "upload code + job spec"),
                             ("run", "push code, then the kernel")):
         p = sub.add_parser(name, help=help_text)
-        p.add_argument("--task", default="walk-forward", choices=["walk-forward", "grid", "configs", "options", "sepa"])
+        p.add_argument("--task", default="walk-forward", choices=["walk-forward", "grid", "configs", "options", "sepa", "value", "mcx"])
         p.add_argument("--args", default="", help="arguments for cloud.kaggle_runner, one string")
         p.add_argument("--heartbeat-url", default=None)
         p.add_argument("--pin", action="store_true",

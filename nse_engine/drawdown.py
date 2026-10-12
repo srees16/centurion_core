@@ -11,7 +11,9 @@ account.  Evaluated at every session close, applied to the next decision:
 
 Within an episode the state only worsens.  It re-arms - back to ``normal``
 with the peak reset to today's equity, so a new episode starts - when equity
-makes a new high over the previous ``rearm_sessions`` sessions.  The rule is a
+closes at or above its high over the previous ``rearm_sessions`` sessions.  "At
+or above" lets an all-cash book, whose equity is flat, re-arm after
+``rearm_sessions`` sessions; with "above" it never would (tracker DD1).  The rule is a
 pure function of the equity history: :func:`replay` over the history from the
 start of the book gives today's state, so a live executor needs no stored
 state and cannot drift from the backtest.
@@ -79,8 +81,8 @@ class DrawdownTracker:
         e = float(equity)
         n = max(int(self.cfg.rearm_sessions), 1)
         prev = self.state
-        if self.state != NORMAL and len(self._recent) >= n and e > max(self._recent):
-            self.state = NORMAL          # re-arm: a new n-session high starts a fresh episode
+        if self.state != NORMAL and len(self._recent) >= n and e >= max(self._recent):
+            self.state = NORMAL          # re-arm: an n-session high (flat counts) starts a fresh episode
             self.peak = e
         if self.state == NORMAL:
             self.peak = e if not np.isfinite(self.peak) else max(self.peak, e)
