@@ -14,6 +14,8 @@ the subject so one mail rule can surface them:
 A ``key`` alerts at most once per IST day: the keys sent lately live in the
 book's Neon state, so the backup runs do not repeat them (without Neon, every
 call sends; an unreadable history sends rather than risks a missed alert).
+``once=True`` holds a key back while it is in that history (``KEEP_DAYS``),
+for an event that should email once, not once a day.
 Delivery is best effort: a failure is logged, never raised.  Email only, to
 the owner (``NotificationManager``'s default recipient); a push channel is
 deferred (tracker AL6).
@@ -70,15 +72,16 @@ def _history() -> Tuple[Optional[object], Dict[str, str]]:
         return None, {}
 
 
-def alert(severity: str, key: str, title: str, lines: Sequence[str] = (), book: Optional[str] = None) -> bool:
-    """Email one alert unless ``key`` already alerted today (IST); True when it was sent."""
+def alert(severity: str, key: str, title: str, lines: Sequence[str] = (), book: Optional[str] = None,
+          once: bool = False) -> bool:
+    """Email one alert unless ``key`` already alerted today (IST), or lately with ``once``; True when sent."""
     if severity not in (CRITICAL, WARNING):
         raise ValueError(f"severity must be {CRITICAL} or {WARNING}, not {severity!r}")
     now = datetime.now(IST)
     today = now.date().isoformat()
     cloud, sent = _history()
-    if sent.get(key) == today:
-        logger.info("alert %s already sent today", key)
+    if sent.get(key) == today or (once and key in sent):
+        logger.info("alert %s already sent %s", key, "today" if sent.get(key) == today else sent[key])
         return False
     run = _run_link()
     items = "".join(f"<li>{escape(str(line))}</li>" for line in lines)

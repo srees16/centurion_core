@@ -385,6 +385,40 @@ other 2007–25 runs flips. The 2013–25 window and live trading do not use
 this data. Importing the events needs a source that covers 2006–09,
 delisted names included; the 35% threshold stays.
 
+**DD1: the drawdown rule's re-arm (pre-registered 11 Oct 2026, 17:37 IST,
+before any run of the change).**
+- **The fault:** a halt, half or risk-off episode re-arms only when equity
+  closes strictly above its previous 60-session high. A book that is all
+  cash has flat equity and never re-arms. That happens when stops and exits
+  empty it during a halt, or when risk-off moves the core to cash, while the
+  metal sleeve is out of trend and idle cash earns nothing. A replay of a 40%
+  fall followed by 500 flat sessions stayed in risk-off throughout.
+- **The change:** re-arm when equity closes at or above its previous
+  60-session high. An all-cash book re-arms after 60 flat sessions, and the
+  regime gate still decides whether the core invests. One comparison
+  changes; there is no new parameter. The backtest and the live executor
+  share `DrawdownTracker`, so both change together.
+- **Pass rules:**
+  1. The deployed reference config (live config plus the rule), 2013–25 on
+     the main store: an identical equity path before and after.
+  2. The same over 2007–10 on `store_ext2006`: an identical equity path.
+     Its 2008 states (half 66 days, halt 42, never risk-off) are unchanged.
+  3. Synthetic histories: flat equity in halt and in risk-off re-arms after
+     exactly 60 sessions; falling and rising equity behave as before.
+- **Not a trial:** it is a no-op on every window tested, so nothing is
+  recorded in the registry.
+- **Result (11 Oct 2026): PASS.**
+  - 2013–25: equity identical (hash 2c3d35a4, final ₹72.33 lakh).
+  - 2007–10: identical (hash 44e272a8).
+  - Synthetic: flat halt and flat risk-off re-arm at session 60; falling
+    equity never re-arms.
+  - Measured beside it, the rule off vs on for today's deployed book:
+    - 2013–25: CAGR 23.14% vs 22.83%, Sharpe 1.164 vs 1.151, MaxDD −23.9%
+      vs −25.6%;
+    - 2008: −37.0% vs −31.9%; 2007–10 MaxDD −40.3% vs −35.4%.
+
+    The rule is crash insurance, so it is kept.
+
 ## 5f. Crash re-entry (R11, 28 Sep 2026): FAIL
 
 Decision U22 asks that a crisis not keep the book out of the rebound. The
@@ -2127,6 +2161,86 @@ nothing (cost model 4).
 
 **Clarification (11 Oct 2026, 14:49 IST, before any run; owner's decision).** Monthly correlation with the book ≤ 0.3 is no longer a pass rule; it is reported. Gate 2 and "combined Sharpe ≥ the book's + 0.10" already test what low correlation is for, a better combined book. A sleeve that passes both at a higher correlation is a real improvement the correlation bar alone would have rejected.
 
+**Clarification (12 Oct 2026, 08:46 IST, before any run; owner's decision).**
+1. **Timing:** GT5 runs now, on 2013–25 as written (2007–25 reported),
+   instead of Jan–Mar 2027. RF1's move of GT5 to 2013–26 no longer applies
+   to this round. The MCX store's hash is unchanged (8350d7128f3d6fe6).
+   - After the verdict, 2026 (to the latest session) is opened once and
+     reported. It does not change the verdict.
+   - If V3 promotes another configuration in January, gate 2 is
+     re-computed against it, reported only.
+2. **Translations, fixed before the run (A):**
+   - **Mini gaps:** MCX did not list the crude, aluminium, zinc and lead
+     minis from Dec 2019 / Apr 2020 to Feb–Mar 2023. As before a mini's
+     first session, the large contract's series stands in, sized in the
+     mini's first known lot.
+     - A switch between the two is traded as a roll.
+     - The share of instrument-sessions on a stand-in is reported. Real
+       trading then needed the large lots, which are beyond Rs 5 lakh.
+   - **One return series per instrument:** signals and volatility read the
+     mini's own daily returns where it trades, else the large contract's.
+   - **P&L:** lots × multiplier × the change in the held contract's raw
+     close. A contract with no print that day keeps its last close. The
+     multiplier is the held contract's implied one; a stand-in uses the
+     mini's first known lot.
+   - **Rolls and switches:** both legs trade at the roll close, each at
+     `fill_price` and with its charges.
+   - **Volatility:** the EWMA standard deviation with a centre of mass of
+     60 (MOP's δ), × √261.
+   - **Sessions:** MCX's own calendar, so the month's last MCX session
+     decides. For gate 2, the sleeve's equity is carried to NSE sessions;
+     a day only MCX trades rolls into the next NSE session.
+   - **Significance:** t ≥ 2 is the Newey-West t-statistic of the sleeve's
+     alpha against NIFTY 50 TRI, on excess returns over 6.5%, as in 5z.
+     Commodity trend's beta to NIFTY is near zero, so in effect this tests
+     its excess return.
+
+**Result, 12 Oct 2026: both FAIL. GT5 closes and nothing is paper-traded.**
+
+- **Runs:** Kaggle, 2013–25: `20261012T032317017129Z_afb53389` (A) and
+  `20261012T032319911184Z_f9977384` (B).
+- **MCX store:** `8350d7128f3d6fe6`.
+- **Commodity family:** N = 2.
+
+| | CAGR | Excess Sharpe | MaxDD | DSR | Alpha vs NIFTY 50 TRI (t) | Beta | Monthly correlation with the book |
+|---|---|---|---|---|---|---|---|
+| Book (679cbd0c) | 23.1% | 1.163 | −23.9% | | +12.6% | | |
+| GT5-A alone | 2.4% | −0.06 | −54.5% | 0.40 | −0.8% (−0.12) | −0.03 | 0.04 |
+| GT5-B alone | 3.4% | −0.09 | −38.6% | 0.37 | −0.6% (−0.13) | −0.08 | −0.01 |
+| 0.75 book + 0.25 A | 18.3% | 0.96 | −20.9% | | +9.2% | | |
+| 0.75 book + 0.25 B | 18.4% | 1.01 | −18.0% | | +9.3% | | |
+
+**Rules:** both fail gate 1, gate 2 (CAGR, Sharpe and alpha fall; only
+MaxDD improves), Sharpe ≥ 0.5, the combined + 0.10 and t ≥ 2.
+
+What the result says:
+- **The diversification is real; the return is not.** Correlation with the
+  book is about 0, and a quarter of the book in the sleeve cuts the
+  combined MaxDD by 3–6 points. But the sleeve earns less than the 6.5%
+  hurdle, so the book loses 4.7 points of CAGR.
+- **Gross trend profits are positive in all six instruments,** about Rs 4–5
+  lakh over 13 years on Rs 5 lakh. Costs take Rs 2.2–2.3 lakh, 3.0–4.0% a
+  year, mostly slippage on both legs of the monthly rolls (Rs 1.0–1.3
+  lakh).
+- **Margin cash earning 6.5%** (one look, not a trial; cost model 4 pays
+  idle cash nothing): A 9.0% / Sharpe 0.19, B 10.2% / 0.25. Still far
+  below 0.5.
+- **2007–25 (reported):** A 1.3% / −0.14 / −71%; B 3.1% / −0.15 / −54%. In
+  2008, A lost 5.9% while B made 31%: only the faster signals caught the
+  crash.
+- **Reported:**
+  - stand-in share of sessions: crude 41%, natural gas 79%, base metals
+    21%, silver 0%;
+  - zero-lot months: A up to 15% (zinc); B 24–44% in the base metals;
+  - gross exposure 2.0× (A) and 1.3× (B) of equity;
+  - the margin cap never bound.
+- **2026, opened once (to 9 Oct):** A +21.3%, B +18.1%, against NIFTY 50 TRI
+  −13.0%. This is the crisis behaviour the hypothesis expects, but one
+  reported year does not change the verdict.
+- **Not re-tuned.** The family's third configuration stays unused, as 5y
+  says, unless a new source justifies it. `nse_engine/mcx_trend.py` stays:
+  the `mcx` task on Kaggle, and `evaluate`.
+
 ## 5z. GT4: selective value / quality sleeve (pre-registered 11 Oct 2026, 14:17 IST)
 
 **Status: written before any backtest, and before GT1's store is built.**
@@ -2237,6 +2351,128 @@ cost model 4), and held to the next decision.
 
 **Clarification (11 Oct 2026, 14:49 IST, before any run; owner's decision).** Monthly correlation with the book ≤ 0.3 is no longer a pass rule; it is reported. Gate 2 and "combined Sharpe ≥ the book's + 0.10" already test what low correlation is for, a better combined book. A sleeve that passes both at a higher correlation is a real improvement the correlation bar alone would have rejected.
 
+**Clarification (12 Oct 2026, 07:30 IST, before any run): GT1's store at close-out.**
+- **Data hash:** `83fd93702acbf1d1` (fundamentals v2).
+- **Coverage:** the share of the universe with a TTM at each universe
+  refresh. It is the same with TTM revenue required as well.
+  - 89–91% in 2013–18;
+  - 93% in 2019;
+  - 95–98% in 2020–25.
+- **Rules unchanged:** a name without a TTM is not ranked.
+- **Reported with the run:**
+  - In 2018, about 5% of the universe ranks on a TTM whose latest quarter
+    is more than 200 days old (the Q1 FY19 gap).
+  - On the 2012-start store, the universe averages 292 names in 2013 and
+    393 in 2014.
+
+**Clarification (12 Oct 2026, 08:05 IST, before any run; owner's decision).**
+1. **Timing:** GT4 runs now, on the 2013–25 window as written, instead of
+   Jan–Mar 2027. RF1's move of GT4 to 2013–26 no longer applies to this
+   round.
+   - After the verdict, 2026 (to the latest session) is opened once for
+     both configurations and reported beside the book. It does not change
+     the verdict.
+   - If V3 promotes another configuration in January, gate 2 is
+     re-computed against it, reported only.
+2. **Translations, fixed before the run (A):**
+   - **Quarters:** a filing counts as a quarter when its period is at
+     most 100 days. That excludes 360 longer "integrated" filings.
+   - **Profit to owners "where given":** in 4,777 consolidated quarters
+     (5%), the owners' profit reads exactly 0 while the profit for the
+     period does not. That is a blank field parsed as zero, so it counts as
+     not given and the profit for the period is used. 5aa reads profit "as
+     in 5z", so GT7 and MV1 inherit this.
+   - **TTM:** the four latest quarters must be consecutive, with period
+     ends three months apart; otherwise there is no TTM. The year-earlier
+     TTM (GT4-B growth) is the four consecutive quarters ending 12 months
+     before the latest, on the same basis.
+   - **Data guard:** a name is ranked only when two earnings yields agree
+     within a factor of 2: TTM profit ÷ market capitalisation, and the
+     four quarters' basic EPS (restated per share at the decision through
+     the same ratios) ÷ the printed close. EPS is per share, so it is
+     immune to two faults found in NSE's pages before any run:
+     - amounts entered in the wrong unit (about 450 quarter-on-quarter
+       revenue jumps of 10× and 140 of 100×);
+     - wrong share counts (e.g. face value and paid-up capital swapped).
+
+     Without the guard, 3–9 of the top 25 earnings yields at a sample of
+     decision dates were such faults. A name whose EPS check cannot be made
+     is not ranked.
+   - **Share count:** from the latest quarter with one. Split, bonus and
+     consolidation ratios dated after its period end, the books'
+     share-count sources (`book_events.SHARE_SOURCES`), divide it out.
+   - **Universe:** the deployed engine's universe settings at top 500,
+     with the Rs 20 test on the printed close
+     (`price_filter_unadjusted`). Ranking uses the universe in force at
+     each decision.
+   - **Weights:** at each decision every holding is set to 1/25 of the
+     sleeve's equity. With fewer than 25 names, the rest stays in cash,
+     earning nothing, as in the core.
+   - **GT4-B:** a name with a TTM but no year-earlier TTM, or no TTM
+     margin or volatility, ranks lowest on that component, like a
+     negative base. Ties take the average rank.
+   - **Fills:** sells, then buys, at the next session's open on adjusted
+     prices, in whole shares. Costs are the core's statutory charges plus
+     impact (cost model 4), as for O9. A holding with no open is sold at
+     the next open that prints.
+   - **The core's fill limits apply:** a trade under Rs 5,000 is skipped
+     (`min_trade_value_inr`), so small re-weightings wait; and an order is
+     capped at 5% of the 20-session median traded value.
+   - **Significance:** t ≥ 2 is the Newey-West t-statistic of the
+     sleeve's alpha against NIFTY 50 TRI, on excess returns over 6.5%.
+     The premium is the hypothesis.
+
+**Result, 12 Oct 2026: both FAIL. GT4 closes and nothing is paper-traded.**
+
+- **Runs:** Kaggle, 2013–25: `20261012T030202658081Z_5aed9d74` (A) and
+  `20261012T030237590222Z_a0da7f72` (B).
+- **Data hashes:** equity store `2a6f7d48f0e59b70`, fundamentals
+  `83fd93702acbf1d1`.
+- **Value family:** N = 2.
+
+| | CAGR | Excess Sharpe | MaxDD | DSR | Alpha vs NIFTY 50 TRI (t) | Beta | Monthly correlation with the book |
+|---|---|---|---|---|---|---|---|
+| Book (679cbd0c) | 23.1% | 1.163 | −23.9% | | +12.6% | | |
+| GT4-A alone | 14.7% | 0.43 | −68.4% | 0.88 | +2.6% (0.47) | 1.01 | 0.56 |
+| GT4-B alone | 16.8% | 0.69 | −41.3% | 0.98 | +4.8% (1.65) | 0.73 | 0.63 |
+| 0.75 book + 0.25 A | 21.4% | 1.00 | −35.2% | | +10.1% | | |
+| 0.75 book + 0.25 B | 21.7% | 1.135 | −26.5% | | +10.6% | | |
+
+**Rules:**
+- **GT4-A** fails all five.
+- **GT4-B** passes gate 1 (DSR 0.98) and Sharpe ≥ 0.5 alone (0.69). It fails:
+  - gate 2 on every check: CAGR, Sharpe and alpha all fall, and MaxDD is
+    2.65 points worse;
+  - the combined Sharpe + 0.10;
+  - t ≥ 2.
+
+What the result says:
+- **The diversification case did not hold.** Correlation with the book is
+  0.56–0.63, above the 0.4–0.5 expected.
+  - Value did earn where the book lagged: 2020 (A +38%, B +44%, book
+    +28%), 2022 and 2023.
+  - It lost more in 2013, 2018 and 2019 (A −28%, −32%, −23%; B −7%, −14%,
+    −6%; book +11%, −12%, +6%) and trailed in 2021 and 2025.
+- **GT4-B works as a stand-alone sleeve but not beside the book.** Moving
+  25% of the book into it costs 1.4 points of CAGR and 0.03 of Sharpe.
+- **GT4-A's −68% drawdown** comes from cheap stocks in 2018–19. It also
+  buys one-off gains, as a trailing E/P does: Strides Arcolab's Agila sale
+  and MTNL's settlement, both in 2014.
+- **A beta-hedged variant is not worth the third configuration now.**
+  B's alpha against NIFTY has an information ratio of about 0.46 (t 1.65
+  over 13 years), below the 0.5 bar. The configuration stays reserved.
+- **Reported:**
+  - turnover 1.18 / 1.14 a year;
+  - 86% of the universe with a TTM on average;
+  - 25 holdings, 99.5% invested;
+  - sectors (repo map), A: Financial Services 17%, Oil & Gas 11%, half
+    unmapped;
+  - sectors, B: Financial Services 21%, Power 10%, Healthcare 9%.
+- **2026, opened once (to 9 Oct):** A +5.9%, B −6.8%, NIFTY 50 TRI −13.0%.
+  Reported only; the verdict stands.
+- **Not re-tuned.** `nse_engine/value.py` stays: the `value` task on
+  Kaggle, and `evaluate`.
+
 ## 5aa. Core tests after V3: GT7 earnings drift and MV1 Minervini rules (pre-registered 11 Oct 2026, 14:17 IST)
 
 **Status: written before any backtest, and before GT1's store is built.**
@@ -2328,6 +2564,220 @@ review expects +0.1 to +0.2 to the core.
    translation).
 6. **No topping up below entry:** a rebalance never adds to a position
    whose close is below its average entry price.
+
+## 5ab. CR1: crash-recovery capital advisory (pre-registered 11 Oct 2026, 21:17 IST)
+
+**Question (owner, 11 Oct).** After a deep market fall, does adding fresh
+money from a reserve kept outside the book, in stages or on a recovery
+signal, beat keeping it in cash? Does it lose less than buying at the first
+−20% close?
+
+- **Advisory only:** an email; the owner places the trade. The money goes
+  to a NIFTY index ETF, never the momentum core.
+- **Family:** event study, as GT13 was. Its N is its 3 configurations.
+- **Not tested:** breadth-thrust signals. NSE breadth starts in 2012, so
+  they cannot be tested globally.
+
+**Episode.** An index closes 20% or more below its running peak. The
+episode starts at that close and ends when the index regains the prior
+peak, or at the end of the data.
+
+**Configurations:**
+- **CR1-A, staged:** a third at −30%, a third at −40%, the rest at
+  confirmation.
+- **CR1-B, confirmation:** everything at confirmation.
+- **CR1-C, depth:** a half at −30%, a half at −40%.
+
+**Shared rules:**
+- **Confirmation:** the first close above the 200-session average after
+  the index has closed below it during the episode.
+- **Fallback:** anything not yet invested goes in when the index regains
+  its prior peak, so no reserve waits in cash for ever.
+- **Fills:** each tranche fills at the next session's close, because the
+  owner acts on the email.
+- **Each level fires at most once per episode.**
+
+**Benchmarks:**
+- **Cash:** the reserve stays in cash at 4% a year **(A)**, a round global
+  rate. India is also reported at 6.5%.
+- **L20:** a lump sum at the next close after the first −20% close.
+
+**Outcome per episode:** the reserve's value 3 years after the episode
+starts. The index part uses the price index, without dividends; the
+uninvested part earns the cash rate.
+
+**Data.**
+- Yahoo Finance daily closes in local currency, each from its first year to
+  2025-12-31 (2026 sealed): ^GSPC, ^N225, ^FTSE, ^GDAXI, ^HSI, ^GSPTSE,
+  ^AXJO, ^KS11, ^TWII, ^STI, ^BSESN and ^MXX.
+- India: NIFTY 50 for 2006–25 from the stores.
+
+**Pass rules, per configuration, over all episodes with 3 years of data:**
+1. It beats cash in at least 70% of episodes, and its median excess over
+   cash is above 0.
+2. Its worst episode is better than L20's worst. That is the reason to
+   stage.
+
+The advisory is built on the first configuration that passes, in the order
+A, B, C. If none passes, CR1 closes as an idea that history does not support.
+
+**Reported, never gating:**
+- the episode table, with India separately;
+- each configuration's median against L20, which is the upside given up;
+- how many tranches fired, and the days to full deployment.
+
+**Result, 11 Oct 2026: all three FAIL; CR1 closes and no advisory is built.**
+
+89 episodes in 13 indices, starting 1929–2022. Values are the reserve per
+1.0 after 3 years; cash at 4% is 1.125.
+
+| Configuration | Beats cash | Median excess over cash | Worst (L20: 0.347) | Median against L20 | Verdict |
+|---|---|---|---|---|---|
+| CR1-A staged | 66.3% | +0.120 | 0.331 | −0.041 | FAIL, rules 1 and 2 |
+| CR1-B confirmation | 66.3% | +0.110 | 0.283 | −0.078 | FAIL, rules 1 and 2 |
+| CR1-C depth | 65.2% | +0.104 | 0.355 | −0.015 | FAIL, rule 1 |
+| L20 (benchmark) | 61% | | 0.347 | | |
+
+What the result says:
+- **Buying after a deep fall usually beats cash, but not reliably enough.**
+  About one episode in three still trails cash after 3 years. One in five
+  loses money outright: A 18, B 19, C 15, L20 20.
+- **Staging gives up upside and barely protects the worst case.** Every
+  configuration's median trails the lump sum at −20%. Rule 2 rests on a
+  single episode: the S&P 500's 1929 fall of 86% is the worst for every arm.
+- **The 200-day reclaim fires early.** It came before −30% in 51 of 89
+  episodes, so A invested everything at once and matched B. C used both
+  tranches in 55 episodes.
+- **Days to full deployment:** A and B median 130 (90th percentile 388); C
+  median 308 (917), counting the fallback.
+- **India (reported, cash at 6.5%), 13 episodes:** NIFTY 5 and Sensex 8,
+  with the 5 since 2006 counted twice, so about 8 independent falls.
+  - C: beats cash 77%, median +0.216, worst 0.830 against L20's 0.666;
+    it would pass;
+  - A and B: 69%.
+  
+  Too few falls to build on. Choosing India after seeing this would be a
+  fit.
+- **Design caveat:** the outcome uses price indices, so every equity arm
+  misses its dividends against cash (about 2% a year).
+  - One crude look, reported only: all three arms clear 70% at a 2% yield
+    (73–78%).
+  - A total-return re-run would be a new trial designed after that look.
+    It would not be clean evidence.
+- **Implementation fix before recording:** the first run priced NIFTY's
+  cash at 6.5% in the gating test. Every market now uses 4%, as
+  pre-registered. The beats-cash counts did not change.
+- **2026 holdout:** no 3-year horizon can complete in it, so nothing was
+  opened.
+- **Not re-tuned.** The module (`nse_engine/crash_recovery.py`) stays.
+  `status` shows where NIFTY stands against the levels.
+
+## 5ac. CR1b: crash-recovery tranches on recovery signals (pre-registered 11 Oct 2026, 22:10 IST)
+
+**Question (owner, 11 Oct, after CR1 failed).** Staging the reserve
+30 / 40 / 30 on signals that can be seen in real time: does it beat cash,
+and does it lose less than buying at the first −20% close?
+
+This was designed after seeing CR1's result. The bar is not lowered, and a
+split-half rule is added.
+
+- **Family:** CR1's event study. N goes from 3 to 6.
+- **Unchanged from 5ab:**
+  - the episodes, the fallback and fills at the next session's close;
+  - each signal fires at most once per episode;
+  - the 3-year horizon;
+  - cash at 4%, with India also reported at 6.5%;
+  - L20;
+  - the data, with 2026 sealed.
+
+**Signals,** on closes within the episode, from its start:
+- **Bounce:** a close 10% above the lowest close since the episode started.
+- **60-day high:** the close is the highest of the last 60 sessions.
+- **Cross:** the 50-session average closes above the 200-session average,
+  after being at or below it during the episode. The cross invests
+  whatever is still in cash.
+
+**Configurations:**
+
+| Configuration | 30% | 40% | 30% |
+|---|---|---|---|
+| CR1b-D, confidence | bounce | 60-day high | cross |
+| CR1b-E, depth | −30% | −40% | cross |
+| CR1b-F, wait | everything at the 60-day high | | |
+
+**Outcome:** as in 5ab, except that the invested part also earns an assumed
+dividend yield, accrued daily, on every arm including L20.
+- India: 1.3%.
+- Japan: 1.0%.
+- DAX: 0. It is a performance index and already includes dividends.
+- Others: 2%.
+
+These are conservative against long-run yields.
+
+**Pass rules, per configuration:**
+1. It beats cash in at least 70% of episodes, and its median excess over
+   cash is above 0.
+2. Its worst episode is better than L20's worst.
+3. Rule 1 also holds on its own in each half of history: the episodes that
+   start before the median start date, and those that start on or after it.
+
+The advisory is built on the first configuration that passes, in the order
+D, E, F. If none passes, CR1 closes for good. A facts-only alert on the
+levels stays the owner's call.
+
+**Reported, never gating:**
+- the same tables at a 5-year horizon;
+- each configuration without the 2000–03 episodes (those starting
+  2000-01-01 to 2003-03-31), and separately without the 2008 episodes
+  (those starting 2007-07-01 to 2009-03-31);
+- India separately, at 6.5% cash;
+- CR1's A, B and C re-scored with dividends. Their verdict stays FAIL.
+
+**Result, 11 Oct 2026: all three FAIL. CR1 closes for good and no
+advisory is built.**
+
+89 episodes in all. The halves split at 29 Jun 2000: 44 episodes start
+before it and 45 on or after it. L20's worst is 0.368.
+
+| Configuration | Beats cash | Median excess over cash | Worst | Median against L20 | Halves (beats cash) | Verdict |
+|---|---|---|---|---|---|---|
+| CR1b-D confidence | 71.9% | +0.190 | 0.537 | −0.070 | 61% / 82% | FAIL, rule 3 |
+| CR1b-E depth | 74.2% | +0.182 | 0.555 | −0.064 | 61% / 87% | FAIL, rule 3 |
+| CR1b-F wait | 69.7% | +0.146 | 0.325 | −0.079 | 64% / 76% | FAIL, rules 1, 2 and 3 |
+
+What the result says:
+- **With dividends, D and E nearly worked.** Ending on the 50/200 cross
+  beat cash about 3 times in 4. It also lifted the worst episode from L20's
+  0.37 to about 0.55. Both still trail L20's median.
+- **The edge does not hold across history at 3 years.** Only 61% of the
+  episodes before mid-2000 beat cash. The losses come from slow bears:
+  - Japan 1990;
+  - Asia 1997–99: Taiwan, Korea, Singapore and the Sensex;
+  - the first dot-com starts in early 2000;
+  - 1929.
+
+  Five of the 17 are shallow falls. The split date falls inside the
+  2000 cluster, so the halves are not fully independent. It was
+  pre-registered, so it was not re-cut.
+- **F, which waits for a 60-day high, fails outright.** In 1929 it bought
+  into the 1930 rally: worst 0.325.
+- **Reported only:**
+  - At 5 years (84 episodes), D (76%; halves 71% / 81%) and E (79%; 71% /
+    86%) would pass.
+  - Without 2000–03, D and E reach 81% and would pass.
+  - Without 2008, only E passes, at 70.9%.
+  - India (13 episodes, at 6.5% cash): D and E would pass, at 85%.
+
+  Choosing the horizon or the sample after seeing this would be fitting,
+  so none of these changes the verdict.
+- **CR1 with dividends (reported):** A 71.9%, B 70.8%, C 73.0%. C would
+  clear CR1's two rules, with a worst of 0.377 against 0.368. The verdict
+  stays FAIL.
+- **Lost money outright after 3 years:** D 13, E 15, F 16 and L20 15 of 89.
+- **What the family shows:** buying after a deep fall pays about 3 times in
+  4 for an investor who can wait 5 years. No rule tested here reliably
+  times it at 3 years. The family now has 6 trials; another variant would
+  be fitting.
 
 ## 6. Stage D — Paper trading (60–90 trading days)
 
@@ -2686,8 +3136,8 @@ every configuration recorded (so PBO/DSR count them):
 
 Not on the list, on purpose: re-optimising signal weights (R21A's 247% data-
 mining bias estimate came from exactly that), leverage (MTF at 14.6%/yr adds
-0.5–0.75 CAGR points per 0.1× for about 3 points of MaxDD — see
-`docs/leverage_due_diligence.md`, 27 Sep 2026), and anything tuned on 2026.
+0.5–0.75 CAGR points per 0.1× for about 3 points of MaxDD; tracker L4 and
+L5), and anything tuned on 2026.
 
 All research folds run on Kaggle (`docs/kaggle_research.md`): results do not
 reproduce across platforms, so a walk-forward is compared only with

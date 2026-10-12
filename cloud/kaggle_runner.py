@@ -544,6 +544,52 @@ def run_sepa_task(args) -> Dict[str, Any]:
     return state
 
 
+def run_value_task(args) -> Dict[str, Any]:
+    """The value / quality sleeve (tracker GT4, plan 5z): GT4-A and GT4-B into the value family's registry."""
+    from dataclasses import replace
+
+    from nse_engine.value import CONFIGS, ValueConfig, load_inputs, record, run_value
+
+    end = args.end or ValueConfig.end
+    data, quarters, fhash = load_inputs(find_store_dir(args.store_dir), find_fundamentals_dir(args.fundamentals_dir), end)
+    runs_dir = args.runs_dir or default_runs_dir()
+    results = {}
+    for key in args.configs.split(","):
+        res = run_value(replace(CONFIGS[key], start=args.start or ValueConfig.start, end=end), data, quarters, fhash)
+        results[key] = {"run_dir": record(res, runs_dir), "metrics": res.metrics}
+    state = {"task": "value", "results": results, "fundamentals_hash": fhash, "provenance": provenance()}
+    out_dir = Path(args.out_dir or default_out_dir())
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "value_results.json").write_text(json.dumps(state, indent=2, default=str))
+    return state
+
+
+def run_mcx_task(args) -> Dict[str, Any]:
+    """The MCX commodity trend sleeve (tracker GT5, plan 5y): GT5-A and GT5-B into the commodity family's
+    registry; ``--reported-start`` adds the wider window, reported and not recorded."""
+    from dataclasses import replace
+
+    from nse_engine.mcx_trend import CONFIGS, TrendConfig, prepare, record, run_trend
+
+    prep = prepare(find_mcx_store_dir(args.mcx_store))
+    runs_dir = args.runs_dir or default_runs_dir()
+    results, reported = {}, {}
+    for key in args.configs.split(","):
+        cfg = replace(CONFIGS[key], start=args.start or TrendConfig.start, end=args.end or TrendConfig.end)
+        res = run_trend(cfg, prep)
+        results[key] = {"run_dir": record(res, runs_dir), "metrics": res.metrics}
+        if args.reported_start:
+            wide = run_trend(replace(cfg, start=args.reported_start), prep)
+            reported[key] = {"window": [args.reported_start, cfg.end], "metrics": wide.metrics,
+                             "returns": {str(d.date()): float(r) for d, r in wide.returns.items()}}
+    state = {"task": "mcx", "results": results, "reported": reported, "data_hash": prep["data_hash"],
+             "provenance": provenance()}
+    out_dir = Path(args.out_dir or default_out_dir())
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "mcx_results.json").write_text(json.dumps(state, indent=2, default=str))
+    return state
+
+
 def run_options(args) -> Dict[str, Any]:
     """Backtest the pre-registered options-family candidates (O2 sleeves, O3 signal futures, O4 F&O
     anomalies) and record them."""
@@ -653,6 +699,26 @@ def main(argv: Optional[List[str]] = None) -> None:
     p.add_argument("--runs-dir", help="registry (default: /kaggle/working/runs)")
     p.add_argument("--out-dir")
     p.set_defaults(func=run_sepa_task)
+
+    p = sub.add_parser("value", help="the value / quality sleeve (GT4-A, GT4-B, plan 5z)")
+    p.add_argument("--configs", default="GT4-A,GT4-B")
+    p.add_argument("--start")
+    p.add_argument("--end")
+    p.add_argument("--store-dir", help="equity store (default: attached dataset, else repo)")
+    p.add_argument("--fundamentals-dir", help="GT1's results store (default: attached dataset, else repo)")
+    p.add_argument("--runs-dir", help="registry (default: /kaggle/working/runs)")
+    p.add_argument("--out-dir")
+    p.set_defaults(func=run_value_task)
+
+    p = sub.add_parser("mcx", help="the MCX commodity trend sleeve (GT5-A, GT5-B, plan 5y)")
+    p.add_argument("--configs", default="GT5-A,GT5-B")
+    p.add_argument("--start")
+    p.add_argument("--end")
+    p.add_argument("--reported-start", help="also run from this date, reported only (plan 5y: 2007-01-01)")
+    p.add_argument("--mcx-store", help="GT2's MCX store (default: attached dataset, else repo)")
+    p.add_argument("--runs-dir", help="registry (default: /kaggle/working/runs)")
+    p.add_argument("--out-dir")
+    p.set_defaults(func=run_mcx_task)
 
     p = sub.add_parser("options", help="the pre-registered options-family candidates (O2 A1/A2/B, O3 X1-X4, O4 Y1-Y3, "
                                        "O5-O8 from kite_connect.options.book_rounds)")

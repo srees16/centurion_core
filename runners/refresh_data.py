@@ -17,6 +17,8 @@ and diagnostics.  Steps:
    the store.
 5. **Fundamentals:** filing lists, new result documents and the store.  This
    step is skipped while a GT1 run holds the archive.
+6. **Backup** (``cloud.backup push``): every piece that changed goes to the
+   private Kaggle backup datasets, so nothing lives only on this machine.
 
 Each step is its own process, the same command as by hand, so one failing does
 not stop the rest.  The outcome goes to ``data/nse_engine/refresh_status.json``:
@@ -48,7 +50,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 DATA = _ROOT / "data" / "nse_engine"
 STATUS = DATA / "refresh_status.json"
 LATE_FILES = timedelta(days=14)
-STEPS = ("nse", "equity_store", "fo_store", "mcx", "fundamentals")
+STEPS = ("nse", "equity_store", "fo_store", "mcx", "fundamentals", "backup")
 
 
 def _last_session(calendar: Path, fallback: date) -> date:
@@ -88,6 +90,7 @@ def commands(today: date) -> Dict[str, List[List[str]]]:
                 [py, "-m", "nse_engine.data.mcx_store", "build"]],
         "fundamentals": [[py, "-m", "nse_engine.data.fundamentals", "sync"],
                          [py, "-m", "nse_engine.data.fundamentals", "build"]],
+        "backup": [[py, "-m", "cloud.backup", "push"]],
     }
 
 

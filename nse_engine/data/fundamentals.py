@@ -109,7 +109,7 @@ logger = logging.getLogger(__name__)
 
 PathLike = Union[str, Path]
 
-FUNDAMENTALS_VERSION = 1  # bump when parsing changes so every year is re-parsed
+FUNDAMENTALS_VERSION = 2  # bump when parsing changes so every year is re-parsed
 API_URL = archive.HOME_URL + "/api/"
 #: The API answers only with the cookies this page sets.
 FILINGS_PAGE = archive.HOME_URL + "/companies-listing/corporate-filings-financial-results"
@@ -163,7 +163,8 @@ _XBRL_PERIOD_START = "DateOfStartOfReportingPeriod"
 #: HTML row labels (lower case) per field, in order of preference.
 _HTML_FIELDS: Dict[str, Tuple[str, ...]] = {
     "revenue": (r"^revenue from operations", r"^total income from operations",
-                r"net sales\s*/\s*income from operations", r"^net income from sales", r"^total income$"),
+                r"net sales\s*/\s*income from operations?",   # 2011-12 pages say "Operation"
+                r"^net income from sales", r"^total income$"),
     "pbt": (r"^profit.*\bbefore tax\b",),
     "pat": (r"^net profit.*\bfor the period\b",),
     "pat_owners": (r"after taxes,? minority interest",),

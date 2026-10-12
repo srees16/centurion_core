@@ -226,8 +226,8 @@ class DrawdownConfig:
 
     The regime gate reads the market; this reads the account.  Off by default
     (the legacy behaviour and hash).  Thresholds are drawdowns from the peak of
-    the current episode; the rule re-arms on a new ``rearm_sessions``-session
-    equity high.
+    the current episode; the rule re-arms when equity closes at or above its
+    ``rearm_sessions``-session high (flat equity counts, tracker DD1).
     """
 
     enabled: bool = False
