@@ -123,6 +123,98 @@ Jump to **Section 15: Troubleshooting** or **Section 12: Installation** for deta
 
 ---
 
+### Engine, research data and coding assistants (new laptop: start here)
+
+The NSE engine is in `nse_engine/`: swing and positional only, never
+intraday. Broker and options code is in `kite_connect/`, Kaggle and backup
+tooling in `cloud/`, and command-line entry points in `runners/`.
+
+The plan of record is `docs/ACTION_TRACKER.txt`. The validation rules are in
+`docs/nse_engine_validation_plan.md` and `docs/research_protocol.md`.
+
+#### Prerequisites (once per laptop)
+
+1. **Install:** git, Python 3.13, VS Code and the GitHub CLI (`gh`). Sign in
+   to Claude Code or Copilot.
+2. **Sign in to GitHub:** `gh auth login`. This is for the private research
+   books.
+3. **Kaggle API token:** kaggle.com > Settings > API > Create New Token. Save
+   it in `~/.kaggle/` (`kaggle.json` or `access_token`), then run
+   `chmod 600 ~/.kaggle/*`.
+4. **Project venv**, beside the repo:
+   ```bash
+   python3.13 -m venv ../myenv && source ../myenv/bin/activate
+   pip install -r requirements.txt     # requirements-core.txt is enough for the engine only
+   ```
+
+#### Set up
+
+From the repo root:
+
+```bash
+python -m cloud.devsetup        # clones the books, creates .env, restores the data, prints a checklist
+```
+
+It does the following:
+1. Clones the research books into `research_inbox/`.
+2. Creates `.env` from `.env.example`. **Fill in the values by hand.** GitHub
+   and Hugging Face secrets are write-only, so no tool can fetch them. The
+   Neon URL is enough to develop, and a read-only role will do.
+3. Restores the dev data from Kaggle.
+4. Prints a checklist, with the exact fix for anything missing.
+
+Then:
+- **When this laptop becomes the active one:**
+  `python -m cloud.backup take-over`. Only one machine pushes backups.
+- **On macOS, for the weekly refresh and backup job:**
+  `python -m cloud.devsetup --install-scheduler`.
+- **Start every session** with `python -m cloud.devsetup check`.
+
+#### Where data lives
+
+| What | Where | Command |
+|---|---|---|
+| Stores (equity, 2006 extension, F&O, MCX, fundamentals), trial registries, research state | Private Kaggle datasets `centurion-backup-*` → `data/nse_engine/` | `python -m cloud.backup restore` (incremental) |
+| Raw NSE / MCX / filings downloads (3.7 GB) | Same, one dataset per year | `python -m cloud.backup restore --archive 2026` (or `all`) |
+| Research books (PDFs) | Private repo `srees16/centurion-research` → `research_inbox/` | `cloud.devsetup` clones it |
+| Paper-trading state | Neon Postgres | `CENTURION_DATABASE_URL` in `.env` |
+| Secrets | GitHub / HF secrets (cloud); `.env` locally | filled by hand |
+
+- **Refresh:** `python -m runners.refresh_data` brings every store up to the
+  latest session, then pushes the backup.
+- **After any manual data fetch or store rebuild:** run
+  `python -m cloud.backup push`. Only changed pieces upload.
+- **Where refreshes run:** NSE and MCX block cloud servers, so data refreshes
+  run on a laptop, never in CI.
+
+#### Rules for code changes (people and assistants)
+
+1. Touch only the code a task needs. Preserve unrelated behaviour, APIs and
+   contracts.
+2. Reuse existing utilities and patterns. Keep code production-ready,
+   modular and documented.
+3. Delete temporary, test and debug scripts when done.
+4. Never commit or push unless the owner asks.
+5. Ask before creating any new `.md` file.
+6. The repository is public:
+   - never commit secrets, `.env`, credentials or the PDFs in
+     `research_inbox/`;
+   - never print secrets or private URLs in logs.
+7. **Research:** follow `docs/research_protocol.md`:
+   - pre-register before running;
+   - every trial counts;
+   - no re-tuning after a fail;
+   - 2026 is the sealed holdout.
+8. **After a store rebuild:**
+   `python -m runners.run_nse_engine refresh-registry --dry-run`.
+9. **Tests:** `python -m pytest tests -q -m "not slow"`. CI installs only
+   `requirements-core.txt`.
+10. Be candid: say so when something misses the goal or is premature. Keep
+    summaries crisp.
+11. Keep `docs/ACTION_TRACKER.txt` current.
+
+---
+
 ## Table of Contents
 
 1. [Architecture Overview](#1-architecture-overview)

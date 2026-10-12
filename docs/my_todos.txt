@@ -7,13 +7,23 @@ Goal is to have the best possible alpha, Sharpe and CAGR, lowest possible maxDD
 
 
 ┌──────────────────────────────────────────────────────────────────────┐
-│  PERFORMANCE SUMMARY — ALL CONFIGURATIONS                           │
+│  PERFORMANCE SUMMARY — CURRENT BOOKS (RR2, 10 Oct 2026)             │
 ├──────────────┬────────┬────────┬────────┬────────┬─────────┬────────┤
-│ Config       │ Sharpe │ CAGR   │ MaxDD  │ Calmar │ PBO     │ Status │
+│ Config       │  Sharpe│ CAGR   │ MaxDD  │  Calmar│ PBO     │ Status │
 ├──────────────┼────────┼────────┼────────┼────────┼─────────┼────────┤
-│ R21A-GM2     │  1.571 │ 61.0%  │ 31.6%  │ 1.932  │ N/A*    │★CHAMP  │
+│ Deployed     │  1.163 │ 23.1%  │ 23.9%  │  0.97  │ 29.2%   │ ★PAPER │
 ├──────────────┼────────┼────────┼────────┼────────┼─────────┼────────┤
-6 lines selected are scored during backtest with survivorship bias, right?
+│ Candidate    │  1.157 │ 21.9%  │ 23.6%  │  0.93  │ 29.2%   │ PAPER  │
+├──────────────┼────────┼────────┼────────┼────────┼─────────┼────────┤
+│ E4           │  1.139 │ 23.6%  │ 25.3%  │  0.93  │ 29.2%   │ PAPER  │
+├──────────────┼────────┼────────┼────────┼────────┼─────────┼────────┤
+│ Golden target│  ≥1.40 │ ≥35%   │ ≤35%   │  ≥1.00 │ ≤30%    │ TARGET │
+└──────────────┴────────┴────────┴────────┴────────┴─────────┴────────┘
+  Sharpe is excess over 6.5%; 2013-25; survivorship-free NSE data (1,855
+  delisted names); cost model 4; no leverage; next-open fills.  PBO is the
+  core family's at N = 61.  Walk-forward OOS 2017-25: deployed 1.238.
+  Paper trading since 16 Sep 2026; go-live (D3) ~mid-Dec.
+
 ┌──────────────────────────────────────────────────────────────────────┐
 │  PAPER TRADING READINESS CHECKLIST                                  │
 ├──────────────────────────────────────────────────────────────────────┤
@@ -109,17 +119,8 @@ Study, evaluate and implement the stategies which could potentially result in a 
 
 ~~~~~~
 
-1. Explore feasibility for agentic implementation (give this more context and my expectations)
-2. binance api https://www.youtube.com/watch?v=ZiBBVYB5PuU
+1. binance api https://www.youtube.com/watch?v=ZiBBVYB5PuU
                 https://www.youtube.com/watch?v=P_SIZDsI3Ro
-
-~~~~~~~
-
-1. Touch ONLY code required for this task; leave unrelated code untouched.
-2. Remove all temporary/test/debug scripts and implementation artifacts created during execution.
-3. Reuse existing utilities/patterns; avoid unnecessary duplication, or abstraction.
-4. Keep production-ready, modular, well-documented code only.
-5. Preserve existing behavior of unrelated functionality, APIs, and contracts unless explicitly required.
 
 ~~~~~~~
 
@@ -142,8 +143,6 @@ Atleast 5 Live dry runs are as expected
 refer for applicable improvements: 
 
 add a task in action_tracker to perform after the paper trade is completed to ensure that we capture the scores of the metrics like Sharpe ratio, Sortina ratio, Information ratio, Calmar ratio, Max drawdown, volatility, CVaR (Expected Shortfall), Skew and kurtosis, Factor exposures and beta (how much of the return is just market or style factors versus true alpha), Implementation shortfall / slippage, Market impact, Turnover, Hit rate and win/loss ratio, Profit factor, Average P&L per trade, Out-of-sample and walk-forward performance, Deflated Sharpe / probability of backtest overfitting, Parameter sensitivity, Regime stability, Alpha decay, Capacity (how much capital it can run before impact eats the edge), Correlation (to Centurion's existing strategies). A mediocre but uncorrelated Sharpe is often worth more than a great but correlated one), Live vs. backtest tracking error. Investigate whether the Sharpe survives costs, out-of-sample testing, and live trading at the size we want to run. Since Centurion implements non-HFT strategies, robustness and overfitting checks carry far more weight.
-
-Be candid. If something in the current architecture does not meet the stated goal or if adding it now would be premature, say so.
 
 ~~~~~~~
 
