@@ -347,6 +347,17 @@ def _delivery_table(mto_parts: List[pd.DataFrame], full: Optional[pd.DataFrame])
     return deliv.dropna(subset=["deliv_qty", "deliv_pct"], how="all").drop_duplicates(key, keep="first")
 
 
+def latest_session(store_dir: PathLike, on_or_before=None) -> Optional[str]:
+    """The store's latest session as an ISO date, on or before ``on_or_before`` if given; None if there is none."""
+    path = Path(store_dir) / "calendar.parquet"
+    if not path.exists():
+        return None
+    days = pd.to_datetime(pd.read_parquet(path, columns=["date"])["date"])
+    if on_or_before is not None:
+        days = days[days <= pd.Timestamp(on_or_before)]
+    return None if days.empty else days.max().date().isoformat()
+
+
 def _write_parquet(df: pd.DataFrame, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.tmp{os.getpid()}")

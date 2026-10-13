@@ -23,7 +23,7 @@ import os
 import sys
 from datetime import date
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
@@ -96,7 +96,8 @@ def cmd_sync(args) -> None:
 
 
 def cmd_build_store(args) -> None:
-    from nse_engine.data.reference import build_sector_map
+    from nse_engine.data.panel import DEFAULT_FACE_VALUES
+    from nse_engine.data.reference import FACE_VALUE_HISTORY, build_sector_map, update_face_value_history
     from nse_engine.data.store import build_store
 
     cfg = EngineConfig()
@@ -104,6 +105,9 @@ def cmd_build_store(args) -> None:
     _print_json(summary)
     sectors = build_sector_map(ARCHIVE_DIR)
     print(f"sector map: {len(sectors)} symbols")
+    faces = update_face_value_history(ARCHIVE_DIR, [DEFAULT_FACE_VALUES,
+                                                    Path(cfg.data.store_dir) / "reference" / FACE_VALUE_HISTORY])
+    print(f"face values: {len(faces)} symbols (LN-T32)")
     if summary.get("suspect_missing_sessions"):                 # tracker LN-T7: a failing check
         raise SystemExit("a session seems missing from the store before: "
                          + ", ".join(x["date"] for x in summary["suspect_missing_sessions"]))
@@ -536,6 +540,33 @@ def canary_compare(now: dict, expected: dict) -> Tuple[str, List[str], List[str]
     return ("data_differs" if data_moved else "drift" if moved else "ok"), moved, fresh
 
 
+def canary_changes(before: dict, after: dict, limit: int = 15, now_named: Optional[dict] = None) -> List[str]:
+    """What moved between two sets of ``MarketData.symbol_fingerprints``, in words (tracker LN-T34).
+
+    Keys are the names in force at the window's end; ``now_named`` maps them to today's, shown when different.
+    """
+    lines = []
+    for key in sorted(set(before) | set(after)):
+        a, b = before.get(key), after.get(key)
+        if a == b:
+            continue
+        now = (now_named or {}).get(key)
+        key = f"{key} (now {now})" if now and now != key else key
+        if a is None:
+            lines.append(f"{key}: new in the data")
+        elif b is None:
+            lines.append(f"{key}: gone from the data (renamed, or now under the liquidity pre-filter)")
+        elif key.startswith("index:") or key == "etfs" or len(a) != 16:
+            lines.append(f"{key}: changed")
+        elif a[8:] == b[8:]:
+            lines.append(f"{key}: adjusted prices only (an adjustment factor moved)")
+        elif a[:8] == b[:8]:
+            lines.append(f"{key}: as-printed close or traded value only")
+        else:
+            lines.append(f"{key}: printed prices changed (an NSE correction, or a rename)")
+    return lines[:limit] + ([f"... and {len(lines) - limit} more"] if len(lines) > limit else [])
+
+
 def cmd_canary(args) -> None:
     """Nightly canary: every book's 2013-25 backtest against its expected statistics (tracker LN-T13).
 
@@ -547,8 +578,11 @@ def cmd_canary(args) -> None:
     Mac/Kaggle runtimes have never been compared).  A new or re-configured
     book is recorded, not compared; re-recording the registry tier
     (``--record-registry``, part of every re-baseline) restarts the Actions
-    tier on its next run.  A data change is reported, never refreshed here;
-    drift sets the step output ``drift=true`` for the workflow to act on.
+    tier on its next run.  A data change is reported, never refreshed here,
+    and names what moved: per-stock fingerprints, recorded with each tier, say
+    which stocks changed and whether only their adjustment did (LN-T34).  Drift
+    sets the step output ``drift=true`` for the workflow to act on.  Alerts go
+    once per session, so a backup run after midnight does not repeat one.
     Exits 0: alerts go by email and step output, never by failing the job.
     """
     import hashlib
@@ -562,21 +596,27 @@ def cmd_canary(args) -> None:
              for b in discover_books()}
     data = _load_data(next(iter(books.values())), data_start="2012-01-02")
     now = {b: canary_stats(data, cfg) for b, cfg in books.items()}
+    fingerprints = data.symbol_fingerprints()
+    now_named = {n: str(c) for n, c in zip(data.names_at_end(), data.close.columns)}
     runtime = {"python": platform.python_version(), "numpy": np.__version__, "pandas": pd.__version__,
                "platform": platform.platform()}
     if args.record_registry:
         Path(CANARY_EXPECTED).write_text(json.dumps({"registry": now, "registry_runtime": runtime,
-                                                      "recorded": date.today().isoformat()}, indent=1, sort_keys=True))
+                                                      "recorded": date.today().isoformat(),
+                                                      "symbols": fingerprints}, indent=1, sort_keys=True))
         print(f"recorded the registry tier in {CANARY_EXPECTED}")
         return
     try:
         expected_text = Path(CANARY_EXPECTED).read_text()
-        registry = json.loads(expected_text)["registry"]
+        expected_doc = json.loads(expected_text)
+        registry = expected_doc["registry"]
     except (OSError, ValueError, KeyError) as exc:
         raise SystemExit(f"{CANARY_EXPECTED} unreadable ({exc}): record it with canary --record-registry")
     reg_status, reg_moved, reg_fresh = canary_compare(now, registry)
     report = {"runtime": runtime, "registry": {"status": reg_status, "moved": reg_moved, "not_recorded": reg_fresh}}
-    status, moved = reg_status, reg_moved
+    if reg_status == "data_differs" and expected_doc.get("symbols"):
+        report["registry"]["changed"] = canary_changes(expected_doc["symbols"], fingerprints, now_named=now_named)
+    status, moved, changed = reg_status, reg_moved, report["registry"].get("changed", [])
     if args.tier == "actions":
         from database.paper_cloud import get_paper_cloud
 
@@ -592,13 +632,17 @@ def cmd_canary(args) -> None:
             else:
                 status, moved, fresh = canary_compare(now, stored["books"])
                 kept = {b: stored["books"][b] for b in now if b not in fresh}
+                base = stored.get("symbols") or expected_doc.get("symbols")
+                changed = (canary_changes(base, fingerprints, now_named=now_named)
+                           if status == "data_differs" and base else [])
             if fresh or stored is None or set(stored["books"]) != set(now):   # new, re-configured or retired books
                 cloud.sync_state({CANARY_STATE_KEY: json.dumps({
                     "books": {**kept, **{b: now[b] for b in fresh}}, "runtime": runtime,
-                    "recorded": date.today().isoformat(), "registry_stamp": stamp})})
+                    "recorded": date.today().isoformat(), "registry_stamp": stamp,
+                    "symbols": stored.get("symbols", fingerprints) if stored else fingerprints})})
             if fresh and status == "ok":
                 status = "recorded"
-        report["actions"] = {"status": status, "moved": moved, "recorded": fresh}
+        report["actions"] = {"status": status, "moved": moved, "recorded": fresh, "changed": changed}
     report["status"] = status
     _print_json(report)
     out = os.environ.get("GITHUB_OUTPUT")
@@ -608,12 +652,19 @@ def cmd_canary(args) -> None:
     if status in ("drift", "data_differs") and not args.no_email:
         from services.notifications.alerts import CRITICAL, WARNING, alert
 
+        from nse_engine.data.store import latest_session
+
         what = ("the store's data changed under the books (refresh the registry off Actions)"
                 if status == "data_differs" else "a book's backtest changed with its code and data hashes unchanged")
+        session = latest_session(next(iter(books.values())).data.store_dir) or date.today().isoformat()
         # Tracker AL2: drift can hold the live book to a dry run, so it is CRITICAL; a data change a warning.
-        alert(CRITICAL if status == "drift" else WARNING, f"canary_{status}",
+        # LN-T34: once per session, so a backup run after midnight does not send it again.
+        alert(CRITICAL if status == "drift" else WARNING, f"canary_{status}:{session}",
               f"Centurion canary: {status.replace('_', ' ')}",
-              [f"The nightly canary found that {what}.", *moved, f"Runtime: {runtime}"])
+              [f"The nightly canary found that {what}.", *moved,
+               *([f"Changed: {c}" for c in changed] or ["Changed: not named (no fingerprints recorded yet)"]
+                 if status == "data_differs" else []),
+               f"Runtime: {runtime}"], once=True)
 
 
 def cmd_live_rules(args) -> None:
