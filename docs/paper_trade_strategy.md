@@ -2,7 +2,7 @@
 
 As of 4 Oct 2026. The operating reference for the books: what runs, how a
 trial earns promotion, how you choose between trials, and what go-live
-needs. Sources: `ACTION_TRACKER.txt`, `nse_engine_validation_plan.md` (both in `docs/`),
+needs. Sources: `MEMORY_TRACKER.txt`, `nse_engine_validation_plan.md` (both in `docs/`),
 `nse_engine/forward_gate.py`, `nse_engine/paper_gate.py`,
 `nse_engine/capital_ladder.py`, `docs/books_register.csv`.
 

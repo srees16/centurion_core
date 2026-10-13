@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — ACTION TRACKER            updated 10 Oct 2026, 16:45 IST
+  CENTURION IND STOCKS — MEMORY TRACKER            updated 10 Oct 2026, 16:45 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -121,7 +121,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
  2. GAPS AND CHALLENGES (priority order)
 --------------------------------------------------------------------------------
   1 Edge       1.14 vs 1.5.  Closed research moved Sharpe <= 0.06 each (R0,
-               R2, R3, R10); open items (R6, R7, R9) expected at +/-0.1.  The
+               R2, R3, R10); open items (R7, R9) expected at +/-0.1.  The
                family (long-only trend + momentum, 20 names) is near its
                ceiling; the OOS 1.24 already sits in a friendly 2017-25.
   2 Overfit    PBO 50% and rising with every near-duplicate trial; it
@@ -232,22 +232,23 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
- >>> MONDAY 12 OCT - YOUR ACTIONS (market hours; details in the items below)
-     1. DONE: sell test day 1, 2 HDFCBANK bought (CNC).  Next: Tue after
-        ~16:00 AMO SELL 1 share (CNC, LIMIT a little under the price); Wed
-        the GTT sell and Actions > "Record sell path" (merge it first).
-     2. DONE 12 Oct (2 of 5 answered); follow up Tue 13 Oct (ST2 step 2, Q1-Q4).
+ >>> TUESDAY 13 OCT - YOUR ACTIONS (merged to main 09:29: BK1, GT4/GT5,
+     LN-T32/33/34, Record sell path)
+     1. DONE: Kite login (the 19:00 live dry run ran on it).
+     2. DONE 21:00: AMO SELL 1 HDFCBANK placed (CNC, LIMIT) - ST2 step 3;
+        it goes to the exchange at 09:15 Wed.
+     3. Zerodha follow-up, Q1-Q4 (ST2 step 2).
+     4. DONE: dead man's switch fire drill (DMfd); schedule restored, ping
+        URL out of my_todos.txt, Outlook rule added.
+ >>> WEDNESDAY 14 OCT: after 09:15 the AMO should be COMPLETE (note its order
+     ID); in market hours a single-leg SELL GTT on the other share (note the
+     GTT ID); that evening Actions > "Record sell path".
 [!] P1  MU2  Self-service accounts: merged and live 8 Oct (sign-up on the
              login page; email secrets copied by the deploy; the data key on
              the Space with a copy kept off it); frontend in production
              (NX1 merge deployed 22:33 IST).  Left: sign up with a spare
              email: activation email, sign-in, Fly Kite, Settings > Delete
              account.
-[!] P3  GT0  Golden target: (a) and (b) decided 10 Oct (a stretch goal,
-             pre-tax, Sharpe >= 1.4; section 1 STRETCH).  Left: (c) drop
-             R6?  More price signals in the core are a dead end (review
-             3.3: residual momentum, 52-week high, low beta, delivery all
-             diluted it).
 [!] P1  U23  Log in to Kite once every trading day: tap the link in the
              09:00 / 17:30 IST email (valid until 06:00 next day).  The first
              live dry run is Thu 1 Oct 19:00 IST (Fri 2 Oct is a holiday);
@@ -307,10 +308,6 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              with its code and data hashes unchanged) runs the live session
              as a dry run instead of sending orders.  Without it, drift is
              only emailed.
-[!] P1  DMfd After the next merge to main: the dead man's switch fire drill
-             with Claude (your call 10 Oct): a manual /fail ping, and the
-             check's schedule set a few minutes ahead once, to see both
-             emails arrive.
 --------------------------------------------------------------------------------
  5. IN PROGRESS [~]
 --------------------------------------------------------------------------------
@@ -469,9 +466,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                  realised-vs-model cost gap (model 2.4-2.8%/yr of CAGR);
                  sized by G4's cost ratio.  Needs >= 30 real fills (~Jan).
                                                                   Prompt: do X1
-#6  [ ] P3  R6   R21A rules as signal groups (+/-0.1 Sharpe)    Prompt: do R6
-                 GT review 3.3: price signals dilute the core; drop? (GT0)
-#7  [ ] P3  R9   Universe size 150 / 300 / 500 (+/-0.1)        Prompt: do R9
+#6  [ ] P3  R9   Universe size 150 / 300 / 500 (+/-0.1)        Prompt: do R9
  OCT-NOV  research and housekeeping while the books accumulate (no trials)
    Measured 1 Oct: 147k lines of Python; the trading engine is 9k.  Two
    modules hold the daily path: scheduler.py 3,211 lines / 30 jobs, all
@@ -647,6 +642,62 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+13 Oct  CR2  Fresh-capital requests at -20 / -30 / -40% (your plan, after the
+             crash and dip-level analysis).  Fresh capital that can stay 5
+             years, staged in thirds.  When NIFTY first closes 20%, 30% or
+             40% below its peak in a fall, the nightly job emails "add fresh
+             capital, third n of 3": move one third of the crash reserve from
+             the liquid fund into a NIFTY 50 ETF (e.g. NIFTYBEES, CNC) at the
+             next session, never into the momentum book.  Thirds not reached
+             stay in the reserve for the next fall.  The 50/200-day cross
+             stays a facts-only note.  Each email goes once per fall.
+             Each request also says:
+             - where the third comes from: third 1 from LIQUIDCASE (sell it
+               and buy NIFTYBEES the same session); thirds 2-3 from an equity
+               arbitrage fund (direct, growth: e.g. Kotak, Tata or Invesco),
+               redeemed on Coin in 1-2 days;
+             - the tax arithmetic: slab rate on LIQUIDCASE (about 4.1% a year
+               kept at 30%); equity tax on arbitrage, 12.5% after 12 months
+               (about 5.2% kept); NIFTYBEES 12.5% / 20%;
+             - market conditions at that close: % from peak and sessions
+               since, 1-month change, gap to the 200-day average, the 50/200
+               state, India VIX with its 1-year range and percentile.
+             This is your discipline, not a passed rule: CR1 / CR1b closed.
+             Evidence, 13 indices since 1929: 5-year medians +34% / +43% /
+             +69% after -20% / -30% / -40%, after a further fall of 17-21%
+             first (median).
+             Code: nse_engine/crash_recovery.py (level_alerts,
+             CAPITAL_THIRDS) and the workflow step "NIFTY fall levels
+             (fresh-capital requests)".  Checked on a simulated fall (one
+             email per third, then the cross note) and a dry run on today's
+             data (NIFTY -15%; third 1 at a close of 21,063); suite 216
+             passed.  Live after you merge.
+13 Oct  R6   Dropped, not run (your call; GT0 (c), so GT0 is fully decided).
+             R6 would have added the R21A rules to the core ranking as
+             signal groups, expected +/-0.1 Sharpe.  Golden-target review
+             3.3: residual momentum, 52-week high, low beta, delivery, low
+             volatility and the R21A rules each carry information, but in a
+             20-name book they dilute the trend forecast (Sharpe -0.00 to
+             -0.25).  Running it would spend core trials (1 left before
+             January) and raise the family's overfitting bar (PBO 50%).
+             The core's trials go to GT7 (earnings, new information) and MV1
+             after V3.  For MV1, expect the earnings screen to matter more
+             than its price rules, which carry the same dilution risk.
+13 Oct  DMfd Dead man's switch fire drill (healthchecks.io check
+             "centurion-nightly"): PASS, both paths.
+             - Part A, "a run failed": a manual /fail ping turned the check
+               DOWN and emailed; the plain ping brought it UP and emailed.
+             - Part B, "nothing ran": with the schedule at 2 min + 1 min
+               grace and no ping, the check went DOWN at 07:42 UTC and
+               emailed ("success signal did not arrive on time").
+             Learned: an email goes only when the check changes state, so a
+             check left red after /fail sends no second DOWN.  Ping it UP
+             first.  The nightly job's own pings were already healthy
+             (12 Oct runs: "session 2026-10-12 done").  You then restored
+             the original schedule, removed the ping URL from
+             docs/my_todos.txt (uncommitted; anyone holding it could send
+             fake healthy pings) and added an Outlook rule for
+             healthchecks.io mail.
 13 Oct  LN-T34 Alarm hardening after LN-T32 / LN-T33 (your ask).
              1. The canary names what changed.  MarketData.symbol_fingerprints
                 gives per-stock fingerprints of what the data hash covers,

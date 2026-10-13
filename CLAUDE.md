@@ -31,5 +31,5 @@ data and coding assistants". Read it before changing code. The essentials:
   2026 is the sealed holdout.
 - **Tests:** `python -m pytest tests -q -m "not slow"`.
 - **Communication:** be candid when something misses the goal or is
-  premature, and keep summaries crisp. Keep `docs/ACTION_TRACKER.txt`
+  premature, and keep summaries crisp. Keep `docs/MEMORY_TRACKER.txt`
   current.

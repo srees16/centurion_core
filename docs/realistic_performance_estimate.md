@@ -2,7 +2,7 @@
 
 > **Superseded (1 Oct 2026).** This April estimate describes the legacy R21A
 > system (55% vol target, 4× leverage), which no longer trades. For the NSE
-> engine that does, see `ACTION_TRACKER.txt` section 1 (*Where we stand*: the
+> engine that does, see `MEMORY_TRACKER.txt` section 1 (*Where we stand*: the
 > recorded backtest, walk-forward and measured live haircut) and
 > `docs/nse_engine_validation_plan.md` (sections 5o and 6). Kept unchanged
 > below for the record.

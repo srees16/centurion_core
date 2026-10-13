@@ -129,7 +129,7 @@ The NSE engine is in `nse_engine/`: swing and positional only, never
 intraday. Broker and options code is in `kite_connect/`, Kaggle and backup
 tooling in `cloud/`, and command-line entry points in `runners/`.
 
-The plan of record is `docs/ACTION_TRACKER.txt`. The validation rules are in
+The plan of record is `docs/MEMORY_TRACKER.txt`. The validation rules are in
 `docs/nse_engine_validation_plan.md` and `docs/research_protocol.md`.
 
 #### Prerequisites (once per laptop)
@@ -211,7 +211,7 @@ Then:
    `requirements-core.txt`.
 10. Be candid: say so when something misses the goal or is premature. Keep
     summaries crisp.
-11. Keep `docs/ACTION_TRACKER.txt` current.
+11. Keep `docs/MEMORY_TRACKER.txt` current.
 
 ---
 
