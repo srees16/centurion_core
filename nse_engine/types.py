@@ -168,6 +168,33 @@ class MarketData:
             h.update(np.nan_to_num(ic.to_numpy(dtype="float64"), nan=-1.0).round(4).tobytes())
         return h.hexdigest()[:16]
 
+    def symbol_fingerprints(self) -> Dict[str, str]:
+        """What ``compute_hash`` covers, per column, so a changed hash can name what moved (tracker LN-T34).
+
+        Keyed by the name in force on the last date: 8 hex digits for the adjusted prices and volume, then 8 for
+        the as-printed close and traded value, so a moved adjustment factor changes only the first half.
+        ``index:<name>`` and ``etfs`` cover the rest.  Frames are read one at a time to keep memory flat.
+        """
+        names = self.names_at_end()
+        halves = [[hashlib.sha256() for _ in names], [hashlib.sha256() for _ in names]]
+        for half, frames in ((0, ((self.close, 4), (self.open, 4), (self.high, 4), (self.low, 4), (self.volume, 0))),
+                             (1, ((self.close_unadj, 4), (self.value, 0)))):
+            for frame, decimals in frames:
+                if frame is None:
+                    continue
+                arr = np.nan_to_num(frame.to_numpy(dtype="float64")).round(decimals)
+                for j, h in enumerate(halves[half]):
+                    h.update(arr[:, j].tobytes())
+        out = {n: a.hexdigest()[:8] + b.hexdigest()[:8] for n, a, b in zip(names, *halves)}
+        ic = self.index_close
+        for c in (ic.columns if ic is not None else ()):
+            out[f"index:{c}"] = hashlib.sha256(np.nan_to_num(ic[c].to_numpy(dtype="float64"), nan=-1.0)
+                                               .round(4).tobytes()).hexdigest()[:16]
+        at_end = dict(zip(map(str, self.close.columns), names))
+        out["etfs"] = hashlib.sha256("|".join(sorted(at_end.get(str(e), str(e)) for e in self.etfs)).encode()
+                                     ).hexdigest()[:16]
+        return out
+
 
 @dataclass
 class Holding:

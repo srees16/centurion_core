@@ -33,7 +33,8 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Dict, FrozenSet, Iterable, List, Optional, Tuple, Union
+from dataclasses import dataclass
+from typing import Dict, FrozenSet, Iterable, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -48,6 +49,8 @@ EQUITY_LIST = "EQUITY_L.csv"
 NIFTY500_LIST = "ind_nifty500list.csv"
 #: Dated sector-map snapshots, next to the map: ``<map dir>/nse_sector_maps/YYYY-MM-DD.json``.
 SECTOR_SNAPSHOTS = "nse_sector_maps"
+#: Dated face values (tracker LN-T32), next to the sector map: {symbol: [[first seen, face value], ...]}.
+FACE_VALUE_HISTORY = "nse_face_values.json"
 
 CHANGE_COLUMNS = ["old", "new", "date", "valid_from", "source"]
 
@@ -566,3 +569,66 @@ def load_face_values(root: PathLike) -> Dict[str, float]:
     df.columns = [c.strip().upper() for c in df.columns]
     fv = pd.to_numeric(df.get("FACE VALUE"), errors="coerce")
     return {s.strip().upper(): float(v) for s, v in zip(df["SYMBOL"], fv) if pd.notna(v)}
+
+
+@dataclass(frozen=True)
+class FaceValues:
+    """Face value by symbol and date, for rights-issue prices (tracker LN-T32).
+
+    ``history`` is {symbol: [(first seen, face value), ...]}, oldest first.  A value holds from the date it was
+    first seen until the next one, and the earliest stands for the years before it.  So a symbol NSE drops
+    from ``EQUITY_L.csv`` (a consolidation in progress, a suspension) keeps its last value, and a later split or
+    consolidation never re-prices an earlier rights issue.  A symbol with no history uses ``current``, the
+    list of the day.
+    """
+
+    history: Dict[str, List[Tuple[str, float]]]
+    current: Dict[str, float]
+
+    def on(self, symbol: str, day) -> Optional[float]:
+        entries = self.history.get(symbol)
+        if not entries:
+            return self.current.get(symbol)
+        day = pd.Timestamp(day).date().isoformat()
+        value = entries[0][1]
+        for since, v in entries:
+            if since > day:
+                break
+            value = v
+        return value
+
+
+def load_face_value_history(paths: Iterable[PathLike]) -> Dict[str, List[Tuple[str, float]]]:
+    """The first existing face-value history in ``paths`` ({} if none)."""
+    for p in paths:
+        p = Path(p)
+        if p.exists():
+            try:
+                return {str(k).upper(): [(str(d), float(v)) for d, v in entries]
+                        for k, entries in json.loads(p.read_text()).items()}
+            except (ValueError, TypeError):
+                logger.warning("invalid face-value history at %s", p)
+    return {}
+
+
+def update_face_value_history(archive_root: PathLike, out_paths: Sequence[PathLike],
+                              today: Optional[str] = None) -> Dict[str, List[Tuple[str, float]]]:
+    """Merge the day's ``EQUITY_L.csv`` into the history at ``out_paths[0]`` and write it to every path.
+
+    A face value that changed gets an entry from ``today``; a symbol that left the list keeps its entries.
+    """
+    history = load_face_value_history(out_paths[:1])
+    day = today or pd.Timestamp.today().date().isoformat()
+    for symbol, value in load_face_values(archive_root).items():
+        entries = history.setdefault(symbol, [])
+        if not entries or entries[-1][1] != value:
+            entries.append((day, value))
+    text = "{\n" + ",\n".join(f"{json.dumps(s)}: {json.dumps([[d, v] for d, v in e])}"
+                                for s, e in sorted(history.items())) + "\n}\n"
+    for out in map(Path, out_paths):
+        out.parent.mkdir(parents=True, exist_ok=True)
+        tmp = out.with_name(f".{out.name}.tmp{os.getpid()}")
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, out)
+    logger.info("face values: %d symbols -> %s", len(history), ", ".join(map(str, out_paths)))
+    return history
