@@ -639,7 +639,8 @@ class EngineExecutor:
             plan.notes.append("data gap: " + "; ".join(gaps))
             from services.notifications.alerts import WARNING, alert
 
-            alert(WARNING, f"data_gap:{as_of.date()}", "Centurion: index or sleeve prices missing", gaps)
+            alert(WARNING, f"data_gap:{as_of.date()}", "Centurion: index or sleeve prices missing", gaps,
+                  once=True)                              # once per session: backup runs re-plan it (LN-T34)
         # Last available close per symbol (forward-filled, as the engine marks equity)
         closes = view.close.ffill().iloc[-1] if len(view.close) else pd.Series(dtype=float)
         prices: Dict[str, float] = {}

@@ -87,7 +87,7 @@ CA_CREDIT_SESSIONS = 5                     # sessions to wait for split/bonus sh
 STOP_COOLDOWN_KEEP_DAYS = 30               # recent stop-outs kept in the ledger; the engine counts its 5 sessions
 LIVE_LAST_SESSION_KEY = "live_last_session"
 LIVE_DRY_LAST_SESSION_KEY = "live_dry_run_last_session"   # the scheduled dry run's once-per-session marker
-LIVE_SKIP_NOTIFIED_KEY = "live_skip_notified"            # date of the last "no login today" email
+LIVE_SKIP_NOTIFIED_KEY = "live_skip_notified"            # session of the last "no login" email (LN-T34)
 SOURCE_ENGINE, SOURCE_EXTERNAL = "live_open", "external"
 
 
@@ -1380,6 +1380,25 @@ def _login_accepted(kite) -> bool:
     return True
 
 
+def _store_session(as_of=None) -> Optional[str]:
+    """The session a run works on: the live store's latest, on or before ``as_of`` (UTC today by default)."""
+    from nse_engine.data.store import latest_session
+    from nse_engine.deployment import load_deployment
+
+    return latest_session(load_deployment().live_config().data.store_dir,
+                          as_of if as_of is not None else datetime.now(timezone.utc).date())
+
+
+def _already_ran(book, dry_run: bool, session: Optional[str]) -> bool:
+    """Does the book's once-per-session marker already hold ``session``?
+
+    Checked before the Kite login: a backup run after the session must not test a token that was logged
+    out (or flushed) since, and report a skipped session that in fact ran (13 Oct 2026, LN-T33).
+    """
+    marker = LIVE_DRY_LAST_SESSION_KEY if dry_run else LIVE_LAST_SESSION_KEY
+    return session is not None and book.read_state().get(marker) == session
+
+
 def _email_skip(message: str, label: str = "") -> None:
     """CRITICAL (tracker AL2): no live session today, so no exits or rebalances (GTT stops still hold)."""
     from services.notifications.alerts import CRITICAL, alert
@@ -1448,6 +1467,11 @@ def main(argv=None) -> int:
     if args.stored_token:
         from kite_connect.auth import daily_login as dl
         book = live_book(acct.schema if acct else None)
+        session = _store_session(args.as_of)
+        if not args.record_sell_path and _already_ran(book, dry_run, session):
+            logger.info("LIVE session %s (%s) already ran: nothing to do", session, "dry run" if dry_run else "live")
+            print(json.dumps({"session": session, "skipped": "already ran"}))
+            return 0
         kite = dl.kite_from_stored_token(book, key=acct.api_key if acct else None)
         rejected = kite is not None and not _login_accepted(kite)
         if kite is None or rejected:
@@ -1458,10 +1482,10 @@ def main(argv=None) -> int:
                    f"No Kite login today{whose}, so the live session was skipped: no orders were placed. "
                    "GTT stops stay active at Zerodha. Log in tomorrow from the reminder email.")
             logger.warning(msg)
-            today = datetime.now(dl.IST).date().isoformat()
-            if not args.no_email and book.read_state().get(LIVE_SKIP_NOTIFIED_KEY) != today:
-                _email_skip(msg, acct.name if acct else "")   # once a day, not once per backup run
-                book.sync_state({LIVE_SKIP_NOTIFIED_KEY: today})
+            notified = session or datetime.now(dl.IST).date().isoformat()
+            if not args.no_email and book.read_state().get(LIVE_SKIP_NOTIFIED_KEY) != notified:
+                _email_skip(msg, acct.name if acct else "")   # once per session, not once per backup run
+                book.sync_state({LIVE_SKIP_NOTIFIED_KEY: notified})
             print(msg)
             return 0
         proxy = os.environ.get(dl.ENV_PROXY, "")

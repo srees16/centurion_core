@@ -46,6 +46,7 @@ DateLike = Union[str, date, datetime, pd.Timestamp]
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SECTOR_MAP = REPO_ROOT / "data" / "nse_sector_map.json"
+DEFAULT_FACE_VALUES = REPO_ROOT / "data" / reference.FACE_VALUE_HISTORY
 INDEX_NAMES = ("NIFTY50", "NIFTY500", "INDIAVIX", "NIFTY50_TRI")
 #: Derived total-return indices: name -> (price index, dividend-points index).
 TRI_SOURCES = {"NIFTY50_TRI": ("NIFTY50", "NIFTY50DIVIDENDPOINTS")}
@@ -164,9 +165,12 @@ def load_dividends(store_dir: PathLike, dates: pd.DatetimeIndex, changes: pd.Dat
     return dv
 
 
-def _face_values(store_dir: PathLike) -> Dict[str, float]:
+def _face_values(store_dir: PathLike) -> reference.FaceValues:
+    """Dated face values (LN-T32): the repo's history, else the store's copy (Kaggle), and the day's list."""
     root = next((r for r in _reference_roots(store_dir) if reference.reference_path(r, reference.EQUITY_LIST)), None)
-    return reference.load_face_values(root) if root is not None else {}
+    history = reference.load_face_value_history(
+        [DEFAULT_FACE_VALUES, Path(store_dir) / "reference" / reference.FACE_VALUE_HISTORY])
+    return reference.FaceValues(history, reference.load_face_values(root) if root is not None else {})
 
 
 # -------------------------------------------------------------- transforms
@@ -311,7 +315,7 @@ def isin_change_frame(rows: pd.DataFrame, dates: pd.DatetimeIndex, symbols: Sequ
 
 def event_factor_frames(events: pd.DataFrame, dates: pd.DatetimeIndex, symbols: Sequence[str],
                         prior: np.ndarray, open_next: np.ndarray,
-                        face_values: Optional[Dict[str, float]] = None) -> Dict[str, np.ndarray]:
+                        face_values: Optional[reference.FaceValues] = None) -> Dict[str, np.ndarray]:
     """Candidate factors from corporate-action events, placed on the first session >= ex-date.
 
     Returns arrays (dates x symbols, NaN = none) for ``ratio`` (bonus / split /
@@ -330,7 +334,7 @@ def event_factor_frames(events: pd.DataFrame, dates: pd.DatetimeIndex, symbols: 
     ev["di"] = dates.searchsorted(pd.DatetimeIndex(ev["ex_date"]))
     ev["si"] = col.get_indexer(ev["canonical"])
     ev = ev[(ev["si"] >= 0) & (ev["di"] > 0) & (ev["di"] < len(dates))]
-    fv = face_values or {}
+    fv = face_values or reference.FaceValues({}, {})
     for r in ev.itertuples(index=False):
         di, si = int(r.di), int(r.si)
         if pd.notna(r.factor):
@@ -344,7 +348,7 @@ def event_factor_frames(events: pd.DataFrame, dates: pd.DatetimeIndex, symbols: 
                     out["price"][di, si] = o / p
         elif pd.notna(r.rights_new) and pd.notna(r.rights_premium):
             p = prior[di, si]
-            issue = r.rights_premium + fv.get(r.canonical, fv.get(r.symbol, 0.0))
+            issue = r.rights_premium + (fv.on(r.canonical, r.ex_date) or fv.on(r.symbol, r.ex_date) or 0.0)
             if np.isfinite(p) and p > issue > 0:
                 a, b = r.rights_new, r.rights_held
                 out["rights"][di, si] = (b * p + a * issue) / ((a + b) * p)
@@ -488,7 +492,7 @@ def _slip_rejected(candidate: np.ndarray, rejected: np.ndarray, factors: np.ndar
 
 
 def adjustment_multipliers(close: pd.DataFrame, prev_close: pd.DataFrame, open_: Optional[pd.DataFrame] = None,
-                           events: Optional[pd.DataFrame] = None, face_values: Optional[Dict[str, float]] = None,
+                           events: Optional[pd.DataFrame] = None, face_values: Optional[reference.FaceValues] = None,
                            tolerance: float = 0.002, infer_gaps: bool = True,
                            isin_change: Optional[np.ndarray] = None,
                            dividend_amounts: Optional[np.ndarray] = None) -> Tuple[pd.DataFrame, pd.DataFrame]:

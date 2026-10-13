@@ -152,3 +152,6 @@ ST2, LN-T2
 
 ~~~~~~~
 
+Zerodha call script: in BTST, 80-20 is not there
+"After a sell from holdings executes, how much of the proceeds can I use for a new buy the same day, and from when?"
+if not T1 
