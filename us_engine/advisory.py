@@ -19,10 +19,11 @@ Each run after a US close (``python -m us_engine.advisory run``):
 4. saves the book (Neon schema ``us_advisory``, or ``--state-file``) and emails
    the suggestions: sells, buys, raised stops, the book against the S&P 500.
 
-The model book is notional (``NOTIONAL_USD``, whole shares) and assumes every
-suggestion filled at the next open; scale it to your capital
-(``US_ADVISORY_CAPITAL_USD``).  Actions logs are public, so a run there logs
-counts only; the names and amounts go by email.
+The model book is notional (``NOTIONAL_USD``: whole shares that stand for
+fractional ones) and assumes every suggestion filled at the next open; the
+email scales it to your capital (``US_ADVISORY_CAPITAL_USD``) in dollars and
+fractional shares.  Actions logs are public, so a run there logs counts only;
+the names and amounts go by email.
 """
 
 from __future__ import annotations
@@ -56,7 +57,11 @@ logger = logging.getLogger(__name__)
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEPLOYMENT = REPO_ROOT / "config" / "nse_engine_deployed.json"
 IST = ZoneInfo("Asia/Kolkata")
-NOTIONAL_USD = 100_000.0
+#: Large so whole shares stand for the fractional shares US brokers sell (rounding
+#: under 0.01% of the book); the email scales every amount to your capital.
+NOTIONAL_USD = 10_000_000.0
+#: Capital the email sizes for when ``US_ADVISORY_CAPITAL_USD`` is not set.
+REFERENCE_CAPITAL = 10_000.0
 #: Per side, on every model fill: spread and slippage at a zero-commission broker (US3 replaces it).
 FILL_COST_BPS = 10.0
 SCHEMA = "us_advisory"
@@ -73,7 +78,7 @@ US_OVERRIDES = {
     "universe.calendar_schedule": True,        # schedules on the calendar, not on row counts
     "signals.calendar_schedule": True,
     "portfolio.calendar_schedule": True,       # rebalance on each week's first session
-    "portfolio.min_trade_value_inr": 1_000.0,  # 1% of the notional, as Rs 5,000 is of the India book's Rs 5 lakh
+    "portfolio.min_trade_value_inr": 0.01 * NOTIONAL_USD,  # 1%, as Rs 5,000 is of the India book's Rs 5 lakh
     "regime.index_symbol": "SPX",
     "regime.vix_symbol": "VIX",
     "sleeves.gold_enabled": False,             # the India book holds the metals
@@ -405,16 +410,17 @@ def report_tables(book: Book, plan: Plan, panel: UsPanel, capital: float) -> Dic
     k = capital / NOTIONAL_USD
     sectors = panel.data.sectors
     equity = book.value()
-    sells = pd.DataFrame([{"Symbol": o.symbol, "Model shares": o.qty, "Your $": _money(o.qty * o.price * k),
-                           "Reason": o.reason} for o in plan.side("SELL")])
+    sells = pd.DataFrame([{"Symbol": o.symbol, "Your shares": "all" if o.weight == 0 else f"{o.qty * k:,.4f}",
+                           "Your $": _money(o.qty * o.price * k), "Reason": o.reason} for o in plan.side("SELL")])
     buys = pd.DataFrame([{"Symbol": o.symbol, "Sector": sectors.get(o.symbol, ""), "Weight": _pct(o.weight),
-                          "Your $": _money(o.qty * o.price * k), "Last close": f"{o.price:,.2f}",
-                          "Stop": f"{o.stop:,.2f}" if o.stop else "",
+                          "Your $": _money(o.qty * o.price * k), "Your shares": f"{o.qty * k:,.4f}",
+                          "Last close": f"{o.price:,.2f}", "Stop": f"{o.stop:,.2f}" if o.stop else "",
                           "Stop distance": _pct(o.stop / o.price - 1) if o.stop else ""}
                          for o in plan.side("BUY")])
     raised = pd.DataFrame([{"Symbol": s, "Old stop": f"{old:,.2f}" if old else "", "New stop": f"{new:,.2f}"}
                            for s, old, new in plan.raised])
     held = pd.DataFrame([{"Symbol": s, "Sector": sectors.get(s, ""), "Weight": _pct(h["qty"] * h["last_price"] / equity),
+                          "Your $": _money(h["qty"] * h["last_price"] * k), "Your shares": f"{h['qty'] * k:,.4f}",
                           "Since": h["entry_date"], "Entry": f"{h['avg_price']:,.2f}",
                           "Last": f"{h['last_price']:,.2f}", "P&L": _pct(h["last_price"] / h["avg_price"] - 1, True),
                           "Stop": f"{h['stop']:,.2f}" if h.get("stop") else ""}
@@ -457,8 +463,8 @@ def render_html(book: Book, plan: Plan, panel: UsPanel, capital: float, capital_
                        for row in df.itertuples(index=False))
         return f"<table style=\"border-collapse:collapse;font-size:13px;\"><tr>{head}</tr>{body}</table>"
 
-    size_note = (f"Your $ is for your capital of {_money(capital)}." if capital_set else
-                 f"Your $ is for the model's {_money(NOTIONAL_USD)}: set {ENV_CAPITAL} to size for your capital.")
+    size_note = (f"Your $ and shares are for your capital of {_money(capital)}." if capital_set else
+                 f"Your $ and shares are per {_money(capital)} of capital: set {ENV_CAPITAL} to size them for yours.")
     parts = [
         "<html><body style=\"font-family:Segoe UI,Arial,sans-serif;font-size:14px;\">",
         f"<h3>US suggestions for the {opens:%a %d %b} open ({opens:%H:%M} IST)</h3>",
@@ -470,10 +476,11 @@ def render_html(book: Book, plan: Plan, panel: UsPanel, capital: float, capital_
         f"<h4>Buy ({len(tables['buys'])})</h4>", table(tables["buys"]),
         f"<h4>Raise these stops ({len(tables['raised'])})</h4>", table(tables["raised"]),
         "<h4>How to place</h4><ul>"
-        f"<li>At the open ({opens:%H:%M} IST): sells first, then buys, as market orders or limits a little above "
-        "the last close. With fractional shares, buy the dollar amount.</li>"
+        f"<li>At the open ({opens:%H:%M} IST): sells first (the shares listed, or the whole holding for \"all\"), "
+        "then buys of the dollar amounts (fractional shares), as market orders or limits a little above the last "
+        "close.</li>"
         "<li>Give every holding a good-till-cancelled sell-stop at its stop. Raise stops when listed; never lower "
-        "them.</li>"
+        "them. Check that your broker takes stops on fractional quantities.</li>"
         f"<li>{escape(size_note)} The model assumes each order filled at the open; tell Claude if one did not.</li>"
         "<li>Indian tax: gains on shares held under 24 months are taxed at your slab rate; US dividends lose 25% "
         "to withholding (credited in India).</li></ul>",
@@ -517,8 +524,8 @@ def _capital(arg: Optional[float]) -> Tuple[float, bool]:
     try:
         value = float(raw)
     except (TypeError, ValueError):
-        return NOTIONAL_USD, False
-    return (value, True) if value > 0 else (NOTIONAL_USD, False)
+        return REFERENCE_CAPITAL, False
+    return (value, True) if value > 0 else (REFERENCE_CAPITAL, False)
 
 
 def run(store, dry_run: bool = False, email: bool = True, capital: Optional[float] = None,
@@ -540,7 +547,7 @@ def run(store, dry_run: bool = False, email: bool = True, capital: Optional[floa
         return 0 if ok else 1
     if book is None:
         book = Book(start=last, last_session=last, cash=NOTIONAL_USD, equity=[[last, NOTIONAL_USD]])
-        events: List[str] = [f"Model book started on the {last} close with {_money(NOTIONAL_USD)}."]
+        events: List[str] = [f"Model book started on the {last} close."]
     else:
         events = advance(book, panel)
     plan = plan_next(book, panel, cfg, rule)

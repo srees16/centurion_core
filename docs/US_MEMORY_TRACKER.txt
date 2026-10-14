@@ -113,6 +113,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 [!] P1  US-Y1 Choose the broker you will place US orders with (e.g.
              Interactive Brokers, Vested, INDmoney).  It sets the cost and
              tax model (US3): commissions, FX spread, fees, statements.
+             Check that it takes good-till-cancelled stop orders on
+             fractional quantities (the advisory's stops need them).
 [!] P1  US-Y2 Capital and currency: roughly how much for US stocks (under
              LRS), and whether to judge results in INR, USD or both
              (suggested: both).
@@ -207,8 +209,11 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                split-adjusted from 2012, regime on the S&P 500 and VIX,
                USD thresholds, calendar schedules (weekly rebalance), no
                metals (held in India), the drawdown rule on the book.
-             - Model book: USD 100,000 notional, whole shares, 10 bp a
-               side; assumes each suggestion fills at the next open; stops
+             - Model book: USD 10 million notional so whole shares stand
+               for fractional ones (rounding under 0.01%); the email sizes
+               in your dollars and fractional shares (your ask: per
+               US_ADVISORY_CAPITAL_USD, else per $10,000); 10 bp a side;
+               assumes each suggestion fills at the next open; stops
                at 6 ATR, only ever raised; splits adjusted.  State in Neon
                (schema us_advisory).
              - Email after each US close (workflow us-advisory.yml, 03:47
