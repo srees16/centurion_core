@@ -1,0 +1,52 @@
+name: US Advisory
+
+# US advisory book (tracker US-A1, docs/US_MEMORY_TRACKER.txt): after each US
+# close, advance the model book and email the next session's suggestions.
+# Advisory only: nothing here can place an order.  The book lives in Neon
+# (schema us_advisory); logs show counts only (public repository).
+
+on:
+  schedule:
+    # After the US close (16:00 New York: 20:00 UTC in summer, 21:00 UTC in
+    # winter).  GitHub runs schedules late, so a backup follows; a rerun is
+    # safe: a planned session is not planned again, and an unsent email is
+    # resent.  Minutes avoid the congested top of the hour.
+    - cron: "17 22 * * 1-5"   # 03:47 IST Tue-Sat
+    - cron: "17 1 * * 2-6"    # 06:47 IST, backup
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: us-advisory-book
+  cancel-in-progress: false
+
+jobs:
+  advise:
+    runs-on: ubuntu-24.04   # pinned, as the paper workflow
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements-core.txt
+
+      - name: Plan the next US session
+        env:
+          CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
+          CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
+          CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
+          CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
+          CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+          US_ADVISORY_CAPITAL_USD: ${{ vars.US_ADVISORY_CAPITAL_USD }}
+        run: python -m us_engine.advisory run

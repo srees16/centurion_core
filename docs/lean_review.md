@@ -9,7 +9,7 @@ Tracker LN1. Lean commit 80e7843 (6 Oct 2026) and its Zerodha brokerage plugin w
 - Done: live entry dates, never-lowered and rescaled live stops (LS1).
 - Done: unsettled-share sale proceeds kept out of the buy budget (ST1).
 - Open with you: DDPI and AMO funding (ST2).
-- Each ranked item is tracked as LN-T<number> in docs/ACTION_TRACKER.txt (P0 and P1 in the queue, P2 and P3 in the backlog); its status lives there, not here.
+- Each ranked item is tracked as LN-T<number> in docs/MEMORY_TRACKER.txt (P0 and P1 in the queue, P2 and P3 in the backlog); its status lives there, not here.
 
 ## Summary
 
@@ -123,7 +123,7 @@ Add one module, kite_connect/trading/ticks.py (shared with the identity resolver
 
 When the dump is unavailable or lacks a symbol, fall back to the NSE price-slab tick one slab coarser than the close's slab and raise an alert. Never fall back to 0.05.
 
-Correct the '5-paise tick' statements in docs/nse_engine.md:274, nse_engine_validation_plan.md:1583 and ACTION_TRACKER.txt:447-448.
+Correct the '5-paise tick' statements in docs/nse_engine.md:274, nse_engine_validation_plan.md:1583 and MEMORY_TRACKER.txt:447-448.
 
 **Test plan.**
 
@@ -183,7 +183,7 @@ In run_live_session for the first real session:
 - without the attestation it raises 'go-live refused: sell path';
 - with the override it runs, and the email says OVERRIDDEN.
 
-The real proof is the funded test: the AMO sell reaches COMPLETE at the next open and the GTT order reaches COMPLETE. Record both responses in ACTION_TRACKER.
+The real proof is the funded test: the AMO sell reaches COMPLETE at the next open and the GTT order reaches COMPLETE. Record both responses in MEMORY_TRACKER.
 
 ### 3. Make order placement idempotent for AMOs and fail closed when the order book cannot be read (P0, `idempotent-amo-placement`)
 
@@ -874,7 +874,7 @@ In scorecard.regime_stability (~:501-526), shift both the trend label and the VI
 
 Drop the same-day split, or keep it only as a table explicitly labelled 'contemporaneous'.
 
-Re-render the 2026-10-10 scorecards and their JSON, and correct the regime sentence of the SC1 entry at ACTION_TRACKER.txt:554.
+Re-render the 2026-10-10 scorecards and their JSON, and correct the regime sentence of the SC1 entry at MEMORY_TRACKER.txt:554.
 
 **Test plan.**
 
@@ -1096,7 +1096,7 @@ The drawdown logic is ported from Lean's DrawdownCollection, with its bugs fixed
    - age of the open drawdown;
    - top 5 periods.
 3. Add a descriptive table of NIFTY 50 TRI's top-N drawdowns, with the book's fall leg and recovery leg for each. Hand-picked crisis windows are not used.
-4. Refresh the stale '726 days' figure in ACTION_TRACKER.
+4. Refresh the stale '726 days' figure in MEMORY_TRACKER.
 5. Do not add any of this to G4 or the ladder.
 
 **Test plan.**
