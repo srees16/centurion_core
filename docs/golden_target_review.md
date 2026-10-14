@@ -15,7 +15,7 @@ Inputs:
 
 The scoping is arithmetic on recorded returns, not a trial: nothing was
 recorded, and the trial count does not change. Items are tracked as GT<n> in
-`docs/ACTION_TRACKER.txt`; their status lives there.
+`docs/MEMORY_TRACKER.txt`; their status lives there.
 
 **Decision (GT0, 10 Oct 2026, the owner's call): the golden target is a
 stretch goal, not the plan.** It is restated as Sharpe ≥ 1.4, CAGR ≥ 35%,

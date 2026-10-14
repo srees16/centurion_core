@@ -129,7 +129,7 @@ The NSE engine is in `nse_engine/`: swing and positional only, never
 intraday. Broker and options code is in `kite_connect/`, Kaggle and backup
 tooling in `cloud/`, and command-line entry points in `runners/`.
 
-The plan of record is `docs/ACTION_TRACKER.txt`. The validation rules are in
+The plan of record is `docs/MEMORY_TRACKER.txt`. The validation rules are in
 `docs/nse_engine_validation_plan.md` and `docs/research_protocol.md`.
 
 #### Prerequisites (once per laptop)
@@ -211,7 +211,60 @@ Then:
    `requirements-core.txt`.
 10. Be candid: say so when something misses the goal or is premature. Keep
     summaries crisp.
-11. Keep `docs/ACTION_TRACKER.txt` current.
+11. Keep `docs/MEMORY_TRACKER.txt` (India) and `docs/US_MEMORY_TRACKER.txt` (US) current.
+
+---
+
+<!-- scorecard:deployed -->
+## Current performance: NSE engine, deployed book
+
+From the strategy scorecard of 2026-10-10:
+- **Book:** configuration `679cbd0c`, run `20261010T032441064151Z_679cbd0c`.
+- **Backtest:** 2013–25, cost model 4.
+- **Convention:** Sharpe is excess over the 6.5% risk-free rate.
+
+Refresh it with `python -m runners.run_nse_engine scorecard --book all`
+(JSON in `data/nse_engine/scorecard/`).  The deployed book's run rewrites this section.
+
+| Metric | Latest | Tracked in |
+|---|---|---|
+| CAGR / Sharpe / Sortino / Calmar | 23.1% / 1.16 / 1.61 / 0.97 | every backtest, scorecard |
+| Max drawdown / volatility | −23.9% / 13.4% a year | every backtest, scorecard |
+| CVaR 95% (daily) / skew / kurtosis | −2.1% / −0.86 / 4.9 | scorecard (skew and kurtosis also every backtest) |
+| Information ratio (vs NIFTY 50 TRI) | 1.06 | scorecard |
+| Beta and factor exposures | market 0.30–0.40, momentum +0.31, low volatility −0.26, size +0.07 (R² 0.40) | scorecard |
+| Alpha after factors | 11.4% a year (t 3.4), 72% of the excess return | scorecard |
+| Implementation shortfall / slippage | paper fills against the model, verdicts from about session 30; real fills from go-live | daily paper email (G4) |
+| Market impact | 10 bp per trade (value-weighted), 1.4% a year drag | backtest cost model, scorecard |
+| Turnover / cost drag | 6.9× a year / 2.8% a year | every backtest |
+| Hit rate / win-loss / profit factor | 43% / 2.4 / 1.82 | scorecard |
+| Average P&L per round trip | +13.8 bp of equity; median hold 29 days | scorecard |
+| Walk-forward, out of sample (2017–25, 9 folds) | Sharpe 1.24, CAGR 23.1%, max drawdown −22.1%; 3 negative years | scorecard |
+| Deflated Sharpe / PBO | 0.96 (bar 0.95) / 29% (bar 30%), 61 configurations | scorecard, `validate` |
+| Parameter sensitivity | 14 one-setting changes move Sharpe −0.39 to 0.00; fragile settings: rebalance frequency, stop distance, signal weights | scorecard |
+| Regime stability | bull markets (67% of days) Sharpe 1.79; bear markets (19% of days) Sharpe −0.02; sideways markets (15% of days) Sharpe −0.02; elevated VIX 0.88 | scorecard |
+| Alpha decay | none: +0.5% a year (p 0.74); the signal's rank IC 0.034 at 5 days, 0.092 at 252 | scorecard |
+| Capacity | about ₹297 crore before impact eats half the edge | scorecard |
+| Correlation (monthly) | candidate 0.97, e4 0.98, GOLDBEES 0.06, SILVERBEES 0.33, NIFTY 50 TRI 0.53 | scorecard; sleeve tests |
+
+**Since the 2026-10-08 scorecard:** CAGR 23.7% → 23.1% (worse); Sharpe 1.21 → 1.16 (worse); Sortino 1.67 → 1.61 (worse); Calmar 1.03 → 0.97 (worse); max drawdown −23.1% → −23.9% (worse); out-of-sample Sharpe 1.15 → 1.24 (better); deflated Sharpe 0.99 → 0.96 (worse). The basis changed (cost model 3 → 4; data ba7c098240b4c9ec → dab49d3cbd323c16), so this is mostly a re-measurement, not the strategy moving.
+
+**How often it updates:**
+- every recorded backtest stores the return, risk, turnover and hit-rate
+  figures;
+- the daily paper email carries the paper-vs-model checks;
+- the full scorecard runs at milestones (SC1b, a promotion, the January
+  roll-forward) and quarterly.
+
+**Gaps:**
+- real slippage can be measured only once live;
+- the books correlate 0.97–0.98, so they are one return engine, and
+  only the gold sleeve diversifies.
+
+A mediocre but uncorrelated Sharpe can be worth more than a great
+correlated one. New sleeves are therefore judged on the combined book: a
+quarter of the book in the sleeve must raise its Sharpe.
+<!-- /scorecard:deployed -->
 
 ---
 

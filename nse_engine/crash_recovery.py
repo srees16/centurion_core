@@ -42,8 +42,10 @@ CLI::
     python -m nse_engine.crash_recovery status     # NIFTY today: the live fall and the levels it reached
     python -m nse_engine.crash_recovery alert      # email a level first reached lately (daily job; --dry-run prints)
 
-The alert is facts only, because no buy rule passed: NIFTY first closing 20%, 30% or 40% below its peak in a
-fall, and its 50-day average closing back above the 200-day.  Each level is emailed once per fall.
+No buy rule passed its test, but the owner's own plan (13 Oct 2026) stages fresh 5-year capital in thirds: when
+NIFTY first closes 20%, 30% or 40% below its peak in a fall, the email asks for one third of the crash reserve
+in a NIFTY 50 ETF.  Its 50-day average closing back above the 200-day is a facts-only note.  Each level is
+emailed once per fall.
 """
 
 from __future__ import annotations
@@ -328,14 +330,19 @@ def fetch_index(ticker: str, cache_dir: Path = CACHE_DIR) -> pd.Series:
     return s.sort_index()
 
 
-def nifty_close(store_dir: str = "data/nse_engine/store",
-                ext_history: str = "data/nse_engine/store_ext2006/external/nifty50_history.parquet") -> pd.Series:
-    """NIFTY 50 closes: the store's index files, with the 2006-12 history before them."""
+def store_index(name: str, store_dir: str = "data/nse_engine/store") -> pd.Series:
+    """One index's closes from the store's index files (e.g. NIFTY50, INDIAVIX)."""
     from nse_engine.data.panel import build_index_close
 
     idx = pd.concat([pd.read_parquet(f) for f in sorted(glob.glob(f"{store_dir}/indices/*.parquet"))])
     idx["date"] = pd.to_datetime(idx["date"])
-    main = build_index_close(idx, pd.DatetimeIndex(sorted(idx["date"].unique())), ("NIFTY50",))["NIFTY50"].dropna()
+    return build_index_close(idx, pd.DatetimeIndex(sorted(idx["date"].unique())), (name,))[name].dropna()
+
+
+def nifty_close(store_dir: str = "data/nse_engine/store",
+                ext_history: str = "data/nse_engine/store_ext2006/external/nifty50_history.parquet") -> pd.Series:
+    """NIFTY 50 closes: the store's index files, with the 2006-12 history before them."""
+    main = store_index("NIFTY50", store_dir)
     parts = [main]
     if Path(ext_history).exists():
         ext = pd.read_parquet(ext_history)["close"]
@@ -345,10 +352,26 @@ def nifty_close(store_dir: str = "data/nse_engine/store",
     return out[~out.index.duplicated()].ffill()
 
 
-# ------------------------------------------------------------------ facts-only level alerts
-# No buy rule passed (plan 5ab / 5ac), so the owner is told the levels only, never what to do.
+# ------------------------------------------------------------------ fresh-capital requests
+# No buy rule passed its test (plan 5ab / 5ac).  The owner's own plan (13 Oct 2026): fresh capital that can stay
+# 5 years, staged in thirds at -20%, -30% and -40% from the peak, so each of those levels requests a third.  The
+# 50/200 cross stays a facts-only note.
 ALERT_LEVELS: Dict[str, Tranche] = {"dd20": Tranche("depth", 0.20), "dd30": Tranche("depth", 0.30),
                                     "dd40": Tranche("depth", 0.40), "cross": Tranche("cross")}
+CAPITAL_THIRDS = {"dd20": 1, "dd30": 2, "dd40": 3}
+#: Where each third waits (owner's choice, 13 Oct 2026) and the tax arithmetic, at the rates of Oct 2026.
+RESERVE_SOURCE = {
+    1: ["From: sell LIQUIDCASE (Zerodha Nifty 1D Rate Liquid ETF, overnight-rate, in your Zerodha demat) and buy "
+        "NIFTYBEES in the same session.",
+        "Tax: LIQUIDCASE gains are taxed at your slab rate however long held (about 4.1% a year kept from ~6% at "
+        "the 30% slab)."],
+    2: ["From: redeem your equity arbitrage fund (direct, growth; e.g. Kotak, Tata or Invesco India Arbitrage) on "
+        "Coin; the money arrives in 1-2 days, then buy NIFTYBEES.",
+        "Tax: arbitrage gains are taxed as equity, 12.5% after 12 months (Rs 1.25 lakh a year exempt) or 20% "
+        "within (about 5.2% a year kept from ~6%, against 4.1% in a liquid fund at the 30% slab)."],
+}
+RESERVE_SOURCE[3] = RESERVE_SOURCE[2]
+NIFTYBEES_TAX = "NIFTYBEES itself: held 12+ months, 12.5% on gains above Rs 1.25 lakh a year; sold sooner, 20%."
 ALERT_LOOKBACK = 3               # sessions: a level first reached this recently still alerts, so a missed run loses nothing
 
 
@@ -377,10 +400,32 @@ def status(close: pd.Series) -> Dict[str, object]:
                        for t, d in zip(ALERT_LEVELS.values(), dates)}}
 
 
-def level_alerts(close: pd.Series, lookback: int = ALERT_LOOKBACK) -> List[Tuple[str, str, List[str]]]:
+def market_conditions(close: pd.Series, vix: Optional[pd.Series] = None) -> List[str]:
+    """Where the market stands at its last close: the fall, the trend and India VIX (for a capital request)."""
+    c = close.dropna()
+    px, peak = float(c.iloc[-1]), float(c.cummax().iloc[-1])
+    since = int(len(c) - 1 - c.index.get_indexer([c[c == peak].index[-1]])[0])
+    ma50, ma200 = (float(c.rolling(n).mean().iloc[-1]) for n in (CROSS_FAST, CONFIRM_MA))
+    lines = [f"Market: NIFTY {px:,.0f} on {c.index[-1].date()}, {px / peak - 1:+.1%} from its {peak:,.0f} peak "
+             f"({since} sessions ago); {px / float(c.iloc[-22]) - 1:+.1%} over the last month.",
+             f"Trend: {px / ma200 - 1:+.1%} against its 200-day average; the 50-day average is "
+             f"{'below' if ma50 < ma200 else 'above'} the 200-day."]
+    v = vix.dropna() if vix is not None else pd.Series(dtype=float)
+    v = v[v.index <= c.index[-1]]                         # as of the same close
+    if len(v) >= 2:
+        year, now = v.iloc[-252:], float(v.iloc[-1])
+        mood = "panic" if now >= 30 else "elevated" if now >= 20 else "normal"
+        lines.append(f"India VIX {now:.1f} ({mood}; 1-year range {year.min():.0f}-{year.max():.0f}, higher than "
+                     f"{float((year < now).mean()):.0%} of the past year).")
+    return lines
+
+
+def level_alerts(close: pd.Series, lookback: int = ALERT_LOOKBACK,
+                 vix: Optional[pd.Series] = None) -> List[Tuple[str, str, List[str]]]:
     """(key, title, lines) for each alert level the live episode first reached in the last ``lookback`` sessions.
 
-    The key names the episode by its peak date, so each level alerts once per episode.
+    The key names the episode by its peak date, so each level alerts once per episode.  ``vix`` (India VIX
+    closes) adds the volatility line to the market conditions.
     """
     c = close.dropna()
     live = _live_episode(c)
@@ -393,16 +438,29 @@ def level_alerts(close: pd.Series, lookback: int = ALERT_LOOKBACK) -> List[Tuple
     for (key, t), d in zip(ALERT_LEVELS.items(), dates):
         if d is None or d < c.index[-min(lookback, len(c))]:
             continue
-        what = f"closed {t.level:.0%} below its peak" if t.kind == "depth" \
-            else f"{CROSS_FAST}-day average closed above its {CONFIRM_MA}-day average"
-        out.append((f"crash_recovery:{live.peak_date.date()}:{key}", f"NIFTY {what}", [
-            f"{d.date()}: NIFTY closed at {c[d]:,.0f}, {c[d] / live.peak - 1:+.1%} from its peak of "
-            f"{live.peak:,.0f} on {live.peak_date.date()}.",
-            f"This fall so far: {reached}.",
-            "Facts only, not a recommendation: no buy rule passed its test (plan 5ab / 5ac).",
-            "History (CR1b): money added after a deep fall beat cash about 3 times in 4 when held for 5 years, and "
-            "putting the last part in on the 50/200 cross halved the worst case against a lump sum.",
-        ]))
+        where = (f"{d.date()}: NIFTY closed at {c[d]:,.0f}, {c[d] / live.peak - 1:+.1%} from its peak of "
+                 f"{live.peak:,.0f} on {live.peak_date.date()}.")
+        conditions = market_conditions(c, vix)
+        if key in CAPITAL_THIRDS:
+            n = CAPITAL_THIRDS[key]
+            title = f"NIFTY {t.level:.0%} below its peak: add fresh capital, third {n} of 3"
+            lines = [where,
+                     f"Request (your plan of 13 Oct 2026): move third {n} of your crash reserve, money that can stay "
+                     f"5 years, into NIFTYBEES (Nippon India NIFTY 50 ETF, CNC) at the next session.  Never into "
+                     f"the momentum book.",
+                     *RESERVE_SOURCE[n], NIFTYBEES_TAX,
+                     *conditions,
+                     f"This fall so far: {reached}.",
+                     "Expect it to fall further first: after a first close at -20% to -40%, NIFTY-like indices "
+                     "fell a further 17-21% (median) before recovering.  The case is the 5-year rebound: 13 indices "
+                     "since 1929 gained a median +34% / +43% / +69% in 5 years after -20% / -30% / -40%.",
+                     "Thirds not triggered in this fall stay in the reserve for the next one.  Facts, not advice "
+                     "from a SEBI-registered adviser: check fund factsheets and confirm tax with your CA."]
+        else:
+            title = f"NIFTY {CROSS_FAST}-day average closed above its {CONFIRM_MA}-day average"
+            lines = [where, *conditions, f"This fall so far: {reached}.",
+                     "Facts only: the fall may be ending.  No capital request goes with this note."]
+        out.append((f"crash_recovery:{live.peak_date.date()}:{key}", title, lines))
     return out
 
 
@@ -417,7 +475,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(json.dumps(status(nifty), indent=1))
         return 0
     if args.command == "alert":
-        pending = level_alerts(nifty)
+        try:
+            vix = store_index("INDIAVIX")
+        except (KeyError, ValueError, OSError) as exc:          # the email goes without the VIX line
+            logger.warning("India VIX unavailable: %s", exc)
+            vix = None
+        pending = level_alerts(nifty, vix=vix)
         if pending and not args.dry_run:
             from services.notifications.alerts import WARNING, alert
         for key, title, lines in pending:

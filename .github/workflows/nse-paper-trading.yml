@@ -359,10 +359,11 @@ jobs:
                  "then rebuild the store."])
           EOF
 
-      # Tracker CR1: a facts-only email when NIFTY first closes 20/30/40% below its peak in a
-      # fall, or its 50-day average closes back above the 200-day; each level once per fall.
-      # No buy wording: no buy rule passed its test (plan 5ab / 5ac).
-      - name: NIFTY fall levels (facts only)
+      # Tracker CR1: when NIFTY first closes 20/30/40% below its peak in a fall, an email asks
+      # for one third of the owner's 5-year crash reserve in a NIFTY 50 ETF (the owner's plan,
+      # 13 Oct 2026); the 50-day average back above the 200-day is a facts-only note.  Each
+      # level once per fall.
+      - name: NIFTY fall levels (fresh-capital requests)
         continue-on-error: true
         env:
           CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}

@@ -1012,6 +1012,151 @@ def write(report: Dict[str, Any], md_dir: str = "docs/scorecards", json_dir: str
     return md, js
 
 
+# ── README section (the deployed book's current performance) ─────────────────
+
+README = "docs/README.md"
+README_START, README_END = "<!-- scorecard:deployed -->", "<!-- /scorecard:deployed -->"
+EN_DASH = "\u2013"
+_FRIENDLY = {"portfolio.rebalance_every_n_days": "rebalance frequency", "portfolio.stop_atr_multiple": "stop distance",
+             "signals.group_weights": "signal weights"}
+#: Headline metrics compared with the previous scorecard: (label, path, higher is better, as a percentage)
+_HEADLINE = (("CAGR", ("return_risk", "cagr"), True, True), ("Sharpe", ("return_risk", "sharpe"), True, False),
+             ("Sortino", ("return_risk", "sortino"), True, False), ("Calmar", ("return_risk", "calmar"), True, False),
+             ("max drawdown", ("return_risk", "max_drawdown"), True, True),
+             ("out-of-sample Sharpe", ("walk_forward_oos", "sharpe"), True, False),
+             ("deflated Sharpe", ("overfitting", "dsr", "dsr"), True, False))
+
+
+def _get(r: Dict[str, Any], path: Sequence[str]) -> float:
+    for k in path:
+        r = (r or {}).get(k) if isinstance(r, dict) else None
+    return _f(r)
+
+
+def _signed(x: float, pct: bool = True, digits: int = 1) -> str:
+    text = f"{x * 100:+.{digits}f}%" if pct else f"{x:+.{digits}f}"
+    return text.replace("-", "\u2212")
+
+
+def _changes(r: Dict[str, Any], previous: Optional[Dict[str, Any]]) -> Optional[str]:
+    """What moved since the previous scorecard of the same book, better or worse."""
+    if not previous:
+        return None
+    moved = []
+    for label, path, higher, pct in _HEADLINE:
+        a, b = _get(previous, path), _get(r, path)
+        if not (np.isfinite(a) and np.isfinite(b)) or abs(b - a) < (5e-4 if pct else 5e-3):
+            continue
+        fmt = (lambda x: f"{x * 100:.1f}%".replace("-", "\u2212")) if pct else (lambda x: f"{x:.2f}")
+        moved.append(f"{label} {fmt(a)} \u2192 {fmt(b)} ({'better' if (b > a) == higher else 'worse'})")
+    since = str(previous.get("as_of", ""))[:10]
+    basis = [f"{label} {previous.get(k)} \u2192 {r.get(k)}" for label, k in (("configuration", "config_hash"),
+             ("cost model", "cost_model"), ("data", "data_hash")) if previous.get(k) != r.get(k)]
+    why = (f" The basis changed ({'; '.join(basis)}), so this is mostly a re-measurement, not the strategy moving."
+           if basis and not any("configuration" in x for x in basis) else
+           f" A new configuration ({'; '.join(basis)})." if basis else "")
+    return (f"**Since the {since} scorecard:** " + ("; ".join(moved) + "." if moved else "no headline metric moved.")
+            + why)
+
+
+def readme_section(r: Dict[str, Any], previous: Optional[Dict[str, Any]] = None) -> str:
+    """The README's "Current performance" section, from the deployed book's scorecard (and the previous one)."""
+    rr, fx, tr = r["return_risk"], r.get("factor_exposures", {}), r["trading"]
+    mi, ad, cap, wf = tr.get("market_impact", {}), r.get("alpha_decay", {}), r.get("capacity", {}), r.get("walk_forward_oos", {})
+    ov, ps, rg, co, pa = (r.get(k, {}) for k in ("overfitting", "parameter_sensitivity", "regime_stability", "correlations", "paper"))
+    pct = lambda x, d=1: f"{_f(x) * 100:.{d}f}%".replace("-", "\u2212")
+    num = lambda x, d=2: f"{_f(x):.{d}f}".replace("-", "\u2212")
+    betas = fx.get("betas", {})
+    market = sorted(b for b in (_f(betas.get("market")), _f(rr.get("beta_market"))) if np.isfinite(b))
+    trend, vix = rg.get("trend", {}), rg.get("vix", {})
+    ic = (ad.get("signal_rank_ic_by_horizon") or {})
+    at = ad.get("alpha_trend") or {}
+    decay = ("none" if _f(at.get("p_value")) > 0.1 else "declining" if _f(at.get("slope_per_year")) < 0 else "rising")
+    if pa.get("status") == "ok":
+        checks = "; ".join(f"{c.get('name')} {c.get('display')} ({c.get('status')})" for c in (pa.get("g4") or {}).get("checks", []))
+        shortfall = f"paper vs model over {pa.get('sessions')} sessions: {checks}; real fills from go-live"
+    else:
+        shortfall = "paper fills against the model, verdicts from about session 30; real fills from go-live"
+    corr = {k.split(":", 1)[1]: v["monthly"] for k, v in co.items()}
+    books = [v for k, v in corr.items() if k in BOOKS]
+    rows = [
+        ("CAGR / Sharpe / Sortino / Calmar", f"{pct(rr.get('cagr'))} / {num(rr.get('sharpe'))} / {num(rr.get('sortino'))} / "
+                                             f"{num(rr.get('calmar'))}", "every backtest, scorecard"),
+        ("Max drawdown / volatility", f"{pct(rr.get('max_drawdown'))} / {pct(rr.get('ann_vol'))} a year", "every backtest, scorecard"),
+        ("CVaR 95% (daily) / skew / kurtosis", f"{pct(rr.get('cvar_95_daily'))} / {num(rr.get('skew'))} / {num(rr.get('kurtosis'), 1)}",
+         "scorecard (skew and kurtosis also every backtest)"),
+        ("Information ratio (vs NIFTY 50 TRI)", num(rr.get("information_ratio_regression")), "scorecard"),
+        ("Beta and factor exposures", f"market {EN_DASH.join(num(b) for b in market)}, momentum "
+                                      f"{_signed(_f(betas.get('momentum')), False, 2)}, low volatility "
+                                      f"{_signed(_f(betas.get('low_vol')), False, 2)}, size {_signed(_f(betas.get('size')), False, 2)} "
+                                      f"(R\u00b2 {num(fx.get('r_squared'))})", "scorecard"),
+        ("Alpha after factors", f"{pct(fx.get('alpha_annual'))} a year (t {num(fx.get('alpha_t_hac'), 1)}), "
+                                f"{pct(fx.get('alpha_share_of_excess_return'), 0)} of the excess return", "scorecard"),
+        ("Implementation shortfall / slippage", shortfall, "daily paper email (G4)"),
+        ("Market impact", f"{num(mi.get('impact_bps_value_weighted'), 0)} bp per trade (value-weighted), "
+                          f"{pct(mi.get('impact_drag_annual'))} a year drag", "backtest cost model, scorecard"),
+        ("Turnover / cost drag", f"{num(rr.get('annual_turnover'), 1)}\u00d7 a year / {pct(rr.get('cost_drag'))} a year", "every backtest"),
+        ("Hit rate / win-loss / profit factor", f"{pct(tr.get('hit_rate'), 0)} / {num(tr.get('win_loss_ratio'), 1)} / "
+                                                f"{num(tr.get('profit_factor'))}", "scorecard"),
+        ("Average P&L per round trip", f"{_signed(_f(tr.get('avg_pnl_per_round_trip_bp_of_equity')), False)} bp of equity; "
+                                       f"median hold {num(tr.get('median_holding_days'), 0)} days", "scorecard"),
+        (f"Walk-forward, out of sample ({str(wf.get('start', ''))[:4]}\u2013{str(wf.get('end', ''))[2:4]}, {wf.get('n_folds')} folds)",
+         f"Sharpe {num(wf.get('sharpe'))}, CAGR {pct(wf.get('cagr'))}, max drawdown {pct(wf.get('max_drawdown'))}; "
+         f"{wf.get('negative_oos_years')} negative years", "scorecard"),
+        ("Deflated Sharpe / PBO", f"{num((ov.get('dsr') or {}).get('dsr'))} (bar 0.95) / {pct((ov.get('pbo') or {}).get('pbo'), 0)} "
+                                  f"(bar 30%), {(ov.get('pbo') or {}).get('n_trials')} configurations", "scorecard, `validate`"),
+        ("Parameter sensitivity", f"{ps.get('n_neighbours')} one-setting changes move Sharpe {num(ps.get('delta_sharpe_min'))} to "
+                                  f"{num(ps.get('delta_sharpe_max'))}; fragile settings: "
+                                  + ", ".join(_FRIENDLY.get(x, x) for x in ps.get("fragile_settings", [])), "scorecard"),
+        ("Regime stability", "; ".join(f"{k} markets ({pct((trend.get(k) or {}).get('share_of_days'), 0)} of days) Sharpe "
+                                       f"{num((trend.get(k) or {}).get('sharpe'))}" for k in ("bull", "bear", "sideways") if trend.get(k))
+         + (f"; elevated VIX {num((vix.get('elevated') or {}).get('sharpe'))}" if vix.get("elevated") else ""), "scorecard"),
+        ("Alpha decay", f"{decay}: {_signed(_f(at.get('slope_per_year')))} a year (p {num(at.get('p_value'))}); the signal's rank "
+                        f"IC {num((ic.get('5') or {}).get('mean_ic'), 3)} at 5 days, {num((ic.get('252') or {}).get('mean_ic'), 3)} at 252",
+         "scorecard"),
+        ("Capacity", f"about \u20b9{_f(cap.get('capital_where_impact_eats_half_the_edge_inr')) / 1e7:,.0f} crore before impact eats "
+                     f"half the edge", "scorecard"),
+        ("Correlation (monthly)", ", ".join(f"{k.replace('NIFTY50_TRI', 'NIFTY 50 TRI')} {num(v)}" for k, v in corr.items()
+                                           if k in BOOKS or k in ("NIFTY50_TRI", "GOLDBEES", "SILVERBEES")),
+         "scorecard; sleeve tests"),
+    ]
+    head = (f"From the strategy scorecard of {str(r['as_of'])[:10]}:\n"
+            f"- **Book:** configuration `{r['config_hash'][:8]}`, run `{r['run_id']}`.\n"
+            f"- **Backtest:** {r['window'][0][:4]}\u2013{r['window'][1][2:4]}, cost model {r['cost_model']}.\n"
+            f"- **Convention:** Sharpe is excess over the {pct(r['risk_free_annual'])} risk-free rate.\n\n"
+            "Refresh it with `python -m runners.run_nse_engine scorecard --book all`\n"
+            "(JSON in `data/nse_engine/scorecard/`).  The deployed book's run rewrites this section.")
+    table = "\n".join(["| Metric | Latest | Tracked in |", "|---|---|---|", *(f"| {a} | {b} | {c} |" for a, b, c in rows)])
+    change = _changes(r, previous)
+    tail = ("**How often it updates:**\n"
+            "- every recorded backtest stores the return, risk, turnover and hit-rate\n  figures;\n"
+            "- the daily paper email carries the paper-vs-model checks;\n"
+            "- the full scorecard runs at milestones (SC1b, a promotion, the January\n  roll-forward) and quarterly.\n\n"
+            "**Gaps:**\n- real slippage can be measured only once live;\n"
+            + (f"- the books correlate {num(min(books))}\u2013{num(max(books))}, so they are one return engine, and\n"
+               "  only the gold sleeve diversifies.\n\n" if books else "\n")
+            + "A mediocre but uncorrelated Sharpe can be worth more than a great\n"
+              "correlated one. New sleeves are therefore judged on the combined book: a\n"
+              "quarter of the book in the sleeve must raise its Sharpe.")
+    parts = ["## Current performance: NSE engine, deployed book", head, table] + ([change] if change else []) + [tail]
+    return "\n\n".join(parts)
+
+
+def update_readme(report: Dict[str, Any], json_dir: str = "data/nse_engine/scorecard", readme: str = README) -> bool:
+    """Rewrite the README section between the scorecard markers from the deployed book's report."""
+    path = Path(readme)
+    text = path.read_text(encoding="utf-8") if path.exists() else ""
+    if README_START not in text or README_END not in text:
+        logger.warning("README markers not found in %s: section not updated", readme)
+        return False
+    older = sorted(p for p in Path(json_dir).glob(f"*_{report['book']}.json") if p.name[:10] < str(report["as_of"])[:10])
+    previous = json.loads(older[-1].read_text()) if older else None
+    head, rest = text.split(README_START, 1)
+    tail = rest.split(README_END, 1)[1]
+    path.write_text(f"{head}{README_START}\n{readme_section(report, previous)}\n{README_END}{tail}", encoding="utf-8")
+    return True
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     import argparse
 
@@ -1027,6 +1172,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     for book in (list(BOOKS) if args.book == "all" else [args.book]):
         report = build(book, run_id=args.run if args.book != "all" else None, paper_schema=args.paper_schema, shared=shared)
         md, _ = write(report, args.md_dir, args.json_dir)
+        if book == "deployed" and update_readme(report, args.json_dir):
+            print(f"deployed: {README} section updated")
         verdicts = ", ".join(f"{p['rule']} {'PASS' if p['pass'] else 'FAIL' if p['pass'] is False else 'n/a'}" for p in report["pass_rules"])
         print(f"{book}: {md} ({verdicts})")
     return 0
