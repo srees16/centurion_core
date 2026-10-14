@@ -4,6 +4,7 @@
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
             review, then logs it in section 8. Reorder with "make K4 #3".
+            US stocks have their own tracker: docs/US_MEMORY_TRACKER.txt.
 STATUS      [ ] pending   [~] in progress   [!] needs you   [x] done
 PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 
@@ -236,13 +237,16 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      LN-T32/33/34, Record sell path)
      1. DONE: Kite login (the 19:00 live dry run ran on it).
      2. DONE 21:00: AMO SELL 1 HDFCBANK placed (CNC, LIMIT) - ST2 step 3;
-        it goes to the exchange at 09:15 Wed.
+        it executed Wed 09:09 IST, in the pre-open auction (not 09:15).
      3. Zerodha follow-up, Q1-Q4 (ST2 step 2).
      4. DONE: dead man's switch fire drill (DMfd); schedule restored, ping
         URL out of my_todos.txt, Outlook rule added.
- >>> WEDNESDAY 14 OCT: after 09:15 the AMO should be COMPLETE (note its order
-     ID); in market hours a single-leg SELL GTT on the other share (note the
-     GTT ID); that evening Actions > "Record sell path".
+ >>> WEDNESDAY 14 OCT
+     1. DONE 09:09: the AMO SELL executed.  Note its order ID and average
+        price (Kite > Orders).
+     2. In market hours: a single-leg SELL GTT on the other share (note the
+        GTT ID).
+     3. Evening: Actions > "Record sell path" (DDPI date, both IDs).
 [!] P1  MU2  Self-service accounts: merged and live 8 Oct (sign-up on the
              login page; email secrets copied by the deploy; the data key on
              the Space with a copy kept off it); frontend in production
@@ -281,6 +285,19 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                   cash that includes that credit?
                 - Q4: if rejected for funds, is it final, and with what
                   message?
+                Observed 14 Oct (your sell AMO): executed 09:09 IST, in
+                NSE's pre-open auction (orders 09:00-09:08, matching from
+                09:08).  So equity AMOs ARE sent at 09:00, as the 10 Oct
+                research said; support's 09:15 was wrong for this stock.
+                One observation, on a pre-open stock (HDFCBANK):
+                - sells fill at the pre-open price, as the backtest
+                  assumes (tonight: compare your average price with the
+                  bhavcopy open);
+                - buy AMOs go out at 09:00 too and, per support, are
+                  margin-checked when sent, before any sell matches: sale
+                  credit cannot fund them.  Q1-Q3 matter less now; still
+                  ask Q4, and whether a buy AMO's margin is checked at
+                  09:00.
                 Then choose one:
                 (a) keep a cash buffer in the account outside the book, so
                     buys clear the check while the sells refill it (Lean
@@ -293,7 +310,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              3. Supervised sell test, clean route (your call 10 Oct); merge
                 the "Record sell path" workflow to main before Wed:
                 DONE Mon 12 Oct: bought 2 HDFCBANK (CNC) in Kite.  Tue 13 Oct after ~16:00: AMO SELL 1 share
-                (CNC, LIMIT a little under the price).  Wed 14 Oct: log in
+                (CNC, LIMIT a little under the price).  DONE Wed 14 Oct
+                09:09: the AMO executed (pre-open).  Wed 14 Oct: log in
                 to Kite; after 09:15 the AMO is COMPLETE (note its order
                 ID); in market hours a single-leg SELL GTT for the other
                 share, trigger just under the price, limit a bit lower,
@@ -389,7 +407,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              first live session of 2027.
 [ ] P1  LN-T11 AMO funding: after ST2's answer, cap buys at the broker's free
              cash and read rejected orders the same night.  Small.  Detail:
-             lean_review.md item 11.
+             lean_review.md item 11.  14 Oct: the sell AMO executed in the
+             09:00 pre-open, so sale credit very likely cannot fund that
+             morning's buy AMOs (ST2 step 2).
  ALERTING PLAN (your ask 10 Oct; the relevance table's health, risk and
  order categories): email only, to you; subjects [Centurion CRITICAL] and
  [Centurion warning]; healthchecks.io free tier as the dead-man's switch;
@@ -642,6 +662,21 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+13 Oct  SC2  README "Current performance" section kept current (your ask).
+             The scorecard now writes it: nse_engine/scorecard.py
+             readme_section / update_readme rewrite the text between the
+             <!-- scorecard:deployed --> markers in docs/README.md whenever
+             the deployed book is scored (scorecard --book deployed / all).
+             The table has the 18 metric rows: return / risk, CVaR, factors
+             and alpha, slippage, impact, turnover, trade stats,
+             walk-forward, DSR / PBO, sensitivity, regimes, alpha decay,
+             capacity and correlation.  It always shows the latest figures,
+             not only improvements, plus a "Since the <date> scorecard" line
+             that marks each headline metric better or worse.  When the cost
+             model, data or configuration changed, that line calls it a
+             re-measurement (8 -> 10 Oct was cost model 3 -> 4).  Checked:
+             regenerated from the 10 Oct scorecard; f-strings checked for
+             Python 3.11 (CI); suite 216 passed.
 13 Oct  CR2  Fresh-capital requests at -20 / -30 / -40% (your plan, after the
              crash and dip-level analysis).  Fresh capital that can stay 5
              years, staged in thirds.  When NIFTY first closes 20%, 30% or

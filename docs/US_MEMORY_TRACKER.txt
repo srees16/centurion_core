@@ -1,0 +1,230 @@
+================================================================================
+  CENTURION US STOCKS — MEMORY TRACKER              created 14 Oct 2026
+================================================================================
+HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do US1".
+            Claude marks it [~], works, leaves changes uncommitted for your
+            review, then logs it in section 8. Reorder with "make US3 #1".
+            The India book has its own tracker: docs/MEMORY_TRACKER.txt.
+STATUS      [ ] pending   [~] in progress   [!] needs you   [x] done
+PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
+
+--------------------------------------------------------------------------------
+ 1. WHERE WE STAND (14 Oct 2026)
+--------------------------------------------------------------------------------
+ GOAL     A US equity book researched and validated to the India book's
+          standard: backtest, walk-forward, gates against US benchmarks,
+          then paper trading.  Once its gates pass, a nightly email
+          suggests which stocks to buy or sell, and you place the orders
+          at your broker.  No automated orders: an investor resident
+          outside the US cannot run them (your statement, 14 Oct).
+
+ TODAY    A legacy research layer, not a validated engine (inventory 14
+          Oct):
+          - Data: live yfinance only (utils.download_us_ohlcv, quotes in
+            api/routers/v1/market.py); no stored US prices.  Universes are
+            today's lists (top-20, S&P 500 / Nasdaq-100 from Wikipedia,
+            NASDAQ_FULL by today's market cap).  No historical membership
+            and no delisted names, so every US backtest carries full
+            survivorship and look-ahead bias.
+          - Engines: services/execution/us_carver_pipeline.py (live Carver
+            signals; aggressive config: 55% vol target, IDM 2, 2x leverage;
+            its backtest is a 1-year, 15-ticker toy);
+            api/routers/us_stocks.py (about 20 /us-stocks routes on live
+            yfinance); full_pipeline_backtest(market="US") on 15
+            mega-caps.  All legacy.
+          - nse_engine: its core (engine, signals, portfolio, universe on
+            the generic MarketData panel) is reusable.  NSE-only: the data
+            store and loader, costs.py (STT, stamp duty), nse_calendar,
+            regime.py (NIFTY, India VIX), INR thresholds, sector maps,
+            NIFTY benchmarks.
+          - Broker: services/execution/drivewealth.py plus
+            api/routers/v1/drivewealth.py.  /orders and /carver-orders
+            place REAL market orders: /carver-orders buys every Carver plan
+            and never sells or checks positions.  Admin-only; a dry run
+            while DriveWealth is not connected.  DriveWealth is a partner
+            API, so individual credentials are unlikely.  The risk-checked
+            bridge was removed on 3 Oct.
+          - Scheduled (from 15 Oct): only the advisory v0 (US-A1), the
+            India rules on today's S&P 500, unvalidated.  No validated US
+            book and no US paper book yet (the US meta-label job is
+            retired).
+          - Benchmarks: none for US backtests (SPY is only a regime input).
+            Costs: 10 bp round trip plus 5 bp slippage, risk-free 4%
+            (config.py).
+          - The only tested US exposure: the MON100 sleeve (a Nasdaq-100
+            ETF on NSE), which failed on 1 Oct (India tracker).
+          - Modelled, not measured (docs/realistic_performance_estimate.md):
+            about 6% CAGR, Sharpe 0.32.
+
+--------------------------------------------------------------------------------
+ 2. GAPS AND CHALLENGES (priority order)
+--------------------------------------------------------------------------------
+  1 Data       Free US data is survivorship-biased: yfinance drops delisted
+               names, and nothing records past index membership.  A clean
+               test needs point-in-time membership (e.g. S&P 500 since
+               1996) and prices for names that left.  This is the hardest
+               problem and decides everything after it (US2).
+  2 Costs/tax  An India-resident investor pays costs no US model has:
+               - USD/INR conversion both ways (about 0.25-1% a leg);
+               - LRS limit (USD 250,000 a year) and TCS on remittances
+                 above Rs 10 lakh a year (adjustable against tax; a cash
+                 cost meanwhile);
+               - 25% US withholding on dividends (credit in India);
+               - Indian tax: 12.5% LTCG after 24 months, slab-rate STCG;
+               - broker commissions and platform fees.
+               Rates as of 2025-26; verify at US3.
+  3 Execution  Manual only.  Suggestions must allow for a fill at the next
+               US open, decided in India's evening, at the broker you
+               choose.
+  4 Engine     nse_engine is NSE-shaped.  Porting it needs a US loader,
+               calendar, regime inputs (SPY, VIX), benchmarks and costs,
+               behind an adapter that leaves the India book untouched.
+  5 Evidence   Results reported in INR and USD.  Gates against SPY / QQQ
+               total return, plus correlation with the India book: an
+               uncorrelated mediocre Sharpe can beat a correlated great one.
+
+--------------------------------------------------------------------------------
+ 3. DECISIONS TAKEN (14 Oct)
+--------------------------------------------------------------------------------
+  - Advisory only: no automated orders.  The book is researched,
+    validated and paper-traded; after its gates pass, emails suggest buys
+    and sells for you to place by hand.
+  - Swing / positional only, never intraday (as for India).
+  - The research protocol applies (docs/research_protocol.md): pre-register
+    before any number is read, Kaggle runs, every trial counts.  A new
+    family with its own registry; 2026 is the sealed holdout.
+  - A separate tracker (this file); the India tracker stays India-only.
+  - Suggestions start now, before validation (your ask, 14 Oct): the
+    advisory v0 (US-A1) emails the India deployed rules' picks on today's
+    S&P 500, labelled unvalidated.  The queue below runs in parallel; the
+    US6 verdict decides whether v0 continues, changes configuration or
+    stops.  Never an automated order.
+
+--------------------------------------------------------------------------------
+ 4. NEEDS YOU [!]
+--------------------------------------------------------------------------------
+[!] P0  US-Y4 Start the advisory (US-A1): merge us_engine/ and
+             .github/workflows/us-advisory.yml.  Merged before 03:47 IST
+             Thu 15 Oct, the scheduled run emails Thursday's suggestions;
+             later, say "run the US advisory" and Claude triggers it (any
+             time before the 19:00 IST open).  Optional: repository
+             variable US_ADVISORY_CAPITAL_USD (your US capital) so the
+             email sizes orders in your dollars.
+[!] P1  US-Y1 Choose the broker you will place US orders with (e.g.
+             Interactive Brokers, Vested, INDmoney).  It sets the cost and
+             tax model (US3): commissions, FX spread, fees, statements.
+[!] P1  US-Y2 Capital and currency: roughly how much for US stocks (under
+             LRS), and whether to judge results in INR, USD or both
+             (suggested: both).
+[!] P2  US-Y3 Universe: S&P 500 (deepest data, recommended first),
+             Nasdaq-100, or an ETF-only fast path (sector / factor ETFs:
+             no survivorship problem, fewer names; see US-B3).
+
+--------------------------------------------------------------------------------
+ 5. IN PROGRESS [~]
+--------------------------------------------------------------------------------
+  (none)
+
+--------------------------------------------------------------------------------
+ 6. QUEUE — do #1 first.  Every item: pass rule fixed before running, every
+    backtest recorded, no tuning on 2026 data.
+--------------------------------------------------------------------------------
+#1  [ ] P1  US1  Guard the automated US order paths.  api/routers/v1/
+                 drivewealth.py /orders and /carver-orders can place real
+                 market orders (carver-orders buys every plan, never sells).
+                 Put both behind an explicit switch, off by default; plans
+                 stay viewable as a dry run.  No removal without the dead-code
+                 study.  Small.                        Prompt: do US1
+#2  [ ] P1  US2  Survivorship-free US data.  Compare free sources for
+                 point-in-time S&P 500 membership (e.g. public
+                 constituent-history datasets) and for daily prices,
+                 splits and dividends of names that left the index (e.g.
+                 Tiingo or Stooq free tiers).  Then build a US store with a
+                 data hash, as the NSE store does.  Pass: 2013-25 coverage
+                 of the point-in-time members, delisted names counted, a
+                 survivorship check reported.  If no free source covers the
+                 leavers, say so and fall back to US-B3.  Large.
+                                                       Prompt: do US2
+#3  [ ] P1  US3  Cost and tax model for an India-resident investor, for the
+                 broker from US-Y1: commissions, FX both ways, TCS cash
+                 cost, dividend withholding and credit, Indian capital-gains
+                 tax; dated rates and a version, like costs.py.  Medium.
+                                                       Prompt: do US3
+#4  [ ] P2  US4  Port the engine through an adapter (the India book
+                 untouched): US loader -> MarketData, NYSE calendar, US
+                 regime (SPY trend, VIX), benchmarks (SPY / QQQ total
+                 return), the US3 cost model.  Pass: the India suite and the
+                 canary unchanged; a US smoke backtest runs.  Large.
+                                                       Prompt: do US4
+#5  [ ] P2  US5  Pre-register round 1 (validation plan section): the India
+                 deployed configuration transplanted to the US universe from
+                 US-Y3 (at most 3 configurations); benchmark SPY TR.
+                 - Gates: DSR >= 0.95, beat SPY TR on Sharpe and alpha,
+                   MaxDD bound.
+                 - Reported: INR and USD returns, correlation with the
+                   India book.
+                                                       Prompt: do US5
+#6  [ ] P2  US6  Run: backtest and walk-forward on Kaggle (2013-25, 2026
+                 sealed), recorded in the US registry; then the full
+                 scorecard (the 18 metrics of the India book).
+                                                       Prompt: do US6
+#7  [ ] P2  US7  Paper trade a US shadow book (if US6 passes): at least 60
+                 sessions, a daily email, tracking against its backtest like
+                 G4.                                   Prompt: do US7
+#8  [ ] P2  US8  Advisory on the validated book: switch the US-A1 emails
+                 to the configuration that passed US6/US7, or stop them if
+                 the gates fail.  Never an automated order.
+                                                       Prompt: do US8
+
+--------------------------------------------------------------------------------
+ 7. BACKLOG (after the queue)
+--------------------------------------------------------------------------------
+[ ] P3  US-B1 Remove the hazard where a bare US ticker that fails on
+             yfinance is retried as ".NS" and resolves to an Indian stock
+             (strategies/data_service.py:62-100; utils.download_ind_ohlcv
+             treats any symbol without a dot as Indian).
+[ ] P3  US-B2 Refresh the stale US parts of docs/README.md (the
+             non-existent execution_engine.py, old US settings) once US4
+             settles the design.
+[ ] P3  US-B3 ETF-only fast path: a sector / factor ETF rotation on US ETFs
+             has no survivorship problem and needs far less data.  Worth it
+             if US2 finds no free source for delisted names.
+[ ] P3  US-B4 Combined India + US allocation: once both books are
+             validated, size them together by risk; their correlation sets
+             the diversification gain.
+[ ] P3  US-B5 Legacy US code (us_carver_pipeline, /us-stocks routes,
+             full_pipeline_backtest US): keep as research; decide after US4
+             whether anything is reused or retired (dead-code rules apply).
+
+--------------------------------------------------------------------------------
+ 8. DONE — most recent first
+--------------------------------------------------------------------------------
+14 Oct  US-A1 Advisory v0 built (your ask: suggestions from 15 Oct, placed
+             by hand).  Unvalidated; uncommitted for your review.
+             - Rules: the India deployment (config/nse_engine_deployed.json)
+               through nse_engine.engine.generate_targets, with US inputs:
+               today's S&P 500 (Wikipedia, GICS sectors), yfinance prices
+               split-adjusted from 2012, regime on the S&P 500 and VIX,
+               USD thresholds, calendar schedules (weekly rebalance), no
+               metals (held in India), the drawdown rule on the book.
+             - Model book: USD 100,000 notional, whole shares, 10 bp a
+               side; assumes each suggestion fills at the next open; stops
+               at 6 ATR, only ever raised; splits adjusted.  State in Neon
+               (schema us_advisory).
+             - Email after each US close (workflow us-advisory.yml, 03:47
+               IST, backup 06:47): sells, buys (weight, dollars, close,
+               stop), stops to raise, holdings, the book vs the S&P 500.
+               Logs show counts only.  A failed email is resent next run.
+             - Code: us_engine/data.py, us_engine/advisory.py.  India code
+               untouched.
+             - Checked: a 30-session simulation (31 Aug-13 Oct) held every
+               invariant (fills at the next open, cash never negative,
+               stops never lowered, splits, resend).  Disclosure: that check
+               printed one figure, +3.7% vs S&P 500 +1.6% over 30 sessions.
+               It is noise, not evidence, and nothing was tuned on it.
+             - Preview on the 13 Oct close: 20 buys; 4 sectors at the 25%
+               cap; about 10% cash.
+14 Oct  US0  Tracker created (your ask): scope, today's state (inventory of
+             data, engines, broker, schedule, docs, costs), gaps, decisions,
+             your three choices, and the queue from guarding the order paths
+             to advisory emails.
