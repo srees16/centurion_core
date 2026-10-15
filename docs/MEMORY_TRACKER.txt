@@ -241,12 +241,22 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      3. Zerodha follow-up, Q1-Q4 (ST2 step 2).
      4. DONE: dead man's switch fire drill (DMfd); schedule restored, ping
         URL out of my_todos.txt, Outlook rule added.
+ >>> THURSDAY 15 OCT - YOUR ACTIONS
+     1. Tell Claude what was sold by mistake on 14 Oct (quantity, which
+        order; only the test share or long-term HDFCBANK too).  An active
+        HDFCBANK SELL GTT left over: delete it.
+     2. Redo the sell test (ST2 step 3, REDO PLAN): before 15:30 today,
+        BUY 3 HDFCBANK on NSE, CNC.
+     3. Zerodha: Q4, and whether a buy AMO's margin is checked at 09:00
+        (ST2 step 2).
+     4. Say yes / no to LN-T35 (dry runs build the real order list) and JR2
+        (weekly CSV export of the paper books).
  >>> WEDNESDAY 14 OCT
      1. DONE 09:09: the AMO SELL executed.  Note its order ID and average
         price (Kite > Orders).
-     2. In market hours: a single-leg SELL GTT on the other share (note the
-        GTT ID).
-     3. Evening: Actions > "Record sell path" (DDPI date, both IDs).
+     2. NOT DONE: the GTT leg (all HDFCBANK sold by mistake) - redo, see
+        Thursday.
+     3. NOT RUN: "Record sell path" - after the GTT leg.
 [!] P1  MU2  Self-service accounts: merged and live 8 Oct (sign-up on the
              login page; email secrets copied by the deploy; the data key on
              the Space with a copy kept off it); frontend in production
@@ -307,7 +317,34 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                     session later (about -0.7 pt CAGR a year);
                 (c) a second pass at ~09:20 after the sells fill (needs that
                     day's login before it).
-             3. Supervised sell test, clean route (your call 10 Oct); merge
+             3. REDO PLAN (15 Oct).  Why: the record reads both orders from
+                Kite, whose API returns only that day's orders, so the AMO
+                sell and the GTT sell must both COMPLETE on one day, on
+                settled shares, and be recorded that evening.  14 Oct had
+                the AMO only (the GTT share was sold by mistake), so it
+                cannot be recorded.  Every order: NSE, CNC, quantity 1,
+                never "Exit" or sell-all; send Claude a screenshot before
+                each swipe.
+                - Thu 15 Oct, by 15:30: BUY 3 HDFCBANK (2 for the test, 1
+                  spare so a retry needs no new buy).
+                - Fri 16 Oct: the shares settle (T+1); by the evening
+                  Holdings shows 3, not T1.  After 20:00 Fri (or the
+                  weekend, before 08:57 Mon): AMO SELL 1, LIMIT at Friday's
+                  close x 0.995 (round to Rs 0.05).
+                - Mon 19 Oct: Kite login from the 09:00 email.  ~09:10:
+                  Orders shows the AMO COMPLETE (pre-open); note its order
+                  ID.  After 09:15, from the NSE quote: GTT Single SELL,
+                  qty 1, trigger = LTP x 0.997, limit = trigger x 0.996;
+                  note the GTT ID.  Not triggered by 14:30: modify to the
+                  new LTP the same way.  Orders shows its sell COMPLETE.
+                - Mon evening: Actions > Record sell path (DDPI date from
+                  Console, AMO order ID, GTT ID); Claude checks the run.
+                - Fallback: a leg fails Monday -> retry Wed 21 Oct (Tue 20
+                  is a holiday) with the 2 shares left, same steps (AMO
+                  placed Mon/Tue evening).
+                - Afterwards: keep or sell the spare; delete any GTT left.
+                Earlier attempt, kept for the record:
+             Supervised sell test, clean route (your call 10 Oct); merge
                 the "Record sell path" workflow to main before Wed:
                 DONE Mon 12 Oct: bought 2 HDFCBANK (CNC) in Kite.  Tue 13 Oct after ~16:00: AMO SELL 1 share
                 (CNC, LIMIT a little under the price).  DONE Wed 14 Oct
@@ -410,6 +447,21 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              lean_review.md item 11.  14 Oct: the sell AMO executed in the
              09:00 pre-open, so sale credit very likely cannot fund that
              morning's buy AMOs (ST2 step 2).
+[ ] P1  LN-T35 Proposed 14 Oct, awaiting your yes.  The live dry run plans
+             with the account's real cash (far below Rs 6 lakh), so it
+             builds 0 orders (14 Oct log: "0 orders built, 1 alert") and
+             the 5 clean dry runs never test order building.  Fix: a dry
+             run plans with the book's capital when the account is short
+             (nothing is sent), and its email lists every order: symbol,
+             quantity, limit, stop, Kite's preflight result.  Small.
+                                                    Prompt: do LN-T35
+[ ] P2  JR2  Proposed 14 Oct, awaiting your yes.  Each book's paper record
+             (fills, positions, snapshots, sessions, signals) lives only in
+             Neon (schemas public = deployed, candidate, e4; also live and
+             us_advisory, the US book's journal since 16 Oct).  Weekly CSV
+             export of every book's tables into the private Kaggle backup,
+             plus a local export command for analysis.  Small.
+                                                    Prompt: do JR2
  ALERTING PLAN (your ask 10 Oct; the relevance table's health, risk and
  order categories): email only, to you; subjects [Centurion CRITICAL] and
  [Centurion warning]; healthchecks.io free tier as the dead-man's switch;

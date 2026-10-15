@@ -1,15 +1,28 @@
 """/api/v1/drivewealth/* routes: the DriveWealth (US) broker.
 
 Moved from v1_gateway.py (tracker H4), which includes this router under /api/v1.
+
+Real orders are off unless ``CENTURION_US_ORDERS_ENABLED=true`` (tracker US1): the
+US book is advisory only (``us_engine.advisory`` emails, you place every order), and
+/carver-orders would buy every plan at market with no sells, position or risk
+checks.  Off, /orders is refused and /carver-orders returns its plans as a dry run.
 """
 
 import asyncio
+import os
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 router = APIRouter()
+
+ENV_US_ORDERS = "CENTURION_US_ORDERS_ENABLED"
+
+
+def us_orders_enabled() -> bool:
+    """Whether these routes may send real DriveWealth orders (off by default)."""
+    return os.environ.get(ENV_US_ORDERS, "false").strip().lower() in ("true", "1", "yes")
 
 
 class DWLoginRequest(BaseModel):
@@ -82,7 +95,10 @@ async def dw_positions():
 
 @router.post("/drivewealth/orders")
 async def dw_place_order(req: OrderRequest):
-    """Place a DriveWealth order."""
+    """Place a DriveWealth order (only with ``CENTURION_US_ORDERS_ENABLED=true``)."""
+    if not us_orders_enabled():
+        raise HTTPException(status_code=403, detail=f"US orders are off ({ENV_US_ORDERS}): the US book is "
+                                                    "advisory only (tracker US1)")
     client = _dw_session.get("client")
     if not client:
         raise HTTPException(status_code=401, detail="Not connected to DriveWealth")
@@ -107,8 +123,9 @@ async def dw_carver_orders(tickers: Optional[list] = None):
     """Generate Carver vol-targeted trade plans and optionally place via DriveWealth.
 
     Runs the full Carver pipeline (EWMAC → forecast → vol-target → sizing)
-    on the requested US tickers, then submits BUY orders through DriveWealth.
-    If DriveWealth is not connected, returns dry-run plans only.
+    on the requested US tickers, then submits BUY orders through DriveWealth
+    only when ``CENTURION_US_ORDERS_ENABLED=true`` and DriveWealth is connected;
+    otherwise returns the plans as a dry run.
     """
     try:
         from config import Config
@@ -123,8 +140,9 @@ async def dw_carver_orders(tickers: Optional[list] = None):
         placed_orders = []
         client = _dw_session.get("client")
         account_id = _dw_session.get("account_id")
+        live = bool(client and account_id and client.is_authenticated) and us_orders_enabled()
 
-        if client and account_id and client.is_authenticated:
+        if live:
             for plan in result.trade_plans:
                 try:
                     order_payload = {
@@ -153,8 +171,11 @@ async def dw_carver_orders(tickers: Optional[list] = None):
             "success": True,
             "trade_plans": result.trade_plans,
             "orders_placed": placed_orders,
-            "dry_run": not bool(client and account_id),
+            "dry_run": not live,
+            "orders_enabled": us_orders_enabled(),
             "pipeline_log": result.pipeline_log,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

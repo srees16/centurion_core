@@ -8,11 +8,15 @@ name: US Advisory
 on:
   schedule:
     # After the US close (16:00 New York: 20:00 UTC in summer, 21:00 UTC in
-    # winter).  GitHub runs schedules late, so a backup follows; a rerun is
+    # winter).  GitHub runs schedules late (2-5 hours on 15 Oct 2026) and
+    # Yahoo can serve the last session late, so backups follow; a rerun is
     # safe: a planned session is not planned again, and an unsent email is
-    # resent.  Minutes avoid the congested top of the hour.
+    # resent.  All before the 19:00 IST open.  Minutes avoid the congested
+    # top of the hour.
     - cron: "17 22 * * 1-5"   # 03:47 IST Tue-Sat
     - cron: "17 1 * * 2-6"    # 06:47 IST, backup
+    - cron: "17 4 * * 2-6"    # 09:47 IST, backup
+    - cron: "17 7 * * 2-6"    # 12:47 IST, backup
   workflow_dispatch:
 
 permissions:
