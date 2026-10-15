@@ -245,11 +245,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      1. Tell Claude what was sold by mistake on 14 Oct (quantity, which
         order; only the test share or long-term HDFCBANK too).  An active
         HDFCBANK SELL GTT left over: delete it.
-     2. Redo the GTT leg of ST2 step 3: buy 1 HDFCBANK (CNC) today; Fri 16
-        Oct in market hours, a single-leg SELL GTT on NSE (trigger ~0.3%
-        under the price, limit ~0.4% under the trigger; note the GTT ID);
-        Fri evening Actions > "Record sell path" (DDPI date, the 14 Oct AMO
-        order ID, the GTT ID).  Not run yet.
+     2. Redo the sell test (ST2 step 3, REDO PLAN): before 15:30 today,
+        BUY 3 HDFCBANK on NSE, CNC.
      3. Zerodha: Q4, and whether a buy AMO's margin is checked at 09:00
         (ST2 step 2).
      4. Say yes / no to LN-T35 (dry runs build the real order list) and JR2
@@ -320,7 +317,34 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                     session later (about -0.7 pt CAGR a year);
                 (c) a second pass at ~09:20 after the sells fill (needs that
                     day's login before it).
-             3. Supervised sell test, clean route (your call 10 Oct); merge
+             3. REDO PLAN (15 Oct).  Why: the record reads both orders from
+                Kite, whose API returns only that day's orders, so the AMO
+                sell and the GTT sell must both COMPLETE on one day, on
+                settled shares, and be recorded that evening.  14 Oct had
+                the AMO only (the GTT share was sold by mistake), so it
+                cannot be recorded.  Every order: NSE, CNC, quantity 1,
+                never "Exit" or sell-all; send Claude a screenshot before
+                each swipe.
+                - Thu 15 Oct, by 15:30: BUY 3 HDFCBANK (2 for the test, 1
+                  spare so a retry needs no new buy).
+                - Fri 16 Oct: the shares settle (T+1); by the evening
+                  Holdings shows 3, not T1.  After 20:00 Fri (or the
+                  weekend, before 08:57 Mon): AMO SELL 1, LIMIT at Friday's
+                  close x 0.995 (round to Rs 0.05).
+                - Mon 19 Oct: Kite login from the 09:00 email.  ~09:10:
+                  Orders shows the AMO COMPLETE (pre-open); note its order
+                  ID.  After 09:15, from the NSE quote: GTT Single SELL,
+                  qty 1, trigger = LTP x 0.997, limit = trigger x 0.996;
+                  note the GTT ID.  Not triggered by 14:30: modify to the
+                  new LTP the same way.  Orders shows its sell COMPLETE.
+                - Mon evening: Actions > Record sell path (DDPI date from
+                  Console, AMO order ID, GTT ID); Claude checks the run.
+                - Fallback: a leg fails Monday -> retry Wed 21 Oct (Tue 20
+                  is a holiday) with the 2 shares left, same steps (AMO
+                  placed Mon/Tue evening).
+                - Afterwards: keep or sell the spare; delete any GTT left.
+                Earlier attempt, kept for the record:
+             Supervised sell test, clean route (your call 10 Oct); merge
                 the "Record sell path" workflow to main before Wed:
                 DONE Mon 12 Oct: bought 2 HDFCBANK (CNC) in Kite.  Tue 13 Oct after ~16:00: AMO SELL 1 share
                 (CNC, LIMIT a little under the price).  DONE Wed 14 Oct
@@ -433,7 +457,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                                                     Prompt: do LN-T35
 [ ] P2  JR2  Proposed 14 Oct, awaiting your yes.  Each book's paper record
              (fills, positions, snapshots, sessions, signals) lives only in
-             Neon (schemas public = deployed, candidate, e4).  Weekly CSV
+             Neon (schemas public = deployed, candidate, e4; also live and
+             us_advisory, the US book's journal since 16 Oct).  Weekly CSV
              export of every book's tables into the private Kaggle backup,
              plus a local export command for analysis.  Small.
                                                     Prompt: do JR2

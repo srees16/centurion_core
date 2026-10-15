@@ -18,6 +18,25 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
           at your broker.  No automated orders: an investor resident
           outside the US cannot run them (your statement, 14 Oct).
 
+ GOLDEN   The golden target (India tracker GT0): Sharpe >= 1.4 | CAGR
+ TARGET   >= 35% | MaxDD <= 35% | Calmar >= 1 | PBO <= 30%, all pre-tax.
+          Plan: section 6, "GOLDEN TARGET PLAN" (your ask 15 Oct).  The
+          arithmetic, before any US number:
+          - CAGR ~ rf + Sharpe x vol - vol^2/2.  In USD (rf ~4%), 35% with
+            MaxDD <= 35% needs Sharpe ~1.5 at vol ~19% (drawdowns 1.8x vol,
+            as the India book) or ~1.4 at vol ~23% (drawdowns held to 1.5x).
+          - The India route closes its last CAGR gap with futures leverage.
+            Under LRS a resident may not trade on margin abroad (derivatives
+            to verify, UG12), so a US leg must earn it through Sharpe alone.
+          - Published long-only US large-cap systems rarely sustain Sharpe
+            above ~1.0 (to verify in UG0).  The likelier route: the US book
+            as an uncorrelated stream.  Two books at equal risk combine to
+            Sharpe (S1 + S2) / sqrt(2 (1 + rho)): India 1.16 + US 1.0 is
+            1.34 at rho 0.3 and 1.46 at rho 0.1.  In INR the US leg also
+            gains when the rupee falls, often in Indian sell-offs.
+          - So the plan tests the US book alone AND as part of the combined
+            India + US book, in INR and USD.  US-Y7 asks which you hold it to.
+
  TODAY    A legacy research layer, not a validated engine (inventory 14
           Oct):
           - Data: live yfinance only (utils.download_us_ohlcv, quotes in
@@ -40,8 +59,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
           - Broker: services/execution/drivewealth.py plus
             api/routers/v1/drivewealth.py.  /orders and /carver-orders
             place REAL market orders: /carver-orders buys every Carver plan
-            and never sells or checks positions.  Admin-only; a dry run
-            while DriveWealth is not connected.  DriveWealth is a partner
+            and never sells or checks positions.  Admin-only; since 15 Oct
+            (US1) off unless CENTURION_US_ORDERS_ENABLED=true, else a dry
+            run.  DriveWealth is a partner
             API, so individual credentials are unlikely.  The risk-checked
             bridge was removed on 3 Oct.
           - Scheduled (from 15 Oct): only the advisory v0 (US-A1), the
@@ -108,6 +128,26 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              and 12:47 IST).  Optional: repository variable
              US_ADVISORY_CAPITAL_USD (your US capital) so the email sizes
              orders in your dollars (until then, per $10,000).
+[!] P1  US-Y7 Golden target for US (GOLDEN TARGET PLAN, phase 0): hold the
+             US book to it (a) alone, in USD; (b) alone, in INR (adds the
+             rupee's fall, ~3-4% a year since 2013); or (c) recommended:
+             the combined India + US book in INR meets the golden target,
+             while the US book alone must pass its US TARGET (UG0 drafts
+             it: Sharpe and alpha over SPY, MaxDD bound).  Also: pre-tax
+             as India, or after tax too (US short-term gains are taxed at
+             your slab rate, India's at 20%).
+[!] P1  US-Y8 Safety rule for the unvalidated emails (US-A1), until US6:
+             pause the emails if the model book falls 20% below its peak
+             or underperforms SPY by 15 points (proposed; your call).
+[!] P1  US-Y5 US2 window and data spend (measured 15 Oct, US2):
+             (a) 2013-25 on free data (recommended; the India book's
+                 window): yfinance 84%, + Tiingo 94.6% of member-days,
+                 renames bring it near the 99% pass rule;
+             (b) also 2003-12 (adds 2008): free data reaches only ~78%;
+                 needs a paid source: EODHD about USD 20 for one month
+                 (delisted coverage unverified), or Norgate Platinum
+                 about USD 630 a year (its software is Windows-only, as
+                 far as I know).
 [!] P1  US-Y1 Choose the broker you will place US orders with (e.g.
              Interactive Brokers, Vested, INDmoney).  It sets the cost and
              tax model (US3): commissions, FX spread, fees, statements.
@@ -129,52 +169,262 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
  6. QUEUE — do #1 first.  Every item: pass rule fixed before running, every
     backtest recorded, no tuning on 2026 data.
 --------------------------------------------------------------------------------
-#1  [ ] P1  US1  Guard the automated US order paths.  api/routers/v1/
-                 drivewealth.py /orders and /carver-orders can place real
-                 market orders (carver-orders buys every plan, never sells).
-                 Put both behind an explicit switch, off by default; plans
-                 stay viewable as a dry run.  No removal without the dead-code
-                 study.  Small.                        Prompt: do US1
-#2  [ ] P1  US2  Survivorship-free US data.  Compare free sources for
-                 point-in-time S&P 500 membership (e.g. public
-                 constituent-history datasets) and for daily prices,
-                 splits and dividends of names that left the index (e.g.
-                 Tiingo or Stooq free tiers).  Then build a US store with a
-                 data hash, as the NSE store does.  Pass: 2013-25 coverage
-                 of the point-in-time members, delisted names counted, a
-                 survivorship check reported.  If no free source covers the
-                 leavers, say so and fall back to US-B3.  Large.
-                                                       Prompt: do US2
-#3  [ ] P1  US3  Cost and tax model for an India-resident investor, for the
+#1  [~] P1  US2  Survivorship-free US data (plan 15 Oct, your ask: no
+                 survivorship bias in the stock selection).
+                 - Membership: point-in-time S&P 500 from fja05680/sp500
+                   (MIT; daily member lists since 1996; its author trusts
+                   2001 on), checked against Wikipedia's dated changes and
+                   20+ S&P announcements.  Stored as dated snapshots; a
+                   name is tradable only on dates it was a member.
+                 - Identity by company over time, not by ticker: tickers
+                   are renamed and reused (FB -> META; an old ticker can
+                   belong to a new firm).  A dated symbol map.
+                 - Prices: yfinance for names still listed (incl. those
+                   dropped from the index); Tiingo for delisted / acquired
+                   names (sample of 30 tested first; free tier 500
+                   symbols a month, so ~1,000 leavers take 2-3 months, or
+                   one paid month, US-Y5); Norgate (paid,
+                   survivorship-free) only if both fall short.
+                 - Delisting returns, fixed in advance: acquired -> the
+                   final price; delisted for cause -> last price then
+                   -30% (the usual CRSP-style assumption).
+                 - Window: 2005-25 (2008, 2020, 2022 in sample), warm-up
+                   from 2003; 2013-25 if coverage fails before 2013.
+                 - Pass: >= 99% of member-days priced; every leaver priced
+                   or under the delisting rule; an equal-weight basket of
+                   the point-in-time members tracks the S&P 500 Equal
+                   Weight index (RSP) within 1%/yr.  Reported: the bias
+                   itself (today's members vs point-in-time, same rules).
+                 - Then a US store with a data hash, as the NSE store.
+                 If no source covers the leavers, say so and fall back to
+                 US-B3 (ETFs).  Large.                 Prompt: do US2
+                 PROGRESS 15 Oct (steps 1-2 done, 3 half):
+                 1 DONE membership: us_engine/membership.py, versioned in
+                   data/sp500_membership.json (pinned commit, sha256);
+                   1,262 spells, 493-507 members a day from 2003; 652 of
+                   711 Wikipedia changes agree within 7 days, the rest are
+                   ticker naming (the lists use a later ticker: LEH as
+                   LEHMQ, KFT as MDLZ) and four 8-day offsets.
+                 2 measured coverage (us_store/coverage_yfinance.csv):
+                   yfinance prices 73.5% of 2003-25 member-days (390 of
+                   535 spells that ended have no Yahoo data); 2013-25:
+                   84.0%, + Tiingo's listing 94.6%; 2003-12: 59.7% / 77.6%.
+                   Stooq is out (JavaScript wall).  Renames are priced on
+                   Yahoo under the new ticker (ANTM -> ELV, FB -> META);
+                   an automatic pass found 27, about 20 right (it mixes up
+                   renames with same-day replacements, e.g. CA -> LIN where
+                   PX -> LIN is the rename), so the map is curated by hand.
+                 3 DONE rename map: data/sp500_symbol_map.json, 39 aliases,
+                   each with evidence (renames, ticker changes, the surviving
+                   side of mergers; e.g. PX -> LIN, EQR -> VMRK, CBS/VIAC/
+                   PARA -> SKYD, IR -> TT until 2020-03-02).  2013-25: Yahoo
+                   now prices 87.8% of member-days (was 84.0%).  Of the
+                   182 spells left (companies that no longer trade), Tiingo
+                   lists 134 for the whole spell and 16 in part: with them
+                   about 98.5-99.6%.  16 are not under the same ticker on
+                   Tiingo (BRCM, DTV, HOT, JCP, BBBY, SIVB, FRC, ...).
+                   Checks added: a priced series is not proof of identity
+                   (Yahoo's PARA is another security at ~104,500), so the
+                   coverage flags implausible levels and one-day moves.
+                   Known issues for the store: KORS and CPRI are both
+                   members 2016-01-04..2018-09-18 in the lists (one
+                   company: count once); the TT spell 2002-08 is the old
+                   Trane, which Yahoo's TT does not price (pre-2013 only).
+                   15 Oct 23:38: Tiingo key in .env (US-Y6 done; the name
+                   is in .env.example).  us_engine/tiingo.py resolves each
+                   spell (own ticker, else Tiingo's search incl. delisted:
+                   SunTrust is US000000000420, DirecTV DTV1, SVB SIVBQ) and
+                   downloads it; paced at ~48 requests an hour, resumable.
+                   Running detached overnight (~8 h):
+                   us_store/tiingo_fetch.log, tiingo_resolution.csv.
+                   Starwood (HOT) has only 2016 on Tiingo and old Broadcom
+                   (BRCM) nothing: such spells go to review.
+                   Survivorship preview 15 Oct (data only, no strategy;
+                   equal-weight, daily rebalanced, total return, 2013-25):
+                   RSP (the real equal-weight S&P 500 fund) 12.21%/yr;
+                   today's 503 members backfilled 18.48% (+6.27%/yr: what a
+                   naive backtest gets for free); point-in-time members on
+                   Yahoo + aliases 13.45% (+1.24%/yr, 87.8% of member-days
+                   priced; the pass rule is within 1%/yr).  Spot checks
+                   right: Lehman out by 30 Sep 2008, SVB 15 Mar 2023, FRC
+                   4 May 2023; Facebook in 23 Dec 2013, Tesla 21 Dec 2020,
+                   Moderna 21 Jul 2021; 497-506 members a quarter.
+                   NEXT: review the resolution, coverage and the RSP check
+                   re-run with Tiingo (also with quarterly rebalancing, as
+                   RSP does), a Tiingo cross-check of a sample of Yahoo
+                   series (identity), then step 4.
+                 4 the delisting rule for what stays unpriced; the store
+                   with a data hash.
+                 5 the RSP tracking check and the bias report.
+#2  [ ] P1  US3  Cost and tax model for an India-resident investor, for the
                  broker from US-Y1: commissions, FX both ways, TCS cash
                  cost, dividend withholding and credit, Indian capital-gains
                  tax; dated rates and a version, like costs.py.  Medium.
                                                        Prompt: do US3
-#4  [ ] P2  US4  Port the engine through an adapter (the India book
-                 untouched): US loader -> MarketData, NYSE calendar, US
-                 regime (SPY trend, VIX), benchmarks (SPY / QQQ total
-                 return), the US3 cost model.  Pass: the India suite and the
-                 canary unchanged; a US smoke backtest runs.  Large.
+#3  [ ] P2  US4  Port the engine through an adapter (the India book
+                 untouched): US store -> MarketData; universe = point-in-
+                 time members AND the liquidity filter (an optional
+                 membership mask in the engine, off by default so the India
+                 config hashes and canary do not move); NYSE calendar; US
+                 regime (S&P 500 trend, breadth, VIX); benchmarks SPY TR
+                 and RSP TR; the US3 cost model.  Pass: the India suite and
+                 the canary unchanged; a US smoke backtest runs.  Large.
                                                        Prompt: do US4
-#5  [ ] P2  US5  Pre-register round 1 (validation plan section): the India
-                 deployed configuration transplanted to the US universe from
-                 US-Y3 (at most 3 configurations); benchmark SPY TR.
-                 - Gates: DSR >= 0.95, beat SPY TR on Sharpe and alpha,
-                   MaxDD bound.
-                 - Reported: INR and USD returns, correlation with the
-                   India book.
-                                                       Prompt: do US5
-#6  [ ] P2  US6  Run: backtest and walk-forward on Kaggle (2013-25, 2026
-                 sealed), recorded in the US registry; then the full
-                 scorecard (the 18 metrics of the India book).
+#4  [ ] P2  US5  Pre-register round 1 (validation plan section) before any
+                 US number is read.  Three configurations, one per India
+                 book, with the US-A1 inputs:
+                 - A = deployed rules (what the US-A1 emails run);
+                 - B = candidate rules (regime scale_neutral 0.6);
+                 - C = E4 rules (exit rank 60, refill exits).
+                 Gates on the US-Y5 window (2026 sealed):
+                 - DSR >= 0.95 at the US family's trial count;
+                 - Sharpe above SPY TR's; alpha vs SPY TR with Newey-West
+                   t >= 2;
+                 - MaxDD no worse than SPY TR's over the window;
+                 - anchored walk-forward (yearly test folds, each picking
+                   A/B/C on the data before it; from 2016 if the window is
+                   2013-25, US-Y5): out-of-sample Sharpe above SPY TR's.
+                 Reported, not gates: INR and USD returns, correlation
+                 with the India book, the US2 survivorship bias, a
+                 scorecard against RSP.                Prompt: do US5
+#5  [ ] P2  US6  Run on Kaggle: the three backtests and the walk-forward,
+                 recorded in a US registry (runs_us); the 18-metric
+                 scorecard; the verdict against US5.  Results journaled
+                 in docs/metrics_journal.csv as books us_a / us_b / us_c
+                 (kinds backtest, walk_forward), as the India books are, so
+                 the journal records US progress; the US books in the books
+                 register.  Then the 2026 holdout, opened once.
                                                        Prompt: do US6
-#7  [ ] P2  US7  Paper trade a US shadow book (if US6 passes): at least 60
-                 sessions, a daily email, tracking against its backtest like
-                 G4.                                   Prompt: do US7
-#8  [ ] P2  US8  Advisory on the validated book: switch the US-A1 emails
+#6  [ ] P2  US7  Forward test: the US-A1 model book (config A) has run
+                 since the 14 Oct close; if US6 picks B or C, start its
+                 model book too.  At least 60 sessions against the
+                 backtest's expectations, like G4.     Prompt: do US7
+#7  [ ] P2  US8  Advisory on the validated book: switch the US-A1 emails
                  to the configuration that passed US6/US7, or stop them if
                  the gates fail.  Never an automated order.
                                                        Prompt: do US8
+#8  [ ] P2  US9  Your fills vs the model (as G4 does for India): import your
+                 broker's trade statement (CSV) weekly; report slippage
+                 against the model's open fills and any order you skipped,
+                 so the email's book and your account stay comparable.
+                 Medium; needs US-Y1.                  Prompt: do US9
+#9  [ ] P3  US10 Operations at India's level: the US run pings its own
+                 healthchecks.io check (dead man's switch); after US4, a
+                 nightly canary on the US data hash and backtest; the US
+                 book in the Saturday books report.  Small.
+                                                       Prompt: do US10
+
+ GOLDEN TARGET PLAN (your ask 15 Oct): research and build toward the golden
+ target (section 1).  Same rules as India: each idea is its own trial family
+ with its own registry and at most 3 pre-registered configurations; the
+ combined book is judged by a deflated Sharpe at the full trial count across
+ families; weights fixed in advance, never fitted; 2026 sealed; swing /
+ positional only; orders placed by hand, so turnover is kept to about 10
+ orders a week.  The UG items are queued after US10; phases run in order.
+
+ PHASE 0  Foundations, Oct-Nov 2026.  Gate: stores fingerprinted, coverage
+          >= 99%, RSP within 1%/yr, protocol and pre-registrations written.
+          US2, US3, US4 above, plus UG0, UG12, UG14 (and UG2 started).
+ PHASE 1  The core, Nov-Dec 2026.  Gate (US5): DSR >= 0.95, Sharpe and alpha
+          over SPY TR (Newey-West t >= 2), MaxDD no worse than SPY's,
+          walk-forward OOS above SPY.  Fail: the ETF path (UG7) or stop.
+          US5, US6; the US-A1 model book keeps running as the forward test.
+ PHASE 2  New return streams, Jan-Mar 2027.  Per sleeve: net Sharpe >= 0.5;
+          combined Sharpe >= core + 0.10 at the fixed weight; t >= 3 for a
+          new signal (Harvey, Liu and Zhu); family PBO <= 30%; correlation
+          with the core and with the India book reported.  UG3-UG8.
+ PHASE 3  Combination, Mar-Apr 2027.  Gate: US book Sharpe >= 1.0 (USD);
+          combined India + US Sharpe >= 1.30 (INR), MaxDD <= 1.6x vol, PBO
+          <= 30%.  UG9, UG10, UG11.
+ PHASE 4  Paper, then live advisory, Apr 2027 on.  >= 60 sessions tracked
+          against the backtest (G4-style), your fills measured (US9), then a
+          capital ladder.  US7, US8, US9, UG11.
+ PHASE 5  Continuous: quarterly re-score against the golden target (UG13).
+
+ PRIORS, not measurements (to be replaced by UG0 and US6; backtest, pre-tax):
+   step                         US Sharpe  US CAGR   India + US Sharpe (INR)
+   core passes (phase 1)        0.7-1.0    12-18%    1.20-1.30
+   + 1-2 sleeves (phase 2-3)    0.9-1.2    14-20%    1.30-1.45
+   golden target                1.4-1.5    35%       1.4 (CAGR 35% still needs
+                                                     India futures leverage)
+
+#10 [ ] P1  UG0  Golden-target study for US (research, no trials): what the
+                 target implies for a US leg (vol, drawdown, Sharpe, in USD
+                 and INR); live records of US long-only systematic books;
+                 post-publication decay (McLean and Pontiff 2016); momentum
+                 in US large caps since 2000 (Jegadeesh-Titman 1993; Daniel
+                 and Moskowitz 2016, crashes; Barroso and Santa-Clara 2015,
+                 vol scaling; Blitz, Huij and Martens 2011, residual; George
+                 and Hwang 2004, 52-week high; Moskowitz and Grinblatt 1999,
+                 industry); trend (Moskowitz, Ooi and Pedersen 2012; Hurst,
+                 Ooi and Pedersen 2017); quality (Novy-Marx 2013; Asness,
+                 Frazzini and Pedersen 2019); low risk (Frazzini and
+                 Pedersen 2014); earnings drift (Bernard and Thomas 1989).
+                 Output: odds per route, the US TARGET draft for US-Y7, the
+                 ranked sleeve list for phase 2, a memo in chat (a .md file
+                 only with your OK).  Medium.         Prompt: do UG0
+#11 [ ] P1  UG12 Rules check: can a resident under LRS / the 2022 overseas
+                 investment rules hold US options or futures (covered calls,
+                 protective puts, index futures)?  Margin is barred.  Also
+                 TCS and the Rs 10 lakh threshold, the USD 250,000 limit, PFIC-
+                 type issues for US ETFs, dividend withholding.  Primary
+                 sources (RBI, CBDT); decides whether leverage or hedges exist
+                 for a US leg at all.  Small.         Prompt: do UG12
+#12 [ ] P1  UG14 FX and rates in the US store: USD/INR (FRED DEXINUS), US
+                 3-month T-bill (FRED DTB3), RSP and SPY total return; every
+                 US result reported in USD and INR; the FX and TCS cash costs
+                 from US3 applied to flows.  Small.   Prompt: do UG14
+#13 [ ] P1  UG2  Point-in-time US fundamentals from SEC EDGAR (free): XBRL
+                 company facts (2009 on), keyed by filing date, mapped to the
+                 membership tickers through CIKs; earnings dates from 8-K Item
+                 2.02 filings.  The data for UG5 and UG8, built as GT1 was for
+                 India (quarters, TTM, data guards).  Large.
+                                                       Prompt: do UG2
+#14 [ ] P2  UG3  Universe breadth: point-in-time S&P 400 and 600 members
+                 (Wikipedia historical components pages, the same method as
+                 US2) so a trial can test S&P 1500, where momentum is
+                 historically stronger and costs higher.  Data step only;
+                 the trial is one configuration in UG4.  Large.
+                                                       Prompt: do UG3
+#15 [ ] P2  UG4  Momentum sleeve family (<= 3): vol-scaled 12-1 momentum,
+                 residual momentum (the engine has it), 52-week-high
+                 momentum; weekly rebalance; vol targeting allowed inside
+                 this sleeve only (crash protection).  Kaggle, registry
+                 runs_us_mom.                         Prompt: do UG4
+#16 [ ] P2  UG5  Quality / profitability sleeve (<= 3) on UG2: gross
+                 profitability, quality-minus-junk style composite; monthly
+                 rebalance, low turnover.  Registry runs_us_quality.
+                                                       Prompt: do UG5
+#17 [ ] P2  UG6  Defensive sleeve (<= 3): low volatility / low beta among
+                 members (betting-against-beta style, long-only), for
+                 drawdown and crash behaviour.  Registry runs_us_lowrisk.
+                                                       Prompt: do UG6
+#18 [ ] P2  UG7  Sector / factor ETF rotation (US-B3 promoted): dual
+                 momentum on the 11 sector ETFs plus a T-bill ETF; no
+                 survivorship problem, few orders.  Both a fallback if the
+                 core fails and a candidate sleeve.  Registry runs_us_etf.
+                                                       Prompt: do UG7
+#19 [ ] P3  UG8  Earnings-drift overlay (<= 3) on UG2's dates: hold or add
+                 after strong surprises, skip entries just before earnings.
+                 One configuration in the core family.  Prompt: do UG8
+#20 [ ] P2  UG9  The US book: the core plus the sleeves that passed, equal
+                 risk at fixed weights, a portfolio drawdown cushion (Grossman-
+                 Zhou style floor); walk-forward; deflated Sharpe at total N.
+                                                       Prompt: do UG9
+#21 [ ] P2  UG10 India + US combined (US-B4 promoted): fixed risk weights
+                 in INR; correlation by month and in sell-offs; the rupee
+                 effect; LRS and TCS cash costs; the golden-target scorecard
+                 for the combined book; how capital moves between the books.
+                                                       Prompt: do UG10
+#22 [ ] P2  UG11 After-tax and execution view: the books after Indian tax
+                 (US short-term gains at slab rate vs 12.5% after 24 months;
+                 a slower variant compared, one configuration); your
+                 measured fills (US9) in the model; then a capital ladder for
+                 the US leg as India's.               Prompt: do UG11
+#23 [ ] P3  UG13 Quarterly re-score (Jan, Apr, Jul, Oct): every US family
+                 and the combined book against the golden target and the US
+                 TARGET; what moved and why, in this tracker.
+                                                       Prompt: do UG13
 
 --------------------------------------------------------------------------------
  7. BACKLOG (after the queue)
@@ -186,19 +436,53 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 [ ] P3  US-B2 Refresh the stale US parts of docs/README.md (the
              non-existent execution_engine.py, old US settings) once US4
              settles the design.
-[ ] P3  US-B3 ETF-only fast path: a sector / factor ETF rotation on US ETFs
-             has no survivorship problem and needs far less data.  Worth it
-             if US2 finds no free source for delisted names.
-[ ] P3  US-B4 Combined India + US allocation: once both books are
-             validated, size them together by risk; their correlation sets
-             the diversification gain.
+[x] P3  US-B3 Promoted to UG7 (GOLDEN TARGET PLAN, 15 Oct).
+[x] P3  US-B4 Promoted to UG10 (GOLDEN TARGET PLAN, 15 Oct).
 [ ] P3  US-B5 Legacy US code (us_carver_pipeline, /us-stocks routes,
              full_pipeline_backtest US): keep as research; decide after US4
              whether anything is reused or retired (dead-code rules apply).
+             Their backtests use today's lists: never evidence (a naive
+             today's-members basket gained +6.27%/yr over RSP, 2013-25).
 
 --------------------------------------------------------------------------------
  8. DONE — most recent first
 --------------------------------------------------------------------------------
+16 Oct  US-J1 US recommendations journaled as the India books (your ask).
+             Before: one JSON state in Neon (holdings, trades, equity
+             curve) and only the latest email.  Now every nightly run also
+             writes the us_advisory schema's tables, the India books'
+             shapes: paper_sessions (one row a night: planned buys /
+             sells, fills, stops, regime, drawdown state, outcome),
+             paper_signal_log (every suggested order: price, stop, model
+             shares, weight, rank, reason), paper_fills (each model fill
+             and each order that did not fill, with decision date,
+             decision price, fill price, costs), paper_positions (open
+             and closed, exit reason, P&L), paper_daily_snapshots
+             (equity, cash, day and total P&L, max drawdown).  USD in
+             every money column.  Upserts: a rerun adds nothing twice.
+             Checked on SQLite copies of the tables over 7 and 28 replayed
+             nights (temporary test, deleted).  Starts with the first run
+             after you merge; the 14-15 Oct suggestions appear as that
+             run's fills.  Research evidence: US6 journals its trials in
+             docs/metrics_journal.csv (us_a/b/c); JR2 exports all books.
+15 Oct  UG   Golden target plan for US (your ask): section 1 states the
+             arithmetic and the route (Sharpe, not leverage, which LRS
+             bars; the US book as an uncorrelated stream for the combined
+             India + US book); section 6 holds phases 0-5 with gates and
+             UG0-UG14 (study, rules check, FX and rates, EDGAR fundamentals,
+             S&P 1500, momentum / quality / defensive / ETF / earnings-drift
+             sleeves, combination, India + US book, after-tax view,
+             quarterly re-score); US-Y7 (how the target applies) and US-Y8
+             (a safety rule for the unvalidated emails) need you.
+15 Oct  US1  Automated US order routes guarded (api/routers/v1/drivewealth.py).
+             Real DriveWealth orders now need CENTURION_US_ORDERS_ENABLED=
+             true (off by default; not set anywhere): /orders is refused
+             (403) and /carver-orders returns its plans as a dry run
+             ("orders_enabled": false).  Nothing removed (dead-code rule).
+             Also: a 400 inside /carver-orders ("Carver US is not enabled")
+             was swallowed into a 500; it now passes through.  Checked
+             with a temporary API test (off: nothing sent; on: both routes
+             send; deleted after); the fast suite passes.
 15 Oct  US-A1 Live: merged by you 14 Oct.  The first scheduled run (06:01
              IST, 2 h late) failed: Yahoo served the 14 Oct close for 19
              of 503 members (alert emailed).  Rerun 11:26 IST: book started
