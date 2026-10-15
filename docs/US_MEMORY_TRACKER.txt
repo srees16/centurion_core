@@ -103,13 +103,11 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
-[!] P0  US-Y4 Start the advisory (US-A1): merge us_engine/ and
-             .github/workflows/us-advisory.yml.  Merged before 03:47 IST
-             Thu 15 Oct, the scheduled run emails Thursday's suggestions;
-             later, say "run the US advisory" and Claude triggers it (any
-             time before the 19:00 IST open).  Optional: repository
-             variable US_ADVISORY_CAPITAL_USD (your US capital) so the
-             email sizes orders in your dollars.
+[!] P1  US-Y4 Merge the 15 Oct fix (us_engine/data.py: re-fetch stocks
+             missing the latest close; us-advisory.yml: backups at 09:47
+             and 12:47 IST).  Optional: repository variable
+             US_ADVISORY_CAPITAL_USD (your US capital) so the email sizes
+             orders in your dollars (until then, per $10,000).
 [!] P1  US-Y1 Choose the broker you will place US orders with (e.g.
              Interactive Brokers, Vested, INDmoney).  It sets the cost and
              tax model (US3): commissions, FX spread, fees, statements.
@@ -201,6 +199,13 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first
 --------------------------------------------------------------------------------
+15 Oct  US-A1 Live: merged by you 14 Oct.  The first scheduled run (06:01
+             IST, 2 h late) failed: Yahoo served the 14 Oct close for 19
+             of 503 members (alert emailed).  Rerun 11:26 IST: book started
+             on the 14 Oct close, emailed 20 buys for the 15 Oct open; a
+             later run found the session planned (idempotent).  Fix,
+             uncommitted: incomplete tickers re-fetched after a 30 s pause;
+             two more backup runs.
 14 Oct  US-A1 Advisory v0 built (your ask: suggestions from 15 Oct, placed
              by hand).  Unvalidated; uncommitted for your review.
              - Rules: the India deployment (config/nse_engine_deployed.json)

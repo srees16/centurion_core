@@ -241,12 +241,25 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      3. Zerodha follow-up, Q1-Q4 (ST2 step 2).
      4. DONE: dead man's switch fire drill (DMfd); schedule restored, ping
         URL out of my_todos.txt, Outlook rule added.
+ >>> THURSDAY 15 OCT - YOUR ACTIONS
+     1. Tell Claude what was sold by mistake on 14 Oct (quantity, which
+        order; only the test share or long-term HDFCBANK too).  An active
+        HDFCBANK SELL GTT left over: delete it.
+     2. Redo the GTT leg of ST2 step 3: buy 1 HDFCBANK (CNC) today; Fri 16
+        Oct in market hours, a single-leg SELL GTT on NSE (trigger ~0.3%
+        under the price, limit ~0.4% under the trigger; note the GTT ID);
+        Fri evening Actions > "Record sell path" (DDPI date, the 14 Oct AMO
+        order ID, the GTT ID).  Not run yet.
+     3. Zerodha: Q4, and whether a buy AMO's margin is checked at 09:00
+        (ST2 step 2).
+     4. Say yes / no to LN-T35 (dry runs build the real order list) and JR2
+        (weekly CSV export of the paper books).
  >>> WEDNESDAY 14 OCT
      1. DONE 09:09: the AMO SELL executed.  Note its order ID and average
         price (Kite > Orders).
-     2. In market hours: a single-leg SELL GTT on the other share (note the
-        GTT ID).
-     3. Evening: Actions > "Record sell path" (DDPI date, both IDs).
+     2. NOT DONE: the GTT leg (all HDFCBANK sold by mistake) - redo, see
+        Thursday.
+     3. NOT RUN: "Record sell path" - after the GTT leg.
 [!] P1  MU2  Self-service accounts: merged and live 8 Oct (sign-up on the
              login page; email secrets copied by the deploy; the data key on
              the Space with a copy kept off it); frontend in production
@@ -410,6 +423,20 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              lean_review.md item 11.  14 Oct: the sell AMO executed in the
              09:00 pre-open, so sale credit very likely cannot fund that
              morning's buy AMOs (ST2 step 2).
+[ ] P1  LN-T35 Proposed 14 Oct, awaiting your yes.  The live dry run plans
+             with the account's real cash (far below Rs 6 lakh), so it
+             builds 0 orders (14 Oct log: "0 orders built, 1 alert") and
+             the 5 clean dry runs never test order building.  Fix: a dry
+             run plans with the book's capital when the account is short
+             (nothing is sent), and its email lists every order: symbol,
+             quantity, limit, stop, Kite's preflight result.  Small.
+                                                    Prompt: do LN-T35
+[ ] P2  JR2  Proposed 14 Oct, awaiting your yes.  Each book's paper record
+             (fills, positions, snapshots, sessions, signals) lives only in
+             Neon (schemas public = deployed, candidate, e4).  Weekly CSV
+             export of every book's tables into the private Kaggle backup,
+             plus a local export command for analysis.  Small.
+                                                    Prompt: do JR2
  ALERTING PLAN (your ask 10 Oct; the relevance table's health, risk and
  order categories): email only, to you; subjects [Centurion CRITICAL] and
  [Centurion warning]; healthchecks.io free tier as the dead-man's switch;
