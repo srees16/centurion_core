@@ -16,8 +16,10 @@ Each run after a US close (``python -m us_engine.advisory run``):
    stops (``portfolio.stop_fill_price``); the close mark;
 3. plans the next session with ``nse_engine.engine.generate_targets`` and the
    deployment's drawdown rule on the book's own equity;
-4. saves the book (Neon schema ``us_advisory``, or ``--state-file``) and emails
-   the suggestions: sells, buys, raised stops, the book against the S&P 500.
+4. saves the book (Neon schema ``us_advisory``, or ``--state-file``), journals the
+   run in that schema's tables as the India books do (fills, positions, daily
+   snapshots, sessions, the suggested orders; ``journal_rows``) and emails the
+   suggestions: sells, buys, raised stops, the book against the S&P 500.
 
 The model book is notional (``NOTIONAL_USD``: whole shares that stand for
 fractional ones) and assumes every suggestion filled at the next open; the
@@ -139,6 +141,10 @@ class FileStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(book.to_json())
 
+    def journal(self, rows: Dict[str, List[Dict]]) -> List[str]:
+        """A local book keeps no journal tables (they live in Neon)."""
+        return []
+
 
 class NeonStore:
     """The book in Neon: one key of the key/value table in schema ``us_advisory``."""
@@ -160,6 +166,21 @@ class NeonStore:
         if not self.cloud.sync_state({STATE_KEY: book.to_json()}):
             raise RuntimeError("the US advisory book was not saved to Neon")
 
+    def journal(self, rows: Dict[str, List[Dict]]) -> List[str]:
+        """Write this run's journal rows; the names of the tables that failed (upserts: a rerun is safe)."""
+        c, failed = self.cloud, []
+        if not c.sync_fills(rows["fills"]):
+            failed.append("fills")
+        if not all([c.sync_position(p) for p in rows["positions"]]):
+            failed.append("positions")
+        if not all([c.sync_snapshot(s) for s in rows["snapshots"]]):
+            failed.append("snapshots")
+        if not all([c.sync_session(s) for s in rows["session"]]):
+            failed.append("session")
+        if not c.sync_signals(rows["as_of"][0], rows["signals"]):
+            failed.append("signals")
+        return failed
+
 
 def _px(frame: pd.DataFrame, day: pd.Timestamp, sym: str) -> float:
     return float(frame.at[day, sym]) if sym in frame.columns else float("nan")
@@ -169,22 +190,32 @@ def _fill_cost(value: float) -> float:
     return abs(value) * FILL_COST_BPS / 1e4
 
 
-def _sell(book: Book, sym: str, qty: int, px: float, day: str, reason: str) -> None:
+def _trade(book: Book, day: str, sym: str, side: str, qty: int, px: float, reason: str, meta: Dict,
+           status: str = "FILLED", note: str = "", **extra) -> None:
+    """One fill (or an order that did not fill) in ``book.trades``: the journal's ``paper_fills`` rows."""
+    value = qty * px
+    book.trades.append({"date": day, "symbol": sym, "side": side, "qty": qty, "price": round(px, 4),
+                        "reason": reason, "status": status, "decided": meta.get("decided", ""),
+                        "source": meta.get("source", "pending_open"), "requested": int(meta.get("requested", qty)),
+                        "ref_price": round(float(meta.get("ref_price") or 0.0), 4),
+                        "cost": round(_fill_cost(value), 2), "note": note or meta.get("note", ""), **extra})
+
+
+def _sell(book: Book, sym: str, qty: int, px: float, day: str, reason: str, meta: Dict) -> None:
     h = book.holdings[sym]
     value = qty * px
     book.cash += value - _fill_cost(value)
-    book.trades.append({"date": day, "symbol": sym, "side": "SELL", "qty": qty, "price": round(px, 4),
-                        "reason": reason, "pnl": round(qty * (px - h["avg_price"]) - _fill_cost(value), 2)})
+    _trade(book, day, sym, "SELL", qty, px, reason, meta, pnl=round(qty * (px - h["avg_price"]) - _fill_cost(value), 2),
+           entry_date=h["entry_date"], avg_price=round(h["avg_price"], 4), closed=h["qty"] - qty <= 0)
     h["qty"] -= qty
     if h["qty"] <= 0:
         del book.holdings[sym]
 
 
-def _buy(book: Book, sym: str, qty: int, px: float, day: str, reason: str, stop: Optional[float]) -> None:
+def _buy(book: Book, sym: str, qty: int, px: float, day: str, reason: str, stop: Optional[float], meta: Dict) -> None:
     value = qty * px
     book.cash -= value + _fill_cost(value)
-    book.trades.append({"date": day, "symbol": sym, "side": "BUY", "qty": qty, "price": round(px, 4),
-                        "reason": reason})
+    _trade(book, day, sym, "BUY", qty, px, reason, meta)
     h = book.holdings.get(sym)
     if h is None:
         book.holdings[sym] = {"qty": qty, "avg_price": px, "entry_date": day, "stop": stop, "last_price": px}
@@ -218,31 +249,41 @@ def _apply_splits(book: Book, splits: pd.DataFrame, day: pd.Timestamp, events: L
 def _fill_pending(book: Book, panel: UsPanel, day: pd.Timestamp, events: List[str]) -> None:
     """The previous suggestions at this session's open: sells first, buys within the cash."""
     data, d = panel.data, day.date().isoformat()
+
+    def meta(o: Dict) -> Dict:
+        return {"decided": book.last_session, "requested": o["qty"], "ref_price": o.get("price")}
+
+    def lapse(o: Dict, why: str) -> None:
+        events.append(f"{o['symbol']}: {why}")
+        _trade(book, d, o["symbol"], o["side"], 0, 0.0, o["reason"], meta(o), status="CANCELLED", note=why)
+
     for o in [o for o in book.pending if o["side"] == "SELL"]:
         sym, h = o["symbol"], book.holdings.get(o["symbol"])
         if h is None:
             continue
         px = _px(data.open, day, sym)
+        note = ""
         if sym not in data.close.columns:
             px = float(h["last_price"])
-            events.append(f"{sym}: no market data; sold in the model at its last close {px:.2f} (check your broker)")
+            note = f"no market data; sold in the model at its last close {px:.2f} (check your broker)"
+            events.append(f"{sym}: {note}")
         elif not np.isfinite(px):
-            events.append(f"{sym}: no open on {d}; the sell did not fill")
+            lapse(o, f"no open on {d}; the sell did not fill")
             continue
-        _sell(book, sym, min(int(o["qty"]), int(h["qty"])), px, d, o["reason"])
+        _sell(book, sym, min(int(o["qty"]), int(h["qty"])), px, d, o["reason"], {**meta(o), "note": note})
     for o in [o for o in book.pending if o["side"] == "BUY"]:
         sym = o["symbol"]
         px = _px(data.open, day, sym)
         if not np.isfinite(px) or px <= 0:
-            events.append(f"{sym}: no open on {d}; the buy did not fill")
+            lapse(o, f"no open on {d}; the buy did not fill")
             continue
         qty = min(int(o["qty"]), int(math.floor(max(book.cash, 0.0) / (px * (1 + FILL_COST_BPS / 1e4)))))
         if qty <= 0:
-            events.append(f"{sym}: not enough cash at the open; the buy did not fill")
+            lapse(o, "not enough cash at the open; the buy did not fill")
             continue
         if qty < int(o["qty"]):
             events.append(f"{sym}: bought {qty} of {o['qty']} shares (cash at the open)")
-        _buy(book, sym, qty, px, d, o["reason"], o.get("stop"))
+        _buy(book, sym, qty, px, d, o["reason"], o.get("stop"), meta(o))
 
 
 def _apply_stops(book: Book, panel: UsPanel, day: pd.Timestamp, events: List[str]) -> None:
@@ -252,7 +293,8 @@ def _apply_stops(book: Book, panel: UsPanel, day: pd.Timestamp, events: List[str
         px = stop_fill_price(_px(data.open, day, sym), _px(data.low, day, sym), h.get("stop"))
         if px is None:
             continue
-        _sell(book, sym, int(h["qty"]), px, d, "stop")
+        _sell(book, sym, int(h["qty"]), px, d, "stop",
+              {"decided": d, "source": "stop", "requested": h["qty"], "ref_price": h.get("stop")})
         book.stopped_out[sym] = d
         events.append(f"{sym}: stopped out on {d} at {px:.2f}")
 
@@ -381,9 +423,91 @@ def plan_next(book: Book, panel: UsPanel, cfg: EngineConfig, rule: Optional[Draw
         if old is None or new > old + 1e-9:
             raised.append((sym, old, float(new)))
             h["stop"] = float(new)
-    book.pending = [{"symbol": o.symbol, "side": o.side, "qty": o.qty, "reason": o.reason, "stop": o.stop}
-                    for o in kept]
+    book.pending = [{"symbol": o.symbol, "side": o.side, "qty": o.qty, "reason": o.reason, "stop": o.stop,
+                     "price": round(o.price, 4)} for o in kept]
     return Plan(as_of=as_of, target=target, orders=kept, raised=raised, drawdown=decision, skipped=skipped)
+
+
+# ============================================================================
+# the journal: the book's Neon tables, as the India books keep theirs
+# ============================================================================
+
+
+def _utc(day: str, at: time) -> str:
+    return datetime.combine(pd.Timestamp(day).date(), at, tzinfo=NEW_YORK).astimezone(timezone.utc).isoformat()
+
+
+def journal_rows(book: Book, plan: Plan, new_trades: Sequence[Dict], new_sessions: Sequence[str],
+                 events: Sequence[str]) -> Dict[str, List[Dict]]:
+    """This run's rows for the ``us_advisory`` tables, in the India books' shapes (``paper_fills``,
+    ``paper_positions``, ``paper_daily_snapshots``, ``paper_sessions``, ``paper_signal_log``).
+
+    Money is USD in every column, ``costs_inr`` included (the column names are the India book's).
+    Quantities are the model's whole shares at ``NOTIONAL_USD``.
+    """
+    as_of = plan.as_of.date().isoformat()
+    fills = [{
+        "order_id": (f"stop-{t['date']}-{t['symbol']}" if t["source"] == "stop"
+                     else f"us-{t['decided']}-{t['side']}-{t['symbol']}"),
+        "session_date": t["date"], "decision_date": t["decided"], "source": t["source"], "symbol": t["symbol"],
+        "side": t["side"], "status": t["status"], "requested_qty": int(t["requested"]), "quantity": int(t["qty"]),
+        "ref_price": float(t["ref_price"]), "fill_price": float(t["price"]),
+        "impact_bps": FILL_COST_BPS if t["qty"] else 0.0, "costs_inr": float(t["cost"]),
+        "pnl": float(t.get("pnl", 0.0)), "note": str(t.get("note", ""))[:200],
+        "occurred_at": _utc(t["date"], time(16, 0) if t["source"] == "stop" else US_OPEN),
+    } for t in new_trades if "status" in t]
+    positions = [{"symbol": s, "side": "LONG", "quantity": int(h["qty"]), "entry_price": float(h["avg_price"]),
+                  "stop_loss": float(h.get("stop") or 0.0), "target_price": 0.0, "opened_at": h["entry_date"],
+                  "is_open": True} for s, h in book.holdings.items()]
+    positions += [{"symbol": t["symbol"], "side": "LONG", "quantity": int(t["qty"]), "entry_price": float(t["avg_price"]),
+                   "stop_loss": 0.0, "target_price": 0.0, "opened_at": t["entry_date"], "closed_at": t["date"],
+                   "exit_price": float(t["price"]), "exit_reason": t["reason"], "pnl": float(t["pnl"]),
+                   "pnl_pct": round((t["price"] / t["avg_price"] - 1) * 100, 3) if t["avg_price"] else 0.0,
+                   "is_open": False} for t in new_trades if t.get("closed") and t.get("status") == "FILLED"]
+    curve = pd.Series({d: e for d, e in book.equity}, dtype="float64")
+    curve.index = pd.DatetimeIndex(curve.index)
+    snapshots = []
+    for d in new_sessions:
+        day = pd.Timestamp(d)
+        path = curve[curve.index <= day]
+        prev = float(path.iloc[-2]) if len(path) > 1 else NOTIONAL_USD
+        done = [t for t in new_trades if t["date"] == d and t.get("status") == "FILLED"]
+        snapshots.append({
+            "date": d, "equity": round(float(path.iloc[-1]), 2), "cash": round(book.cash, 2),
+            "open_positions": len(book.holdings), "closed_today": sum(1 for t in done if t.get("closed")),
+            "day_pnl": round(float(path.iloc[-1]) - prev, 2),
+            "cumulative_pnl": round(float(path.iloc[-1]) - NOTIONAL_USD, 2),
+            "cumulative_pnl_pct": round((float(path.iloc[-1]) / NOTIONAL_USD - 1) * 100, 3),
+            "max_drawdown_pct": round(float((1 - path / path.cummax()).max()) * 100, 2),
+            "signals_generated": len(plan.orders) if d == as_of else 0, "signals_traded": len(done),
+            "snapshot_json": json.dumps({"book": "us_advisory", "currency": "USD", "notional": NOTIONAL_USD,
+                                         "cash_and_positions_as_of": as_of,
+                                         "positions": {s: h["qty"] for s, h in book.holdings.items()}})})
+    t = plan.target
+    session = {
+        "session_date": as_of, "ran_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "equity": round(book.value(), 2), "cash": round(book.cash, 2), "open_positions": len(book.holdings),
+        "rebalance_day": "rebalance_day" in (t.notes or []), "planned_buys": len(plan.side("BUY")),
+        "planned_sells": len(plan.side("SELL")), "queued": len(plan.orders),
+        "filled": sum(1 for x in fills if x["status"] == "FILLED"),
+        "cancelled": sum(1 for x in fills if x["status"] == "CANCELLED"),
+        "stops_triggered": sum(1 for x in fills if x["source"] == "stop"),
+        "stops_armed": sum(1 for h in book.holdings.values() if h.get("stop")), "skipped": len(plan.skipped),
+        "shift_multiplier": 1.0,
+        "outcome": (f"{_count(len(plan.side('BUY')), 'buy')} and {_count(len(plan.side('SELL')), 'sell')} suggested; "
+                    f"regime {t.regime}")[:200],
+        "notes": "\n".join(list(events) + plan.skipped + [str(n) for n in (t.notes or [])]),
+        "drawdown_state": plan.drawdown.state if plan.drawdown else "normal",
+        "drawdown_pct": round(plan.drawdown.drawdown * 100, 2) if plan.drawdown else 0.0,
+    }
+    signals = [{"symbol": o.symbol, "forecast": float(t.forecasts.get(o.symbol, 0.0)),
+                "combined_forecast": float(t.forecasts.get(o.symbol, 0.0)), "action": o.side,
+                "entry_price": float(o.price), "stop_loss": float(o.stop or 0.0), "target_price": 0.0,
+                "quantity": int(o.qty), "was_traded": False,
+                "pipeline_sources": (f"us_advisory v{BOOK_VERSION}: {o.reason}; weight {o.weight:.4f}; "
+                                     f"rank {t.ranks.get(o.symbol, '-')}")} for o in plan.orders]
+    return {"fills": fills, "positions": positions, "snapshots": snapshots, "session": [session],
+            "signals": signals, "as_of": [as_of]}
 
 
 # ============================================================================
@@ -399,6 +523,10 @@ def next_open_ist(as_of: pd.Timestamp) -> datetime:
 
 def _money(x: float) -> str:
     return f"${x:,.0f}"
+
+
+def _count(n: int, noun: str) -> str:
+    return f"{n} {noun}" + ("" if n == 1 else "s")
 
 
 def _pct(x: float, signed: bool = False) -> str:
@@ -428,71 +556,174 @@ def report_tables(book: Book, plan: Plan, panel: UsPanel, capital: float) -> Dic
     return {"sells": sells, "buys": buys, "raised": raised, "held": held}
 
 
-def summary_lines(book: Book, plan: Plan, panel: UsPanel) -> List[str]:
-    data = panel.data
-    spx = data.index_close["SPX"].dropna()
-    vix = data.index_close["VIX"].dropna()
-    ma200 = spx.rolling(200).mean().iloc[-1]
+def market_facts(book: Book, plan: Plan, panel: UsPanel) -> Dict:
+    """The numbers both the email and the text report summarise."""
+    spx = panel.data.index_close["SPX"].dropna()
+    vix = panel.data.index_close["VIX"].dropna()
     start = pd.Timestamp(book.start)
-    spx_ret = spx.iloc[-1] / spx[spx.index <= start].iloc[-1] - 1
-    t = plan.target
     dd = plan.drawdown
+    return {"regime": plan.target.regime, "scale": plan.target.regime_scale, "spx": float(spx.iloc[-1]),
+            "spx_vs_ma200": float(spx.iloc[-1] / spx.rolling(200).mean().iloc[-1] - 1), "vix": float(vix.iloc[-1]),
+            "start": start, "book_return": book.value() / NOTIONAL_USD - 1,
+            "spx_return": float(spx.iloc[-1] / spx[spx.index <= start].iloc[-1] - 1),
+            "names": len(book.holdings), "invested": 1 - book.cash / book.value(),
+            "dd_state": dd.state if dd else "normal", "dd": dd.drawdown if dd else 0.0}
+
+
+def summary_lines(book: Book, plan: Plan, panel: UsPanel) -> List[str]:
+    f = market_facts(book, plan, panel)
     lines = [
-        f"Market at the {plan.as_of:%d %b %Y} close: regime {t.regime} (scale {t.regime_scale:.1f}); "
-        f"S&P 500 {spx.iloc[-1]:,.0f}, {spx.iloc[-1] / ma200 - 1:+.1%} vs its 200-day average; VIX {vix.iloc[-1]:.1f}.",
-        f"Model book since {start:%d %b %Y}: {book.value() / NOTIONAL_USD - 1:+.2%} vs S&P 500 price {spx_ret:+.2%}; "
-        f"{len(book.holdings)} names, cash {book.cash / book.value():.0%}"
-        + (f"; drawdown rule {dd.state} ({dd.drawdown:.1%} below its peak)" if dd else "") + ".",
+        f"Market at the {plan.as_of:%d %b %Y} close: regime {f['regime']} (scale {f['scale']:.1f}); "
+        f"S&P 500 {f['spx']:,.0f}, {f['spx_vs_ma200']:+.1%} vs its 200-day average; VIX {f['vix']:.1f}.",
+        f"Model book since {f['start']:%d %b %Y}: {f['book_return']:+.2%} vs S&P 500 price {f['spx_return']:+.2%}; "
+        f"{f['names']} names, cash {1 - f['invested']:.0%}"
+        + (f"; drawdown rule {f['dd_state']} ({f['dd']:.1%} below its peak)" if plan.drawdown else "") + ".",
     ]
     if panel.missing:
         lines.append(f"Left out today (no data): {', '.join(panel.missing)}.")
     return lines
 
 
+#: Order reasons as the email words them.
+REASONS = {"stop": "stop hit", "forecast_exit": "trend turned down", "rank_exit": "fell below the exit rank",
+           "exit": "no longer in the target", "trim": "trim to its target weight", "entry": "new position",
+           "add": "add to its target weight"}
+INK, MUTED, LINE, PANEL = "#111827", "#6b7280", "#e5e7eb", "#f9fafb"
+GREEN, RED, AMBER, NAVY = "#15803d", "#dc2626", "#b45309", "#1a1a2e"
+
+
 def render_html(book: Book, plan: Plan, panel: UsPanel, capital: float, capital_set: bool,
                 events: Sequence[str]) -> str:
-    tables = report_tables(book, plan, panel, capital)
+    """The suggestions email: inline styles and tables only, so Outlook and phone clients render it."""
+    k = capital / NOTIONAL_USD
+    f = market_facts(book, plan, panel)
     opens = next_open_ist(plan.as_of)
+    sectors = panel.data.sectors
+    sells, buys = plan.side("SELL"), plan.side("BUY")
+    td = f"padding:7px 8px;border-bottom:1px solid {LINE};font-size:13px;color:{INK};"
+    num = td + "text-align:right;white-space:nowrap;"
 
-    def table(df: pd.DataFrame) -> str:
-        if df.empty:
-            return "<p>None.</p>"
-        head = "".join(f"<th style=\"text-align:left;padding:3px 8px;border-bottom:1px solid #999;\">{escape(c)}</th>"
-                       for c in df.columns)
-        body = "".join("<tr>" + "".join(f"<td style=\"padding:3px 8px;\">{escape(str(v))}</td>" for v in row) + "</tr>"
-                       for row in df.itertuples(index=False))
-        return f"<table style=\"border-collapse:collapse;font-size:13px;\"><tr>{head}</tr>{body}</table>"
+    def signed(x: float, digits: int = 1) -> str:
+        color = GREEN if x >= 0 else RED
+        return f"<span style=\"color:{color};font-weight:600;\">{x:+.{digits}%}</span>"
 
-    size_note = (f"Your $ and shares are for your capital of {_money(capital)}." if capital_set else
-                 f"Your $ and shares are per {_money(capital)} of capital: set {ENV_CAPITAL} to size them for yours.")
-    parts = [
-        "<html><body style=\"font-family:Segoe UI,Arial,sans-serif;font-size:14px;\">",
-        f"<h3>US suggestions for the {opens:%a %d %b} open ({opens:%H:%M} IST)</h3>",
-        "<p style=\"background:#fff4e5;padding:6px;\"><b>Unvalidated.</b> The India book's deployed rules on "
-        "today's S&amp;P 500; no US backtest or gate has passed yet (US2-US7). Advisory only: you place every "
-        "order.</p>",
-        "<ul>" + "".join(f"<li>{escape(x)}</li>" for x in summary_lines(book, plan, panel)) + "</ul>",
-        f"<h4>Sell ({len(tables['sells'])})</h4>", table(tables["sells"]),
-        f"<h4>Buy ({len(tables['buys'])})</h4>", table(tables["buys"]),
-        f"<h4>Raise these stops ({len(tables['raised'])})</h4>", table(tables["raised"]),
-        "<h4>How to place</h4><ul>"
-        f"<li>At the open ({opens:%H:%M} IST): sells first (the shares listed, or the whole holding for \"all\"), "
-        "then buys of the dollar amounts (fractional shares), as market orders or limits a little above the last "
-        "close.</li>"
-        "<li>Give every holding a good-till-cancelled sell-stop at its stop. Raise stops when listed; never lower "
-        "them. Check that your broker takes stops on fractional quantities.</li>"
-        f"<li>{escape(size_note)} The model assumes each order filled at the open; tell Claude if one did not.</li>"
-        "<li>Indian tax: gains on shares held under 24 months are taxed at your slab rate; US dividends lose 25% "
-        "to withholding (credited in India).</li></ul>",
-        f"<h4>Model holdings after the {plan.as_of:%d %b} close ({len(tables['held'])})</h4>", table(tables["held"]),
+    def pill(text: str, color: str) -> str:
+        return (f"<span style=\"background:{color};color:#fff;font-size:11px;font-weight:700;padding:2px 7px;"
+                f"border-radius:10px;letter-spacing:.3px;\">{text}</span>")
+
+    def table(headers: Sequence[str], rows: List[List[str]], right: Sequence[int] = ()) -> str:
+        head = "".join(f"<th style=\"padding:7px 8px;background:{PANEL};border-bottom:1px solid {LINE};font-size:11px;"
+                       f"color:{MUTED};text-transform:uppercase;letter-spacing:.4px;"
+                       f"text-align:{'right' if i in right else 'left'};\">{h}</th>" for i, h in enumerate(headers))
+        body = "".join("<tr>" + "".join(f"<td style=\"{num if i in right else td}\">{c}</td>" for i, c in enumerate(r))
+                       + "</tr>" for r in rows)
+        return (f"<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" "
+                f"style=\"border-collapse:collapse;margin:6px 0 4px;\"><tr>{head}</tr>{body}</table>")
+
+    def section(title: str, inner: str, note: str = "") -> str:
+        return (f"<h3 style=\"margin:26px 0 4px;font-size:15px;color:{NAVY};\">{title}</h3>"
+                + (f"<div style=\"font-size:12px;color:{MUTED};margin-bottom:4px;\">{note}</div>" if note else "")
+                + inner)
+
+    def tile(label: str, value: str, sub: str) -> str:
+        return (f"<td width=\"50%\" style=\"padding:6px;\"><div style=\"background:{PANEL};border:1px solid {LINE};"
+                f"border-radius:8px;padding:10px 12px;\"><div style=\"font-size:11px;color:{MUTED};text-transform:"
+                f"uppercase;letter-spacing:.4px;\">{label}</div><div style=\"font-size:18px;font-weight:700;color:{INK};"
+                f"margin:3px 0;\">{value}</div><div style=\"font-size:12px;color:{MUTED};\">{sub}</div></div></td>")
+
+    regime_color = {"risk_on": GREEN, "neutral": AMBER, "risk_off": RED}.get(f["regime"], INK)
+    regime = f["regime"].replace("_", "-").capitalize()
+    buy_total = sum(o.qty * o.price * k for o in buys)
+    tiles = (
+        "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr>"
+        + tile("Tonight", f"{_count(len(buys), 'buy')} &middot; {_count(len(sells), 'sell')}",
+               _count(len(plan.raised), "stop") + " to raise" + (f" &middot; buys {_money(buy_total)}" if buys else ""))
+        + tile("Market", f"<span style=\"color:{regime_color};\">{regime}</span>",
+               f"S&amp;P 500 {f['spx_vs_ma200']:+.1%} vs 200-day &middot; VIX {f['vix']:.1f}")
+        + "</tr><tr>"
+        + tile("Model book", signed(f["book_return"], 2),
+               f"S&amp;P 500 {f['spx_return']:+.2%} since {f['start']:%d %b}")
+        + tile("Invested", f"{f['invested']:.0%}",
+               f"{f['names']} holdings &middot; drawdown rule {f['dd_state']}")
+        + "</tr></table>")
+
+    orders = ""
+    if sells:
+        orders += table(["", "Stock", "Your shares", "Your $", "Why"], [
+            [pill("SELL", RED), f"<b>{escape(o.symbol)}</b>", "all" if o.weight == 0 else f"{o.qty * k:,.4f}",
+             _money(o.qty * o.price * k), escape(REASONS.get(o.reason, o.reason))] for o in sells], right=(2, 3))
+    if buys:
+        rows = [[pill("BUY", GREEN),
+                 f"<b>{escape(o.symbol)}</b><br><span style=\"font-size:11px;color:{MUTED};\">"
+                 f"{escape(sectors.get(o.symbol, ''))}</span>",
+                 _pct(o.weight), _money(o.qty * o.price * k), f"{o.qty * k:,.4f}", f"{o.price:,.2f}",
+                 (f"{o.stop:,.2f}<br><span style=\"font-size:11px;color:{MUTED};\">{o.stop / o.price - 1:+.1%}</span>"
+                  if o.stop else "")] for o in buys]
+        rows.append(["", "<b>Total</b>", f"<b>{sum(o.weight for o in buys):.1%}</b>", f"<b>{_money(buy_total)}</b>",
+                     "", "", ""])
+        orders += table(["", "Stock", "Weight", "Your $", "Your shares", "Last close", "Stop"], rows,
+                        right=(2, 3, 4, 5, 6))
+    if not orders:
+        orders = (f"<p style=\"font-size:13px;color:{MUTED};margin:6px 0;\">No orders tonight: hold, and keep the "
+                  "stops in place.</p>")
+
+    raised = table(["Stock", "Old stop", "New stop"], [
+        [f"<b>{escape(s)}</b>", f"{old:,.2f}" if old else "&mdash;", f"<b>{new:,.2f}</b>"]
+        for s, old, new in plan.raised], right=(1, 2)) if plan.raised else ""
+
+    equity = book.value()
+    held = table(["Stock", "Weight", "Your $", "Since", "Entry &rarr; last", "P&amp;L", "Stop"], [
+        [f"<b>{escape(s)}</b><br><span style=\"font-size:11px;color:{MUTED};\">{escape(sectors.get(s, ''))}</span>",
+         _pct(h["qty"] * h["last_price"] / equity), _money(h["qty"] * h["last_price"] * k),
+         pd.Timestamp(h["entry_date"]).strftime("%d %b"), f"{h['avg_price']:,.2f} &rarr; {h['last_price']:,.2f}",
+         signed(h["last_price"] / h["avg_price"] - 1), f"{h['stop']:,.2f}" if h.get("stop") else "&mdash;"]
+        for s, h in sorted(book.holdings.items(), key=lambda kv: -kv[1]["qty"] * kv[1]["last_price"])],
+        right=(1, 2, 4, 5, 6)) if book.holdings else (
+        f"<p style=\"font-size:13px;color:{MUTED};margin:6px 0;\">None yet: the first buys fill at this open.</p>")
+
+    notes = list(events) + plan.skipped + ([f"Left out today (no data): {', '.join(panel.missing)}."]
+                                           if panel.missing else [])
+    notes_html = (f"<div style=\"background:{PANEL};border:1px solid {LINE};border-radius:8px;padding:8px 14px;"
+                  f"font-size:13px;color:{INK};\">" + "<br>".join(escape(n) for n in notes) + "</div>") if notes else ""
+    size = (f"Sized for your capital of {_money(capital)}." if capital_set else
+            f"Sized per {_money(capital)} of capital (set {ENV_CAPITAL} to size for yours).")
+    steps = [
+        f"At the open, {opens:%H:%M} IST: <b>sells first</b>, then buys of the dollar amounts (fractional shares), "
+        "as market orders or limits a little above the last close.",
+        "Give every holding a <b>good-till-cancelled sell-stop</b> at its stop; raise stops when listed, never lower "
+        "them.",
+        f"{escape(size)} The model assumes each order filled at the open; tell Claude if one did not.",
+        "Tax: gains on shares held under 24 months are taxed at your slab rate; US dividends lose 25% to "
+        "withholding (credited in India).",
     ]
-    notes = list(events) + plan.skipped
-    if notes:
-        parts += ["<h4>Since the last email</h4><ul>", "".join(f"<li>{escape(x)}</li>" for x in notes), "</ul>"]
-    parts.append(f"<p style=\"color:#6b7280;font-size:12px;\">data {escape(panel.data.data_hash)} &middot; "
-                 f"{panel.members} members &middot; universe {plan.target.universe_size} &middot; "
-                 f"{datetime.now(IST):%d %b %Y %H:%M} IST</p></body></html>")
-    return "".join(parts)
+    how = (f"<ol style=\"margin:6px 0 0 18px;padding:0;font-size:13px;color:{INK};line-height:1.5;\">"
+           + "".join(f"<li style=\"margin-bottom:4px;\">{s}</li>" for s in steps) + "</ol>")
+
+    return "".join([
+        f"<html><body style=\"margin:0;padding:20px 10px;background:#eef0f4;font-family:Segoe UI,Arial,sans-serif;\">",
+        f"<div style=\"max-width:680px;margin:0 auto;background:#fff;border-radius:10px;overflow:hidden;"
+        f"border:1px solid {LINE};\">",
+        f"<div style=\"background:{NAVY};padding:18px 24px;\">"
+        f"<div style=\"font-size:12px;color:#a5b4fc;letter-spacing:.5px;text-transform:uppercase;\">Centurion &middot; "
+        f"US stocks</div><div style=\"font-size:20px;font-weight:700;color:#fff;margin-top:2px;\">Suggestions for the "
+        f"{opens:%a %d %b} open</div><div style=\"font-size:13px;color:#c7d2fe;margin-top:4px;\">Place at "
+        f"{opens:%H:%M} IST &middot; decided after the {plan.as_of:%d %b} US close</div></div>",
+        f"<div style=\"background:#fff7ed;border-left:4px solid #f59e0b;padding:10px 20px;font-size:13px;"
+        f"color:#7c2d12;\"><b>Unvalidated.</b> The India book's deployed rules on today's S&amp;P 500; no US backtest "
+        f"or gate has passed yet. Advisory only: you place every order.</div>",
+        f"<div style=\"padding:14px 18px 22px;\">", tiles,
+        section("Tonight's orders", orders, "Sells first, then buys." if sells and buys else ""),
+        section("Raise these stops", raised) if raised else "",
+        section("Holdings", held, f"Model book at the {plan.as_of:%d %b} close, largest first."),
+        section("Since the last email", notes_html) if notes_html else "",
+        section("How to place", how),
+        "</div>",
+        f"<div style=\"background:{PANEL};border-top:1px solid {LINE};padding:10px 20px;font-size:11px;color:#9ca3af;"
+        f"text-align:center;\">data {escape(panel.data.data_hash)} &middot; {panel.members} members &middot; universe "
+        f"{plan.target.universe_size} &middot; {datetime.now(IST):%d %b %Y %H:%M} IST &middot; never an automated "
+        f"order</div>",
+        "</div></body></html>",
+    ])
 
 
 def render_text(book: Book, plan: Plan, panel: UsPanel, capital: float, events: Sequence[str]) -> str:
@@ -548,7 +779,9 @@ def run(store, dry_run: bool = False, email: bool = True, capital: Optional[floa
     if book is None:
         book = Book(start=last, last_session=last, cash=NOTIONAL_USD, equity=[[last, NOTIONAL_USD]])
         events: List[str] = [f"Model book started on the {last} close."]
+        n_trades, n_marks = 0, 0
     else:
+        n_trades, n_marks = len(book.trades), len(book.equity)
         events = advance(book, panel)
     plan = plan_next(book, panel, cfg, rule)
     cap, cap_set = _capital(capital)
@@ -560,11 +793,15 @@ def run(store, dry_run: bool = False, email: bool = True, capital: Optional[floa
     if dry_run:
         return 0
     store.save(book)                       # first: a failed email is resent from the saved book
+    failed = store.journal(journal_rows(book, plan, book.trades[n_trades:], [d for d, _ in book.equity[n_marks:]],
+                                        events))
+    if failed:                             # best effort: the book is saved; upserts make a rerun safe
+        logger.warning("US advisory journal not written: %s", ", ".join(failed))
     if not email:
         return 0
     opens = next_open_ist(plan.as_of)
-    subject = (f"[Centurion US] {len(plan.side('BUY'))} buys, {len(plan.side('SELL'))} sells "
-               f"for the {opens:%d %b} open (unvalidated)")
+    subject = (f"[Centurion US] {opens:%a %d %b} open: {_count(len(plan.side('BUY')), 'buy')}, "
+               f"{_count(len(plan.side('SELL')), 'sell')} (unvalidated)")
     if not send(book.report_html, subject):
         logger.error("US advisory email not sent; the next run resends it")
         return 1

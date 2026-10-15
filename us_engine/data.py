@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import io
 import logging
+import time as time_module
 from dataclasses import dataclass
 from datetime import datetime, time, timezone
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -38,6 +39,7 @@ DATA_ANCHOR = "2012-01-03"
 #: Share of members allowed without a close on the last session before the load is refused.
 MAX_MISSING_SHARE = 0.05
 DOWNLOAD_RETRIES = 2
+RETRY_PAUSE_SECONDS = 30
 FIELDS = ("Open", "High", "Low", "Close", "Volume", "Stock Splits")
 
 
@@ -89,18 +91,25 @@ def _fetch(tickers: List[str], start: str, threads: bool) -> Dict[str, pd.DataFr
     return {f: raw[f] for f in FIELDS if f in raw.columns.get_level_values(0)}
 
 
+def _incomplete(close: pd.DataFrame, tickers: List[str]) -> List[str]:
+    """Tickers with no close at all, or none on the index's latest session (Yahoo serves some late)."""
+    spx = close[INDEX_TICKERS["SPX"]].dropna() if INDEX_TICKERS["SPX"] in close.columns else pd.Series(dtype="float64")
+    last = spx.index[-1] if len(spx) else close.index[-1]
+    return [t for t in tickers if t not in close.columns or pd.isna(close[t].get(last))]
+
+
 def _download(tickers: Iterable[str], start: str) -> Dict[str, pd.DataFrame]:
-    """{field: sessions x tickers}; tickers that failed (yfinance's batches drop a few) are fetched again."""
+    """{field: sessions x tickers}; tickers that failed or lack the latest session are fetched again."""
     tickers = sorted(set(tickers))
     fields = _fetch(tickers, start, threads=True)
     if "Close" not in fields:
         raise UsDataError("yfinance returned no data")
     for _ in range(DOWNLOAD_RETRIES):
-        close = fields["Close"]
-        failed = [t for t in tickers if t not in close.columns or close[t].isna().all()]
+        failed = _incomplete(fields["Close"], tickers)
         if not failed:
             break
-        logger.info("fetching %d failed tickers again", len(failed))
+        logger.info("fetching %d incomplete tickers again in %ds", len(failed), RETRY_PAUSE_SECONDS)
+        time_module.sleep(RETRY_PAUSE_SECONDS)
         again = _fetch(failed, start, threads=False)
         if "Close" not in again:
             continue
