@@ -20,6 +20,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -40,6 +41,32 @@ RATE_LIMIT_RETRIES = 12                   # up to 3 hours of waiting before givi
 PRICES_DIR = US_STORE / "raw" / "tiingo" / "prices"
 RESOLUTION_PATH = US_STORE / "tiingo_resolution.csv"
 MAX_CANDIDATES = 3
+#: History kept before a spell's first window day: the engine's slowest signal needs ~256 sessions.
+HISTORY_DAYS = 400
+#: One-day moves beyond MAX_DAY_MOVE checked against the news and kept: (ticker, date) -> what happened.
+REAL_MOVES = {
+    ("GMCR", "2015-12-07"): "Keurig Green Mountain agreed to be bought by JAB at a 78% premium",
+    ("SIVB", "2023-03-09"): "SVB Financial fell 60% the day before its bank failed",
+}
+#: Pass 2 (US2 step 3): spells pass 1 could not resolve by ticker.  ``direct``: the Tiingo ticker that now
+#: carries the company's history; ``names``: company names to search (a hit's name must contain one);
+#: ``until``: the part of the spell that is missing (the rest is priced on Yahoo); ``prefix``: share class.
+PASS2 = {
+    "DISCA": {"direct": "WBD"}, "COG": {"direct": "CTRA"}, "CDAY": {"direct": "DAY"},
+    "FRC": {"names": ["First Republic Bank"]}, "INFO": {"names": ["IHS Markit"]},
+    "FOXA": {"names": ["Twenty-First Century Fox", "21st Century Fox"], "until": "2019-03-19", "prefix": "FOXA"},
+    "FOX": {"names": ["Twenty-First Century Fox", "21st Century Fox"], "until": "2019-03-19", "prefix": "FOX"},
+    "ARNC": {"names": ["Alcoa Inc"], "until": "2016-11-01"},
+    "CCE": {"names": ["Coca-Cola Enterprises"]}, "ESV": {"names": ["Ensco"]}, "CVC": {"names": ["Cablevision"]},
+    "LLTC": {"names": ["Linear Technology"]}, "BRCM": {"names": ["Broadcom Corp"]},
+    "PCP": {"names": ["Precision Castparts"]}, "HAR": {"names": ["Harman International"]},
+    "HOT": {"names": ["Starwood Hotels"]}, "MNK": {"names": ["Mallinckrodt"]}, "NE": {"names": ["Noble Corp"]},
+    "WIN": {"names": ["Windstream"]}, "BTUUQ": {"names": ["Peabody Energy"]},
+    "IGT": {"names": ["International Game Technology"]}, "LIFE": {"names": ["Life Technologies"]},
+    "MOLX": {"names": ["Molex"]}, "JCP": {"names": ["J C Penney", "J.C. Penney", "JC Penney"]},
+    "BMC": {"names": ["BMC Software"]}, "APOL": {"names": ["Apollo Education", "Apollo Group"]},
+    "DF": {"names": ["Dean Foods"]}, "BIG": {"names": ["Big Lots"]},
+}
 #: Search hits that are not the common stock.
 NOT_COMMON = ("-P-", "-WS", "-U", "PREFERRED", "DEPOSITARY", "WARRANT", "UNITS", "NOTES", "TRUST PREFERRED")
 
@@ -125,19 +152,29 @@ def candidates(hits: List[Dict], ticker: str) -> List[Dict]:
     return sorted(out, key=lambda h: (str(h["ticker"]).upper() != exact, str(h["ticker"])))
 
 
-def judge(df: pd.DataFrame, sessions: pd.DatetimeIndex) -> Dict:
-    """Share of ``sessions`` with a close, and the plausibility flags (as membership.coverage)."""
+def split_adjusted(df: pd.DataFrame) -> pd.Series:
+    """Tiingo's raw close, adjusted for splits only (Yahoo's convention): earlier prices are divided by
+    every later ``splitFactor``, so a split is not read as a price move."""
+    factor = df["splitFactor"].fillna(1.0) if "splitFactor" in df.columns else pd.Series(1.0, index=df.index)
+    later = factor[::-1].cumprod()[::-1].shift(-1, fill_value=1.0)
+    return df["close"] / later
+
+
+def judge(df: pd.DataFrame, sessions: pd.DatetimeIndex, ticker: str = "") -> Dict:
+    """Share of ``sessions`` with a close, and the plausibility flags (as membership.coverage); a move in
+    ``REAL_MOVES`` is not flagged."""
     if df.empty or not len(sessions):
         return {"share": 0.0, "flags": ""}
-    close = df["close"].reindex(sessions)
+    close = split_adjusted(df).reindex(sessions)
     share = float(close.notna().mean())
     flags = []
     med = float(close.median()) if close.notna().any() else float("nan")
     if close.notna().any() and not PRICE_RANGE[0] <= med <= PRICE_RANGE[1]:
         flags.append(f"median close {med:,.2f}")
-    move = close.dropna().pct_change().abs().max()
-    if pd.notna(move) and move > MAX_DAY_MOVE:
-        flags.append(f"one-day move {move:.0%}")
+    moves = close.dropna().pct_change().abs()
+    moves = moves[[(ticker, d.date().isoformat()) not in REAL_MOVES for d in moves.index]]
+    if len(moves) and moves.max() > MAX_DAY_MOVE:
+        flags.append(f"one-day move {moves.max():.0%} on {moves.idxmax().date()}")
     return {"share": round(share, 4), "flags": "; ".join(flags)}
 
 
@@ -171,14 +208,14 @@ def fetch(window_start: str = "2013-01-01", needed: Optional[pd.DataFrame] = Non
         a, b = (lo - pd.Timedelta(days=10)).date().isoformat(), hi.date().isoformat()
         tried, best = [], None
         direct = client.prices(yahoo_symbol(s.ticker), a, b)
-        verdict = judge(direct, days)
+        verdict = judge(direct, days, s.ticker)
         tried.append(f"{yahoo_symbol(s.ticker)}:{verdict['share']}")
         if verdict["share"] >= COVERED_SHARE and not verdict["flags"]:
             best = {"ident": yahoo_symbol(s.ticker), "name": "", "df": direct, **verdict}
         else:
             for h in candidates(client.search(s.ticker), s.ticker)[:MAX_CANDIDATES]:
                 df = client.prices(h["permaTicker"], a, b)
-                v = judge(df, days)
+                v = judge(df, days, s.ticker)
                 tried.append(f"{h['ticker']}/{h['permaTicker']}:{v['share']}")
                 if best is None or (v["share"], not v["flags"]) > (best["share"], not best["flags"]):
                     best = {"ident": h["permaTicker"], "name": h.get("name", ""), "df": df, **v}
@@ -199,14 +236,129 @@ def fetch(window_start: str = "2013-01-01", needed: Optional[pd.DataFrame] = Non
     return pd.DataFrame(rows)
 
 
+def _contains(name: str, query: str) -> bool:
+    """Whether every word of ``query`` appears, in order, in ``name`` (punctuation ignored)."""
+    words = re.sub(r"[^a-z0-9 ]+", " ", str(name).lower()).split()
+    want = re.sub(r"[^a-z0-9 ]+", " ", str(query).lower()).split()
+    return any(words[i:i + len(want)] == want for i in range(len(words) - len(want) + 1))
+
+
+def _class_ok(ticker: str, prefix: Optional[str]) -> bool:
+    return prefix is None or re.sub(r"(-W|_\d|\d|Q)$", "", ticker.upper()) == prefix
+
+
+def _status(v: Dict) -> str:
+    return "resolved" if v["share"] >= COVERED_SHARE and not v["flags"] else ("review" if v["share"] > 0 else "absent")
+
+
+def rejudge(window_start: str = "2013-01-01") -> pd.DataFrame:
+    """Judge every downloaded spell again (split-adjusted, REAL_MOVES applied); no API call."""
+    res = pd.read_csv(RESOLUTION_PATH, parse_dates=["start", "until"])
+    sessions = _spx_sessions(window_start, WINDOW[1])
+    w0, w1 = pd.Timestamp(window_start), pd.Timestamp(WINDOW[1])
+    for i, r in res.iterrows():
+        lo = max(r["start"], w0)
+        hi = min(r["until"] - pd.Timedelta(days=1), w1) if pd.notna(r["until"]) else w1
+        files = sorted(PRICES_DIR.glob(f"{r['ident']}_{lo.date()}.parquet"))
+        if not files:
+            continue
+        v = judge(pd.read_parquet(files[0]), sessions[(sessions >= lo) & (sessions <= hi)], r["ticker"])
+        res.loc[i, ["share", "flags", "status"]] = [v["share"], v["flags"], _status(v)]
+    res.to_csv(RESOLUTION_PATH, index=False)
+    return res
+
+
+def fetch_pass2(window_start: str = "2013-01-01", client: Optional[TiingoClient] = None) -> pd.DataFrame:
+    """Resolve the PASS2 spells by the Tiingo ticker that carries them now, or by company name."""
+    res = rejudge(window_start)
+    client = client or TiingoClient()
+    sessions = _spx_sessions(window_start, WINDOW[1])
+    w0, w1 = pd.Timestamp(window_start), pd.Timestamp(WINDOW[1])
+    if "until_part" not in res.columns:
+        res["until_part"] = ""
+    for i, r in res.iterrows():
+        rule = PASS2.get(r["ticker"])
+        if rule is None or r["status"] == "resolved":
+            continue
+        lo = max(r["start"], w0)
+        hi = min(r["until"] - pd.Timedelta(days=1), w1) if pd.notna(r["until"]) else w1
+        if rule.get("until"):
+            hi = min(hi, pd.Timestamp(rule["until"]) - pd.Timedelta(days=1))
+        days = sessions[(sessions >= lo) & (sessions <= hi)]
+        a, b = (lo - pd.Timedelta(days=10)).date().isoformat(), hi.date().isoformat()
+        cands: List[Dict] = [{"permaTicker": rule["direct"], "ticker": rule["direct"], "name": ""}] if rule.get("direct") else []
+        for q in rule.get("names", []):
+            for h in client.search(q):
+                if (h.get("countryCode") == "US" and h.get("assetType") == "Stock" and _contains(h.get("name", ""), q)
+                        and _class_ok(str(h.get("ticker", "")), rule.get("prefix"))
+                        and not any(x in f"{h.get('ticker', '')} {h.get('name', '')}".upper() for x in NOT_COMMON)
+                        and h["permaTicker"] not in {c["permaTicker"] for c in cands}):
+                    cands.append(h)
+        best, tried = None, []
+        for h in cands[:MAX_CANDIDATES + 1]:
+            df = client.prices(h["permaTicker"], a, b)
+            v = judge(df, days, r["ticker"])
+            tried.append(f"{h['ticker']}/{h['permaTicker']}:{v['share']}")
+            if best is None or (v["share"], not v["flags"]) > (best["share"], not best["flags"]):
+                best = {"ident": h["permaTicker"], "name": h.get("name", ""), "df": df, **v}
+            if v["share"] >= COVERED_SHARE and not v["flags"]:
+                break
+        if best is None or best["share"] <= float(r["share"]):
+            res.loc[i, "tried"] = f"{r['tried']} | pass 2: " + (" ".join(tried) or "no candidates")
+            logger.info("%s: pass 2 found nothing better (%s)", r["ticker"], " ".join(tried) or "no candidates")
+        else:
+            best["df"].to_parquet(PRICES_DIR / f"{best['ident']}_{lo.date()}.parquet")
+            res.loc[i, ["ident", "name", "share", "flags", "status", "until_part", "tried"]] = [
+                best["ident"], best["name"], best["share"], best["flags"], _status(best), rule.get("until", ""),
+                f"{r['tried']} | pass 2: " + " ".join(tried)]
+            logger.info("%s: pass 2 %s %s (%.0f%%)", r["ticker"], _status(best), best["ident"], 100 * best["share"])
+        res.to_csv(RESOLUTION_PATH, index=False)
+    return res
+
+
+def fetch_history(window_start: str = "2013-01-01", client: Optional[TiingoClient] = None) -> int:
+    """Top up each Tiingo-priced spell with the history before it (``HISTORY_DAYS``, from the data anchor at
+    the earliest), so departed companies can be ranked from the window's first day as Yahoo-priced ones are;
+    files already holding that history are skipped (resumable).  Returns the files re-downloaded."""
+    from us_engine.data import DATA_ANCHOR
+
+    res = pd.read_csv(RESOLUTION_PATH, parse_dates=["start", "until"])
+    client = client or TiingoClient()
+    w0, w1 = pd.Timestamp(window_start), pd.Timestamp(WINDOW[1])
+    done = 0
+    for r in res[res["status"] != "absent"].itertuples(index=False):
+        lo = max(r.start, w0)
+        path = PRICES_DIR / f"{r.ident}_{lo.date()}.parquet"
+        if not path.exists():
+            continue
+        want = max(pd.Timestamp(DATA_ANCHOR), lo - pd.Timedelta(days=HISTORY_DAYS))
+        have = pd.read_parquet(path)
+        if len(have) and have.index.min() <= want + pd.Timedelta(days=10):
+            continue
+        hi = min(r.until - pd.Timedelta(days=1), w1) if pd.notna(r.until) else w1
+        df = client.prices(r.ident, want.date().isoformat(), hi.date().isoformat())
+        if len(df) > len(have):
+            df.to_parquet(path)
+            done += 1
+            logger.info("%s: history from %s (%d rows)", r.ticker, df.index.min().date(), len(df))
+    return done
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m us_engine.tiingo", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     f = sub.add_parser("fetch", help="resolve and download the spells Yahoo does not cover (resumable)")
     f.add_argument("--from", dest="start", default="2013-01-01", help="window start (a coverage file must exist)")
+    f2 = sub.add_parser("pass2", help="resolve the PASS2 spells by today's ticker or company name (resumable)")
+    f2.add_argument("--from", dest="start", default="2013-01-01")
+    f3 = sub.add_parser("history", help="top up the downloaded spells with the history before them (resumable)")
+    f3.add_argument("--from", dest="start", default="2013-01-01")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    res = fetch(args.start)
+    if args.cmd == "history":
+        print(json.dumps({"files_topped_up": fetch_history(args.start)}))
+        return 0
+    res = fetch(args.start) if args.cmd == "fetch" else fetch_pass2(args.start)
     print(json.dumps(res["status"].value_counts().to_dict(), indent=2))
     return 0
 

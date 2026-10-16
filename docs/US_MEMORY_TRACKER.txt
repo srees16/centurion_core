@@ -253,8 +253,24 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                    re-run with Tiingo (also with quarterly rebalancing, as
                    RSP does), a Tiingo cross-check of a sample of Yahoo
                    series (identity), then step 4.
-                 4 the delisting rule for what stays unpriced; the store
-                   with a data hash.
+                 4 IN PROGRESS 16 Oct: us_engine/store.py builds the panel
+                   (us_store/panel: OHLCV, dividends, member mask, data
+                   hash).  An instrument is a price series: renames that
+                   share one merge (KORS/CPRI counted once), one ticker for
+                   two companies stays two (old IR = TT's series, new IR;
+                   21st Century Fox vs Fox Corp).  Tiingo prices split-
+                   adjusted; halted days (no range at the previous close:
+                   Tiingo repeats SVB's $106.04 through its halt) dropped.
+                   Delisting rule as pre-registered: acquired -> final price
+                   (a first draft wrongly hit Red Hat, an IBM cash deal);
+                   for cause -> last real close, then -30%, for the curated
+                   failures SIVB, SBNY, FRC; other gaps listed for review.
+                   Trial build: 758 instruments (610 Yahoo, 148 Tiingo),
+                   496-507 members a day, 98.67% of member-days priced
+                   before pass 2.  Pass 2 (28 by name) and a history top-up
+                   (a year of prices before each Tiingo spell, so departed
+                   companies can be ranked from day one) run detached;
+                   then the final build.
                  5 the RSP tracking check and the bias report.
 #2  [ ] P1  US3  Cost and tax model for an India-resident investor, for the
                  broker from US-Y1: commissions, FX both ways, TCS cash
