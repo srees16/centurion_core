@@ -36,6 +36,9 @@ data and coding assistants". Read it before changing code. The essentials:
   - US stocks may be held in fractional shares, but there are no automated or
     broker paper orders: the US module only advises, and the owner places
     every order.
+  - Options (buying, selling or writing) are possible for Ind stocks through
+    Kite, and impossible for US stocks from a non-US DriveWealth account.
+    The DriveWealth route refuses option symbols.
 - **Tests:** `python -m pytest tests -q -m "not slow"`.
 - **Communication:** be candid when something misses the goal or is
   premature, and keep summaries crisp. Keep `docs/MEMORY_TRACKER.txt`

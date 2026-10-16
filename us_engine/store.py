@@ -1,8 +1,9 @@
 """US price store (tracker US2 step 4): every S&P 500 member of the research window, priced each day.
 
 Free of survivorship bias by construction: the instruments are the members on
-each date (``data/sp500_membership.json``), not today's list, and companies that
-no longer trade are priced too.
+each date of the S&P 500 or the Nasdaq-100 (``data/sp500_membership.json``,
+``data/ndx_membership.json``), not today's lists, and companies that no longer
+trade are priced too.
 
 Sources, per membership spell:
 
@@ -55,8 +56,9 @@ import numpy as np
 import pandas as pd
 
 from us_engine.data import INDEX_TICKERS, _download
-from us_engine.membership import (MEMBERSHIP_PATH, RESEARCH_ANCHOR, RESEARCH_START, SYMBOL_MAP_PATH, US_STORE,
-                                  WINDOW, in_window, load_membership, load_symbol_map, segments)
+from us_engine.membership import (MEMBERSHIP_PATH, NDX_MEMBERSHIP_PATH, RESEARCH_ANCHOR, RESEARCH_START,
+                                  SYMBOL_MAP_PATH, US_STORE, WINDOW, in_window, load_symbol_map, segments,
+                                  universe_spells)
 from us_engine.tiingo import RESOLUTION_PATH, price_file, split_adjusted
 
 logger = logging.getLogger(__name__)
@@ -122,7 +124,7 @@ def _tiingo_frame(symbol: str, spell_start: pd.Timestamp) -> Optional[pd.DataFra
 
 
 def build(window: Sequence[str] = RESEARCH_WINDOW, out_dir: Path = PANEL_DIR) -> Dict:
-    spells, aliases = load_membership(), load_symbol_map()
+    spells, aliases = universe_spells(), load_symbol_map()                 # S&P 500 + Nasdaq-100
     resolution = pd.read_csv(RESOLUTION_PATH, parse_dates=["start", "until"], keep_default_na=False,
                              na_values=[""]) if RESOLUTION_PATH.exists() else pd.DataFrame()
     parts = pieces(spells, aliases, resolution, window)
@@ -205,7 +207,8 @@ def build(window: Sequence[str] = RESEARCH_WINDOW, out_dir: Path = PANEL_DIR) ->
         "unpriced_member_days": {k: int(v) for k, v in unpriced[unpriced > 0].sort_values(ascending=False).items()},
         "delisting_rule": {"recovery": DELIST_RECOVERY, "cases": delisted,
                            "final_price_kept_for_review": gaps},
-        "sources": {"membership": str(MEMBERSHIP_PATH.name), "symbol_map": str(SYMBOL_MAP_PATH.name),
+        "sources": {"membership": [str(MEMBERSHIP_PATH.name), str(NDX_MEMBERSHIP_PATH.name)],
+                    "symbol_map": str(SYMBOL_MAP_PATH.name),
                     "tiingo_resolution": str(RESOLUTION_PATH.name)},
         "data_hash": data_hash,
     }

@@ -1,5 +1,5 @@
 {
- "about": "US2: the price symbol for S&P 500 membership tickers (data/sp500_membership.json) that Yahoo no longer prices under that ticker. Each alias names the symbol that carries the same company's history, over the dates [from, until) of the membership ticker (null = the whole spell). Checked 15 Oct 2026: the alias's Yahoo history covers the spell, and its 2015-06-01 close matches the old company's level where noted. Anything not here is priced under its own ticker; companies that no longer trade come from Tiingo (US2 step 3).",
+ "about": "US2: the price symbol for S&P 500 and Nasdaq-100 membership tickers (data/sp500_membership.json, data/ndx_membership.json) that Yahoo no longer prices under that ticker. Each alias names the symbol that carries the same company's history, over the dates [from, until) of the membership ticker (null = the whole spell). Checked 15 Oct 2026: the alias's Yahoo history covers the spell, and its 2015-06-01 close matches the old company's level where noted. Anything not here is priced under its own ticker; companies that no longer trade come from Tiingo (US2 step 3).",
  "aliases": [
   {"ticker": "FII", "symbol": "FHI", "from": null, "until": null, "evidence": "Federated Investors renamed Federated Hermes (FHI) 2020; FHI 2015-06-01 close 34.93, FII traded near 35"},
   {"ticker": "GPS", "symbol": "GAP", "from": null, "until": null, "evidence": "Gap Inc. ticker GPS -> GAP 2024; Yahoo GAP history from 2002"},
@@ -39,6 +39,7 @@
   {"ticker": "MMC", "symbol": "MRSH", "from": null, "until": null, "evidence": "Marsh & McLennan ticker MMC -> MRSH 2026-01-14; MRSH 2015-06-01 close 58.16, MMC traded near 58"},
   {"ticker": "BK", "symbol": "BNY", "from": null, "until": null, "evidence": "Bank of New York Mellon ticker BK -> BNY 2026-05-21; BNY 2015-06-01 close 42.92, BK traded near 43"},
   {"ticker": "EQR", "symbol": "VMRK", "from": null, "until": null, "evidence": "Equity Residential and AvalonBay merged into Vivmark Residential (VMRK) 2026-08-18; VMRK 2015-06-01 close 75.02 is EQR's level (AvalonBay traded near 170), so AVB needs another source"},
-  {"ticker": "IR", "symbol": "TT", "from": null, "until": "2020-03-02", "evidence": "Ingersoll-Rand plc renamed Trane Technologies (TT) 2020-03-02 and the IR ticker passed to Gardner Denver (Ingersoll Rand Inc); Yahoo TT history from 2002 is Ingersoll-Rand's, Yahoo IR starts 2017"}
+  {"ticker": "IR", "symbol": "TT", "from": null, "until": "2020-03-02", "evidence": "Ingersoll-Rand plc renamed Trane Technologies (TT) 2020-03-02 and the IR ticker passed to Gardner Denver (Ingersoll Rand Inc); Yahoo TT history from 2002 is Ingersoll-Rand's, Yahoo IR starts 2017"},
+  {"ticker": "PCLN", "symbol": "BKNG", "from": null, "until": null, "evidence": "Priceline renamed Booking Holdings, ticker BKNG from 2018-02-27; Yahoo BKNG history is Priceline's (Nasdaq-100 spell 2009-2018)"}
  ]
 }

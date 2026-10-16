@@ -27,7 +27,7 @@ import logging
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, FrozenSet, List, Optional, Sequence
+from typing import Dict, FrozenSet, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -205,6 +205,118 @@ def build(commit: str = FJA_COMMIT) -> Dict:
 
 
 # ============================================================================
+# Nasdaq-100 (your ask, 16 Oct 2026: Nasdaq names beyond the S&P 500, tech above all)
+# ============================================================================
+
+NDX_CURRENT_PAGE = "List_of_NASDAQ-100_companies"
+NDX_HISTORY_PAGE = "Historical_components_of_the_Nasdaq-100"
+#: Versioned, as the S&P 500 file.
+NDX_MEMBERSHIP_PATH = REPO_ROOT / "data" / "ndx_membership.json"
+#: Ticker changes of members that the change table does not record (the company stayed in the index):
+#: (old, new, first day under the new ticker).
+NDX_RENAMES = (("KFT", "MDLZ", "2012-10-02"), ("NWSA", "FOXA", "2013-07-01"), ("PCLN", "BKNG", "2018-02-27"))
+#: The change table starts in February 2007: earlier membership is not rebuilt (spells are clipped here).
+NDX_START = "2007-02-01"
+
+
+def _wiki(page: str) -> Tuple[str, int]:
+    """(html, revision id) of a Wikipedia page, so a build names the exact version it read."""
+    import requests
+
+    head = {"User-Agent": USER_AGENT}
+    meta = requests.get("https://en.wikipedia.org/w/api.php", headers=head, timeout=30, params={
+        "action": "query", "titles": page.replace("_", " "), "prop": "revisions", "rvprop": "ids",
+        "format": "json"}).json()
+    revid = int(next(iter(meta["query"]["pages"].values()))["revisions"][0]["revid"])
+    html = requests.get("https://en.wikipedia.org/w/index.php", headers=head, timeout=30,
+                        params={"title": page, "oldid": revid}).text
+    return html, revid
+
+
+def nasdaq100_spells() -> Tuple[pd.DataFrame, Dict]:
+    """Point-in-time Nasdaq-100 membership: today's list replayed backwards through the dated changes.
+
+    Before a change, its added ticker was not a member and its removed ticker was.  The check: the member
+    count stays near 100 on every date (above it for dual share classes) and no change contradicts the
+    replay; renames the table leaves out are in ``NDX_RENAMES``.
+    """
+    cur_html, cur_rev = _wiki(NDX_CURRENT_PAGE)
+    comp = [t for t in pd.read_html(io.StringIO(cur_html)) if "Ticker" in t.columns and len(t) > 90][0]
+    members = set(comp["Ticker"].astype(str).str.strip())
+    hist_html, hist_rev = _wiki(NDX_HISTORY_PAGE)
+    table = pd.read_html(io.StringIO(hist_html), match="Reason")[0]
+    table.columns = ["date", "added", "added_name", "removed", "removed_name", "reason"]
+    table["date"] = pd.to_datetime(table["date"], format="mixed", errors="coerce")
+    first = lambda x: None if pd.isna(x) else str(x).strip().split()[0]
+    changes = [(r.date, first(r.added), first(r.removed)) for r in table.dropna(subset=["date"]).itertuples(index=False)]
+    changes += [(pd.Timestamp(d), new, old) for old, new, d in NDX_RENAMES]
+    changes.sort(key=lambda c: c[0], reverse=True)
+    until: Dict[str, Optional[pd.Timestamp]] = {m: None for m in members}
+    rows, problems, counts = [], [], []
+    for date, added, removed in changes:
+        if added:
+            if added in members:
+                members.discard(added)
+                rows.append({"ticker": added, "start": date, "until": until.pop(added)})
+            else:
+                problems.append(f"{date.date()}: {added} added but not a member after")
+        if removed:
+            if removed in members:
+                problems.append(f"{date.date()}: {removed} removed but a member before")
+            else:
+                members.add(removed)
+                until[removed] = date
+        counts.append(len(members))
+    start = pd.Timestamp(NDX_START)
+    rows += [{"ticker": m, "start": start, "until": until[m]} for m in members]
+    spells = pd.DataFrame(rows).sort_values(["ticker", "start"]).reset_index(drop=True)
+    check = {"changes": len(changes), "renames_added": [list(r) for r in NDX_RENAMES], "problems": problems,
+             "members_per_date": [int(min(counts)), int(max(counts))] if counts else [],
+             "current_revision": cur_rev, "history_revision": hist_rev}
+    return spells, check
+
+
+def build_nasdaq100(path: Path = NDX_MEMBERSHIP_PATH) -> Dict:
+    spells, check = nasdaq100_spells()
+    payload = {"source": f"Wikipedia: {NDX_CURRENT_PAGE} (revision {check['current_revision']}) and "
+                         f"{NDX_HISTORY_PAGE} (revision {check['history_revision']})",
+               "license": "CC BY-SA 4.0 (Wikipedia); index membership dates are facts",
+               "built_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+               "check": check, "columns": ["ticker", "start", "until"]}
+    rows = ",\n  ".join(json.dumps([r.ticker, r.start.date().isoformat(),
+                                     r.until.date().isoformat() if pd.notna(r.until) else None])
+                          for r in spells.itertuples(index=False))
+    head = json.dumps(payload, indent=1)
+    path.write_text(head[:-2] + ',\n "spells": [\n  ' + rows + "\n ]\n}\n")
+    return {"spells": len(spells), "tickers": int(spells["ticker"].nunique()), **{k: check[k] for k in
+            ("changes", "members_per_date", "problems")}}
+
+
+def universe_spells(path_sp: Path = MEMBERSHIP_PATH, path_ndx: Path = NDX_MEMBERSHIP_PATH) -> pd.DataFrame:
+    """The US research universe: a ticker is in on any day it was in the S&P 500 or the Nasdaq-100;
+    a ticker's overlapping spells from the two indices merge into one."""
+    parts = [load_membership(path_sp)] + ([load_membership(path_ndx)] if Path(path_ndx).exists() else [])
+    df = pd.concat(parts).sort_values(["ticker", "start"])
+    far = pd.Timestamp("2262-01-01")
+    out = []
+    for ticker, g in df.groupby("ticker", sort=True):
+        cur_lo, cur_hi = None, None
+        for r in g.itertuples(index=False):
+            hi = r.until if pd.notna(r.until) else far
+            if cur_lo is None:
+                cur_lo, cur_hi = r.start, hi
+            elif r.start <= cur_hi:
+                cur_hi = max(cur_hi, hi)
+            else:
+                out.append((ticker, cur_lo, cur_hi))
+                cur_lo, cur_hi = r.start, hi
+        out.append((ticker, cur_lo, cur_hi))
+    res = pd.DataFrame(out, columns=["ticker", "start", "until"])
+    res.loc[res["until"] == far, "until"] = pd.NaT
+    return res.reset_index(drop=True)
+
+
+# ============================================================================
 # price coverage
 # ============================================================================
 
@@ -313,16 +425,23 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m us_engine.membership", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("build", help="fetch the pinned lists, check them against Wikipedia, write the membership file")
+    sub.add_parser("build-ndx", help="rebuild point-in-time Nasdaq-100 membership from Wikipedia, write its file")
     cov = sub.add_parser("coverage", help="yfinance price coverage of every member in the window")
     cov.add_argument("--from", dest="start", default=WINDOW[0], help=f"window start (default {WINDOW[0]})")
+    cov.add_argument("--universe", choices=("sp500", "union"), default="sp500",
+                     help="S&P 500 only, or S&P 500 + Nasdaq-100 (the US research universe)")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     if args.cmd == "build":
         print(json.dumps(build(), indent=2))
+    elif args.cmd == "build-ndx":
+        print(json.dumps(build_nasdaq100(), indent=2))
     else:
         window = (args.start, WINDOW[1])
-        out = US_STORE / f"coverage_yfinance_{window[0][:4]}.csv"
-        print(json.dumps(coverage_summary(coverage(window=window, out=out)), indent=2))
+        union = args.universe == "union"
+        out = US_STORE / f"coverage_yfinance_{window[0][:4]}{'_union' if union else ''}.csv"
+        spells = universe_spells() if union else None
+        print(json.dumps(coverage_summary(coverage(spells=spells, window=window, out=out)), indent=2))
     return 0
 
 

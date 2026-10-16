@@ -619,9 +619,11 @@ class NotificationManager:
 
         ``report`` keys: session, deployment, equity, initial_capital, cash,
         pnl, pnl_pct, max_drawdown_pct, open_positions, filled, cancelled,
-        stops, queued, notes, alerts.  ``pnl`` is the equity change since the
-        start; optional ``realised_pnl`` / ``closed_trades`` split it.  Optional
-        ``book_label`` tags the subject; ``objective`` is a note at the foot.
+        stops, queued, notes, alerts.  The live session's queued rows also
+        carry limit, stop and status (Kite's answer).  ``pnl`` is the equity
+        change since the start; optional ``realised_pnl`` / ``closed_trades``
+        split it.  Optional ``book_label`` tags the subject; ``objective`` is a
+        note at the foot.
         """
         td = "padding:5px 10px;border:1px solid #e5e7eb;"
         th = "padding:6px 10px;text-align:left;background:#f3f4f6;"
@@ -658,10 +660,13 @@ class NotificationManager:
             [[s.get("symbol", ""), str(s.get("quantity", "")), inr(s.get("entry")), inr(s.get("exit")),
               f"<span style='color:{'#15803d' if float(s.get('pnl') or 0) >= 0 else '#dc2626'};'>"
               f"{inr(s.get('pnl'))} ({float(s.get('pnl_pct') or 0):+.1f}%)</span>"] for s in stops])
+        priced = any("limit" in q for q in queued)       # live rows: limit, stop and Kite's answer (LN-T35)
         queued_html = table(
-            f"Queued for the next open ({len(queued)})", ["Symbol", "Side", "Qty", "Reason"],
-            [[q.get("symbol", ""), q.get("side", ""), str(q.get("quantity", "")), q.get("reason", "")]
-             for q in queued])
+            f"Queued for the next open ({len(queued)})",
+            ["Symbol", "Side", "Qty"] + (["Limit", "Stop", "Kite"] if priced else []) + ["Reason"],
+            [[q.get("symbol", ""), q.get("side", ""), str(q.get("quantity", ""))]
+             + ([inr(q.get("limit")), inr(q.get("stop")), str(q.get("status") or "")] if priced else [])
+             + [q.get("reason", "")] for q in queued])
         cancelled_html = table(
             f"Cancelled ({len(cancelled)})", ["Symbol", "Side", "Why"],
             [[c.get("symbol", ""), c.get("side", ""), c.get("note", "")] for c in cancelled])
