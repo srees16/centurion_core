@@ -19,7 +19,8 @@ Each run after a US close (``python -m us_engine.advisory run``):
 4. saves the book (Neon schema ``us_advisory``, or ``--state-file``), journals the
    run in that schema's tables as the India books do (fills, positions, daily
    snapshots, sessions, the suggested orders; ``journal_rows``) and emails the
-   suggestions: sells, buys, raised stops, the book against the S&P 500.
+   suggestions: sells, buys, raised stops, the book against the S&P 500.  The
+   web UI's US Advisory page reads the saved book (``ui_view``).
 
 The model book is notional (``NOTIONAL_USD``: whole shares that stand for
 fractional ones) and assumes every suggestion filled at the next open; the
@@ -115,6 +116,8 @@ class Book:
     trades: List[Dict] = field(default_factory=list)
     emailed: str = ""                # session whose suggestions were emailed
     report_html: str = ""            # that email, for a resend
+    #: the latest decision's market facts and raised stops, for the web UI (``ui_view``)
+    facts: Dict = field(default_factory=dict)
     version: int = BOOK_VERSION
 
     def to_json(self) -> str:
@@ -739,6 +742,49 @@ def render_text(book: Book, plan: Plan, panel: UsPanel, capital: float, events: 
     return "\n".join(out)
 
 
+def ui_view(book: Optional[Book], capital: float, capital_set: bool, trades: int = 40) -> Dict:
+    """The saved book for the web UI's US Advisory page (/api/v1/us-advisory), read-only.
+
+    Quantities are the model's whole shares at ``NOTIONAL_USD``; the page scales them to the capital
+    you type, in dollars and fractional shares, as the email does.  ``capital`` is the email's
+    (``US_ADVISORY_CAPITAL_USD``), the page's starting value.  ``facts`` is empty until a run after
+    16 Oct 2026 stores it.
+    """
+    out: Dict = {"ready": book is not None, "status": "unvalidated", "notional": NOTIONAL_USD,
+                 "capital": capital, "capital_set": capital_set}
+    if book is None:
+        return out
+    equity = book.value()
+    curve = pd.Series([e for _, e in book.equity], dtype="float64")
+    held = book.holdings
+
+    def order(o: Dict) -> Dict:
+        sym, qty, h = o["symbol"], int(o["qty"]), held.get(o["symbol"]) or {}
+        px = float(o.get("price") or h.get("last_price") or 0.0)
+        after = int(h.get("qty", 0)) + (qty if o["side"] == "BUY" else -qty)
+        return {"symbol": sym, "side": o["side"], "qty": qty, "price": px, "stop": o.get("stop"),
+                "all": o["side"] == "SELL" and after <= 0, "weight": max(after, 0) * px / equity,
+                "reason": REASONS.get(o["reason"], o["reason"])}
+
+    out.update({
+        "start": book.start, "as_of": book.last_session, "next_open_ist": next_open_ist(
+            pd.Timestamp(book.last_session)).isoformat(), "emailed": book.emailed == book.last_session,
+        "equity": equity, "cash": book.cash, "return": equity / NOTIONAL_USD - 1,
+        "max_drawdown": float((1 - curve / curve.cummax()).max()) if len(curve) else 0.0, "facts": book.facts,
+        "orders": [order(o) for o in book.pending],          # sells first, then buys by target weight
+        "holdings": [{"symbol": s, "qty": int(h["qty"]), "entry": h["avg_price"], "last": h["last_price"],
+                      "since": h["entry_date"], "stop": h.get("stop"), "weight": h["qty"] * h["last_price"] / equity,
+                      "pnl": h["last_price"] / h["avg_price"] - 1}
+                     for s, h in sorted(held.items(), key=lambda kv: -kv[1]["qty"] * kv[1]["last_price"])],
+        "equity_curve": [{"date": d, "equity": e} for d, e in book.equity],
+        "trades": [{"date": t["date"], "symbol": t["symbol"], "side": t["side"], "qty": t["qty"],
+                    "price": t["price"], "status": t["status"], "reason": REASONS.get(t["reason"], t["reason"]),
+                    "pnl": (t["price"] / t["avg_price"] - 1) if t.get("avg_price") and t["qty"] else None,
+                    "note": t.get("note", "")} for t in reversed(book.trades[-trades:])],
+    })
+    return out
+
+
 def send(html: str, subject: str) -> bool:
     from services.notifications.manager import NotificationManager
 
@@ -784,6 +830,11 @@ def run(store, dry_run: bool = False, email: bool = True, capital: Optional[floa
         n_trades, n_marks = len(book.trades), len(book.equity)
         events = advance(book, panel)
     plan = plan_next(book, panel, cfg, rule)
+    f = market_facts(book, plan, panel)
+    book.facts = {"regime": str(f["regime"]), "scale": float(f["scale"]), "spx": f["spx"],
+                  "spx_vs_ma200": f["spx_vs_ma200"], "vix": f["vix"], "spx_return": f["spx_return"],
+                  "dd_state": str(f["dd_state"]), "dd": float(f["dd"]),
+                  "raised": [[s, None if old is None else float(old), float(new)] for s, old, new in plan.raised]}
     cap, cap_set = _capital(capital)
     book.report_html = render_html(book, plan, panel, cap, cap_set, events)
     logger.info("US advisory %s: %d sells, %d buys, %d stops raised, %d holdings (names by email)",

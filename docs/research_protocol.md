@@ -156,8 +156,14 @@ your decision, parked at OX6.
   - diagnostics, labelled as not trials;
   - what carries forward.
 - **The tracker:** a DONE entry with the numbers; new IDs for follow-ups.
-- **Scorecards and the metrics journal:** only when a book's configuration
-  or data changes.
+- **Scorecards:** only when a book's configuration or data changes.
+- **The metrics journal:** those changes as backtest and walk-forward rows,
+  and every concluded experiment that changed no book (FAIL, CLOSED or
+  NO-GO) as an experiment row, with the whole book's 2013–25 numbers when
+  the test gave them:
+  `python -m nse_engine.journal experiment --ref <ID> --date <verdict date>
+  --verdict <FAIL|CLOSED|NO-GO> --event "<what was tried>" --note "<the
+  result in plain words>"`.
 
 ## Pre-registration template
 

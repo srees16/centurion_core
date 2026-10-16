@@ -469,6 +469,7 @@ jobs:
           CENTURION_NSE_ENGINE_LIVE: ${{ vars.CENTURION_LIVE_MODE == 'live' && 'true' || 'false' }}
           LIVE_MODE: ${{ vars.CENTURION_LIVE_MODE }}
           CENTURION_LIVE_MODE: ${{ vars.CENTURION_LIVE_MODE }}   # alert(): CRITICAL or would-be (AL2)
+          DRY_RUN_EMAIL: ${{ vars.CENTURION_DRY_RUN_EMAIL || 'false' }}
         run: |
           if [ -n "$CENTURION_PROXY_HOST" ]; then
             # Kite calls leave from the Oracle VM's reserved IP (the one Zerodha has).
@@ -484,13 +485,19 @@ jobs:
           if [ "$CANARY_DRIFT" = "true" ] && [ "$CANARY_DRIFT_ACTION" = "dry-run" ]; then
             dry="--dry-run"; echo "::warning::canary drift: the live session runs as a dry run (CENTURION_CANARY_DRIFT_ACTION)"
           fi
+          # Your call (16 Oct 2026): no dry-run emails until live trading starts; the paper books' emails are
+          # enough.  The dry runs still run and record their clean / not-clean result for the go-live check, and
+          # a crash still emails (the step below).  Live mode emails again by itself; the repository variable
+          # CENTURION_DRY_RUN_EMAIL=true brings the dry-run emails back sooner.
+          quiet=""
+          if [ "$LIVE_MODE" != "live" ] && [ "$DRY_RUN_EMAIL" != "true" ]; then quiet="--no-email"; fi
           status=0
-          python -m kite_connect.trading.live_session --stored-token $dry || status=$?
+          python -m kite_connect.trading.live_session --stored-token $dry $quiet || status=$?
           python -m kite_connect.auth.accounts mask || { echo "::error::accounts skipped: log masks not set"; exit 1; }
           for ACCT in $(python -m kite_connect.auth.accounts managed); do
             echo "::group::account $ACCT"
             CENTURION_GO_LIVE_OVERRIDE=false python -m kite_connect.trading.live_session --stored-token \
-                --account "$ACCT" $dry || {
+                --account "$ACCT" $dry $quiet || {
               echo "::error::live session of account $ACCT failed"
               python -m tools.session_failed "${{ github.run_id }} (live book $ACCT)" || true
             }

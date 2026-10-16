@@ -39,6 +39,10 @@ PACE_SECONDS = 75.0                       # ~48 requests an hour, under the free
 RATE_LIMIT_WAIT = 900                     # on 429: the cap is a rolling hour
 RATE_LIMIT_RETRIES = 12                   # up to 3 hours of waiting before giving up
 PRICES_DIR = US_STORE / "raw" / "tiingo" / "prices"
+#: Tiingo's public list of every ticker it prices, with first and last dates: free, outside the allowance.
+LISTING_URL = "https://apimedia.tiingo.com/docs/tiingo/daily/supported_tickers.zip"
+LISTING_PATH = US_STORE / "raw" / "tiingo" / "supported_tickers.csv"
+LISTING_MAX_AGE_DAYS = 7
 RESOLUTION_PATH = US_STORE / "tiingo_resolution.csv"
 MAX_CANDIDATES = 3
 #: History kept before a spell's first window day: the engine's slowest signal needs ~256 sessions.
@@ -66,6 +70,9 @@ PASS2 = {
     "MOLX": {"names": ["Molex"]}, "JCP": {"names": ["J C Penney", "J.C. Penney", "JC Penney"]},
     "BMC": {"names": ["BMC Software"]}, "APOL": {"names": ["Apollo Education", "Apollo Group"]},
     "DF": {"names": ["Dean Foods"]}, "BIG": {"names": ["Big Lots"]},
+    # Nasdaq-100 (16 Oct): Yahoo became Altaba (AABA, priced on Tiingo); Randgold's ticker GOLD is Barrick's now
+    "YHOO": {"direct": "AABA"}, "GOLD": {"names": ["Randgold Resources"]}, "SHPG": {"names": ["Shire"]},
+    "LMCA": {"names": ["Liberty Media Corp"]}, "LMCK": {"names": ["Liberty Media Corp"]},
 }
 #: Search hits that are not the common stock.
 NOT_COMMON = ("-P-", "-WS", "-U", "PREFERRED", "DEPOSITARY", "WARRANT", "UNITS", "NOTES", "TRUST PREFERRED")
@@ -148,6 +155,45 @@ def _variants(ticker: str) -> set:
     return base | {f"{b}{s}" for b in base for s in ("-W", "1", "2", "_1", "Q", "-OLD")}
 
 
+class Listing:
+    """Tiingo's public ticker list.  Checking it before a price request costs nothing, while a request for
+    a company Tiingo does not carry still spends a symbol of the monthly allowance (16 Oct: 37 of the
+    2006-12 pass's first 48 requests found nothing, and the list showed none of those companies)."""
+
+    def __init__(self, path: Path = LISTING_PATH):
+        df = pd.read_csv(path, keep_default_na=False, na_values=[""], parse_dates=["startDate", "endDate"])
+        df = df[df["priceCurrency"].eq("USD") & df["startDate"].notna()]
+        self.spans: Dict[str, List[tuple]] = {}
+        for t, a, e in zip(df["ticker"].str.upper(), df["startDate"], df["endDate"]):
+            self.spans.setdefault(t, []).append((a, e))
+
+    def covers(self, ticker: str, lo: pd.Timestamp, hi: pd.Timestamp, variants: bool = True) -> bool:
+        """Whether Tiingo lists ``ticker`` (or, with ``variants``, a variant such as a Q suffix) for any
+        day of [lo, hi]."""
+        names = _variants(ticker) if variants else {str(ticker).upper()}
+        return any(a <= hi and (pd.isna(e) or e >= lo) for n in names for a, e in self.spans.get(n, ()))
+
+
+def load_listing(max_age_days: int = LISTING_MAX_AGE_DAYS) -> Optional[Listing]:
+    """The list, downloaded again when older than ``max_age_days``; None (no filtering) if unavailable."""
+    import io
+    import zipfile
+
+    import requests
+
+    fresh = LISTING_PATH.exists() and (time.time() - LISTING_PATH.stat().st_mtime) < max_age_days * 86400
+    if not fresh:
+        try:
+            resp = requests.get(LISTING_URL, timeout=120)
+            resp.raise_for_status()
+            with zipfile.ZipFile(io.BytesIO(resp.content)) as z:
+                LISTING_PATH.parent.mkdir(parents=True, exist_ok=True)
+                LISTING_PATH.write_bytes(z.read("supported_tickers.csv"))
+        except Exception as exc:                          # noqa: BLE001 - an old list still filters
+            logger.warning("Tiingo's ticker list not refreshed (%s)", exc)
+    return Listing() if LISTING_PATH.exists() else None
+
+
 def candidates(hits: List[Dict], ticker: str) -> List[Dict]:
     """US common-stock hits whose ticker is ``ticker`` or a variant of it (exact first)."""
     want = _variants(ticker)
@@ -209,12 +255,15 @@ def _spx_sessions(start: str, end: str) -> pd.DatetimeIndex:
 
 
 def fetch(window_start: str = "2013-01-01", needed: Optional[pd.DataFrame] = None,
-          client: Optional[TiingoClient] = None, anchor: str = RESEARCH_ANCHOR) -> pd.DataFrame:
-    """Resolve and download every spell the Yahoo coverage left uncovered; resumable."""
+          client: Optional[TiingoClient] = None, anchor: str = RESEARCH_ANCHOR, union: bool = False) -> pd.DataFrame:
+    """Resolve and download every spell the Yahoo coverage left uncovered; resumable.  ``union``: the
+    S&P 500 + Nasdaq-100 coverage file (``membership coverage --universe union``)."""
     if needed is None:
-        cov = pd.read_csv(US_STORE / f"coverage_yfinance_{window_start[:4]}.csv", parse_dates=["start", "until"])
+        name = f"coverage_yfinance_{window_start[:4]}{'_union' if union else ''}.csv"
+        cov = pd.read_csv(US_STORE / name, parse_dates=["start", "until"])
         needed = cov[cov["status"] != "covered"]
     client = client or TiingoClient()
+    listing = load_listing()
     PRICES_DIR.mkdir(parents=True, exist_ok=True)
     done = pd.read_csv(RESOLUTION_PATH, parse_dates=["start", "until"]) if RESOLUTION_PATH.exists() else pd.DataFrame()
     w0, w1 = pd.Timestamp(window_start), pd.Timestamp(WINDOW[1])
@@ -228,6 +277,13 @@ def fetch(window_start: str = "2013-01-01", needed: Optional[pd.DataFrame] = Non
         hi = min(pd.Timestamp(s.until) - pd.Timedelta(days=1), w1) if pd.notna(s.until) else w1
         days = sessions[(sessions >= lo) & (sessions <= hi)]
         a, b = _from(s.start, anchor).date().isoformat(), hi.date().isoformat()
+        if listing is not None and not listing.covers(s.ticker, lo, hi):
+            rows.append({"ticker": s.ticker, "start": pd.Timestamp(s.start), "until": s.until, "ident": "",
+                         "name": "", "sessions": len(days), "share": 0.0, "flags": "", "status": "absent",
+                         "tried": "not on Tiingo's list (no request)"})
+            pd.DataFrame(rows).to_csv(RESOLUTION_PATH, index=False)
+            logger.info("%s %s: absent, not on Tiingo's list (no request)", s.ticker, lo.date())
+            continue
         tried, best = [], None
         direct = client.prices(yahoo_symbol(s.ticker), a, b)
         verdict = judge(direct, days, s.ticker)
@@ -236,6 +292,9 @@ def fetch(window_start: str = "2013-01-01", needed: Optional[pd.DataFrame] = Non
             best = {"ident": yahoo_symbol(s.ticker), "name": "", "df": direct, **verdict}
         else:
             for h in candidates(client.search(s.ticker), s.ticker)[:MAX_CANDIDATES]:
+                if listing is not None and not listing.covers(str(h["ticker"]), lo, hi, variants=False):
+                    tried.append(f"{h['ticker']}/{h['permaTicker']}:not-listed")
+                    continue                                     # no symbol spent on a company not carried then
                 df = client.prices(h["permaTicker"], a, b)
                 v = judge(df, days, s.ticker)
                 tried.append(f"{h['ticker']}/{h['permaTicker']}:{v['share']}")
@@ -297,12 +356,12 @@ def fetch_pass2(window_start: str = "2013-01-01", client: Optional[TiingoClient]
     client = client or TiingoClient()
     sessions = _spx_sessions(window_start, WINDOW[1])
     w0, w1 = pd.Timestamp(window_start), pd.Timestamp(WINDOW[1])
-    if "until_part" not in res.columns:
-        res["until_part"] = ""
+    # text; read back all empty it is a float column, which refuses "" (16 Oct: pass 2 stopped on it)
+    res["until_part"] = res["until_part"].astype(object) if "until_part" in res.columns else ""
     for i, r in res.iterrows():
         rule = PASS2.get(r["ticker"])
-        if rule is None or r["status"] == "resolved":
-            continue
+        if rule is None or r["status"] == "resolved" or "pass 2:" in str(r["tried"]):
+            continue                                       # resolved, or already searched by name
         lo = max(r["start"], w0)
         hi = min(r["until"] - pd.Timedelta(days=1), w1) if pd.notna(r["until"]) else w1
         if rule.get("until"):
@@ -318,7 +377,12 @@ def fetch_pass2(window_start: str = "2013-01-01", client: Optional[TiingoClient]
                         and h["permaTicker"] not in {c["permaTicker"] for c in cands}):
                     cands.append(h)
         best, tried = None, []
+        listing = load_listing()
         for h in cands[:MAX_CANDIDATES + 1]:
+            if (listing is not None and not rule.get("direct")
+                    and not listing.covers(str(h["ticker"]), lo, hi, variants=False)):
+                tried.append(f"{h['ticker']}/{h['permaTicker']}:not-listed")
+                continue
             df = client.prices(h["permaTicker"], a, b)
             v = judge(df, days, r["ticker"])
             tried.append(f"{h['ticker']}/{h['permaTicker']}:{v['share']}")
@@ -382,6 +446,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     f = sub.add_parser("fetch", help="resolve and download the spells Yahoo does not cover (resumable)")
     f.add_argument("--from", dest="start", default="2013-01-01", help="window start (a coverage file must exist)")
+    f.add_argument("--universe", choices=("sp500", "union"), default="sp500",
+                   help="which coverage file: the S&P 500's, or the S&P 500 + Nasdaq-100 one")
     f2 = sub.add_parser("pass2", help="resolve the PASS2 spells by today's ticker or company name (resumable)")
     f2.add_argument("--from", dest="start", default="2013-01-01")
     f3 = sub.add_parser("history", help="top up the downloaded spells with the history before them (resumable)")
@@ -404,7 +470,8 @@ def _run(args) -> int:
     if args.cmd == "migrate":
         print(json.dumps({"files_renamed": migrate()}))
         return 0
-    res = fetch(args.start) if args.cmd == "fetch" else fetch_pass2(args.start)
+    res = (fetch(args.start, union=args.universe == "union") if args.cmd == "fetch"
+           else fetch_pass2(args.start))
     print(json.dumps(res["status"].value_counts().to_dict(), indent=2))
     return 0
 

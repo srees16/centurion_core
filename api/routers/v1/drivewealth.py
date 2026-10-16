@@ -6,10 +6,14 @@ Real orders are off unless ``CENTURION_US_ORDERS_ENABLED=true`` (tracker US1): t
 US book is advisory only (``us_engine.advisory`` emails, you place every order), and
 /carver-orders would buy every plan at market with no sells, position or risk
 checks.  Off, /orders is refused and /carver-orders returns its plans as a dry run.
+Options are refused always: a non-US account cannot buy or sell (or write) US
+options on DriveWealth (the owner's fact, 16 Oct 2026); Indian options trade
+through Kite.
 """
 
 import asyncio
 import os
+import re
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -18,6 +22,15 @@ from pydantic import BaseModel
 router = APIRouter()
 
 ENV_US_ORDERS = "CENTURION_US_ORDERS_ENABLED"
+#: An OCC option symbol: root, expiry YYMMDD, C or P, strike x 1000 (e.g. "AAPL  261120C00200000").
+_OCC_OPTION = re.compile(r"^[A-Z][A-Z.]{0,5}\s*\d{6}[CP]\d{8}$")
+
+
+def us_option_refusal(symbol: str) -> Optional[str]:
+    """Why ``symbol`` may not be ordered as a US option, or None for a stock symbol."""
+    if _OCC_OPTION.match(str(symbol or "").strip().upper()):
+        return "US options cannot be bought or sold from a non-US DriveWealth account (Indian options go through Kite)"
+    return None
 
 
 def us_orders_enabled() -> bool:
@@ -99,6 +112,9 @@ async def dw_place_order(req: OrderRequest):
     if not us_orders_enabled():
         raise HTTPException(status_code=403, detail=f"US orders are off ({ENV_US_ORDERS}): the US book is "
                                                     "advisory only (tracker US1)")
+    refusal = us_option_refusal(req.symbol)
+    if refusal:
+        raise HTTPException(status_code=403, detail=refusal)
     client = _dw_session.get("client")
     if not client:
         raise HTTPException(status_code=401, detail="Not connected to DriveWealth")

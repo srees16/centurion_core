@@ -11,7 +11,7 @@ versions are deleted), so the quota holds one copy, about 12 GB::
     centurion-backup-runs-2026w41     the core trial registry, one ISO week of run folders
     centurion-backup-archive-2025     raw NSE / MCX / filings downloads of one year
     centurion-backup-store            the equity store (likewise store-ext2006, fo-store,
-                                      mcx-store, fundamentals)
+                                      mcx-store, fundamentals, us-store)
     centurion-backup-state            the small things: the other registries (runs_*),
                                       walk-forward results, scorecards, holdout.lock,
                                       archive manifests, the scheduler scripts and the
@@ -76,7 +76,7 @@ STAGE = _ROOT / "data" / "kaggle" / "backup_stage"
 #: some datasets cannot serve the whole one (a 404 on download, e.g. archive-2008 and runs-2026w38 in
 #: Oct 2026); a name it does not recognise stays one file, which downloads on its own.
 BLOB_SUFFIX = ".tgz.blob"
-STORES = ("store", "store_ext2006", "fo_store", "mcx_store", "fundamentals")
+STORES = ("store", "store_ext2006", "fo_store", "mcx_store", "fundamentals", "us_store")
 #: Task files that live inside a store folder while a long run is active.
 _TASK_FILES = ("run.sh", "run.pid", "run.done", "sync.log")
 _ARCHIVE_KINDS = ("equity", "delivery", "indices", "corpact", "fo", "participant", "mcx")

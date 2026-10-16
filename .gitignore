@@ -56,6 +56,7 @@ mywinenv/
 !data/nifty500_wayback_raw.json
 !data/sp500_membership.json
 !data/sp500_symbol_map.json
+!data/ndx_membership.json
 !data/shift_reference_returns.csv
 !config/nse_engine_*.json
 !config/canary_expected.json

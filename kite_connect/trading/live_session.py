@@ -13,7 +13,8 @@ never see the whole account.  The ledger (state ``live_ledger``) holds the
 allocated capital (``--capital`` / ``CENTURION_LIVE_CAPITAL`` on the first
 session; the D3 ladder changes it later), the book's cash, and the quantity
 it bought of each symbol.  The planner sees only ledger symbols, at
-``min(ledger, broker)`` quantity, and ``min(ledger cash, broker cash)``; stops
+``min(ledger, broker)`` quantity, and ``min(ledger cash, broker cash)`` (a
+dry run, which sends nothing, plans the ledger's cash: LN-T35); stops
 are reconciled only for ledger symbols.  Holding an engine symbol personally
 as well is not supported: the broker cannot tell whose shares are whose.
 
@@ -927,7 +928,14 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
     for f in report["fills"]:
         if f.get("status") == "FILLED" and str(f.get("side")).upper() == "BUY":
             bought_today[str(f["symbol"])] = bought_today.get(str(f["symbol"]), 0) + int(f.get("quantity") or 0)
-    holdings, cash, scope_alerts = scoped_book(ledger, broker_holdings, broker_cash, factors, bought_today,
+    # LN-T35: a dry run sends nothing, so it plans the book's cash when the account holds less (a real session
+    # plans the account's, with an alert); capped, it built no buys and never finished clean for go-live (D3)
+    plan_cash = broker_cash
+    if dry_run and broker_cash + 1.0 < float(ledger.get("cash") or 0.0):
+        plan_cash = float(ledger["cash"])
+        report["notes"].append(f"dry run: planned with the book's cash {plan_cash:,.0f}; the account holds "
+                               f"{broker_cash:,.0f}, which a live session would plan with")
+    holdings, cash, scope_alerts = scoped_book(ledger, broker_holdings, plan_cash, factors, bought_today,
                                                critical=critical, stop_failures=stop_failures)
     report["alerts"].extend(scope_alerts)
     for fail in stop_failures.values():                   # AL4: a failure scoped_book had no line to replace
@@ -1340,7 +1348,8 @@ def _email(report: dict, dep, snap: dict, capital: float, schema: str, label: st
     try:
         from services.notifications.manager import NotificationManager
         plan = report.get("plan")
-        orders = [r for r in report["results"] if r.get("type") != "gtt_reconcile"]
+        orders = [r for r in report["results"] if r.get("type") not in ("gtt_reconcile", "preflight")]
+        stops = {s.symbol: s.trigger for s in plan.stop_instructions} if plan is not None else {}
         NotificationManager().email_engine_daily_report({
             "mode": report["mode"], "session": report["session"],
             "deployment": f"{dep.status} {dep.engine.config_hash()[:8]} · live book, schema {schema}, "
@@ -1353,8 +1362,13 @@ def _email(report: dict, dep, snap: dict, capital: float, schema: str, label: st
                        for f in report["fills"] + report["external"] if f["status"] == "FILLED"],
             "cancelled": [{"symbol": f["symbol"], "side": f["side"], "note": f["note"]}
                           for f in report["fills"] if f["status"] != "FILLED"],
+            # LN-T35: every order as Kite gets it: its limit, the stop planned with a BUY, and Kite's answer
+            # (a dry run's preflight: WOULD_PLACE or WOULD_REJECT with the reason)
             "stops": [], "queued": [{"symbol": r.get("symbol"), "side": r.get("side"), "quantity": r.get("quantity"),
-                                     "reason": f"{r.get('status')} {r.get('reason') or ''}".strip()} for r in orders],
+                                     "limit": r.get("limit_price"),
+                                     "stop": stops.get(r.get("symbol")) if str(r.get("side")).upper() == "BUY" else None,
+                                     "status": f"{r.get('status')}: {r['error']}" if r.get("error") else r.get("status"),
+                                     "reason": r.get("reason") or ""} for r in orders],
             "notes": list(report["notes"]), "alerts": list(report["alerts"]),
             "drawdown_rule": (f"{plan.drawdown_state} · {plan.drawdown_pct:.1f}% below the episode peak"
                               if plan is not None and dep.drawdown_rule is not None else None),

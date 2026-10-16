@@ -137,11 +137,11 @@ _ADMIN_WRITE_PREFIXES = ("/api/v1/kite/", "/api/v1/screener/execute", "/api/v1/d
                          "/ind-stocks/orders", "/ind-stocks/auth")
 #: Never reached by a signed-up user (role "user", MU2): the operator's own broker accounts
 #: (the Kite and DriveWealth sessions: holdings, positions, orders, P&L), the Trade Center's
-#: paper-validation and daily-detail data, and the G4 audit that rewrites the deployed
-#: parameters.  The user's own Zerodha account is the exception (_USER_OWN_PREFIXES), which
-#: its router scopes to them.
+#: paper-validation and daily-detail data, the US advisory book, and the G4 audit that rewrites
+#: the deployed parameters.  The user's own Zerodha account is the exception (_USER_OWN_PREFIXES),
+#: which its router scopes to them.
 _USER_DENIED_PREFIXES = (
-    "/api/v1/kite/", "/api/v1/drivewealth/", "/api/v1/screener/execute", "/ind-stocks/auth",
+    "/api/v1/kite/", "/api/v1/drivewealth/", "/api/v1/us-advisory", "/api/v1/screener/execute", "/ind-stocks/auth",
     "/ind-stocks/orders", "/ind-stocks/positions", "/ind-stocks/holdings", "/ind-stocks/pipeline/walk-forward",
     *(f"/api/v1/screener/monitor/{p}" for p in ("paper-dashboard", "daily-snapshots", "sessions", "signal-log",
                                                  "weekly-checkpoints", "daily-detail")))
