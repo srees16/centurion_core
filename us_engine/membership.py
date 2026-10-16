@@ -53,6 +53,12 @@ PRICE_RANGE = (1.0, 10_000.0)
 MAX_DAY_MOVE = 0.6
 #: The development window (US5) and the warm-up before it; 2026 is the sealed holdout.
 WINDOW = ("2003-01-01", "2025-12-31")
+#: Research data: prices from RESEARCH_ANCHOR (a year of warm-up), results from RESEARCH_START, so the
+#: 2007-09 crash is in sample (your ask 16 Oct); the primary window stays 2013-25 (US-Y5), the earlier
+#: years a stress window as India's R4.  One anchor for every US trial: the expanding forecast
+#: normalisers make results depend on it.
+RESEARCH_ANCHOR = "2006-01-03"
+RESEARCH_START = "2007-01-01"
 #: Days a Wikipedia change may sit from the lists' date for the two to agree (announced vs effective).
 CHECK_TOLERANCE_DAYS = 7
 COVERED_SHARE = 0.98

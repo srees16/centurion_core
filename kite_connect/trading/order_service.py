@@ -13,6 +13,7 @@ Features:
 
 import hashlib
 import logging
+import math
 import os
 import time
 import types
@@ -158,6 +159,24 @@ INTRADAY_PRODUCTS = frozenset({"MIS"})
 INTRADAY_VARIETIES = frozenset({"co", "bo"})
 
 
+def whole_share_refusal(quantity) -> Optional[str]:
+    """Why ``quantity`` is not a positive whole number of shares, or None.
+
+    NSE and BSE trade whole shares only.  Fractional shares exist for US
+    stocks, which Centurion only advises on and never orders, so a fraction
+    here is a bug upstream: refuse it rather than round it away.
+    """
+    try:
+        q = float(quantity)
+    except (TypeError, ValueError):
+        return f"quantity {quantity!r} is not a number"
+    if not math.isfinite(q) or not q.is_integer():
+        return f"quantity {quantity!r}: NSE and BSE trade whole shares only"
+    if q <= 0:
+        return f"quantity {quantity!r} must be positive"
+    return None
+
+
 def intraday_refusal(product, variety=REGULAR_VARIETY) -> Optional[str]:
     """Why an order is refused as intraday, or None when it may go (CNC delivery, NRML for F&O)."""
     if str(product or "").upper() in INTRADAY_PRODUCTS:
@@ -241,6 +260,13 @@ def place_order(kite, symbol, exchange, transaction_type, quantity,
         ``{"success": True, "order_id": "..."}`` on success, or
         ``{"success": False, "error": "..."}`` on failure.
     """
+    # ── Whole shares only (no fractional shares on Indian exchanges) ──
+    refusal = whole_share_refusal(quantity)
+    if refusal:
+        logger.error("Order refused for %s: %s", symbol, refusal)
+        return {"success": False, "error": refusal}
+    quantity = int(float(quantity))
+
     # ── Swing and positional only: no intraday product, variety or same-day round trip ──
     refusal = (intraday_refusal(product, variety)
                or same_day_refusal(kite, symbol, exchange, transaction_type, product, variety))

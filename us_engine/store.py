@@ -54,16 +54,16 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
-from us_engine.data import DATA_ANCHOR, INDEX_TICKERS, _download
-from us_engine.membership import (MEMBERSHIP_PATH, SYMBOL_MAP_PATH, US_STORE, WINDOW, in_window, load_membership,
-                                  load_symbol_map, segments)
-from us_engine.tiingo import PRICES_DIR, RESOLUTION_PATH, split_adjusted
+from us_engine.data import INDEX_TICKERS, _download
+from us_engine.membership import (MEMBERSHIP_PATH, RESEARCH_ANCHOR, RESEARCH_START, SYMBOL_MAP_PATH, US_STORE,
+                                  WINDOW, in_window, load_membership, load_symbol_map, segments)
+from us_engine.tiingo import RESOLUTION_PATH, price_file, split_adjusted
 
 logger = logging.getLogger(__name__)
 
 PANEL_DIR = US_STORE / "panel"
 STORE_VERSION = 1
-RESEARCH_WINDOW = ("2013-01-01", WINDOW[1])
+RESEARCH_WINDOW = (RESEARCH_START, WINDOW[1])
 FIELDS = ("open", "high", "low", "close", "volume", "dividends")
 DELIST_GAP = 3
 DELIST_RECOVERY = 0.7
@@ -92,11 +92,11 @@ def pieces(spells: pd.DataFrame, aliases: pd.DataFrame, resolution: pd.DataFrame
             part = getattr(r, "until_part", "")
             tiingo_to = min(hi, pd.Timestamp(part) - pd.Timedelta(days=1)) if isinstance(part, str) and part else hi
             out.append({"ticker": s.ticker, "lo": lo, "hi": tiingo_to, "source": "tiingo", "symbol": r.ident,
-                        "file_lo": lo})
+                        "spell_start": s.start})
         if tiingo_to is None or tiingo_to < hi:
             start = lo if tiingo_to is None else tiingo_to + pd.Timedelta(days=1)
             for a, b, sym in segments(s.ticker, start, hi, aliases):
-                out.append({"ticker": s.ticker, "lo": a, "hi": b, "source": "yahoo", "symbol": sym, "file_lo": None})
+                out.append({"ticker": s.ticker, "lo": a, "hi": b, "source": "yahoo", "symbol": sym, "spell_start": None})
     return out
 
 
@@ -110,8 +110,8 @@ def drop_halts(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _tiingo_frame(symbol: str, file_lo: pd.Timestamp) -> Optional[pd.DataFrame]:
-    path = PRICES_DIR / f"{symbol}_{pd.Timestamp(file_lo).date()}.parquet"
+def _tiingo_frame(symbol: str, spell_start: pd.Timestamp) -> Optional[pd.DataFrame]:
+    path = price_file(symbol, spell_start)
     if not path.exists():
         return None
     df = pd.read_parquet(path)
@@ -128,9 +128,9 @@ def build(window: Sequence[str] = RESEARCH_WINDOW, out_dir: Path = PANEL_DIR) ->
     parts = pieces(spells, aliases, resolution, window)
 
     yahoo = sorted({p["symbol"] for p in parts if p["source"] == "yahoo"} | {INDEX_TICKERS["SPX"]})
-    raw = _download(yahoo, DATA_ANCHOR)
+    raw = _download(yahoo, RESEARCH_ANCHOR)
     spx = raw["Close"][INDEX_TICKERS["SPX"]].dropna()
-    sessions = spx[(spx.index >= pd.Timestamp(DATA_ANCHOR)) & (spx.index <= pd.Timestamp(window[1]))].index
+    sessions = spx[(spx.index >= pd.Timestamp(RESEARCH_ANCHOR)) & (spx.index <= pd.Timestamp(window[1]))].index
 
     series: Dict[Key, pd.DataFrame] = {}
     for p in parts:
@@ -143,7 +143,7 @@ def build(window: Sequence[str] = RESEARCH_WINDOW, out_dir: Path = PANEL_DIR) ->
             series[key] = pd.DataFrame({f: raw[c][p["symbol"]] if p["symbol"] in raw[c].columns else np.nan
                                         for f, c in cols.items()}, index=raw["Close"].index)
         else:
-            df = _tiingo_frame(p["symbol"], p["file_lo"])
+            df = _tiingo_frame(p["symbol"], p["spell_start"])
             series[key] = df if df is not None else pd.DataFrame(columns=list(FIELDS), dtype="float64")
 
     # one instrument per series; its membership is the union of the pieces priced by it
@@ -198,7 +198,7 @@ def build(window: Sequence[str] = RESEARCH_WINDOW, out_dir: Path = PANEL_DIR) ->
     data_hash = _hash(frames, member)
     manifest = {
         "store_version": STORE_VERSION, "built_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "window": list(window), "data_anchor": DATA_ANCHOR, "sessions": [str(sessions[0].date()), str(sessions[-1].date())],
+        "window": list(window), "data_anchor": RESEARCH_ANCHOR, "sessions": [str(sessions[0].date()), str(sessions[-1].date())],
         "instruments": len(rows), "by_source": pd.Series([r["source"] for r in rows]).value_counts().to_dict(),
         "members_per_day": [int(m.sum(axis=1).min()), int(m.sum(axis=1).max())],
         "member_days_priced": round(coverage, 4),

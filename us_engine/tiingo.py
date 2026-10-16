@@ -28,8 +28,8 @@ from typing import Dict, List, Optional, Sequence
 
 import pandas as pd
 
-from us_engine.membership import (COVERED_SHARE, MAX_DAY_MOVE, PRICE_RANGE, REPO_ROOT, US_STORE, WINDOW,
-                                  yahoo_symbol)
+from us_engine.membership import (COVERED_SHARE, MAX_DAY_MOVE, PRICE_RANGE, REPO_ROOT, RESEARCH_ANCHOR, US_STORE,
+                                  WINDOW, yahoo_symbol)
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,10 @@ PASS2 = {
 NOT_COMMON = ("-P-", "-WS", "-U", "PREFERRED", "DEPOSITARY", "WARRANT", "UNITS", "NOTES", "TRUST PREFERRED")
 
 
+class TiingoMonthlyLimit(RuntimeError):
+    """The free plan's monthly allowance of distinct symbols is used up; resume next month (your call, 16 Oct)."""
+
+
 class TiingoClient:
     """Paced, retrying Tiingo REST client; the token travels in a header only."""
 
@@ -107,6 +111,8 @@ class TiingoClient:
                 continue
             if r.status_code == 404:
                 return None
+            if r.status_code == 429 and _monthly(r.text):  # no point waiting: the allowance renews on the 1st
+                raise TiingoMonthlyLimit(r.text[:200])
             if r.status_code == 429:                       # the hourly cap: wait it out, many times if need be
                 limited += 1
                 if limited > RATE_LIMIT_RETRIES:
@@ -152,6 +158,22 @@ def candidates(hits: List[Dict], ticker: str) -> List[Dict]:
     return sorted(out, key=lambda h: (str(h["ticker"]).upper() != exact, str(h["ticker"])))
 
 
+def _monthly(text: str) -> bool:
+    """Whether a 429 is the monthly symbol allowance rather than the hourly request cap."""
+    t = str(text).lower()
+    return "month" in t or "unique symbol" in t
+
+
+def price_file(ident: str, spell_start) -> Path:
+    """Where a spell's Tiingo prices live: keyed by the spell's own start, not the window's."""
+    return PRICES_DIR / f"{ident}_{pd.Timestamp(spell_start).date()}.parquet"
+
+
+def _from(spell_start, anchor: str) -> pd.Timestamp:
+    """First day to download for a spell: a year of history before it, from the anchor at the earliest."""
+    return max(pd.Timestamp(anchor), pd.Timestamp(spell_start) - pd.Timedelta(days=HISTORY_DAYS))
+
+
 def split_adjusted(df: pd.DataFrame) -> pd.Series:
     """Tiingo's raw close, adjusted for splits only (Yahoo's convention): earlier prices are divided by
     every later ``splitFactor``, so a split is not read as a price move."""
@@ -187,7 +209,7 @@ def _spx_sessions(start: str, end: str) -> pd.DatetimeIndex:
 
 
 def fetch(window_start: str = "2013-01-01", needed: Optional[pd.DataFrame] = None,
-          client: Optional[TiingoClient] = None) -> pd.DataFrame:
+          client: Optional[TiingoClient] = None, anchor: str = RESEARCH_ANCHOR) -> pd.DataFrame:
     """Resolve and download every spell the Yahoo coverage left uncovered; resumable."""
     if needed is None:
         cov = pd.read_csv(US_STORE / f"coverage_yfinance_{window_start[:4]}.csv", parse_dates=["start", "until"])
@@ -205,7 +227,7 @@ def fetch(window_start: str = "2013-01-01", needed: Optional[pd.DataFrame] = Non
         lo = max(pd.Timestamp(s.start), w0)
         hi = min(pd.Timestamp(s.until) - pd.Timedelta(days=1), w1) if pd.notna(s.until) else w1
         days = sessions[(sessions >= lo) & (sessions <= hi)]
-        a, b = (lo - pd.Timedelta(days=10)).date().isoformat(), hi.date().isoformat()
+        a, b = _from(s.start, anchor).date().isoformat(), hi.date().isoformat()
         tried, best = [], None
         direct = client.prices(yahoo_symbol(s.ticker), a, b)
         verdict = judge(direct, days, s.ticker)
@@ -224,7 +246,7 @@ def fetch(window_start: str = "2013-01-01", needed: Optional[pd.DataFrame] = Non
             if best is None or best["share"] < verdict["share"]:
                 best = {"ident": yahoo_symbol(s.ticker), "name": "", "df": direct, **verdict}
         if not best["df"].empty:
-            best["df"].to_parquet(PRICES_DIR / f"{best['ident']}_{lo.date()}.parquet")
+            best["df"].to_parquet(price_file(best["ident"], s.start))
         status = ("resolved" if best["share"] >= COVERED_SHARE and not best["flags"] else
                   "review" if best["share"] > 0 else "absent")
         rows.append({"ticker": s.ticker, "start": pd.Timestamp(s.start), "until": s.until, "ident": best["ident"],
@@ -259,16 +281,17 @@ def rejudge(window_start: str = "2013-01-01") -> pd.DataFrame:
     for i, r in res.iterrows():
         lo = max(r["start"], w0)
         hi = min(r["until"] - pd.Timedelta(days=1), w1) if pd.notna(r["until"]) else w1
-        files = sorted(PRICES_DIR.glob(f"{r['ident']}_{lo.date()}.parquet"))
-        if not files:
+        path = price_file(r["ident"], r["start"])
+        if not path.exists():
             continue
-        v = judge(pd.read_parquet(files[0]), sessions[(sessions >= lo) & (sessions <= hi)], r["ticker"])
+        v = judge(pd.read_parquet(path), sessions[(sessions >= lo) & (sessions <= hi)], r["ticker"])
         res.loc[i, ["share", "flags", "status"]] = [v["share"], v["flags"], _status(v)]
     res.to_csv(RESOLUTION_PATH, index=False)
     return res
 
 
-def fetch_pass2(window_start: str = "2013-01-01", client: Optional[TiingoClient] = None) -> pd.DataFrame:
+def fetch_pass2(window_start: str = "2013-01-01", client: Optional[TiingoClient] = None,
+                anchor: str = RESEARCH_ANCHOR) -> pd.DataFrame:
     """Resolve the PASS2 spells by the Tiingo ticker that carries them now, or by company name."""
     res = rejudge(window_start)
     client = client or TiingoClient()
@@ -285,7 +308,7 @@ def fetch_pass2(window_start: str = "2013-01-01", client: Optional[TiingoClient]
         if rule.get("until"):
             hi = min(hi, pd.Timestamp(rule["until"]) - pd.Timedelta(days=1))
         days = sessions[(sessions >= lo) & (sessions <= hi)]
-        a, b = (lo - pd.Timedelta(days=10)).date().isoformat(), hi.date().isoformat()
+        a, b = _from(r["start"], anchor).date().isoformat(), hi.date().isoformat()
         cands: List[Dict] = [{"permaTicker": rule["direct"], "ticker": rule["direct"], "name": ""}] if rule.get("direct") else []
         for q in rule.get("names", []):
             for h in client.search(q):
@@ -307,7 +330,7 @@ def fetch_pass2(window_start: str = "2013-01-01", client: Optional[TiingoClient]
             res.loc[i, "tried"] = f"{r['tried']} | pass 2: " + (" ".join(tried) or "no candidates")
             logger.info("%s: pass 2 found nothing better (%s)", r["ticker"], " ".join(tried) or "no candidates")
         else:
-            best["df"].to_parquet(PRICES_DIR / f"{best['ident']}_{lo.date()}.parquet")
+            best["df"].to_parquet(price_file(best["ident"], r["start"]))
             res.loc[i, ["ident", "name", "share", "flags", "status", "until_part", "tried"]] = [
                 best["ident"], best["name"], best["share"], best["flags"], _status(best), rule.get("until", ""),
                 f"{r['tried']} | pass 2: " + " ".join(tried)]
@@ -316,22 +339,32 @@ def fetch_pass2(window_start: str = "2013-01-01", client: Optional[TiingoClient]
     return res
 
 
-def fetch_history(window_start: str = "2013-01-01", client: Optional[TiingoClient] = None) -> int:
-    """Top up each Tiingo-priced spell with the history before it (``HISTORY_DAYS``, from the data anchor at
-    the earliest), so departed companies can be ranked from the window's first day as Yahoo-priced ones are;
-    files already holding that history are skipped (resumable).  Returns the files re-downloaded."""
-    from us_engine.data import DATA_ANCHOR
+def migrate(old_window_start: str = "2013-01-01") -> int:
+    """Rename files saved before 16 Oct (keyed by the window's first day) to ``price_file``'s spell-start key."""
+    res = pd.read_csv(RESOLUTION_PATH, parse_dates=["start", "until"])
+    moved = 0
+    for r in res.itertuples(index=False):
+        old = PRICES_DIR / f"{r.ident}_{max(r.start, pd.Timestamp(old_window_start)).date()}.parquet"
+        new = price_file(r.ident, r.start)
+        if old != new and old.exists() and not new.exists():
+            old.rename(new)
+            moved += 1
+    return moved
 
+
+def fetch_history(anchor: str = RESEARCH_ANCHOR, client: Optional[TiingoClient] = None) -> int:
+    """Top up each Tiingo-priced spell with the history before it (``HISTORY_DAYS``, from ``anchor`` at the
+    earliest), so departed companies can be ranked from the first research day as Yahoo-priced ones are;
+    files already holding that history are skipped (resumable).  Returns the files re-downloaded."""
     res = pd.read_csv(RESOLUTION_PATH, parse_dates=["start", "until"])
     client = client or TiingoClient()
-    w0, w1 = pd.Timestamp(window_start), pd.Timestamp(WINDOW[1])
+    w1 = pd.Timestamp(WINDOW[1])
     done = 0
     for r in res[res["status"] != "absent"].itertuples(index=False):
-        lo = max(r.start, w0)
-        path = PRICES_DIR / f"{r.ident}_{lo.date()}.parquet"
+        path = price_file(r.ident, r.start)
         if not path.exists():
             continue
-        want = max(pd.Timestamp(DATA_ANCHOR), lo - pd.Timedelta(days=HISTORY_DAYS))
+        want = _from(r.start, anchor)
         have = pd.read_parquet(path)
         if len(have) and have.index.min() <= want + pd.Timedelta(days=10):
             continue
@@ -352,11 +385,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     f2 = sub.add_parser("pass2", help="resolve the PASS2 spells by today's ticker or company name (resumable)")
     f2.add_argument("--from", dest="start", default="2013-01-01")
     f3 = sub.add_parser("history", help="top up the downloaded spells with the history before them (resumable)")
-    f3.add_argument("--from", dest="start", default="2013-01-01")
+    f3.add_argument("--anchor", default=RESEARCH_ANCHOR)
+    sub.add_parser("migrate", help="rename files saved before 16 Oct to the spell-start key")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    try:
+        return _run(args)
+    except TiingoMonthlyLimit as exc:
+        logger.warning("Tiingo's monthly symbol allowance is used up (%s). Progress is saved; resume on the 1st: "
+                       "python -m us_engine.tiingo %s", exc, " ".join(sys.argv[1:]) or args.cmd)
+        return 3                                   # distinct exit code: the chain stops, nothing is lost
+
+
+def _run(args) -> int:
     if args.cmd == "history":
-        print(json.dumps({"files_topped_up": fetch_history(args.start)}))
+        print(json.dumps({"files_topped_up": fetch_history(args.anchor)}))
+        return 0
+    if args.cmd == "migrate":
+        print(json.dumps({"files_renamed": migrate()}))
         return 0
     res = fetch(args.start) if args.cmd == "fetch" else fetch_pass2(args.start)
     print(json.dumps(res["status"].value_counts().to_dict(), indent=2))
