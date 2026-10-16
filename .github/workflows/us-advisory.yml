@@ -7,16 +7,17 @@ name: US Advisory
 
 on:
   schedule:
-    # After the US close (16:00 New York: 20:00 UTC in summer, 21:00 UTC in
-    # winter).  GitHub runs schedules late (2-5 hours on 15 Oct 2026) and
-    # Yahoo can serve the last session late, so backups follow; a rerun is
-    # safe: a planned session is not planned again, and an unsent email is
-    # resent.  All before the 19:00 IST open.  Minutes avoid the congested
-    # top of the hour.
-    - cron: "17 22 * * 1-5"   # 03:47 IST Tue-Sat
-    - cron: "17 1 * * 2-6"    # 06:47 IST, backup
-    - cron: "17 4 * * 2-6"    # 09:47 IST, backup
-    - cron: "17 7 * * 2-6"    # 12:47 IST, backup
+    # The morning after each US session (IST).  Yahoo publishes the stocks'
+    # daily closes hours after the index's (15-16 Oct 2026: ~500 of 503
+    # missing at 20:30 New York, complete by about 04:30 UTC), and GitHub
+    # starts schedules late, so there are four tries, all before the 19:00
+    # IST open (20:00 in the US winter).  A try without data exits quietly;
+    # the last one alerts.  A rerun is safe: a planned session is not planned
+    # again, and an unsent email is resent.  Minutes avoid the top of the hour.
+    - cron: "17 4 * * 2-6"    # 09:47 IST Tue-Sat
+    - cron: "17 6 * * 2-6"    # 11:47 IST
+    - cron: "17 8 * * 2-6"    # 13:47 IST
+    - cron: "17 10 * * 2-6"   # 15:47 IST, the last try
   workflow_dispatch:
 
 permissions:
@@ -53,4 +54,8 @@ jobs:
           CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
           CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
           US_ADVISORY_CAPITAL_USD: ${{ vars.US_ADVISORY_CAPITAL_USD }}
-        run: python -m us_engine.advisory run
+          LAST_TRY: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '17 10 * * 2-6' }}
+        run: |
+          args=""
+          if [ "$LAST_TRY" = "true" ]; then args="--last-attempt"; fi   # unpublished data alerts only here
+          python -m us_engine.advisory run $args
