@@ -8,7 +8,14 @@ of research evidence, never edited afterwards.
   with its 2017-25 Sharpe and, when the run was validated, DSR, PBO and the
   execution haircut's expected out-of-sample Sharpe and CAGR;
 * ``walk_forward`` - the anchored walk-forward of the book's configuration
-  family (``scorecard.WALK_FORWARD_OOS``), a row each time it is re-run.
+  family (``scorecard.WALK_FORWARD_OOS``), a row each time it is re-run;
+* ``experiment`` - a concluded experiment that changed no book (a
+  pre-registered trial or one measured look) with its ``verdict`` (FAIL,
+  CLOSED, NO-GO), for every book (``book`` = ``all``), so the journal also
+  shows what was tried when the numbers did not move.  Its metric columns
+  hold the whole book's 2013-25 backtest when the test produced one; other
+  figures are in ``note``.  Added by :func:`add_experiment` when the
+  tracker's DONE entry is written.
 
 The run registry lives only on the research machine, so rows are written
 there: ``python -m nse_engine.books register`` calls :func:`record` after
@@ -18,6 +25,7 @@ journaled every night in Neon (the daily snapshots); the web page (Trade
 Center > Journal) shows both against :func:`targets`.
 
     python -m nse_engine.journal record          # append what is new (idempotent)
+    python -m nse_engine.journal experiment --ref GT4 --date 2026-10-12 --verdict FAIL --event "..." --note "..."
     python -m nse_engine.journal show --book e4
 """
 
@@ -37,8 +45,14 @@ from nse_engine.deployment import REPO_ROOT
 JOURNAL_PATH = "docs/metrics_journal.csv"
 COLUMNS = ["date", "book", "kind", "event", "cost_model", "data_hash", "config_hash", "ref",
            "cagr", "sharpe", "max_dd", "calmar", "sharpe_2017_25", "dsr", "pbo", "pbo_n",
-           "exp_sharpe", "exp_cagr", "note"]
-_TEXT = {c: str for c in ("event", "data_hash", "config_hash", "ref", "note")}
+           "exp_sharpe", "exp_cagr", "note", "verdict"]
+_TEXT = {c: str for c in ("event", "data_hash", "config_hash", "ref", "note", "verdict")}
+EXPERIMENT = "experiment"
+#: ``book`` of a row every book shows (experiments).
+ALL_BOOKS = "all"
+#: What ``add_experiment`` may fill besides its own fields.
+EXPERIMENT_VALUES = ("cost_model", "config_hash", "cagr", "sharpe", "max_dd", "calmar", "sharpe_2017_25",
+                     "dsr", "pbo", "pbo_n")
 #: Tracker section 1: CAGR above 25% (a goal; no scorecard rule holds it).
 CAGR_TARGET = 0.25
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -63,10 +77,10 @@ def read_journal(path: Optional[Path] = None) -> pd.DataFrame:
 
 
 def read_rows(book: Optional[str] = None, path: Optional[Path] = None) -> List[Dict[str, Any]]:
-    """Journal rows, oldest first, as JSON-ready dicts (one book's when ``book`` is given)."""
+    """Journal rows, oldest first, as JSON-ready dicts (one book's and the experiments when ``book`` is given)."""
     df = read_journal(path)
     if book:
-        df = df[df["book"] == book]
+        df = df[df["book"].isin([book, ALL_BOOKS])]
     rows = []
     for r in df.to_dict(orient="records"):
         r = {k: (None if pd.isna(v) else v) for k, v in r.items()}
@@ -187,11 +201,31 @@ def record(books: Sequence, runs_dir: Path, path: Optional[Path] = None,
     return new
 
 
+def add_experiment(ref: str, day: str, event: str, verdict: str, note: str = "", book: str = ALL_BOOKS,
+                   path: Optional[Path] = None, **values: Any) -> bool:
+    """Append a concluded experiment that changed no book: ``ref`` its tracker ID, ``day`` the verdict's
+    date, ``note`` the result in plain words.  ``values`` (``EXPERIMENT_VALUES``) fill the metric columns
+    with the whole book's 2013-25 backtest when the test produced one.  Idempotent on ``ref``: False
+    when it is already journaled."""
+    unknown = set(values) - set(EXPERIMENT_VALUES)
+    if unknown:
+        raise ValueError(f"not experiment values: {sorted(unknown)}")
+    if len(event) > EVENT_CHARS:
+        raise ValueError(f"event longer than {EVENT_CHARS} characters: {event!r}")
+    old = read_journal(path)
+    if ((old["kind"] == EXPERIMENT) & (old["ref"] == ref)).any():
+        return False
+    row = {**values, "date": pd.Timestamp(day).date().isoformat(), "book": book, "kind": EXPERIMENT,
+           "event": event, "ref": ref, "verdict": verdict.strip().upper(), "note": note}
+    write(pd.concat([old, pd.DataFrame([row])], ignore_index=True) if len(old) else pd.DataFrame([row]), path)
+    return True
+
+
 # ── CLI ─────────────────────────────────────────────────────────
 
 def format_table(df: pd.DataFrame, book: Optional[str] = None) -> str:
     if book:
-        df = df[df["book"] == book]
+        df = df[df["book"].isin([book, ALL_BOOKS])]
 
     def num(v: Any, digits: int, scale: float = 1.0) -> str:
         return f"{float(v) * scale:.{digits}f}" if v is not None and not pd.isna(v) else "-"
@@ -203,7 +237,8 @@ def format_table(df: pd.DataFrame, book: Optional[str] = None) -> str:
         cells = [r["date"], r["book"], r["kind"], num(r["cost_model"], 0), r["data_hash"] if isinstance(r["data_hash"], str) else "-",
                  num(r["cagr"], 2, 100), num(r["sharpe"], 3), num(r["max_dd"], 1, 100), num(r["calmar"], 2),
                  num(r["dsr"], 3), num(r["pbo"], 1, 100)]
-        lines.append(" ".join(f"{str(v):{w}s}" for v, (_, w) in zip(cells, cols)) + f"  {r['event']}")
+        verdict = f"[{r['verdict']}] " if isinstance(r.get("verdict"), str) else ""
+        lines.append(" ".join(f"{str(v):{w}s}" for v, (_, w) in zip(cells, cols)) + f"  {verdict}{r['event']}")
     return "\n".join(lines)
 
 
@@ -213,6 +248,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     r = sub.add_parser("record", help="append the evidence not yet journaled (idempotent)")
     r.add_argument("--runs-dir", default=EngineConfig().runs_dir)
     r.add_argument("--event", help="label for the rows this call adds (default: each run's tag)")
+    x = sub.add_parser("experiment", help="append a concluded experiment that changed no book (idempotent)")
+    x.add_argument("--ref", required=True, help="its tracker ID, e.g. GT4")
+    x.add_argument("--date", required=True, help="the verdict's date, YYYY-MM-DD")
+    x.add_argument("--verdict", required=True, help="FAIL, CLOSED or NO-GO")
+    x.add_argument("--event", required=True, help=f"what was tried, at most {EVENT_CHARS} characters")
+    x.add_argument("--note", default="", help="the result in plain words")
+    x.add_argument("--book", default=ALL_BOOKS)
+    for col in EXPERIMENT_VALUES:
+        typ = int if col in ("cost_model", "pbo_n") else str if col == "config_hash" else float
+        x.add_argument(f"--{col.replace('_', '-')}", dest=col, type=typ,
+                       help="the whole book's 2013-25 backtest" if typ is float else None)
     s = sub.add_parser("show", help="print the journal")
     s.add_argument("--book")
     args = p.parse_args(argv)
@@ -221,6 +267,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
         added = record(discover_books(), Path(args.runs_dir), event=args.event)
         print(f"{len(added)} new row(s) in {JOURNAL_PATH}")
+        return 0
+    if args.cmd == "experiment":
+        values = {c: getattr(args, c) for c in EXPERIMENT_VALUES if getattr(args, c) is not None}
+        added = add_experiment(args.ref, args.date, args.event, args.verdict, args.note, args.book, **values)
+        print(f"{args.ref}: {'added to' if added else 'already in'} {JOURNAL_PATH}")
         return 0
     print(format_table(read_journal(), args.book))
     return 0

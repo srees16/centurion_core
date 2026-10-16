@@ -259,8 +259,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
         BUY 3 HDFCBANK on NSE, CNC.
      3. Zerodha: Q4, and whether a buy AMO's margin is checked at 09:00
         (ST2 step 2).
-     4. Say yes / no to LN-T35 (dry runs build the real order list) and JR2
-        (weekly CSV export of the paper books).
+     4. DONE 16 Oct: LN-T35 (dry runs build the real order list).  Still
+        open: yes / no to JR2 (weekly CSV export of the paper books).
  >>> WEDNESDAY 14 OCT
      1. DONE 09:09: the AMO SELL executed.  Note its order ID and average
         price (Kite > Orders).
@@ -276,8 +276,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 [!] P1  U23  Log in to Kite once every trading day: tap the link in the
              09:00 / 17:30 IST email (valid until 06:00 next day).  The first
              live dry run is Thu 1 Oct 19:00 IST (Fri 2 Oct is a holiday);
-             it needs that day's login.  Check its email ("live dry run");
-             5 clean dry runs are part of go-live readiness (D3).
+             it needs that day's login.  Dry-run emails are off until live
+             trading starts (your call, 16 Oct; DRE1); 5 clean dry runs are
+             still part of go-live readiness (D3).
 [!] P0  ST2  Before live month 1 (mid-Dec), two account checks.  Web
              research 10 Oct (Zerodha support + Kite forum staff, 2020):
              equity AMOs are validated "before market open" and sent at
@@ -457,14 +458,6 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              lean_review.md item 11.  14 Oct: the sell AMO executed in the
              09:00 pre-open, so sale credit very likely cannot fund that
              morning's buy AMOs (ST2 step 2).
-[ ] P1  LN-T35 Proposed 14 Oct, awaiting your yes.  The live dry run plans
-             with the account's real cash (far below Rs 6 lakh), so it
-             builds 0 orders (14 Oct log: "0 orders built, 1 alert") and
-             the 5 clean dry runs never test order building.  Fix: a dry
-             run plans with the book's capital when the account is short
-             (nothing is sent), and its email lists every order: symbol,
-             quantity, limit, stop, Kite's preflight result.  Small.
-                                                    Prompt: do LN-T35
 [ ] P2  JR2  Proposed 14 Oct, awaiting your yes.  Each book's paper record
              (fills, positions, snapshots, sessions, signals) lives only in
              Neon (schemas public = deployed, candidate, e4; also live and
@@ -493,14 +486,18 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                  CENTURION_LIVE_CAPITAL=600000, CENTURION_LIVE_MODE=live).
                  Every live session is the only data that moves the live
                  metrics; the ladder's auto step-down guards Calmar.
+                 Fund the account with the rung's Rs 6L in cash before
+                 that first session: dry runs plan the book's Rs 6L
+                 whatever the account holds (LN-T35), so a shortfall
+                 shows only then (an alert; it buys less).
         Until then: G4 verdicts from session 30 (~late Oct) in every daily
         email; "diagnose G4" if FAIL.  Daily Kite login (U23) - a missed
         login is a missed session, which is tracking error.
         Readiness 1 Oct 17:30: paper 10/60 sessions (equity +0.59%); G4 from
         session 30; dry runs 0/5, the first tonight 19:00; today's login
         cannot be checked from outside (the Space's /auth/status is its
-        own session, cleared by every redeploy) - the dry-run email says
-        "no login today" if the token is missing.
+        own session, cleared by every redeploy).  Dry-run emails are off
+        (DRE1): ask Claude for the dry-run log (clean count, missed logins).
 #2  [ ] P1  SC1b Re-run the scorecard with the paper books at 60 sessions
                  (~mid Dec, before D3 sizes the first rung; feeds V3):
                  python -m runners.run_nse_engine scorecard --book all
@@ -724,6 +721,52 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+16 Oct  JR3  Experiments in the metrics journal (your ask; both repos,
+             uncommitted).  The journal had rows only when a book's
+             evidence moved, so the failed work since 10 Oct was invisible.
+             - New row kind "experiment": a concluded experiment that
+               changed no book, with its verdict (FAIL / CLOSED / NO-GO) and
+               the result in plain words.  Listed under every book.  Its
+               numbers are the whole book's 2013-25 backtest when the test
+               gave one.
+             - Backfilled from this tracker and the validation plan: 25
+               experiments since the journal began (16 Sep - 12 Oct, R0 to
+               GT5).  The 31 evidence rows keep their values.
+             - Trade Center > Journal: All / Evidence / Experiments
+               filter, verdict badges, the reason under each experiment.
+               The chart and the cards still show only the book's evidence.
+             - From now on: each concluded experiment gets its row with
+               python -m nse_engine.journal experiment (idempotent;
+               research_protocol.md section 8 updated).
+             Checked: a re-add is refused; evidence rows unchanged; each
+             book's view has its own rows + 25; frontend tsc and next
+             build pass; backend fast suite 216.
+16 Oct  LN-T35 Live dry runs plan the book's Rs 6 lakh (your yes).  A dry
+             run sends nothing, so when the account holds less cash than
+             the book it now plans with the book's cash and notes the
+             account's.  Before, it planned with the account's and raised
+             an alert: 0 orders built, and no dry run could be "clean", so
+             none counted toward D3's 5 (a go-live blocker).  Now a dry run
+             is clean unless something real fails (login, broker reads,
+             Kite's preflight).  Real sessions unchanged: they plan with
+             the account's cash and alert.  The live email (and a dry
+             run's, when on) lists every order: limit, the stop planned
+             with a BUY, Kite's answer (WOULD_PLACE / WOULD_REJECT and
+             why); preflight notes no longer show as blank order rows.
+             Checked on the local store (12 Oct) with a stand-in account
+             holding Rs 5,000: no alerts, 20 orders built, all WOULD_PLACE;
+             the real-session cap kept; paper emails unchanged; fast suite
+             216 passed.  Clean runs count from the first dry run after
+             the merge.
+16 Oct  DRE1 Live dry-run emails off until live trading starts (your call;
+             the deployed, candidate and e4 paper emails are enough).  The
+             nightly workflow passes --no-email to dry runs (yours and any
+             connected account's): no daily dry-run report, no would-be
+             CRITICAL alerts, no no-login notice from them.  The dry runs
+             still run and log clean / not clean for D3, and a crash still
+             emails (session-failed step).  Live mode emails again by itself;
+             repository variable CENTURION_DRY_RUN_EMAIL=true brings them
+             back sooner.  Takes effect once merged to main.
 16 Oct  IVU1 Your rule, Ind vs US: India whole shares only, paper and
              automated orders through Kite; US fractional shares, advisory
              only.  India's order paths now refuse a fraction instead of
