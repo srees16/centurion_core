@@ -447,6 +447,21 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first
 --------------------------------------------------------------------------------
+16 Oct  US-A2 Runs moved to when Yahoo has the data (uncommitted).  The
+             00:22 UTC run failed again: Yahoo had the index's 15 Oct close
+             but not 502 of 503 members' (as on 15 Oct; complete a few
+             hours later).  Now: tries at 09:47, 11:47, 13:47, 15:47 IST
+             (Tue-Sat); a try before the data is published exits quietly
+             (UsDataNotReady, no retries, no alert); the last try, or a
+             manual run, alerts.  The 09:47 IST try today runs on the old
+             schedule's code and should send Friday's email.
+             US2 step 3, Tiingo pass 1 done (00:00-03:00 IST, with waits
+             on the free plan's hourly cap): 135 of 166 spells resolved,
+             13 to review, 18 absent; 2013-25 member-days priced 98.93%
+             (Yahoo + aliases 87.81%, + Tiingo 98.53%).  Next: pass 2 for
+             the 28 left (DISCA -> WBD, COG -> CTRA, CDAY -> DAY, FRC,
+             INFO, 21st Century Fox, ...), split-adjusted Tiingo closes
+             (Lorillard's 3-for-1 showed as a -67% day), then step 4.
 16 Oct  US-J1 US recommendations journaled as the India books (your ask).
              Before: one JSON state in Neon (holdings, trades, equity
              curve) and only the latest email.  Now every nightly run also

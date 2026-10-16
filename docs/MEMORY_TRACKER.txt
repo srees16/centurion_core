@@ -241,6 +241,16 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      3. Zerodha follow-up, Q1-Q4 (ST2 step 2).
      4. DONE: dead man's switch fire drill (DMfd); schedule restored, ping
         URL out of my_todos.txt, Outlook rule added.
+ >>> FRIDAY 16 OCT - YOUR ACTIONS
+     1. P0 Renew Kite Connect (app centurion-core-zerodha expires Sat 17 Oct):
+        developers.kite.trade > Billing > add credits (about Rs 500 a month,
+        check the price shown) or link your Zerodha account for auto-renewal;
+        then My apps > centurion-core-zerodha > Renew.  Check it reads
+        Active with the new expiry.  Without it the nightly live dry run and
+        Monday's "Record sell path" (it reads Kite) fail.
+     2. Sell test redo (ST2 step 3), after 20:00: AMO SELL 1 HDFCBANK, NSE,
+        CNC, LIMIT at Friday's close x 0.995, if the 3 shares bought Thu
+        show in Holdings (not T1).  Screenshot to Claude first.
  >>> THURSDAY 15 OCT - YOUR ACTIONS
      1. Tell Claude what was sold by mistake on 14 Oct (quantity, which
         order; only the test share or long-term HDFCBANK too).  An active

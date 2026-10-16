@@ -52,7 +52,7 @@ from nse_engine.drawdown import DrawdownDecision, replay, scale_for
 from nse_engine.engine import generate_targets
 from nse_engine.portfolio import stop_fill_price
 from nse_engine.types import Holding, TargetPortfolio
-from us_engine.data import NEW_YORK, UsPanel, load_us_data
+from us_engine.data import NEW_YORK, UsDataNotReady, UsPanel, load_us_data
 
 logger = logging.getLogger(__name__)
 
@@ -818,12 +818,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     r.add_argument("--dry-run", action="store_true", help="print the suggestions; save and email nothing")
     r.add_argument("--no-email", action="store_true", help="save the book without emailing")
     r.add_argument("--capital", type=float, help=f"your US capital in USD (default: ${ENV_CAPITAL})")
+    r.add_argument("--last-attempt", action="store_true",
+                   help="the day's last scheduled try: data not published yet is a failure, not a wait")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     in_actions = os.getenv("GITHUB_ACTIONS") == "true"      # public logs: counts only
     store = FileStore(args.state_file) if args.state_file else NeonStore()
     try:
         return run(store, dry_run=args.dry_run, email=not args.no_email, capital=args.capital, quiet=in_actions)
+    except UsDataNotReady as exc:
+        if not args.last_attempt:
+            logger.warning("US advisory: %s; a later run retries", exc)
+            return 0
+        if not args.dry_run:
+            from services.notifications.alerts import WARNING, alert
+
+            alert(WARNING, "us_advisory_failed", "US advisory: no data by the last try",
+                  [f"{exc}. No suggestions for the next open; the next night's run catches up."])
+        raise
     except Exception as exc:
         if not args.dry_run:
             from services.notifications.alerts import WARNING, alert

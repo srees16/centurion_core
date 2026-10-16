@@ -38,6 +38,9 @@ BAR_FINAL = time(16, 30)
 DATA_ANCHOR = "2012-01-03"
 #: Share of members allowed without a close on the last session before the load is refused.
 MAX_MISSING_SHARE = 0.05
+#: Above this share the session is simply not published yet (15-16 Oct 2026: ~500 of 503 missing at 20:30
+#: New York, complete a few hours later): no retries, and the caller waits for a later run.
+NOT_PUBLISHED_SHARE = 0.5
 DOWNLOAD_RETRIES = 2
 RETRY_PAUSE_SECONDS = 30
 FIELDS = ("Open", "High", "Low", "Close", "Volume", "Stock Splits")
@@ -45,6 +48,10 @@ FIELDS = ("Open", "High", "Low", "Close", "Volume", "Stock Splits")
 
 class UsDataError(RuntimeError):
     """The download is too incomplete to plan on."""
+
+
+class UsDataNotReady(UsDataError):
+    """Yahoo has the index's latest close but not yet most members' (it publishes them hours later)."""
 
 
 @dataclass(frozen=True)
@@ -106,8 +113,8 @@ def _download(tickers: Iterable[str], start: str) -> Dict[str, pd.DataFrame]:
         raise UsDataError("yfinance returned no data")
     for _ in range(DOWNLOAD_RETRIES):
         failed = _incomplete(fields["Close"], tickers)
-        if not failed:
-            break
+        if not failed or len(failed) > NOT_PUBLISHED_SHARE * len(tickers):
+            break                                  # complete, or not published yet: retrying now cannot help
         logger.info("fetching %d incomplete tickers again in %ds", len(failed), RETRY_PAUSE_SECONDS)
         time_module.sleep(RETRY_PAUSE_SECONDS)
         again = _fetch(failed, start, threads=False)
@@ -138,6 +145,8 @@ def load_us_data(start: str = DATA_ANCHOR, members: Optional[pd.DataFrame] = Non
     close, volume = frame("Close"), frame("Volume")
     last = sessions[-1]
     missing = tuple(s for s in members["symbol"] if not pd.notna(close.at[last, s]))
+    if len(missing) > NOT_PUBLISHED_SHARE * len(members):
+        raise UsDataNotReady(f"{len(missing)} of {len(members)} members have no close on {last.date()} yet")
     if len(missing) > MAX_MISSING_SHARE * len(members):
         raise UsDataError(f"{len(missing)} of {len(members)} members have no close on {last.date()}")
     if missing:
