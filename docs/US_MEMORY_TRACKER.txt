@@ -110,10 +110,25 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
     validated and paper-traded; after its gates pass, emails suggest buys
     and sells for you to place by hand.
   - Swing / positional only, never intraday (as for India).
+  - Ind vs US, two hard differences (your rules, 16 Oct):
+    - shares: US positions may be fractional; Indian ones are whole shares
+      only;
+    - execution: India runs paper books and automated orders through Kite;
+      the US has neither (no automated orders, no broker paper trading).
+      The US module advises, and you place every order.
+    So the shared engine works in whole shares at a $10M notional, and the
+    US email scales to your capital in dollars and fractional shares.
   - The research protocol applies (docs/research_protocol.md): pre-register
     before any number is read, Kaggle runs, every trial counts.  A new
     family with its own registry; 2026 is the sealed holdout.
   - A separate tracker (this file); the India tracker stays India-only.
+  - Data from 2006 so the 2007-09 crash is in sample (your ask, 16 Oct):
+    prices from 3 Jan 2006 (warm-up), results from 2007.  Proposed for US5:
+    gates on 2013-25 as India's; 2007-25 with 2008 reported as a stress
+    test, as India's R4 (US-Y7 and US5 settle it).
+  - US data stays free (your call, 16 Oct; US-Y5 closed): Tiingo's free plan
+    only.  If its ~500-symbols-a-month allowance runs out, the downloader
+    stops cleanly (progress saved) and the rest resumes on 1 Nov.
   - Suggestions start now, before validation (your ask, 14 Oct): the
     advisory v0 (US-A1) emails the India deployed rules' picks on today's
     S&P 500, labelled unvalidated.  The queue below runs in parallel; the
@@ -139,15 +154,6 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 [!] P1  US-Y8 Safety rule for the unvalidated emails (US-A1), until US6:
              pause the emails if the model book falls 20% below its peak
              or underperforms SPY by 15 points (proposed; your call).
-[!] P1  US-Y5 US2 window and data spend (measured 15 Oct, US2):
-             (a) 2013-25 on free data (recommended; the India book's
-                 window): yfinance 84%, + Tiingo 94.6% of member-days,
-                 renames bring it near the 99% pass rule;
-             (b) also 2003-12 (adds 2008): free data reaches only ~78%;
-                 needs a paid source: EODHD about USD 20 for one month
-                 (delisted coverage unverified), or Norgate Platinum
-                 about USD 630 a year (its software is Windows-only, as
-                 far as I know).
 [!] P1  US-Y1 Choose the broker you will place US orders with (e.g.
              Interactive Brokers, Vested, INDmoney).  It sets the cost and
              tax model (US3): commissions, FX spread, fees, statements.
@@ -253,8 +259,37 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                    re-run with Tiingo (also with quarterly rebalancing, as
                    RSP does), a Tiingo cross-check of a sample of Yahoo
                    series (identity), then step 4.
-                 4 the delisting rule for what stays unpriced; the store
-                   with a data hash.
+                 4 IN PROGRESS 16 Oct: us_engine/store.py builds the panel
+                   (us_store/panel: OHLCV, dividends, member mask, data
+                   hash).  An instrument is a price series: renames that
+                   share one merge (KORS/CPRI counted once), one ticker for
+                   two companies stays two (old IR = TT's series, new IR;
+                   21st Century Fox vs Fox Corp).  Tiingo prices split-
+                   adjusted; halted days (no range at the previous close:
+                   Tiingo repeats SVB's $106.04 through its halt) dropped.
+                   Delisting rule as pre-registered: acquired -> final price
+                   (a first draft wrongly hit Red Hat, an IBM cash deal);
+                   for cause -> last real close, then -30%, for the curated
+                   failures SIVB, SBNY, FRC; other gaps listed for review.
+                   Trial build: 758 instruments (610 Yahoo, 148 Tiingo),
+                   496-507 members a day, 98.67% of member-days priced
+                   before pass 2.  Pass 2 (28 by name) and a history top-up
+                   (a year of prices before each Tiingo spell, so departed
+                   companies can be ranked from day one) run detached;
+                   then the final build.
+                   16 Oct, the 2008 crash added (your ask): Yahoo + aliases
+                   price 67.1% of 2006-12 member-days (65.2% of 2007-09);
+                   284 spells short, 133 of them already on Tiingo (they get
+                   history from 2006), ~151 left before 2013 (Lehman, WaMu,
+                   Merrill ...).  Queued after pass 2 (us_store/
+                   after_pass2.sh): file rename, history from 2006, Tiingo
+                   pass 1 for 2006-12; then a rename map for pre-2013
+                   renames, pass 2 by name, the store rebuilt on 2006-25.
+                   1 NOV (if the monthly allowance ran out; see the chain
+                   log us_store/tiingo_chain.log): resume with
+                   python -m us_engine.tiingo fetch --from 2006-01-01, then
+                   history, then pass2 (each resumable).  Prompt: resume
+                   Tiingo.
                  5 the RSP tracking check and the bias report.
 #2  [ ] P1  US3  Cost and tax model for an India-resident investor, for the
                  broker from US-Y1: commissions, FX both ways, TCS cash
@@ -307,6 +342,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                  broker's trade statement (CSV) weekly; report slippage
                  against the model's open fills and any order you skipped,
                  so the email's book and your account stay comparable.
+                 Your fills are fractional: the India paper tables store
+                 whole-share quantities (Integer), so US fills need float
+                 quantities (a table or columns of their own).
                  Medium; needs US-Y1.                  Prompt: do US9
 #9  [ ] P3  US10 Operations at India's level: the US run pings its own
                  healthchecks.io check (dead man's switch); after US4, a

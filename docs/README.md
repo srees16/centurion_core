@@ -1,6 +1,45 @@
 # Centurion Capital LLC — Enterprise AI Trading Platform
 
-A Python-based enterprise trading platform built on a **Carver systematic trading framework** (23 forecast sources, FDM combination, volatility-targeted position sizing with AFML meta-labeling). Combines multi-source news scraping, AI-powered sentiment analysis, fundamental & technical analysis, strategy backtesting, HMM regime detection, 7-layer drawdown protection, RL confidence modifier, and automated live Indian market trading via Zerodha Kite Connect. Includes a RAG-powered document intelligence pipeline for research and a **walk-forward signal weight optimizer** (R21a) with Kaggle cloud compute support. Built with a **Next.js 16 frontend** (React 19, TanStack Query, Tailwind CSS 4) and a **FastAPI backend**. Backed by PostgreSQL/Neon persistence, MinIO/Cloudflare R2 object storage, Upstash Redis caching, ChromaDB vector search, multi-provider LLM integration (Claude / OpenAI / Ollama), Sentry error tracking, and Better Stack log aggregation. Deployable on HF Spaces + Vercel with GitHub Actions CI/CD.
+A Python trading and research platform for Indian stocks. It is built around
+the **NSE engine**: a long-only book of liquid NSE stocks with gold and silver
+ETF sleeves, traded swing and positional, never intraday.
+
+- **Trading.**
+  - **Rules:**
+    - trend signals (EWMAC and 12-month momentum);
+    - a market-regime gate;
+    - trailing stops at 6 × ATR;
+    - a drawdown rule on the book's own equity.
+  - **Data:** NSE's daily archives, free of survivorship bias.
+  - **Validation:** deflated Sharpe, PBO, walk-forward tests and a sealed
+    2026 holdout.
+  - **Execution:** paper books trade every evening on GitHub Actions. The
+    live book trades a Zerodha account through Kite Connect, with
+    after-market orders and GTT stops; it runs dry until go-live.
+  - Section 1 shows how it fits together.
+- **Research.**
+  - pre-registered trials, run on Kaggle;
+  - trial registries;
+  - a strategy scorecard;
+  - a metrics journal.
+- **Web platform.** A **Next.js 16 frontend** on Vercel and a **FastAPI
+  backend** on HF Spaces:
+  - the Trade Center for the books;
+  - Fly Kite for Zerodha accounts;
+  - news and sentiment analysis;
+  - strategy backtests;
+  - RAG document intelligence;
+  - Financial ML.
+
+  The older Carver pipeline is kept for research.
+- **US stocks.** In research. The US module sends advisory emails only;
+  every order is placed by hand.
+- **Infrastructure.**
+  - Neon Postgres, with one schema per trading book;
+  - Cloudflare R2;
+  - Upstash Redis;
+  - Sentry;
+  - Better Stack.
 
 ---
 
@@ -270,29 +309,102 @@ quarter of the book in the sleeve must raise its Sharpe.
 
 ## Table of Contents
 
-1. [Architecture Overview](#1-architecture-overview)
-2. [Carver Systematic Trading Framework](#2-carver-systematic-trading-framework)
+1. [Architecture Overview](#1-architecture-overview): the Ind stocks trading system
+   - [at a glance (diagram)](#11-centurion-ind-stocks-at-a-glance)
+   - [a trading day](#12-a-trading-day-ist)
+   - [the strategy](#13-the-strategy)
+   - [books and the road to live money](#14-books-and-the-road-to-live-money)
+   - [research and validation](#15-research-and-validation)
+   - [data](#16-data)
+   - [safety and monitoring](#17-safety-and-monitoring)
+   - [the web platform and legacy pipeline](#18-web-platform-and-legacy-research-pipeline)
+2. [Carver Systematic Trading Framework](#2-carver-systematic-trading-framework) (legacy research pipeline)
 3. [Core Analysis Engine](#3-core-analysis-engine)
 4. [Strategy Backtesting](#4-strategy-backtesting)
-5. [Live Trading — Zerodha Kite Connect](#5-live-trading--zerodha-kite-connect) — incl. [connecting a Zerodha account](#connecting-a-zerodha-account)
+5. [Live Trading — Zerodha Kite Connect](#5-live-trading--zerodha-kite-connect) — incl. [how the live book trades](#how-the-live-book-trades) and [connecting a Zerodha account](#connecting-a-zerodha-account)
 6. [RAG Document Intelligence](#6-rag-document-intelligence)
-7. [Database Layer](#7-database-layer)
+7. [Database Layer](#7-database-layer) — incl. [the paper and live books](#paper-and-live-books-neon)
 8. [Object Storage (MinIO / Cloudflare R2)](#8-object-storage-minio--cloudflare-r2)
 9. [Interactive Web Interface](#9-interactive-web-interface)
 10. [Financial ML & Test-and-Tune](#10-financial-ml--test-and-tune)
 11. [Project Structure](#11-project-structure)
 12. [Installation (Detailed)](#12-installation)
-13. [Usage Guide](#13-usage-guide)
+13. [Usage Guide](#13-usage-guide) — incl. [Ind stocks commands](#ind-stocks-trading-system-nse-engine)
 14. [API Reference](#14-api-reference)
 15. [Troubleshooting](#15-troubleshooting)
 16. [Dependencies](#16-dependencies)
-17. [Cloud Infrastructure & Observability](#17-cloud-infrastructure--observability)
+17. [Cloud Infrastructure & Observability](#17-cloud-infrastructure--observability) — incl. [Ind stocks automation](#ind-stocks-automation)
 
 ---
 
 ## Changelog
 
-### April 2026
+### October 2026: Ind stocks (NSE engine)
+
+- **Live readiness.**
+  - The live book has run a nightly dry run on the real account since
+    1 Oct.
+  - The latched kill switch was added (DM2).
+  - The supervised sell test showed after-market orders filling in NSE's
+    09:00 pre-open auction (ST2, 14 Oct).
+- **Paper books.** A third paper book, e4 (D5), joined on 5 Oct. The books
+  register and the Saturday comparison report were added (V4).
+- **Monitoring.**
+  - Severity-routed alert emails (AL1–AL4).
+  - A dead-man's switch on healthchecks.io, with a fire drill (DM0–DM2,
+    DMfd).
+  - A nightly canary on every book's backtest and data fingerprints (LN-T13,
+    LN-T32–T34).
+  - Fresh-capital requests when NIFTY falls 20%, 30% or 40% (CR2).
+- **Measurement.**
+  - The strategy scorecard of 18 metric groups, which now writes "Current
+    performance" (SC1, SC2).
+  - The metrics journal (JR1).
+  - Cost model 4: idle cash earns nothing (IC1).
+  - Data hash version 2 (LN-T15).
+- **Research**, all pre-registered:
+  - the research protocol (GT10) and the golden-target review (GT0);
+  - point-in-time results (GT1) and MCX futures (GT2) stores;
+  - closed on their pass rules: value and quality (GT4), MCX trend (GT5),
+    options sleeves (O2, O5–O8), SEPA (O9), pre-announcement drift (GT13),
+    crash-recovery tranches (CR1, CR1b).
+- **Platform.**
+  - Connected Zerodha accounts and self-service sign-up (FA1–FA3, MU1, MU2).
+  - Next.js 16 (NX1, NX2).
+  - Security audits (S1, S2, SEC1–SEC3).
+  - The legacy scheduler retired (H1) and Streamlit removed (C5).
+  - Off-machine backups to Kaggle and one-command laptop setup (BK1).
+- **US stocks.** Research has started: `us_engine/` and
+  `docs/US_MEMORY_TRACKER.txt`. It will be documented here once tuned.
+
+### September 2026: the NSE engine replaces the legacy pipeline
+
+- **The NSE engine** (`nse_engine/`):
+  - survivorship-free NSE bhavcopy data;
+  - a point-in-time liquid universe;
+  - EWMAC trend and momentum;
+  - a market-regime gate;
+  - gold and silver sleeves;
+  - realistic costs.
+
+  It is validated with deflated Sharpe, PBO, walk-forward and a one-shot
+  2026 holdout. Configuration `679cbd0c` was approved on 15 Sep: DSR 0.994,
+  PBO 23.9% at 36 configurations, holdout excess Sharpe 1.04.
+- **Paper trading from 16 Sep** in Neon, with daily emails and the Trade
+  Center page. The candidate book joined on 28 Sep (D1). The paper gate (G4)
+  and the forward gate (V3) were added.
+- **Risk.**
+  - The drawdown rule was adopted as an overlay (E2).
+  - The 2008 crash test passed (R4): −32.9% against a −35% limit, on the
+    2006–12 data extension (K4).
+- **Toward live.**
+  - The live session driver (L5) and the capital ladder with its go-live
+    checks (D3).
+  - The daily Kite login from an emailed link, with the token encrypted in
+    Neon (U23).
+  - A static IP for orders through an Oracle Cloud VM (U24).
+
+### April 2026 (legacy Carver pipeline)
 
 **R21a Walk-Forward Optimizer** — New `optimizer/optimize_weights_r21a.py` uses scipy differential evolution (population=60, maxiter=150) to find optimal signal weights for the 11-source Carver backtester. Features: checkpoint every 5 generations with resume support, Kaggle cloud compute via `cloud/run_cloud_kaggle.py` (free tier: 4 CPU, 29 GB RAM, 12-hr sessions). Current best at Gen 50: Sharpe 1.780, CAGR 56.7%, MaxDD 22.4%.
 
@@ -314,7 +426,7 @@ quarter of the book in the sleeve must raise its Sharpe.
 
 **Cleanup** — Removed session-generated test scaffolds (3 files, 58 tests), dead code (`_fetch_sentry.py`, `services/portfolio_correlation.py`, unused `CIRCUIT_BREAKER_TIERS` config), and 9 audit-session docs.
 
-### March 2026
+### March 2026 (legacy Carver pipeline)
 
 #### Forecast Engine: 11 → 23 Sources
 
@@ -433,7 +545,247 @@ New `services/research/aronson_validator.py` implements Evidence-Based Technical
 
 ## 1. Architecture Overview
 
-The application follows a modular, deferred-import architecture with a **Carver-inspired systematic trading pipeline** at its core:
+Centurion has two parts:
+
+- **Centurion Ind stocks, the trading system.** The NSE engine
+  (`nse_engine/`) runs a long-only book of NSE stocks with gold and silver
+  ETF sleeves: swing and positional, never intraday. Paper books trade it
+  every evening. The live book trades it in your Zerodha account once its
+  go-live checks pass. Sections 1.1–1.7 describe it.
+- **The web platform and research tools.** The Next.js app, the FastAPI
+  backend, news and sentiment analysis, strategy backtests, RAG and Financial
+  ML: section 1.8 and sections 2–10. The older Carver pipeline (section 2)
+  no longer trades.
+
+US stocks will be documented here the same way once that module is tuned.
+Its plan is `docs/US_MEMORY_TRACKER.txt`.
+
+- **Plan of record:** `docs/MEMORY_TRACKER.txt`.
+- **Engine design rules:** `docs/nse_engine.md`.
+- **Validation rules:** `docs/research_protocol.md` and
+  `docs/nse_engine_validation_plan.md`.
+
+### 1.1 Centurion Ind stocks at a glance
+
+```mermaid
+flowchart LR
+    subgraph SOURCES["Sources"]
+        direction TB
+        NSE["NSE daily archives<br/>prices, delivery, indices,<br/>corporate actions"]
+        ZD["Zerodha<br/>Kite Connect"]
+    end
+
+    subgraph RESEARCH["Research: laptop and Kaggle"]
+        direction TB
+        STORE["Parquet store<br/>with a data hash"]
+        TESTS["Pre-registered tests<br/>backtest, walk-forward,<br/>DSR, PBO, 2026 holdout"]
+        CFG["Approved configurations<br/>config/nse_engine_*.json"]
+        STORE --> TESTS --> CFG
+    end
+
+    subgraph NIGHTLY["Every trading evening from 19:00 IST: GitHub Actions"]
+        direction TB
+        SYNC["Sync the data,<br/>rebuild the store"]
+        CHECKS["Canary and<br/>data checks"]
+        ENGINE["NSE engine<br/>targets and stops"]
+        PAPER["Paper books<br/>deployed, candidate, e4"]
+        LIVE["Live book<br/>dry run until go-live"]
+        SYNC --> CHECKS --> ENGINE
+        ENGINE --> PAPER
+        ENGINE --> LIVE
+    end
+
+    NEON[("Neon Postgres<br/>one schema per book")]
+    YOU["You<br/>emails, alerts, web app"]
+
+    NSE --> STORE
+    NSE --> SYNC
+    CFG --> ENGINE
+    LIVE <-->|"AMO orders, GTT stops, fills"| ZD
+    PAPER --> NEON
+    LIVE --> NEON
+    NEON --> YOU
+    CHECKS -->|"alerts"| YOU
+    YOU -->|"daily Kite login"| ZD
+```
+
+The diagram renders on GitHub. In VS Code, preview it with a Mermaid
+extension.
+
+- **Data.** NSE's daily archives feed a parquet store and a point-in-time
+  panel. Nothing the engine reads comes from a list of today's names, so the
+  data is free of survivorship bias.
+- **Research never edits the books.** A configuration reaches `config/` only
+  after its pre-registered tests pass (section 1.5).
+- **One run, many books.** Each evening a single GitHub Actions run updates
+  the data and trades every book from the same engine and the same data.
+  Each book keeps its own record in Neon.
+- **The live book is a ledger** inside your Zerodha account:
+  - it sees only the capital and shares allocated to it;
+  - it places after-market orders for the next morning;
+  - it keeps a GTT stop on every holding.
+
+### 1.2 A trading day (IST)
+
+| When | What happens | Run by |
+|---|---|---|
+| 09:00 | Login email. You log in on Zerodha's own page; the HF Space stores the day's token in Neon, encrypted | HF scheduler → `kite-login-reminder.yml` |
+| 09:00–09:08 | Last evening's after-market orders join NSE's pre-open auction and fill at the auction price, which is the day's open | Zerodha |
+| 09:15–15:30 | GTT stop-losses rest at Zerodha and trigger on their own. Centurion places no intraday orders | Zerodha |
+| 17:30 | A second login email if nobody has logged in | HF scheduler |
+| about 18:30 | NSE publishes the day's bhavcopy | NSE |
+| 19:00 | The nightly run starts (retry 20:30; GitHub crons at 20:05, 21:05 and 22:05 as backups) | HF scheduler → `nse-paper-trading.yml` |
+| 19:00–19:30 | In order: sync the data, rebuild changed store years, data and canary checks, fresh-capital check, paper sessions, the live session (tomorrow's orders and today's GTT reconciliation), emails | GitHub Actions |
+| 23:00 | Dead-man's switch. With no healthy ping by then, healthchecks.io emails you from outside GitHub | healthchecks.io |
+| 00:15 | Paper heartbeat: has the book traded recently? | `paper-heartbeat.yml` |
+| Saturday 07:30 | Weekly checkpoint and the books comparison report | `nse-paper-trading.yml` |
+
+A rerun the same evening is safe. Stops and fills run once per session, and
+later runs only re-plan.
+
+### 1.3 The strategy
+
+The deployed configuration is `config/nse_engine_deployed.json`
+(`679cbd0c`, approved 15 Sep 2026). Its backtest and walk-forward numbers are
+in [Current performance](#current-performance-nse-engine-deployed-book)
+above.
+
+| Part | Rule |
+|---|---|
+| Universe | The 300 most liquid NSE stocks, chosen point-in-time and refreshed every 21 sessions. Filters: median traded value over the last 126 sessions ≥ ₹1 crore a day, price ≥ ₹20, at least 252 sessions of history. ETFs are excluded |
+| Signals | Trend: fast EWMAC (8/32 and 16/64) and slow EWMAC (64/256) with 12-month momentum (skipping the last month). Half each, combined into one forecast capped at ±20 |
+| Portfolio | 20 names (at most 30), weighted by forecast and inverse volatility. Caps: 8% a name, 25% a sector (in paper and live). Reviewed every 5 sessions with a 25% no-trade buffer. A holding exits when it falls below rank 40 or its trend turns down |
+| Stops | Trailing: 6 × ATR(20) below the highest close since entry, never lowered. A 5-session cooldown follows a stop |
+| Market regime | NIFTY 50 against its 200-day average, breadth (the share of the universe above its own), and India VIX, with 3-day confirmation. Risk-off moves the stock book to cash or metals |
+| Metal sleeves | GOLDBEES and SILVERBEES, held while above their 200-day averages. The stock core keeps 60–70% of the book's risk |
+| Drawdown rule | Read from the book's own equity: no new entries more than 20% below its peak, half size beyond 30%, cash beyond 35%. It re-arms at a 60-session high |
+| Costs (model 4) | NSE's statutory charges by date (STT, stamp duty, exchange and SEBI fees, GST, the DP charge), plus market impact. Each order is capped at 5% of median traded value. Idle cash earns nothing, as in a Kite account |
+| Execution | Decide after the close, fill at the next open. Stops fill at the lower of the open and the stop |
+
+### 1.4 Books and the road to live money
+
+| Book | Configuration | Since | Neon schema | Role |
+|---|---|---|---|---|
+| deployed | `679cbd0c` | paper, 16 Sep 2026 | `public` | The approved configuration |
+| candidate | `2d64ba4c` | paper, 28 Sep 2026 | `candidate` | The K5 walk-forward pick (neutral-regime scale 0.6), under the forward gate |
+| e4 | `93cf6c4d` | paper, 5 Oct 2026 | `e4` | Exit rank 60 with refilled exits, traded for forward evidence |
+| live | the deployed configuration | dry runs, 1 Oct 2026 | `live` | Your Zerodha account: orders built each evening, none sent until go-live |
+
+```mermaid
+flowchart LR
+    A["Research<br/>pre-registered tests"] --> B["Trial paper book<br/>G4 against its backtest"]
+    B --> C["Forward gate V3<br/>60 sessions beside deployed"]
+    C --> D["Deployed book<br/>paper"]
+    D --> E["Live dry runs<br/>5 clean ones"]
+    E --> F["Go-live D3<br/>G4 PASS, sell test"]
+    F --> G["Capital ladder<br/>₹6L → ₹12L → ₹21L → ₹30L"]
+```
+
+1. **Research** (section 1.5): pre-registered on Kaggle. The gates are a
+   deflated Sharpe ≥ 0.95 at the full trial count and a walk-forward out of
+   sample; PBO is reported. The 2026 holdout is looked at once.
+2. **Paper, G4** (`nse_engine/paper_gate.py`): every book is compared with a
+   backtest of the same days on five checks: tracking error, daily gap,
+   costs, drawdown and regime breaks. A verdict comes from about session 30.
+3. **Forward gate, V3** (`nse_engine/forward_gate.py`): a trial replaces the
+   deployed configuration only when all three hold:
+   - it has 60 sessions beside the deployed book;
+   - its own G4 is PASS;
+   - its 2017–25 Sharpe is within 0.05 of the deployed one.
+
+   `python -m runners.run_nse_engine promote` applies it; nothing promotes by
+   itself.
+4. **Go-live, D3**, planned for mid-December 2026, needs:
+   - G4 PASS at 60 sessions;
+   - 5 clean dry runs;
+   - the supervised sell test recorded: an AMO sell and a GTT sell completed
+     with DDPI active (the "Record sell path" workflow).
+5. **Capital ladder** (`nse_engine/capital_ladder.py`): ₹6 lakh, ₹12 lakh,
+   ₹21 lakh, then ₹30 lakh, at least a month per rung. It moves up only when
+   you ask, and down by itself when a G4 check fails.
+
+Real orders also need `CENTURION_LIVE_MODE=live` and the kill switch off.
+
+### 1.5 Research and validation
+
+- **Rules** (`docs/research_protocol.md`):
+  - pre-register a test before running it;
+  - every trial counts;
+  - no re-tuning after a fail;
+  - 2026 is a sealed holdout, opened once behind a lock file.
+
+  Each family keeps its own trial registry: `runs` (core), `runs_sepa`,
+  `runs_value`, `runs_mcx` and `runs_options`, under `data/nse_engine/`.
+- **Compute:** heavy runs go to Kaggle. Run
+  `python -m cloud.kaggle_local run --task walk-forward|grid|configs|...`,
+  then `watch` and `pull`, then `python -m cloud.wf_stitch import-runs`.
+- **Statistics** (`nse_engine/validation/`):
+  - deflated Sharpe (`dsr.py`);
+  - PBO by CSCV (`pbo.py`);
+  - anchored walk-forward (`walk_forward.py`);
+  - the one-shot holdout (`holdout.py`);
+  - the benchmark gate (`benchmarks.py`);
+  - factor alpha with HAC t-statistics (`diagnostics.py`);
+  - the sleeve pass rules (`sleeve_gates.py`).
+- **Reporting:**
+  - the strategy scorecard of 18 metric groups
+    (`run_nse_engine scorecard`), which rewrites the "Current performance"
+    section;
+  - the books register, `docs/books_register.csv`;
+  - the metrics journal, `docs/metrics_journal.csv` (append-only);
+  - the trackers.
+
+| Test | Result |
+|---|---|
+| 2026 holdout (1 Jan–11 Sep), deployed configuration | Excess Sharpe 1.04, max drawdown −13.0% |
+| 2008 crash (R4: 2007–25 with the drawdown rule) | PASS: worst drawdown −32.9% against a −35% limit |
+| Exit rank 60 (R12) | PASS out of sample; trades as the e4 book |
+| Closed on their pass rules (no sleeve or setting added) | MON100 trend (R14), metal-trend confirmation (R13), value and quality (GT4), MCX commodity trend (GT5), options sleeves (O2, O5–O8), SEPA (O9), pre-announcement drift (GT13), crash-recovery tranches (CR1, CR1b), fully invested (E1), crash re-entry (R11) |
+
+### 1.6 Data
+
+| Store | Contents | Built by |
+|---|---|---|
+| `data/nse_engine/archive` | Raw NSE downloads: equity bhavcopy, delivery, indices, corporate actions | `run_nse_engine sync` (nightly, recent sessions) |
+| `data/nse_engine/store` | Per-year parquet, corporate actions, dividends, the calendar, dated sector-map snapshots, a manifest and a data hash | `run_nse_engine build-store` (nightly, changed years only) |
+| `store_ext2006`, `fo_store`, `mcx_store`, `fundamentals` | The 2006–12 extension (crash tests), F&O, MCX futures, point-in-time quarterly results | research only |
+
+- **Panel.** `nse_engine/data/panel.py` loads the store into a `MarketData`
+  panel. Prices are adjusted for splits, bonuses, rights (at the dated face
+  value) and dividends, and the as-printed close is kept. A decision dated
+  `t` reads only data dated `t` or earlier.
+- **Nightly copy.** The nightly run keeps the archive and store in the
+  GitHub Actions cache.
+- **Research copy.** The research stores live on the laptop and are
+  refreshed weekly (`python -m runners.refresh_data`). They are backed up to
+  private Kaggle datasets (`python -m cloud.backup push` / `restore`).
+
+### 1.7 Safety and monitoring
+
+| Check | What it does | When |
+|---|---|---|
+| Alerts (`services/notifications/alerts.py`) | `[Centurion CRITICAL]` and `[Centurion warning]` emails, at most one per event per day | from any step |
+| Canary | Every book's 2013–25 backtest and per-stock data fingerprints against the expected values. Drift can hold the live book to a dry run | nightly |
+| Store gap check | Emails when the store seems to miss a session | nightly |
+| Session failed | Emails when a paper or live session fails | nightly |
+| Dead-man's switch | healthchecks.io emails you when no healthy ping arrives by 23:00 IST on a weekday | nightly |
+| Paper heartbeat | Has the book traded recently? | 00:15 IST |
+| Kill switch | A latched halt for every order path, kept in Neon. New buys are refused; exits and protective stops still go. Only a person turns it off | the "Kill switch" workflow |
+| Fresh-capital requests | When NIFTY closes 20%, 30% or 40% below its peak, an email asks for one third of your crash reserve, with the suggested fund and the tax arithmetic | nightly |
+| Weekly report | Every paper book against the deployed one, the forward-gate status, and the register attached | Saturday 07:30 IST |
+
+### 1.8 Web platform and legacy research pipeline
+
+- **The web app.** Next.js on Vercel, FastAPI on the HF Space:
+  - **Trade Center** shows the books;
+  - **Fly Kite** manages Zerodha accounts;
+  - the backend receives the Kite login callback and hosts the research
+    tools.
+- **The legacy Carver pipeline.** The diagrams below describe it and the
+  platform's infrastructure. It no longer trades: its scheduler jobs were
+  retired on 1 Oct 2026 (tracker H1).
+
+The web platform follows a modular, deferred-import architecture:
 
 ```
 Next.js 16 Frontend (primary — port 3000)
@@ -448,7 +800,7 @@ FastAPI Backend (port 9001)
   └── Delegates to: scrapers, sentiment, metrics, forecast_combiner, rag_pipeline
 ```
 
-### Signal-to-Execution Pipeline
+#### Signal-to-execution pipeline (legacy Carver pipeline, no longer trades)
 
 ```
 ┌─ STAGE 1: UNIVERSE ──────────────────────────────────────────────────┐
@@ -479,7 +831,7 @@ FastAPI Backend (port 9001)
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-### IntegratedScorer — 2-Layer Evaluation Pipeline
+#### IntegratedScorer — 2-layer evaluation (legacy)
 
 ```
 IntegratedScorer (services/signals/integrated_scorer.py)
@@ -500,18 +852,16 @@ IntegratedScorer (services/signals/integrated_scorer.py)
   Output → StockVerdict (STRONG_BUY ≥ 0.55 | BUY ≥ 0.30 | HOLD | SELL ≤ -0.30 | STRONG_SELL ≤ -0.55)
 ```
 
-### Background Scheduler
+#### Background scheduler (HF Space)
 
 ```
-scheduler.py (APScheduler)
-  ├── Pre-market (09:20 IST)        DB pre-warm → full pipeline: scrape → analyse → screen → auto-execute
-  ├── Intraday (10:30, 12:30, 14:30) Score refresh + re-screen for new signals
-  ├── Walk-forward audit (Sat 06:00)  Weekly walk-forward validation of all strategies
-  ├── Reconciliation (Sat 07:00)      3-leg: backtest ↔ paper ↔ live parity check
-  └── Nightly backup (23:00)          SQLite databases → R2/MinIO object storage
+scheduler.py (APScheduler, started by deployment/start.sh)
+  ├── 09:00, 17:30 IST (Mon–Fri)   dispatch the Kite login reminder workflow
+  ├── 19:00 IST, retry 20:30        dispatch the nightly NSE engine workflow (paper and live books)
+  └── legacy pipeline jobs           removed 1 Oct 2026 (tracker H1; docs/scheduler_audit.md)
 ```
 
-### Services Layer
+#### Services layer
 
 ```
 services/
@@ -537,7 +887,7 @@ services/
   └── DeflatedSharpe       Bailey-López de Prado deflated Sharpe ratio (trial multiplicity correction)
 ```
 
-### Infrastructure Layer
+#### Infrastructure layer
 
 ```
 infrastructure/
@@ -555,7 +905,7 @@ infrastructure/
   └── BackupService    Nightly SQLite backup to R2/MinIO (scheduler_cache, trade_monitor, chroma)
 ```
 
-### Architectural Layers
+#### Architectural layers
 
 ```
 layers/
@@ -567,7 +917,7 @@ layers/
   └── RiskEngine       Pre-trade + post-trade risk checks (max position, drawdown circuit breaker)
 ```
 
-### Dual Strategy System
+#### Dual strategy system (research backtests)
 
 | System | Location | Base Class | Data Source | Output |
 |--------|----------|------------|-------------|--------|
@@ -578,7 +928,11 @@ layers/
 
 ## 2. Carver Systematic Trading Framework
 
-The core alpha engine implements a **Robert Carver–inspired systematic trading pipeline** (*Systematic Trading*, *Leveraged Trading*). All position sizing, forecast generation, and risk management run through this framework for Indian equities via Zerodha Kite Connect.
+> **Legacy.** This is the research pipeline used before September 2026. It no
+> longer trades: the Ind stocks book runs on the NSE engine (section 1). It is
+> kept for the research pages and for comparison backtests.
+
+This pipeline implements a **Robert Carver–inspired systematic trading pipeline** (*Systematic Trading*, *Leveraged Trading*). Until September 2026 it generated the forecasts, sized the positions and managed the risk for Indian equities via Zerodha Kite Connect.
 
 ### 23 Forecast Sources
 
@@ -825,17 +1179,69 @@ Full statistical arbitrage pipeline via the Binance public REST API (no API key 
 
 ## 5. Live Trading — Zerodha Kite Connect
 
-Real-time Indian equity monitoring, order management, option chain analysis, and **Carver-pipeline automated trading**.
+The live book trades the deployed NSE engine configuration in your Zerodha
+account (`kite_connect/trading/live_session.py`). Today it runs a nightly
+**dry run**: it builds every order from the real account and sends none. Real
+orders start at go-live (section 1.4).
 
-### Components
+### How the live book trades
+
+1. **One login a day** (`kite_connect/auth/daily_login.py`):
+   - Zerodha's tokens lapse at 06:00 IST, and a scripted login breaks Kite
+     Connect's terms. So you log in once each trading day from the emailed
+     link, on Zerodha's own page.
+   - Zerodha redirects to the HF Space, which stores the day's token in Neon,
+     encrypted.
+   - Centurion never stores your password or TOTP.
+2. **A ledger, not the whole account.** The book sees only the capital
+   allocated to it and the shares it bought. It plans with the smaller of the
+   ledger's and the broker's quantity and cash. Your other holdings are never
+   touched.
+3. **Each evening, after the bhavcopy:**
+   1. read last night's order outcomes and any GTT-triggered sells;
+   2. mark the ledger;
+   3. replay the drawdown rule;
+   4. plan from today's close;
+   5. place LIMIT CNC after-market orders with idempotent tags;
+   6. reconcile one GTT stop per holding;
+   7. record the session in the `live` schema and email you.
+4. **The next morning,** the after-market orders join NSE's 09:00 pre-open
+   auction and fill by about 09:08 at the auction price, which is the day's
+   open: what the backtest assumes. A supervised sell test showed this on
+   14 Oct 2026. DDPI is active, so sells and GTT stops need no TPIN.
+5. **A static IP for orders.** Zerodha has required a registered IP for API
+   orders since April 2026. Kite calls go through an SSH tunnel to an Oracle
+   Cloud VM whose reserved IP is registered (`deployment/oracle-proxy/README.md`).
+6. **Safety:**
+   - real orders need `CENTURION_LIVE_MODE=live`, an approved deployment and
+     the go-live checks;
+   - the kill switch refuses new buys while exits and stops still go
+     (`kite_connect/trading/kill_switch.py`);
+   - no path places intraday orders (MIS is refused).
+
+**Modules the live book uses:**
+- `live_session.py` and `nse_engine_executor.py`: targets to CNC orders and
+  GTT stops;
+- `gtt_stops.py`;
+- `nse_instruments.py`: tick sizes and series;
+- `order_status.py`;
+- `book_events.py`: splits, bonuses and dividends in the ledger;
+- `order_service.py`;
+- `kill_switch.py`.
+
+The paper books use `paper_trader.py` and `paper_book_view.py`.
+
+### Web app tools and the legacy pipeline
+
+The table below lists Fly Kite's tools and the legacy Carver pipeline's live
+path: auto-executor, risk manager and trade monitor. The legacy live path is
+no longer scheduled.
 
 | Module | Purpose |
 |--------|---------|
-| `zerodha_live.py` | Main dashboard — live quotes, order book, positions, holdings, RSI scanner |
 | `auth/kite_auth.py` | OAuth flow in your browser (you type the password and TOTP; nothing is auto-filled), captures the redirect token |
 | `auth/kite_session.py` | Reusable authenticated `KiteConnect` session |
 | `core/config.py` | API credentials, DB config, index groups (NIFTY50, BANKNIFTY, NIFTYIT, NIFTYENERGY) |
-| `core/database_service.py` | PostgreSQL connection pool for `livestocks_ind` database |
 | `nse/screener.py` | **3-stage NSE screener** — liquidity filter → volatility filter → technical composite score (RSI + MACD + Bollinger + volume surge + price range) |
 | `nse/nse_universe.py` | NSE symbol list download (NIFTY50, BANKNIFTY, full NSE) |
 | `options/option_chain.py` | Concurrent option chain with OI, Greeks, and IV (ThreadPoolExecutor, 20 workers) |
@@ -846,9 +1252,11 @@ Real-time Indian equity monitoring, order management, option chain analysis, and
 | `trading/paper_trader.py` | Virtual broker — simulates fills with live Kite LTP + slippage model, persists P&L & trades to SQLite |
 | `trading/rsi_strategy.py` | Live RSI scanner — BUY (RSI<30 + reversal), SELL (RSI>70 + reversal), auto-order placement |
 
-### Exit Management Lifecycle
+### Exit Management Lifecycle (legacy pipeline)
 
-The `TradeMonitor` manages the full post-entry lifecycle:
+In the legacy pipeline, `TradeMonitor` manages the post-entry lifecycle. The
+NSE engine's books use the trailing 6 × ATR stops of section 1.3, kept as GTT
+orders at Zerodha.
 
 ```
 Entry fill confirmed → place SL-M + limit TP orders
@@ -887,14 +1295,13 @@ Push-based tick distribution via Kite WebSocket (KiteTicker) with an internal ev
 | `CRUD` | `/stream/alerts` | Price alert management (create, list, delete) |
 | `GET` | `/stream/status` | Full streaming pipeline status |
 
-### Key Features
+### Key Features (web app and legacy pipeline)
 - **Order database persistence** — every order (BUY/SELL, MARKET/LIMIT/AMO, success/failure) is automatically saved to the `order_records` PostgreSQL table with fill_price, filled_at, and status
 - **Email order confirmations** — styled HTML email sent via SMTP for every placed order (requires `CENTURION_EMAIL_*` env vars)
 - **Circuit breaker** — 3 consecutive API failures → order placement halted for 120 seconds; auto-recovers via half-open test; manual reset available via `reset_circuit_breaker()`
 - **Crash recovery** — TradeMonitor persists all open trade state to SQLite (WAL mode); on container/process restart, active trades are automatically restored and monitoring resumes
 - **Paper trading engine** — virtual broker that simulates fills using live Kite LTP + configurable slippage; persists trades and P&L to SQLite for paper ↔ live reconciliation
 - **3-leg reconciliation** — weekly automated comparison: backtest ↔ paper, paper ↔ live, backtest ↔ live (Sharpe, win-rate, return drift detection)
-- Auto-refresh every 30 seconds via `@st.fragment(run_every=...)`
 - Market status pill indicators from NSE API (pre-open, live, post-market)
 - Batch quote fetching (200 symbols/batch)
 - Option chain: expiry discovery (45 days + monthly), Sensibull-style colouring, ATM highlighting, PCR metric
@@ -988,6 +1395,32 @@ Retrieval-Augmented Generation pipeline for document Q&A with PDF ingestion, hyb
 ---
 
 ## 7. Database Layer
+
+### Paper and live books (Neon)
+
+Every book keeps its record in its own Postgres schema in Neon
+(`database/paper_cloud.py`). Nothing is deleted.
+
+| Schema | Book |
+|---|---|
+| `public` | deployed (its rows from before the book's `epoch` belong to the old pipeline) |
+| `candidate`, `e4` | the trial paper books |
+| `live` | the live book; a connected account gets its own `live_<id>` |
+
+Each schema has the same tables:
+
+| Table | Holds |
+|---|---|
+| `paper_sessions` | One row per session: planned buys and sells, fills, stops, the drawdown state, the outcome |
+| `paper_fills` | Every fill, stop and cancelled order: decision date, the price decided at, fill price, impact, costs |
+| `paper_positions` | Open and closed positions: entry, exit, exit reason, P&L |
+| `paper_daily_snapshots` | Equity, cash, day and total P&L, max drawdown |
+| `paper_signal_log` | Each day's signals |
+| `paper_weekly_checkpoints` | Saturday checkpoints |
+| `paper_cloud_state` | Key/value state: cash, `epoch`, the live ledger, G4 reports, the kill switch, the alert history |
+
+Read them in the Neon console (Tables, then pick the schema) or in the web
+app's Trade Center.
 
 ### PostgreSQL Schema (14 tables)
 
@@ -1210,26 +1643,59 @@ centurion_core/
 ├── sample_tickers.csv            # Example ticker list
 ├── .env.example                  # Complete environment variable reference
 │
+├── nse_engine/                   # Ind stocks trading system: one engine for research, paper and live
+│   ├── engine.py                 # generate_targets (shared by backtest and live) + the backtest simulator
+│   ├── config.py                 # EngineConfig: every setting, hashed into the trial registry
+│   ├── universe.py · signals.py · regime.py · portfolio.py · allocator.py · sleeves.py
+│   ├── drawdown.py               # Drawdown rule from the book's own equity
+│   ├── costs.py                  # Statutory charges by date + market impact (cost model 4)
+│   ├── deployment.py             # Loads and checks config/nse_engine_*.json
+│   ├── paper_gate.py             # G4: a paper book against its same-period backtest
+│   ├── forward_gate.py           # V3: when a trial may replace the deployed configuration
+│   ├── capital_ladder.py         # D3: live capital rungs ₹6L → ₹30L, go-live checks
+│   ├── books.py · scorecard.py · journal.py   # Register, scorecard (README section), metrics journal
+│   ├── crash_recovery.py         # Fresh-capital requests when NIFTY falls 20/30/40%
+│   ├── data/                     # NSE archive → parquet store → MarketData panel; F&O, MCX, fundamentals
+│   └── validation/               # DSR, PBO, walk-forward, holdout, trial registry, benchmark and sleeve gates
+│
+├── config/                       # Approved book configurations and the canary's expected values
+│   ├── nse_engine_deployed.json  # The deployed book (679cbd0c) with its drawdown overlay
+│   ├── nse_engine_candidate.json · nse_engine_e4.json   # Trial paper books
+│   └── canary_expected.json      # Expected backtest statistics and data fingerprints
+│
+├── us_engine/                    # US stocks (in research; documented here once tuned)
+│
+├── tools/                        # Nightly helpers: books_report (Saturday), paper_heartbeat, session_failed
+│
 ├── .github/
 │   └── workflows/
-│       └── deploy.yml            # CI/CD: HF Spaces backend + Vercel frontend deployment
+│       ├── nse-paper-trading.yml # Nightly: data, canary, paper books, live book; Saturday report
+│       ├── kite-login-reminder.yml  # 09:00 / 17:30 IST login email
+│       ├── paper-heartbeat.yml   # 00:15 IST: has the book traded recently?
+│       ├── record-sell-path.yml  # Records the supervised sell test (go-live check)
+│       ├── kill-switch.yml       # Turns the latched kill switch on or off, with a reason
+│       ├── options-paper-demo.yml · us-advisory.yml
+│       ├── tests.yml             # Fast test suite on push and pull request
+│       └── deploy.yml            # HF Spaces backend deployment
 │
-├── optimizer/                    # Walk-forward signal weight optimisation
+├── optimizer/                    # Walk-forward signal weight optimisation (legacy pipeline)
 │   ├── optimize_weights_r21a.py  # R21a — differential evolution on 11 signals, checkpoint resume
 │   └── analyze_r21a.py           # Post-optimisation analysis and reporting
 │
-├── runners/                      # CLI entry points for standalone tasks
-│   ├── run_backtest.py           # Full pipeline backtest runner
-│   ├── run_r21a.py               # R21a validation with real engine
-│   ├── run_extract_forecasts.py  # Extract per-source daily forecasts to .pkl
-│   ├── run_r21a_pipeline.py      # End-to-end R21a pipeline (extract → optimise → validate)
-│   └── run_contra_v4.py          # Contra regime strategy runner
+├── runners/                      # CLI entry points
+│   ├── run_nse_engine.py         # NSE engine: sync, build-store, backtest, validate, walk-forward,
+│   │                             #   holdout, scorecard, canary, paper-gate, promote, ...
+│   ├── refresh_data.py           # Weekly research-data refresh, then the backup push
+│   ├── run_backtest.py · run_r21a.py · run_r21a_pipeline.py · run_extract_forecasts.py
+│   └── run_contra_v4.py · run_r22_bull_infusion.py   # Legacy pipeline runners
 │
-├── cloud/                        # Cloud compute runners (Kaggle, Colab, Modal)
-│   ├── run_cloud_kaggle.py       # Kaggle free-tier runner (4 CPU, 29 GB RAM, 12-hr sessions)
-│   ├── run_cloud_colab.py        # Google Colab runner
-│   ├── run_cloud_modal.py        # Modal serverless runner
-│   └── run_kaggle.py             # Kaggle dataset + notebook management
+├── cloud/                        # Off-box compute and backups
+│   ├── kaggle_local.py           # Drive a Kaggle research job: run, watch, pull
+│   ├── kaggle_runner.py · kaggle_entry.py   # What the Kaggle kernel runs
+│   ├── wf_stitch.py              # Join Kaggle fold files, import their runs
+│   ├── backup.py                 # Back up and restore data/nse_engine to private Kaggle datasets
+│   ├── devsetup.py               # New-laptop setup and the session check
+│   └── heartbeat.py              # Heartbeats for long unattended runs
 │
 ├── auth/                         # Authentication
 │   ├── shared_session.py         # Cross-app SSO token signing (itsdangerous)
@@ -1334,12 +1800,16 @@ centurion_core/
 │   └── _output/                  # Analysis outputs (git-ignored)
 │
 ├── kite_connect/                 # Zerodha live trading (Indian markets)
-│   ├── auth/                     # OAuth browser login (manual) + session
+│   ├── auth/                     # Manual browser login, daily login (token in Neon), accounts, terms
 │   ├── core/                     # Config, PostgreSQL
 │   ├── nse/                      # NSE universe download + 3-stage screener
 │   ├── options/                  # Concurrent option chain + Greeks
-│   ├── trading/                  # Order service (circuit breaker), auto-executor, risk manager,
-│   │   │                         # trade monitor (crash recovery), paper trader, RSI strategy
+│   ├── trading/                  # The live and paper books, plus the web app's order tools
+│   │   ├── live_session.py       # One evening session of the live book (ledger, orders, GTTs, email)
+│   │   ├── nse_engine_executor.py  # NSE engine targets → CNC orders + GTT stops
+│   │   ├── gtt_stops.py · order_status.py · nse_instruments.py · book_events.py
+│   │   ├── kill_switch.py        # The latched kill switch for every order path
+│   │   ├── paper_book_view.py    # Read-only views of the paper books (API, Trade Center)
 │   │   ├── order_service.py      # Idempotent retry + circuit breaker (3 failures → 120s halt)
 │   │   ├── trade_monitor.py      # SL/TP lifecycle, trailing stops, SQLite crash recovery
 │   │   ├── paper_trader.py       # Virtual broker — live LTP + slippage, SQLite persistence
@@ -1845,6 +2315,34 @@ For detailed setup, see [deployment/DEPLOYMENT.md](../deployment/DEPLOYMENT.md) 
 
 ## 13. Usage Guide
 
+### Ind stocks trading system (NSE engine)
+
+The nightly books run by themselves (section 1.2). These are the commands for
+research and checks on the laptop:
+
+```bash
+# Research data: refresh every store, then back it up (restore elsewhere with `restore`)
+python -m runners.refresh_data
+python -m cloud.backup push
+
+# The engine (each has --help)
+python -m runners.run_nse_engine backtest        # run and record a backtest
+python -m runners.run_nse_engine validate        # deflated Sharpe, PBO and the benchmark gate of a run
+python -m runners.run_nse_engine walk-forward    # anchored walk-forward
+python -m runners.run_nse_engine scorecard --book all   # the scorecard; rewrites "Current performance"
+python -m runners.run_nse_engine canary          # every book against its expected statistics
+python -m runners.run_nse_engine paper-gate --schema candidate   # G4 for a paper book
+python -m runners.run_nse_engine promote         # V3: replace the deployed configuration (only you run it)
+
+# Heavy runs on Kaggle
+python -m cloud.kaggle_local run --task walk-forward --args "..."   # then: watch, pull
+python -m cloud.wf_stitch import-runs --src <pulled dir> --dest data/nse_engine/runs
+
+# Live book (needs today's Kite login)
+python -m kite_connect.trading.live_session --dry-run --capital 600000
+python -m kite_connect.trading.kill_switch status
+```
+
 ### Quick Start
 
 1. Launch the app log in land on the **Main** page.
@@ -2087,6 +2585,31 @@ User → Vercel (Next.js frontend)
          │
          └── Static assets → Vercel CDN
 ```
+
+### Ind stocks automation
+
+The trading system runs on GitHub Actions. Those runs need no server of
+their own: the HF Space only starts them on time.
+
+```
+HF Space scheduler ── 09:00 / 17:30 IST ──► kite-login-reminder.yml ──► login email
+                   └── 19:00 IST (retry 20:30) ──► nse-paper-trading.yml
+                                                    ├── NSE archive → store (Actions cache)
+                                                    ├── canary, store gap check, fresh-capital check
+                                                    ├── paper books: deployed, candidate, e4 ──► Neon, emails
+                                                    ├── live book ──► SSH tunnel to Oracle Cloud (static IP) ──► Kite
+                                                    └── healthchecks.io ping (dead-man's switch)
+Laptop ── weekly data refresh, research ──► Kaggle (research kernels, private backup datasets)
+```
+
+| Service | Used for | Plan |
+|---|---|---|
+| GitHub Actions | The nightly books, login reminders, heartbeat, kill switch, sell-test recording, tests | free (public repository) |
+| HF Space scheduler | On-time dispatch of the nightly run and the login reminder (GitHub's own crons arrive 1–4 hours late) | free |
+| Oracle Cloud VM | The static IP Zerodha requires for API orders | Always Free |
+| healthchecks.io | The dead-man's switch: emails when no healthy nightly ping arrives by 23:00 IST | free |
+| Kaggle | Research compute and private backup datasets of `data/nse_engine/` | free |
+| Kite Connect | Zerodha's API for the live book | paid monthly, renew in the developer console |
 
 ### Service Summary
 

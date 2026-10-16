@@ -724,6 +724,37 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+16 Oct  IVU1 Your rule, Ind vs US: India whole shares only, paper and
+             automated orders through Kite; US fractional shares, advisory
+             only.  India's order paths now refuse a fraction instead of
+             letting Kite reject it (place_order) or truncating it silently
+             (the GTT stop path turned 2.5 shares into 2):
+             order_service.whole_share_refusal, checked by place_order and
+             gtt_stops.place_or_update_stop_gtt; whole numbers (10, 10.0,
+             "7") pass unchanged.  Checked: 10.5 and 2.5 refused before any
+             Kite call; the fast suite passes.  Recorded in CLAUDE.md, the
+             US tracker (decisions; US9: fractional fills need float
+             quantities) and memory.
+16 Oct  DOC1 README brought up to date for Ind stocks (your ask; Quick Start
+             and the generated performance block untouched, verified
+             byte-identical).  Section 1 now explains the trading system:
+             an architecture diagram (Mermaid, renders on GitHub), a trading
+             day hour by hour, the strategy's rules, the books and the road
+             to live money (with a second diagram), research and
+             validation, data, safety and monitoring; the web platform and
+             the legacy Carver pipeline kept under 1.8, marked legacy (and
+             in section 2).  Section 5: how the live book trades (login,
+             ledger, evening steps, pre-open fills, static IP, safety).
+             Section 7: the books' Neon schemas and tables.  Section 11:
+             nse_engine/, config/, tools/, the real workflows, cloud/ and
+             runners/.  Section 13: the engine's commands.  Section 17: the
+             automation and its services.  Changelog: September and October
+             2026.  All 30 contents links checked.  US stocks: later, once
+             tuned (your call).  Then, on request, the opening paragraph
+             under the title: it described the old Carver pipeline (23
+             sources, 7-layer drawdown, automated trading); now the NSE
+             engine, research, the web platform, US (advisory) and the
+             infrastructure, pointing to section 1.
 13 Oct  SC2  README "Current performance" section kept current (your ask).
              The scorecard now writes it: nse_engine/scorecard.py
              readme_section / update_readme rewrite the text between the

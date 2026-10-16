@@ -43,7 +43,7 @@ MAX_MISSING_SHARE = 0.05
 NOT_PUBLISHED_SHARE = 0.5
 DOWNLOAD_RETRIES = 2
 RETRY_PAUSE_SECONDS = 30
-FIELDS = ("Open", "High", "Low", "Close", "Volume", "Stock Splits")
+FIELDS = ("Open", "High", "Low", "Close", "Volume", "Dividends", "Stock Splits")
 
 
 class UsDataError(RuntimeError):

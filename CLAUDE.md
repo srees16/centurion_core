@@ -29,6 +29,13 @@ data and coding assistants". Read it before changing code. The essentials:
 - **Trading:** swing and positional only, never intraday. Research follows
   `docs/research_protocol.md`: pre-register first; every trial counts;
   2026 is the sealed holdout.
+- **Ind vs US stocks:**
+  - India trades whole shares only, and its paper books and automated orders
+    run through Kite. `order_service.whole_share_refusal` guards the order
+    and GTT paths.
+  - US stocks may be held in fractional shares, but there are no automated or
+    broker paper orders: the US module only advises, and the owner places
+    every order.
 - **Tests:** `python -m pytest tests -q -m "not slow"`.
 - **Communication:** be candid when something misses the goal or is
   premature, and keep summaries crisp. Keep `docs/MEMORY_TRACKER.txt`
