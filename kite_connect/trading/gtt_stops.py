@@ -243,7 +243,13 @@ def place_or_update_stop_gtt(
     else the coarser slab's, flagged ``tick_fallback``).
     """
     from kite_connect.trading.nse_instruments import on_tick
+    from kite_connect.trading.order_service import whole_share_refusal
 
+    fraction = whole_share_refusal(quantity) if quantity else None
+    if fraction and "whole shares" in fraction:      # a fraction is a bug upstream: never round a stop away
+        return {"symbol": symbol, "exchange": exchange, "quantity": quantity, "trigger": None, "trigger_id": None,
+                "limit": None, "tick": tick, "tick_fallback": False, "success": False, "action": "rejected",
+                "error": fraction}
     quantity = int(quantity or 0)
     fallback = False
     if tick is None:
