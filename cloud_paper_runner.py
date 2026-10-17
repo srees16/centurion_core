@@ -179,12 +179,14 @@ def _update_run_status(status: str, message: str):
 _INITIAL_CAPITAL = float(os.environ.get("CENTURION_PAPER_INITIAL_CAPITAL", "100000"))
 
 
-def _open_paper_trader():
+def _open_paper_trader(capital: Optional[float] = None):
     """PaperTrader restored from local SQLite or Neon. Raises if the cloud
-    book exists but cannot be read (never start over an unreadable book)."""
+    book exists but cannot be read (never start over an unreadable book).
+    ``capital`` (a book's own ``paper_capital_inr``) starts a new book; a
+    restored book keeps its recorded capital."""
     from kite_connect.trading.paper_trader import PaperTrader
 
-    pt = PaperTrader(kite=None, initial_capital=_INITIAL_CAPITAL)
+    pt = PaperTrader(kite=None, initial_capital=capital or _INITIAL_CAPITAL)
     if pt.restored_from == "cloud_restore_failed":
         raise RuntimeError("Paper book restore from Neon failed — aborting run to protect the track record")
     logger.info("Paper book: source=%s cash=%.0f open=%d initial=%.0f",
@@ -451,7 +453,7 @@ def _run_engine_paper():
     from kite_connect.trading.nse_engine_executor import EngineExecutor
 
     dep = _load_engine_deployment()
-    pt = _open_paper_trader()
+    pt = _open_paper_trader(dep.share_capital())
     previous_session = pt.engine_last_session()
     executor = EngineExecutor(kite=None, paper=True, paper_trader=pt, deployment=dep)
     session = executor.run_paper_session()
@@ -502,8 +504,47 @@ def _run_engine_paper():
     gate = _paper_gate(pt, dep.engine.config_hash())
     if gate:
         msg += f" | gate {gate.get('verdict')}"
-    _email_engine_session(pt, dep, session, snapshot, shift, gate)
+    futures = None
+    if getattr(dep, "futures_overlay", None) and session.get("fills") is not None:
+        try:
+            futures = _futures_overlay_session(pt, dep, session, plan)
+            msg += (f" | futures nav={futures['nav']:.0f} legs={futures['legs']} exposure={futures['exposure']:.2f}"
+                    f" calls={futures['margin_calls']}")
+        except Exception as exc:                      # the share book's session stands; the email says why
+            logger.exception("Futures overlay failed: %s", exc)
+            futures = {"error": str(exc)[:300]}
+            msg += f" | FUTURES FAILED: {str(exc)[:120]}"
+    _email_engine_session(pt, dep, session, snapshot, shift, gate, futures)
     return "success", msg
+
+
+def _futures_overlay_session(pt, dep, session: dict, plan) -> dict:
+    """The futures leg of a levered paper book (tracker L9, ``kite_connect.trading.futures_overlay``), after
+    the share book has processed the session and planned the next."""
+    import pandas as pd
+
+    from kite_connect.trading import futures_overlay as fo
+    from nse_engine.data.panel import load_market_data
+
+    cfg = fo.OverlayConfig.from_dict(dep.futures_overlay)
+    cloud = pt._get_cloud()
+    ledger = fo.load_ledger(cloud, dep.paper_capital_inr * cfg.reserve_share)
+    day = pd.Timestamp(session["session"])
+    contracts = fo.session_contracts(os.environ.get("ARCHIVE_DIR", "data/nse_engine/archive"), day)
+    target = getattr(plan, "target", None) if plan is not None else None
+    weights = dict(getattr(target, "weights", {}) or {})
+    symbols = sorted(set(weights) | set(ledger.legs) | set(ledger.pending))
+    data = load_market_data(dep.engine.data.store_dir, (day - pd.Timedelta(days=150)).date().isoformat(),
+                            day.date().isoformat(), symbols=symbols, min_median_value_inr=0.0, include_symbols=())
+    dash = pt.dashboard()
+    share_equity = float(dash.current_capital)
+    summary = fo.run_session(
+        ledger, cfg, day, contracts, share_equity=share_equity, share_invested=max(share_equity - float(pt.cash), 0.0),
+        target_weights=weights, traded={o.symbol for o in (plan.orders if plan is not None else [])},
+        spot=fo.spot_inputs(data, day, symbols), sessions=pd.DatetimeIndex(data.dates), rule=dep.drawdown_rule)
+    fo.save_ledger(cloud, ledger)
+    summary["initial"] = float(dep.paper_capital_inr)
+    return summary
 
 
 def _paper_gate(pt, config_hash: Optional[str] = None) -> Optional[dict]:
@@ -659,7 +700,8 @@ def _drift_check_line(pt, shift: dict, plan) -> str:
             f"(runs from session {SHIFT_MIN_LIVE_DAYS + 1}) · size today ×{applied:.2f}")
 
 
-def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict, gate: Optional[dict] = None) -> None:
+def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict, gate: Optional[dict] = None,
+                          futures: Optional[dict] = None) -> None:
     """Daily email for a newly processed session (best-effort).
 
     A re-run of a session already processed (a backup cron or a manual
@@ -699,6 +741,12 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict, g
                               else f"DRAWDOWN RULE re-armed: back to normal (new 60-session equity high)")
                 alert(WARNING, f"drawdown_rule:{book}:{dd_state}", f"Centurion paper [{book}]: drawdown rule {dd_state}",
                       [alerts[-1]], book=book)
+        if futures and futures.get("error"):
+            alerts.append(f"FUTURES LEG FAILED tonight (the share book ran): {futures['error']}")
+            alert(WARNING, f"futures_overlay_failed:{book}", f"Centurion paper [{book}]: futures leg failed",
+                  [alerts[-1]], book=book)
+        elif futures and futures.get("margin_calls"):
+            alerts.append("MARGIN CALL: the futures leg no longer fitted its margin and was cut at the settle")
         sent = NotificationManager().email_engine_daily_report({
             "session": session.get("session"),
             "deployment": f"{dep.status} {dep.engine.config_hash()[:8]} · paper since {dep.paper_start_date}",
@@ -724,6 +772,7 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict, g
             "drawdown_state": dd_state,
             "drift_check": drift_check,
             "paper_gate": gate_line,
+            "futures": futures,
         })
         if not sent:
             logger.warning("Daily email returned False — check CENTURION_EMAIL_USER / CENTURION_EMAIL_PASS / "
@@ -733,6 +782,46 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict, g
 
 
 # ── Weekly checkpoint (Saturday) ──────────────────────────────────────
+
+def _weekly_futures_block(pt) -> tuple:
+    """(html, subject tag) for a levered book's weekly email: the futures ledger's week and its record since the
+    start (tracker L9); ("", "") for the other books."""
+    dep = _load_engine_deployment()
+    if not getattr(dep, "futures_overlay", None):
+        return "", ""
+    try:
+        from kite_connect.trading import futures_overlay as fo
+
+        ledger = fo.load_ledger(pt._get_cloud(), 0.0)
+        if not ledger.history:
+            return "<p style='color:#6b7280;'>Futures leg: no session yet.</p>", ""
+        import pandas as pd
+
+        h = ledger.history
+        this_week = pd.Timestamp(h[-1]["date"]).isocalendar()[:2]
+        week = [r for r in h if pd.Timestamp(r["date"]).isocalendar()[:2] == this_week]
+        start_nav = h[0]["nav"] - h[0]["day_pnl"]
+        wk_ret = h[-1]["nav"] / (week[0]["nav"] - week[0]["day_pnl"]) - 1.0
+        m = fo.metrics(ledger)
+        cell = "padding:6px 12px;border:1px solid #e5e7eb;"
+        rows = [("Book (shares + futures)", f"₹{start_nav:,.0f} → ₹{h[-1]['nav']:,.0f} ({h[-1]['nav'] / start_nav - 1:+.2%})"),
+                ("This week", f"{wk_ret:+.2%} over {len(week)} session(s)"),
+                ("Exposure", f"{h[-1]['exposure']:.2f}x now, {m.get('exposure_mean', 0):.2f}x on average"),
+                ("Margin", f"{h[-1]['margin_pct']:.0%} of the book now, {m.get('margin_mean', 0):.0%} on average; "
+                           f"{m.get('margin_calls', 0)} margin call(s)"),
+                ("Costs since start", f"₹{m.get('costs_total', 0):,.0f} (rolls ₹{m.get('roll_costs_total', 0):,.0f})"),
+                ("Max drawdown", f"{m.get('max_drawdown', 0):.1%}" + (f"; Sharpe {m['sharpe']:.2f}" if "sharpe" in m else "")),
+                ("Contracts held", ", ".join(f"{s} {leg.expiry} x{leg.qty / leg.lot:g}" for s, leg in sorted(ledger.legs.items())) or "none")]
+        html = ("<h3 style='color:#1a1a2e;margin-top:24px;'>Futures leg (paper, L9)</h3>"
+                "<table style='border-collapse:collapse;width:100%;font-size:14px;'>"
+                + "".join(f"<tr><td style='{cell}color:#666;'>{k}</td><td style='{cell}'>{v}</td></tr>" for k, v in rows)
+                + "</table>")
+        return html, f" | book {wk_ret * 100:+.1f}%"
+    except Exception as exc:                          # the weekly email still goes, without the block
+        logger.warning("Weekly futures block failed: %s", exc)
+        return f"<p style='color:#dc2626;'>Futures leg: report failed ({exc}).</p>", ""
+
+
 
 def _weekly_gate_verdict(pt) -> tuple:
     """(verdict, colour, detail) for the weekly email from the stored paper gate (G4)."""
@@ -789,6 +878,7 @@ def _run_weekly_checkpoint(use_engine: bool = False):
 
     # ── Build weekly email HTML ───────────────────────────────────
     dash = pt.dashboard()
+    futures_html, futures_tag = _weekly_futures_block(pt) if use_engine else ("", "")
     week_days = max(_week_session_count(pt, checkpoint), 1)
     pnl_color = "#15803d" if dash.total_pnl >= 0 else "#dc2626"
     wk_color = "#15803d" if checkpoint["week_return_pct"] >= 0 else "#dc2626"
@@ -890,6 +980,7 @@ def _run_weekly_checkpoint(use_engine: bool = False):
           <td style="padding:6px 12px;border:1px solid #e5e7eb;">{dash.max_drawdown_pct:.1f}%</td></tr>
     </table>
 
+    {futures_html}
     {"<h3 style='color:#1a1a2e;margin-top:24px;'>All Weeks</h3>" + chr(10) + "    <table style='border-collapse:collapse;width:100%;font-size:13px;'>" + chr(10) + "      <thead><tr style='background:#f3f4f6;'>" + chr(10) + "        <th style='padding:4px 10px;border:1px solid #e5e7eb;'>Wk</th>" + chr(10) + "        <th style='padding:4px 10px;border:1px solid #e5e7eb;'>Period</th>" + chr(10) + "        <th style='padding:4px 10px;border:1px solid #e5e7eb;text-align:right;'>Return</th>" + chr(10) + "        <th style='padding:4px 10px;border:1px solid #e5e7eb;text-align:right;'>Sharpe</th>" + chr(10) + "        <th style='padding:4px 10px;border:1px solid #e5e7eb;text-align:right;'>Max DD</th>" + chr(10) + "        <th style='padding:4px 10px;border:1px solid #e5e7eb;text-align:right;'>Trades</th>" + chr(10) + "        <th style='padding:4px 10px;border:1px solid #e5e7eb;text-align:right;'>Win Rate</th>" + chr(10) + "      </tr></thead><tbody>" + weeks_rows + "</tbody></table>" if weeks_rows else ""}
 
   </div>
@@ -900,7 +991,7 @@ def _run_weekly_checkpoint(use_engine: bool = False):
 
     tag = _book_tag(_load_engine_deployment()) if use_engine else _book_label()
     label = f"[{tag}] " if tag else ""
-    subject = (f"[Centurion Paper] {label}Week {wk} | {checkpoint['week_return_pct']:+.1f}% | "
+    subject = (f"[Centurion Paper] {label}Week {wk} | {checkpoint['week_return_pct']:+.1f}%{futures_tag} | "
                f"{checkpoint['trades_opened']} opened, {checkpoint['trades_closed']} closed | "
                f"gate {verdict.split(' — ')[0]}")
     sent = NotificationManager._send_html_email(

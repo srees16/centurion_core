@@ -14,13 +14,17 @@ calendar, counted from the first row of the panel) the universe is the
 Between refreshes the last universe is reused, minus symbols with no close on
 the day (suspended or delisted).  Only rows <= the date are read, so the
 result is survivorship-free when the panel contains delisted symbols.
+
+With ``members_only`` (the US panels, tracker US4) a symbol must also be an
+index member that day (``MarketData.members``): chosen among the members at a
+refresh, and out as soon as it leaves the index.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -58,6 +62,15 @@ def _eligible_mask(data: MarketData, cfg: UniverseConfig, exclude: Iterable[str]
     if cfg.exclude_etfs:
         excluded |= set(data.etfs)
     return ~np.asarray(symbols.isin(list(excluded)))
+
+
+def _members(data: MarketData, cfg: UniverseConfig) -> Optional[np.ndarray]:
+    """The point-in-time membership the universe must respect (``members_only``), or None."""
+    if not cfg.members_only:
+        return None
+    if data.members is None:
+        raise ValueError("universe.members_only needs MarketData.members (the US store's index lists)")
+    return data.members.to_numpy(dtype=bool)
 
 
 def _price_reference(data: MarketData, cfg: UniverseConfig) -> pd.DataFrame:
@@ -140,13 +153,15 @@ def compute_universe_panel(data: MarketData, cfg: UniverseConfig, exclude: Itera
     hist = history_counts(close, cfg.history_window_days)
     close_ff = _price_reference(data, cfg).astype("float64").ffill().to_numpy()
     eligible = _eligible_mask(data, cfg, exclude)
+    members = _members(data, cfg)
     mask = np.zeros((n, m), dtype=bool)
     refresh: Dict[pd.Timestamp, List[str]] = {}
     cols = data.close.columns
-    trading = np.isfinite(close)
+    trading = np.isfinite(close) if members is None else np.isfinite(close) & members
     starts = refresh_positions(data.dates, cfg)
     for i, pos in enumerate(starts):
-        idx = _select_at(close_ff[pos], value0, hist[pos], pos, eligible, cfg)
+        idx = _select_at(close_ff[pos], value0, hist[pos], pos,
+                         eligible if members is None else eligible & members[pos], cfg)
         refresh[data.dates[pos]] = [cols[i2] for i2 in idx]
         base = np.zeros(m, dtype=bool)
         base[idx] = True
@@ -174,7 +189,10 @@ def select_universe(
     price_ref = _price_reference(data, cfg).iloc[: pos + 1].to_numpy(dtype="float64")
     value0 = np.nan_to_num(data.value.iloc[: rpos + 1].to_numpy(dtype="float64"), nan=0.0)
     hist = history_counts(close[: rpos + 1], cfg.history_window_days)[rpos]
-    idx = _select_at(_last_valid_row(price_ref[: rpos + 1]), value0, hist, rpos,
-                     _eligible_mask(data, cfg, exclude), cfg)
+    eligible = _eligible_mask(data, cfg, exclude)
+    members = _members(data, cfg)
+    if members is not None:
+        eligible = eligible & members[rpos]
+    idx = _select_at(_last_valid_row(price_ref[: rpos + 1]), value0, hist, rpos, eligible, cfg)
     cols = data.close.columns
-    return [cols[i] for i in idx if np.isfinite(close[pos, i])]
+    return [cols[i] for i in idx if np.isfinite(close[pos, i]) and (members is None or members[pos, i])]

@@ -51,6 +51,14 @@ HISTORY_DAYS = 400
 REAL_MOVES = {
     ("GMCR", "2015-12-07"): "Keurig Green Mountain agreed to be bought by JAB at a 78% premium",
     ("SIVB", "2023-03-09"): "SVB Financial fell 60% the day before its bank failed",
+    # checked 16 Oct (US4): the store drops a Tiingo series with any other move beyond MAX_DAY_MOVE
+    ("GGP", "2008-10-28"): "General Growth Properties +72% in the October 2008 rebound, near bankruptcy",
+    ("GGP", "2008-11-11"): "General Growth Properties -64% on its bankruptcy warning",
+    ("ROH", "2008-07-10"): "Rohm and Haas +64%: Dow agreed to buy it at a 74% premium",
+    ("XL", "2009-02-11"): "XL Capital +61% in the February 2009 insurer rally",
+    ("LMCA", "2014-07-24"): "Liberty Media's Series C share dividend (two C shares per share): a distribution, "
+                            "added back by us_engine.backtest",
+    ("LMCK", "2014-07-24"): "the same day on the Series C spell, which Tiingo prices with the same series",
 }
 #: Pass 2 (US2 step 3): spells pass 1 could not resolve by ticker.  ``direct``: the Tiingo ticker that now
 #: carries the company's history; ``names``: company names to search (a hit's name must contain one);
@@ -73,6 +81,14 @@ PASS2 = {
     # Nasdaq-100 (16 Oct): Yahoo became Altaba (AABA, priced on Tiingo); Randgold's ticker GOLD is Barrick's now
     "YHOO": {"direct": "AABA"}, "GOLD": {"names": ["Randgold Resources"]}, "SHPG": {"names": ["Shire"]},
     "LMCA": {"names": ["Liberty Media Corp"]}, "LMCK": {"names": ["Liberty Media Corp"]},
+    # 2006-12 (16 Oct): listed by the ticker they traded as, not the later OTC one (RSH 1982-2015; MEMC's
+    # history under SUNE, its 2013 name SunEdison)
+    "RSHCQ": {"direct": "RSH"}, "SUNEQ": {"names": ["SunEdison", "MEMC Electronic"], "prefix": "SUNE"},
+}
+#: Spells whose Tiingo series is another company's, checked by hand: left unpriced rather than mispriced.
+NOT_THE_COMPANY = {
+    ("GAS", "1996-01-02"): "Tiingo's GAS is AGL Resources' history (formerly ATG) throughout: 35.82 on "
+                           "2010-06-01, when Nicor traded near 42; Nicor is not carried",
 }
 #: Search hits that are not the common stock.
 NOT_COMMON = ("-P-", "-WS", "-U", "PREFERRED", "DEPOSITARY", "WARRANT", "UNITS", "NOTES", "TRUST PREFERRED")
@@ -332,11 +348,16 @@ def _status(v: Dict) -> str:
     return "resolved" if v["share"] >= COVERED_SHARE and not v["flags"] else ("review" if v["share"] > 0 else "absent")
 
 
-def rejudge(window_start: str = "2013-01-01") -> pd.DataFrame:
-    """Judge every downloaded spell again (split-adjusted, REAL_MOVES applied); no API call."""
+def rejudge() -> pd.DataFrame:
+    """Judge every downloaded spell again (split-adjusted, REAL_MOVES applied); no API call.
+
+    Always over the spell's member days in the store's window (from RESEARCH_ANCHOR), so a verdict does
+    not depend on which pass ran last: judged over 2013-25 only, the spells that ended before 2013 read
+    as absent and the store dropped their prices (16 Oct: AKS, CVG, BRL, CEG ...).
+    """
     res = pd.read_csv(RESOLUTION_PATH, parse_dates=["start", "until"])
-    sessions = _spx_sessions(window_start, WINDOW[1])
-    w0, w1 = pd.Timestamp(window_start), pd.Timestamp(WINDOW[1])
+    sessions = _spx_sessions(RESEARCH_ANCHOR, WINDOW[1])
+    w0, w1 = pd.Timestamp(RESEARCH_ANCHOR), pd.Timestamp(WINDOW[1])
     for i, r in res.iterrows():
         lo = max(r["start"], w0)
         hi = min(r["until"] - pd.Timedelta(days=1), w1) if pd.notna(r["until"]) else w1
@@ -344,24 +365,29 @@ def rejudge(window_start: str = "2013-01-01") -> pd.DataFrame:
         if not path.exists():
             continue
         v = judge(pd.read_parquet(path), sessions[(sessions >= lo) & (sessions <= hi)], r["ticker"])
-        res.loc[i, ["share", "flags", "status"]] = [v["share"], v["flags"], _status(v)]
+        wrong = NOT_THE_COMPANY.get((r["ticker"], r["start"].date().isoformat()))
+        res.loc[i, ["share", "flags", "status"]] = ([0.0, wrong, "absent"] if wrong
+                                                    else [v["share"], v["flags"], _status(v)])
     res.to_csv(RESOLUTION_PATH, index=False)
     return res
 
 
 def fetch_pass2(window_start: str = "2013-01-01", client: Optional[TiingoClient] = None,
                 anchor: str = RESEARCH_ANCHOR) -> pd.DataFrame:
-    """Resolve the PASS2 spells by the Tiingo ticker that carries them now, or by company name."""
-    res = rejudge(window_start)
+    """Resolve the PASS2 spells (those still members on or after ``window_start``) by the Tiingo ticker
+    that carries them now, or by company name; candidates are judged as ``rejudge`` judges."""
+    res = rejudge()
     client = client or TiingoClient()
-    sessions = _spx_sessions(window_start, WINDOW[1])
-    w0, w1 = pd.Timestamp(window_start), pd.Timestamp(WINDOW[1])
+    sessions = _spx_sessions(RESEARCH_ANCHOR, WINDOW[1])
+    w0, w1 = pd.Timestamp(RESEARCH_ANCHOR), pd.Timestamp(WINDOW[1])
     # text; read back all empty it is a float column, which refuses "" (16 Oct: pass 2 stopped on it)
     res["until_part"] = res["until_part"].astype(object) if "until_part" in res.columns else ""
     for i, r in res.iterrows():
         rule = PASS2.get(r["ticker"])
         if rule is None or r["status"] == "resolved" or "pass 2:" in str(r["tried"]):
             continue                                       # resolved, or already searched by name
+        if pd.notna(r["until"]) and r["until"] <= pd.Timestamp(window_start):
+            continue                                       # left before the window asked for
         lo = max(r["start"], w0)
         hi = min(r["until"] - pd.Timedelta(days=1), w1) if pd.notna(r["until"]) else w1
         if rule.get("until"):
@@ -453,6 +479,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     f3 = sub.add_parser("history", help="top up the downloaded spells with the history before them (resumable)")
     f3.add_argument("--anchor", default=RESEARCH_ANCHOR)
     sub.add_parser("migrate", help="rename files saved before 16 Oct to the spell-start key")
+    sub.add_parser("rejudge", help="judge every download again over the store's window (no API call)")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     try:
@@ -471,7 +498,7 @@ def _run(args) -> int:
         print(json.dumps({"files_renamed": migrate()}))
         return 0
     res = (fetch(args.start, union=args.universe == "union") if args.cmd == "fetch"
-           else fetch_pass2(args.start))
+           else rejudge() if args.cmd == "rejudge" else fetch_pass2(args.start))
     print(json.dumps(res["status"].value_counts().to_dict(), indent=2))
     return 0
 

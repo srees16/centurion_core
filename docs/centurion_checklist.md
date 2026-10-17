@@ -120,5 +120,5 @@ assume `centurion_core/` as the working directory and
 | Question | How to check | Pass |
 |---|---|---|
 | Is it on track? | Scorecard (SC1b); live vs backtest Sharpe | Live ≥ 0.85× backtest (core) |
-| Are the new streams progressing? | GT4 / GT5 / GT7 / MV1 verdicts; GT6 combination | Each pre-registered stream has a recorded pass or fail |
+| Are the new streams progressing? | The stream register (golden_target_review.md section 6); GT7 / MV1 verdicts; GT6 once a sleeve passes (GT4, GT5, BD1 failed) | Each pre-registered stream has a recorded pass or fail |
 | Is drawdown inside expectations? | Live MaxDD vs the simulated 95th percentile | Inside; a breach triggers a review |

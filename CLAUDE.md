@@ -39,6 +39,10 @@ data and coding assistants". Read it before changing code. The essentials:
   - Options (buying, selling or writing) are possible for Ind stocks through
     Kite, and impossible for US stocks from a non-US DriveWealth account.
     The DriveWealth route refuses option symbols.
+  - One engine for both: US backtests go through `us_engine.backtest`, which
+    switches on `universe.members_only`, `portfolio.fractional_shares` and
+    `costs.market="US"`. All three default off, so India's config hashes and
+    results never move; keep any new US behaviour behind such a switch.
 - **Tests:** `python -m pytest tests -q -m "not slow"`.
 - **Communication:** be candid when something misses the goal or is
   premature, and keep summaries crisp. Keep `docs/MEMORY_TRACKER.txt`

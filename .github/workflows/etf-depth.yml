@@ -1,0 +1,39 @@
+name: ETF order-book snapshots
+
+# Tracker BD2: measure what debt and liquid ETFs cost to trade, from Kite's five-level order book, before
+# deciding LN-T29's liquid sweep and any second bond round.  A read-only quote call with the day's stored
+# Kite login (daily_login); no orders.  GitHub delivers crons late, so the script skips outside 09:20-15:25 IST
+# and on NSE holidays; four tries a day leave two or three that land in market hours.
+
+on:
+  schedule:
+    - cron: "15 4 * * 1-5"    # 09:45 IST
+    - cron: "45 5 * * 1-5"    # 11:15 IST
+    - cron: "15 7 * * 1-5"    # 12:45 IST
+    - cron: "45 8 * * 1-5"    # 14:15 IST
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: etf-depth
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04   # pinned: ubuntu-latest becomes Ubuntu 26 from 19 Oct 2026
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - run: pip install -r requirements-core.txt "kiteconnect==5.1.0"
+      - name: Snapshot the ETFs' order books
+        env:
+          CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
+          CENTURION_KITE_TOKEN_KEY: ${{ secrets.CENTURION_KITE_TOKEN_KEY }}
+          ZERODHA_API_KEY: ${{ secrets.ZERODHA_API_KEY }}
+        run: python -m nse_engine.etf_costs snapshot
