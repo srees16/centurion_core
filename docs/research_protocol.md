@@ -136,13 +136,17 @@ your decision, parked at OX6.
    launch), and 0.85× for the core (D2).
 3. **Live:** at small size, under the kill switch and the live risk limits.
    A drawdown beyond the simulated 95th percentile triggers a review.
-4. **Leverage:** futures only, at most half-Kelly on a haircut Sharpe of
-   0.7, and only after 12+ months of live tracking (GT8).
+4. **Leverage:**
+   - futures only.  Your call, 17 Oct 2026: MTF was reconsidered and
+     dropped, because its 14.6% interest lowers CAGR and Sharpe, while
+     futures barely do (L6, L11).
+   - up to 1.75x, accepted with a MaxDD of about −40% (17 Oct);
+   - at most half-Kelly on a haircut Sharpe of 0.7;
+   - only after 12+ months of live tracking (GT8).
 
 ## 7. Never
 
 - book-level volatility targeting (scoped: it hurts this book);
-- MTF leverage;
 - naked option selling outside a defined-risk structure;
 - more price signals inside the core (plan 6, item 5);
 - re-tuning a failed configuration;

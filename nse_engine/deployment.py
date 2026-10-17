@@ -65,7 +65,8 @@ STATUS_CANDIDATE = "candidate"
 STATUSES = (STATUS_PLACEHOLDER, STATUS_APPROVED, STATUS_CANDIDATE)
 
 REQUIRED_KEYS = ("engine", "paper_start_date", "status")
-OPTIONAL_KEYS = ("source_run_id", "approved_at", "notes", "data_anchor_date", "risk_overlay", "description")
+OPTIONAL_KEYS = ("source_run_id", "approved_at", "notes", "data_anchor_date", "risk_overlay", "description",
+                 "paper_capital_inr", "futures_overlay")
 ALLOWED_KEYS = frozenset(REQUIRED_KEYS + OPTIONAL_KEYS)
 
 #: Years of archive history synced before paper_start_date on a fresh runner
@@ -98,6 +99,11 @@ class Deployment:
     #: deployment-level overlay, not part of ``engine``: the strategy keeps its
     #: config hash and its recorded trials.  None = no rule.
     drawdown_rule: Optional[DrawdownConfig] = None
+    #: This paper book's capital (rupees); None = the workflow's CENTURION_PAPER_INITIAL_CAPITAL.
+    paper_capital_inr: Optional[float] = None
+    #: A paper book levered with stock futures (tracker L9): the ``futures_overlay`` block, read by
+    #: ``kite_connect.trading.futures_overlay.OverlayConfig``.  Paper only (status candidate).
+    futures_overlay: Optional[Dict[str, Any]] = None
 
     @property
     def is_placeholder(self) -> bool:
@@ -130,6 +136,15 @@ class Deployment:
         if self.drawdown_rule is not None:
             cfg = cfg.replace(**{f"drawdown.{k}": v for k, v in asdict(self.drawdown_rule).items()})
         return cfg
+
+    def share_capital(self) -> Optional[float]:
+        """The share book's paper capital: ``paper_capital_inr``, less the futures reserve when levered."""
+        if self.paper_capital_inr is None:
+            return None
+        if self.futures_overlay:
+            from kite_connect.trading.futures_overlay import OverlayConfig
+            return self.paper_capital_inr * (1.0 - OverlayConfig.from_dict(self.futures_overlay).reserve_share)
+        return self.paper_capital_inr
 
     def data_start(self) -> date:
         """First market-data date to load (the validated anchor when pinned)."""
@@ -233,9 +248,24 @@ def parse_deployment(raw: Any, path: str = "") -> Deployment:
     if not isinstance(description, str):
         raise DeploymentError(f"description{where} must be a string")
     rule = _parse_risk_overlay(raw.get("risk_overlay"), where)
+    capital = raw.get("paper_capital_inr")
+    if capital is not None and (not isinstance(capital, (int, float)) or capital <= 0):
+        raise DeploymentError(f"paper_capital_inr{where} must be a positive number")
+    overlay = raw.get("futures_overlay")
+    if overlay is not None:
+        if not isinstance(overlay, dict):
+            raise DeploymentError(f"futures_overlay{where} must be an object")
+        if status != STATUS_CANDIDATE or capital is None:
+            raise DeploymentError(f"futures_overlay{where} needs status 'candidate' (paper only) and paper_capital_inr")
+        from kite_connect.trading.futures_overlay import OverlayConfig
+        try:
+            OverlayConfig.from_dict(overlay)
+        except (TypeError, ValueError) as exc:
+            raise DeploymentError(f"invalid futures_overlay{where}: {exc}") from exc
     return Deployment(engine=engine, paper_start_date=paper_start, status=status,
                       source_run_id=run_id, approved_at=approved_at, notes=notes, description=description,
-                      path=path, data_anchor_date=anchor, drawdown_rule=rule)
+                      path=path, data_anchor_date=anchor, drawdown_rule=rule,
+                      paper_capital_inr=float(capital) if capital is not None else None, futures_overlay=overlay)
 
 
 def _parse_risk_overlay(raw: Any, where: str) -> Optional[DrawdownConfig]:
@@ -294,7 +324,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     sub.add_parser("show", help="print a validated summary")
     g = sub.add_parser("get", help="print one field")
     g.add_argument("field", choices=["paper_start_date", "bootstrap_start", "data_start", "status", "source_run_id",
-                                     "config_hash", "store_dir"])
+                                     "config_hash", "store_dir", "paper_capital"])
     w = sub.add_parser("write-engine-config", help="write what the book trades as plain EngineConfig JSON "
                                                    "(accepted by runners/run_nse_engine.py --config): the "
                                                    "engine config plus the drawdown overlay")
@@ -315,7 +345,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                  "data_start": dep.data_start().isoformat(),
                  "status": dep.status, "source_run_id": dep.source_run_id or "",
                  "config_hash": dep.engine.config_hash(),
-                 "store_dir": dep.engine.data.store_dir}[args.field]
+                 "store_dir": dep.engine.data.store_dir,
+                 "paper_capital": dep.share_capital() or ""}[args.field]
         print(value)
     else:
         out = Path(args.out)

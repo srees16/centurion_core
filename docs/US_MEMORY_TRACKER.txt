@@ -163,11 +163,25 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
       Sharpe than India + SPY at the same weight.
     Gates are pre-tax, as India's; the after-tax view is reported (UG11).
     The 35% CAGR leg needs India's futures leverage (India tracker L6, GT8).
+  - ON HOLD from 17 Oct (your call): no US activity (analysis, backtests,
+    research, development) until you ask to restart; the effort goes to
+    India.  Kept as they are: the US store, the US registry, the code, the
+    model book in Neon (frozen at the 16 Oct close).
+    The nightly emails are paused too: the US Advisory workflow was
+    disabled on GitHub on 17 Oct, 13:31 IST, after that morning's runs.
+    To resume: gh workflow enable us-advisory.yml.
+  - US-Y7 revised 17 Oct (your view): India and US are independent, and
+    each must reach the golden target on its own.  Candid consequence: a
+    US book that is long-only and unlevered (RBI bars derivatives and
+    margin) needs a live Sharpe of ~1.5 for 35% CAGR within a 35%
+    drawdown; no US long-only fund has a live record above ~1.0.
+    Open: whether to keep the US module against that target, or give it a
+    US-only target.
 
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
-[!] P1  US-Y10 Round 1 failed (US6): the US-A1 emails run rule set A, which
+[x] P1  US-Y10 Answered 17 Oct: emails paused (section 3).  Was: Round 1 failed (US6): the US-A1 emails run rule set A, which
              made 5.6% a year against SPY's 14.6% (2013-25).  US3 adds the
              broker's commission (0.15-0.3% a trade at ~20x turnover) and
              Indian tax: A makes 1-3% a year in INR after both, SPY 17%.
@@ -185,7 +199,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              (b) keep the emails, labelled "fails its backtest";
              (c) stop the US module.
              Either change is a workflow edit that you merge.
-[!] P2  US-Y11 What next for US research: (a) recommended: UG0 (the
+             With the module on hold (17 Oct), the open question is only
+             whether the nightly emails pause too.
+[x] P2  US-Y11 Answered 17 Oct: on hold (section 3).  Was: what next for US research: (a) recommended: UG0 (the
              study), then one new family, pre-registered: UG7, sector-ETF
              dual momentum, which is cheap and has few orders; (b) stop
              researching and keep SPY as the US leg.  US-Y7 holds either

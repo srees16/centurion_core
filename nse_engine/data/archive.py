@@ -10,6 +10,8 @@ fetched only when asked for with ``--kinds fo``, as is ``participant``)::
     root/delivery/2013/mto20130115.dat           security-wise delivery (MTO)
     root/indices/2013/ind20130115.csv            ind_close_all index closes
     root/corpact/2013/bc20130115.csv             corporate actions (Bc file of the PR zip)
+    root/corpact/2008/bc20081031.csv             2006-09: a month of NSE's corporate-actions API in Bc form
+    root/reference/corpact_api/2011-02.json      the API's months as fetched (face-value history)
     root/fo/2013/fo20130115.csv.zip              F&O bhavcopy, legacy (<= 2024-07-05)
     root/fo/2024/udiff_fo20240708.csv.zip        F&O bhavcopy, UDiFF (>= 2024-07-08)
     root/participant/2026/poi20261001.csv        participant-wise F&O open interest (from 2012)
@@ -24,15 +26,21 @@ CLI::
 
     python -m nse_engine.data.archive --start 2012-01-01 --end 2026-09-14 \
         --root data/nse_engine/archive
+    python -m nse_engine.data.archive --start 2006-01-01 --end 2009-12-31 --backfill-corpact
+
+PR zips carry no Bc file before 2010, so ``--backfill-corpact`` takes 2006-09 from NSE's
+corporate-actions API, a month per file, in the Bc file's columns (tracker LN-T28b).
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 import io
 import json
 import logging
 import os
+import re
 import signal
 import sys
 import time
@@ -223,6 +231,112 @@ def looks_valid(content: bytes, local_path: Path) -> bool:
     return not (head.startswith(b"<!doctype") or head.startswith(b"<html"))
 
 
+#: NSE's corporate-actions API (the website's "Corporate Actions" page).  It reaches back past 2010, where
+#: the PR zip has no Bc file.  Its records carry today's symbol and today's face value.
+CORPACT_API = HOME_URL + "/api/corporates-corporateActions?index=equities&from_date={start}&to_date={end}"
+#: Raw API months, kept as fetched: later months give each company's splits, hence its earlier face value.
+CORPACT_API_CACHE = Path("reference") / "corpact_api"
+#: Records whose purpose names a split without its amounts, checked against raw prices (17 Oct 2026): written
+#: without ratios, so the store measures the factor from prices (reference.classify_purpose's hint).
+CORPACT_FIXES = {
+    ("SUNTV", "2007-07-23"): "AGM/BONUS/FV SPLIT/DIV-20%",     # "Agm/Spl/Bon-1:1/Div-20%": close 1758.75 -> 436.60
+    ("NIRMA", "2007-03-14"): "FV SPLIT/INT DIV-80%",           # "Sch-Fv Spl-Int Div-80%": close 331.20 -> 173.35
+}
+BC_HEADER = ["SERIES", "SYMBOL", "SECURITY", "RECORD_DT", "BC_STRT_DT", "BC_END_DT", "EX_DT", "ND_STRT_DT",
+             "ND_END_DT", "PURPOSE"]
+_PERCENT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+#: "Spl-Rs10 To Rs2", "Spl-Rs 5/ To 2/": a face-value split written as "Spl", which the Bc parser reads as
+#: "special" (its Bc files spell splits out), so it is rewritten as "SPLIT RS 10 TO RS 2".
+_SPL_SPLIT_RE = re.compile(r"(?<![A-Z])SPL\W*(?:FROM\W*)?R[SE]\.?\s*(\d+(?:\.\d+)?)\W*TO\W*(?:R[SE]\.?\s*)?"
+                           r"(\d+(?:\.\d+)?)", re.IGNORECASE)
+
+
+def _api_date(value: Optional[str]) -> Optional[date]:
+    try:
+        return datetime.strptime(str(value).strip(), "%d-%b-%Y").date()
+    except (TypeError, ValueError):
+        return None
+
+
+def _bc_date(value: Optional[str]) -> str:
+    """The API's '27-Oct-2006' as a Bc file's '27/10/2006' ('' when absent)."""
+    d = _api_date(value)
+    return d.strftime("%d/%m/%Y") if d else ""
+
+
+def bc_purpose(subject: str, face_value: Optional[float]) -> str:
+    """The API's purpose with dividends stated as a share of face value ("Final Dividend-200%") written in
+    rupees a share ("Final Dividend-RS 10.00 PER SHARE"), as Bc files state them; anything else unchanged."""
+    text = re.sub(r"\s+", " ", str(subject or "")).strip()
+    text = _SPL_SPLIT_RE.sub(lambda m: f"SPLIT RS {m.group(1)} TO RS {m.group(2)}", text)
+    try:
+        face = float(face_value)
+    except (TypeError, ValueError):
+        return text
+    if "DIV" not in text.upper() or face <= 0:
+        return text
+    return _PERCENT_RE.sub(lambda m: f"RS {float(m.group(1)) / 100.0 * face:.2f} PER SHARE", text)
+
+
+def face_value_history(records: Iterable[dict]) -> Dict[str, List[Tuple[date, float]]]:
+    """{today's symbol: [(ex-date, face value before it), ...]} from the splits and consolidations in API
+    records ("Face Value Split From Rs.10/- To Rs.5/-": Rs 10 until that ex-date)."""
+    from nse_engine.data.reference import _CONSOL_RE, _SPLIT_RE
+
+    out: Dict[str, List[Tuple[date, float]]] = {}
+    for r in records:
+        day = _api_date(r.get("exDate"))
+        text = str(r.get("subject", "")).upper()
+        pairs = _SPLIT_RE.findall(text) + _CONSOL_RE.findall(text)
+        if day and pairs and r.get("symbol"):
+            out.setdefault(r["symbol"].upper(), []).append((day, float(pairs[0][0])))
+    return {k: sorted(set(v)) for k, v in out.items()}
+
+
+def face_value_on(symbol: str, day: date, current: Optional[float],
+                  history: Dict[str, List[Tuple[date, float]]]) -> Optional[float]:
+    """Face value on ``day``: what it was before the first later split or consolidation, else today's."""
+    for when, before in history.get(symbol.upper(), []):
+        if when > day:
+            return before
+    return current
+
+
+def symbol_on(symbol: str, day: date, changes) -> str:
+    """The symbol a company traded under on ``day``, from today's, back through ``symbolchange.csv``."""
+    sym = symbol.upper()
+    for _ in range(10):
+        later = changes[(changes["new"] == sym) & (changes["date"].dt.date > day)]
+        if later.empty:
+            return sym
+        sym = later.sort_values("date").iloc[-1]["old"]
+    return sym
+
+
+def corporate_action_bc(records: Iterable[dict], history: Dict[str, List[Tuple[date, float]]],
+                        changes) -> bytes:
+    """API records as the bytes of a Bc file: each under the symbol of its ex-date, its percentage
+    dividends at the face value of that date."""
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(BC_HEADER)
+    for r in records:
+        ex = _api_date(r.get("exDate"))
+        if not ex or not r.get("symbol"):
+            continue
+        try:
+            current = float(r.get("faceVal"))
+        except (TypeError, ValueError):
+            current = None
+        face = face_value_on(r["symbol"], ex, current, history)
+        subject = CORPACT_FIXES.get((r["symbol"].upper(), ex.isoformat()), r.get("subject", ""))
+        w.writerow([r.get("series") or "EQ", symbol_on(r["symbol"], ex, changes), r.get("comp") or "",
+                    _bc_date(r.get("recDate")), _bc_date(r.get("bcStartDate")), _bc_date(r.get("bcEndDate")),
+                    ex.strftime("%d/%m/%Y"), _bc_date(r.get("ndStartDate")), _bc_date(r.get("ndEndDate")),
+                    bc_purpose(subject, face)])
+    return out.getvalue().encode()
+
+
 def atomic_write(path: Path, content: bytes) -> None:
     """Write bytes to ``path`` via a temp file in the same directory."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -396,6 +510,55 @@ class BhavcopyArchive:
             self.save_missing()
         return counts
 
+    def _corporate_actions_month(self, month: date) -> Optional[list]:
+        """One month of NSE's corporate-actions API, from the cache or fetched (None on failure)."""
+        cache = self.root / CORPACT_API_CACHE / f"{month:%Y-%m}.json"
+        if cache.exists():
+            return json.loads(cache.read_text())
+        month_end = (month.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+        status, content = self.fetch(CORPACT_API.format(start=f"{month:%d-%m-%Y}", end=f"{month_end:%d-%m-%Y}"))
+        try:
+            records = json.loads(content) if status == 200 else None
+        except ValueError:
+            records = None
+        if isinstance(records, dict):
+            records = records.get("data")
+        if not isinstance(records, list):
+            logger.error("corporate actions %s: status %s, no records", f"{month:%Y-%m}", status)
+            return None
+        if month_end < date.today() - RECENT_GRACE:          # a month still open is fetched again next time
+            atomic_write(cache, json.dumps(records).encode())
+        return records
+
+    def backfill_corporate_actions(self, start: DateLike, end: DateLike,
+                                   history_end: Optional[DateLike] = None) -> Dict[str, int]:
+        """Months ``start``..``end`` of NSE's corporate-actions API as Bc files, ``corpact/<year>/bc<month
+        end>.csv`` (rewritten).  The API's months up to ``history_end`` (default today) give the face values;
+        ``symbolchange.csv`` the symbols of the time.  Returns records written per month."""
+        from nse_engine.data.reference import load_symbol_changes
+
+        def months(a: date, b: date):
+            m = a.replace(day=1)
+            while m <= b:
+                yield m
+                m = (m.replace(day=28) + timedelta(days=4)).replace(day=1)
+
+        first, last = to_date(start), to_date(end)
+        everything = {m: self._corporate_actions_month(m)
+                      for m in months(first, to_date(history_end) if history_end else date.today())}
+        missing = [f"{m:%Y-%m}" for m, recs in everything.items() if recs is None]
+        if missing:
+            raise RuntimeError(f"corporate actions not fetched for {missing}: rerun to resume")
+        history = face_value_history(r for recs in everything.values() for r in recs)
+        changes = load_symbol_changes(self.root)
+        out: Dict[str, int] = {}
+        for m in months(first, last):
+            month_end = (m.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+            atomic_write(self.root / "corpact" / str(m.year) / f"bc{month_end:%Y%m%d}.csv",
+                         corporate_action_bc(everything[m], history, changes))
+            out[f"{m:%Y-%m}"] = len(everything[m])
+        return out
+
     def sync_reference(self) -> Dict[str, int]:
         """Download reference lists (always refreshed). Returns bytes per file."""
         out: Dict[str, int] = {}
@@ -424,11 +587,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                    help=f"comma list; also {FO_KIND!r} (F&O bhavcopy), {PARTICIPANT_KIND!r} (participant OI)")
     p.add_argument("--rps", type=float, default=2.0)
     p.add_argument("--no-reference", action="store_true")
+    p.add_argument("--backfill-corpact", action="store_true",
+                   help="corporate actions from NSE's API (for 2006-09, before PR zips carry a Bc file)")
     args = p.parse_args(argv)
     # SIGTERM -> SystemExit so the holidays manifest is flushed in ``sync``.
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     archive = BhavcopyArchive(args.root, requests_per_second=args.rps)
+    if args.backfill_corpact:
+        logger.info("corporate actions: %s", json.dumps(archive.backfill_corporate_actions(args.start, args.end)))
+        return 0
     if not args.no_reference:
         logger.info("reference: %s", archive.sync_reference())
     counts = archive.sync(args.start, args.end, kinds=[k for k in args.kinds.split(",") if k])

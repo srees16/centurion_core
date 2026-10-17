@@ -2928,6 +2928,135 @@ becomes:
 The verdict stands: FAIL, by a wider margin. The runs are not re-recorded.
 Future US backtests charge the commission (`us_engine.costs.BROKERS`).
 
+## 5ae. L7: 1.75x built from real NSE stock futures (India tracker L7; pre-registered 17 Oct 2026, 16:40 IST)
+
+**Question.** L6 levered the whole book synthetically, at rf + 1%. Real
+stock futures differ in four ways:
+- they exist for only part of the book (about 31% of its weight in 2021);
+- they trade in whole lots (median about Rs 6.5 lakh);
+- they carry their own basis and roll monthly;
+- they need margin, half of it in cash.
+
+Does a book built from real contracts keep L6's 1.75x result?
+
+- **Family:** leverage (new), registry `data/nse_engine/runs_leverage`. This
+  round uses 2 configurations: N goes from 0 to 2.
+- **Inputs:**
+  - the recorded walk-forward out-of-sample positions 2017–25 (runs of
+    `wf_stitched_r12a5`: the K5 deployed family, RR2 data, cost model 4;
+    each fold starts from cash);
+  - spot prices from the main store (dab49d3c);
+  - stock futures from the F&O store (13bb08a45e61d147), 2013–25 only; 2026
+    stays sealed;
+  - corporate-action factors from the store; NSE adjusts futures on a
+    bonus or split ex-date by the same factor.
+- **Common rules:**
+  - Target: 1.75x the book's exposure. The drawdown rule (20/30/35, half
+    0.5, re-arm 60) runs on the levered NAV and scales every target.
+  - Contracts: the near month, rolled at the close 3 sessions before
+    expiry.
+  - Trading days: a name is resized only when the book trades it, on a roll,
+    or when the rule changes state.
+  - Fills: whole lots, the nearest number. A trade fills at a synthetic
+    open, the previous futures close x spot open / spot previous close (A:
+    the F&O store has no opens). Positions are marked to the futures settle
+    daily, with mark-to-market in cash.
+  - Margin per name: clip(3.5 x 60-day daily volatility + 0.05, 0.20,
+    0.50) of notional (A: no SPAN history).
+  - Collateral: cash plus pledged shares at 85% (A: a 15% haircut).
+  - Cash must cover at least half the margin (SEBI's cash rule), plus a
+    buffer of 5% of NAV (A).
+  - A shortfall at a close cuts the futures pro rata that day, counted as
+    a margin call.
+  - Costs, futures: `kite_connect.options.fno_costs.futures_charges` (Rs 20
+    an order, STT on sells, exchange, SEBI, stamp, GST), plus impact from
+    `nse_engine.costs` on the contract's 20-day median traded value.
+  - Costs, cash shares: `nse_engine.costs`.
+  - Idle cash earns nothing (cost model 4).
+- **Configurations:**
+  - **L7-A, overlay.** The cash book as recorded, scaled down only as far
+    as the cash rule needs. Extra futures exposure, (L - 1) x the book's
+    exposure, is spread over the book's F&O names in proportion to their
+    weights.
+  - **L7-B, replace.** F&O names are held only through futures, at L x
+    their weight. Other names are held in cash at L x their weight, as far
+    as collateral allows, cut pro rata when it does not.
+- **Capital:** Rs 2 crore for the gate. Rs 1 crore, Rs 5 crore and
+  fractional lots are reported as diagnostics, not trials.
+- **Pass,** per configuration, at Rs 2 crore over 2017–25:
+  - CAGR within 2 points of L6's 35.9% (>= 33.9%);
+  - MaxDD within 3 points of L6's -39.1% (>= -42.1%).
+
+  A pass leads to L9 (the futures paper book). If both fail, the
+  real-contract route cannot deliver 1.75x at this capital; the result
+  states what it does deliver.
+- **Reported:**
+  - leverage reached (mean and range) and the share of exposure in futures;
+  - the largest single-name weight;
+  - basis (carry) and roll costs a year;
+  - margin calls and the cash used for margin;
+  - tracking error against L6's synthetic series.
+- **Environment (A):** this Mac. The inputs are recorded positions and price
+  files; no engine decisions run, so the result is plain arithmetic. All
+  of the family's trials run here.
+- **Code:** `nse_engine/futures_book.py` (`python -m nse_engine.futures_book
+  l7`).
+- **Clarifications (17 Oct, 17:05 IST, before any recorded run):** debugging
+  runs on 2017 only, unrecorded, settled three points.
+  - The cash buffer applies only while futures are held. With that, the
+    overlay at 1.0x reproduces the recorded book exactly (largest daily gap
+    1.7e-16).
+  - The equity impact model charges 6–8 bp a leg on liquid stock futures,
+    so a monthly roll costs about 16 bp of notional. The gate keeps the
+    model as pre-registered. A run with a 1 bp floor and a 10 bp
+    coefficient is reported as a diagnostic, not a trial.
+  - Exposure reached: about 1.5x in L7-A (1.75 x the book's gross of
+    about 0.86) and about 1.3x in L7-B. The F&O share of the book limits
+    L7-B.
+
+**Result (17 Oct 2026): FAIL, both.** Runs are in `runs_leverage`
+(recorded 17 Oct, this Mac). Figures are 2017–25 at Rs 2 crore, Sharpe over
+6.5%.
+
+| | CAGR | Sharpe | MaxDD | Calmar | Average exposure | In futures | Futures + roll costs a year |
+|---|---|---|---|---|---|---|---|
+| L6 synthetic 1.75x | 35.9% | 1.25 | −39.1% | 0.92 | 1.50x | | 0.75% carry |
+| L7-A overlay | 29.6% | 0.98 | −40.0% | 0.74 | 1.38x | 0.66 | 2.0% + 2.4% |
+| L7-B replace | 26.2% | 1.09 | −34.7% | 0.75 | 1.15x | 0.39 | 1.3% + 1.2% (cash legs 8.4%) |
+
+- **What the runs say:**
+  - Real contracts cost L6's 1.75x about 6 points of CAGR and 0.27 of
+    Sharpe.
+  - Most of the loss is cost: monthly rolls and resizing each name when
+    the book trades it, about 4.4% of NAV a year, which grows as the book
+    grows. The rest is the exposure the cash rule leaves short.
+  - Lot rounding barely matters at Rs 2 crore: fractional lots give 29.7%.
+- **Concentration:** about 31% of the book's weight has stock futures, so
+  the overlay loads its extra exposure onto those names. One contract
+  reached 35% of NAV. The overlay's cash rule sold slices of the book 71
+  times.
+- **L7-B** reaches only 1.15x. Collateral caps the cash legs, and at Rs 2
+  crore the mid-cap legs pay realistic impact: 8.4% of NAV a year.
+- **Diagnostics (not trials):**
+  - L7-A at Rs 1 crore: 31.0% / 1.03 / −39.0%;
+  - L7-A at Rs 5 crore: 27.6% / 0.92 / −39.8%;
+  - L7-A with a 1 bp futures spread: 33.3% / 1.11 / −39.7%, still 0.6
+    points short of the gate;
+  - L7-B at Rs 1 crore: 27.5% / 1.20 / −32.4%.
+- **Caveat:** the overlay's cash book and L6 both use the walk-forward's
+  runs, which were sized at Rs 5 lakh. At Rs 2 crore the book's own
+  impact would be higher, so both read somewhat high; L7-B shows the
+  effect.
+- **What carries forward:**
+  - The real-contract route delivers about 29–31% CAGR at Rs 1–2 crore,
+    with Sharpe about 1.0 and MaxDD about −40%, over 2017–25. That is not
+    35%.
+  - L9 (the futures paper book) was gated on a pass and does not start by
+    rule. Running it anyway is your call.
+  - The family has one configuration left. The visible lever is cost:
+    resize only on weekly rebalance days, with a one-lot band, and roll
+    into the second month. That would be pre-registered first.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast

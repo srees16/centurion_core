@@ -171,11 +171,23 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
  10 Leverage   permitted and operable via MTF (L4: Group I stocks, auto-
                pledge with DDPI, API product MTF), but at 14.6%/yr funding
                each 0.1x adds 0.5-0.75 CAGR pts for ~3 pts MaxDD and -0.05
-               Sharpe.  NO-GO for now.  Futures overlay closed (L2).
+               Sharpe.  17 Oct (U36): 1.75x is accepted, with MaxDD to about
+               -40%, by futures (L7-L10, ~Rs 2 crore); MTF dropped (L11).
+               NIFTY futures overlay closed (L2).
 
 --------------------------------------------------------------------------------
  3. DECISIONS TAKEN (27 Sep)
 --------------------------------------------------------------------------------
+  U36  (17 Oct) Your four calls:
+       - Leverage: 1.75x is accepted, with MaxDD to about -40%; hedging the
+         drawdown comes later.
+       - MTF: "MTF never" came from Claude's L4/L5 advice, not your rule.
+         After a re-look (L11) you dropped MTF the same day: futures give
+         more CAGR and Sharpe and a smaller drawdown.  Leverage is futures
+         only.
+       - The options bridge (OX) is promoted from P3 to P1.
+       - The US module is on hold until the India module matures.
+                                                     -> L10, L11, OX, US tracker
   G4ref (10 Oct) The live book's G4 gate judges live against a backtest
        that fills as live's orders do (LN-T21); the model's fills at the open
        are scored beside it, for information.  Decided before D3's first
@@ -435,6 +447,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
     R14 MON100 sleeve: FAIL 1 Oct (CAGR 22.8%, Sharpe flat; see DONE).
     No research item left adds CAGR; 1 configuration of the trial budget
     remains, held for anything the paper books reveal.
+ PRIORITY FROM 17 OCT (U36): the OPTIONS PLAN (OX, section 7) is P1; OX1,
+ the chain recorder, starts first.  Leverage (1.75x accepted) follows the
+ LEVERAGE PLAN (L7-L11).
  LEAN PLAN (LN1, docs/lean_review.md): LN-T1..T10 and T12..T16 done 10
  Oct (LN-T2's account steps are ST2); LN-T11 waits for ST2's answer.
 [ ] P1  CK1  Run the health checklist, docs/centurion_checklist.md (your
@@ -563,8 +578,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                  412 functions; after filters, 75 non-strategy candidates
                  (1,083 lines); 17 strategy items and 2 ORM models kept.
                                                               Prompt: do H3b
- NOT DOING  leverage (L4/E3: 25% only with Sharpe < 1.2, Calmar down),
-            parameter grids (near-duplicate trials), core risk share up
+ NOT DOING  parameter grids (near-duplicate trials), core risk share up
             (measured: Sharpe 1.03, MaxDD -34%), a NIFTY sleeve (R5: +0.5
             pt at most), more ETF sleeves (R14: funded from the core),
             anything to "lower PBO" (gamed by junk trials).
@@ -572,8 +586,34 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  7. BACKLOG (after the queue)
 --------------------------------------------------------------------------------
-[ ] P3  OX   Options execution bridge (your call 11 Oct: low priority; revisit
-             once the rest of the setup is robust and reliable).  Why: the
+ OPTIONS PLAN (OX).  P1 from 17 Oct (your call, U36; it was P3 by your call
+ of 11 Oct).  Goal: a defined-risk options sleeve uncorrelated with the
+ core, the one visible route to the golden target's Sharpe.
+ - Candid: +0.25-0.4 of Sharpe is what the target needs, not a measured
+   gain.  Rounds O2-O9 (17 configurations) all failed on end-of-day
+   closes; the bridge makes a fair test possible, and the sleeve may still
+   fail.
+ - Stages, each gated as plan 5v and the research protocol (options
+   family, <= 3 configurations a source):
+   1 Data, now to Dec 2026: OX1 chain recorder (start first: it is the
+     forward record for out-of-sample tests and paper); OX2 historical
+     intraday data (vendor and cost: your call, Nov); OX3 margin model;
+     OP1 model marks.
+   2 Backtest, Jan-Feb 2027: pre-registered rounds on synchronous prices,
+     on Kaggle.  Gate 1: DSR at the options N.  Gate 2, beside the live
+     book: CAGR, Sharpe and alpha up, MaxDD within 2 points.  Window: what
+     OX2 provides, likely 2019-25, which needs a protocol clarification
+     (no intraday option data for 2013-18).
+   3 Out of sample, Feb-Mar 2027: walk-forward for anything fitted; the
+     2026 holdout opened once for a passer.
+   4 Paper, Mar-Jun 2027: OX4 execution layer and a scheduled options
+     paper book; >= 60 sessions and >= 6 expiry cycles, tracked G4-style
+     (fills vs mid, margin used, costs).
+   5 Live at small size from ~Jul 2027, under the kill switch.
+ - Also the home of the drawdown hedge you deferred (U36): a
+   pre-registered NIFTY put-spread tail-hedge round, once OX3 can size it.
+[ ] P1  OX   Options execution bridge (P1 from 17 Oct; was low priority by
+             your call of 11 Oct).  Why: the
              five books (O5-O9) assume synchronous bid/ask prices, intraday
              risk control, broker-feasible margin and many underlyings;
              Centurion has end-of-day closes, end-of-day actions and NIFTY
@@ -583,35 +623,35 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              Not bridgeable under the current rules: market making / spread
              capture, intraday delta hedging, leverage finer than whole lots
              (one NIFTY lot ~Rs 15 lakh notional).  Steps, cheapest first:
-[ ] P3  OX1  Chain recorder: NIFTY (later SENSEX) option chain ~3 snapshots a
+[ ] P1  OX1  Chain recorder: NIFTY (later SENSEX) option chain ~3 snapshots a
              day from Kite quotes (5-level bid/ask, OI, our IV) into our own
              store; records only, never trades; needs the daily login.  Its
              value grows with time, so start it first when OX resumes.
-[ ] P3  OX2  Expired-option minute data 2019-25 (ICICI Breeze, reported ~3
+[ ] P1  OX2  Expired-option minute data 2019-25 (ICICI Breeze, reported ~3
              years down to seconds; or Dhan HQ; Upstox reported unreliable;
              paid NSE vendors TrueData / Global Datafeeds for tick bid/ask).
              Kite has none for expired options.  Verify coverage and cost,
              then rebuild the options backtests on synchronous 15:15 prices:
              the root fix for OP1's stale marks.
-[ ] P3  OX3  Margin model (was OP2): Kite's basket-margin API live, NSE's daily
+[ ] P1  OX3  Margin model (was OP2): Kite's basket-margin API live, NSE's daily
              SPAN risk-parameter files for history; size every structure
              within broker margin, not only maximum loss (O6-A's calendars
              reached ~Rs 5.1 crore notional on Rs 7.5 lakh).
-[ ] P3  OX4  Execution layer: limit orders anchored on the mid with a bounded
+[ ] P1  OX4  Execution layer: limit orders anchored on the mid with a bounded
              walk, no fills in the opening minutes (options have no opening
              auction), server-side GTT stops on option legs (they trigger
              without a login), and a scheduled options paper book.
 [ ] P3  OX5  Breadth: NIFTY weeklies (data in hand) and BSE SENSEX weeklies
              (needs BSE F&O bhavcopies; Kite trades BFO).  Stock options stay
              capital-blocked (Rs 5-15 lakh lots, physical settlement).
-[ ] P3  OX6  After OX1-OX4: re-test the books' ideas where data was binding -
+[ ] P1  OX6  After OX1-OX4: re-test the books' ideas where data was binding -
              Natenberg's implied-vs-forecast volatility trades, calendars,
              defined-risk weekly credit spreads held overnight - as new
              pre-registered rounds.  Decide then (yours): judge overlays on
              gate 2 plus a significance test on the Sharpe improvement
              instead of standalone DSR at raw N (DSR >= 0.95 at N = 17 needs
              an observed Sharpe of ~0.9 over 13 years).
-[ ] P3  OP1  Options engine: mark an untraded or thin leg at a model price from
+[ ] P1  OP1  Options engine: mark an untraded or thin leg at a model price from
              its own expiry's smile, not its stale last close (O6-A's Jan
              2018 call: 251.0 then 337.75 with spot up).  Mark noise
              inflates multi-expiry volatility and fools gate 2's CAGR /
@@ -658,7 +698,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
  - What this plan tests is what leverage adds: the cost, the mechanics and
    the drawdown path of building 1.75x from stock futures.
  - Order: history, then a forward record, then a futures paper book, then
-   a decision.  MTF stays barred (research protocol section 7).
+   a decision.  Futures only: MTF was dropped on 17 Oct (U36, L11).
 [x] P2  L7a  2026 holdout, one look (done 16 Oct, not a trial): L6's model on
              the deployed book's recorded holdout (1 Jan-11 Sep, 172
              sessions, opened 15 Sep):
@@ -667,7 +707,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              Levered, the drawdown rule would have reached halt at -20% (no
              new entries; not modelled), never half.  The holdout was
              recorded on pre-B1 data (cost model 1), as opened.
-[ ] P2  L7   Futures-built 1.75x on history, Nov 2026.  Pre-registered first
+[x] P2  L7   DONE 17 Oct: FAIL, both (section 8; plan 5ae).  Was:
+             Futures-built 1.75x on history, Nov 2026.  Pre-registered first
              (validation plan): family "leverage", registry runs_leverage,
              at most 2 configurations.  Input: the walk-forward's recorded
              daily positions 2017-25 (K5 deployed family, RR2), mapped onto
@@ -703,7 +744,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                bootstrap band, not on Sharpe (a 60-session Sharpe has a
                standard error of ~2).
              Small.                                     Prompt: do L8
-[ ] P3  L9   Futures paper book (GT8's mechanics), Feb-Jul 2027.  Needs L7
+[~] P1  L9   BUILT 17 Oct, your call to run it despite L7's FAIL (section 8):
+             the futures paper book, starts on the first session after you
+             merge.  Was: Futures paper book (GT8's mechanics), Feb-Jul 2027.  Needs L7
              PASS and comes after V3 and D3.  Paper only, never live, at a
              notional Rs 2 crore on Kite quotes:
              - stock futures for eligible names, cash for the rest;
@@ -719,9 +762,27 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              - capital >= Rs 2 crore (stock futures lots), or Rs 1 crore if
                L7 shows partial leverage works;
              - L7 and L9 pass, and L8's drawdowns stay inside L6's band;
-             - your call on the cap.  GT8 caps leverage at 1.25x until the
-               Sharpe nears 1.4.  1.75x means accepting P(MaxDD > 35%) ~43%,
-               and a 2008-type loss of 37-49%.         Prompt: do L10
+             - the cap: answered 17 Oct (U36).  You accept 1.75x, and with
+               it P(MaxDD > 35%) ~43% and a 2008-type loss of 37-49%.
+                                                        Prompt: do L10
+[x] P2  L11  DROPPED 17 Oct (your call): futures only.  Was: MTF route (the
+             only route at the ladder's capital).  1.75x
+             on the walk-forward with MTF's 14.6% interest and its charges
+             (Rs 23.60 an order, Rs 17.70 a pledge):
+                                     CAGR   Sharpe   MaxDD   Calmar
+               2017-25, at Rs 30L    29.4%   1.02   -42.1%    0.70
+               2008-25, at Rs 30L    21.3%   0.79   -41.5%    0.51
+               futures, 2017-25      35.9%   1.25   -39.1%    0.92
+             - MTF adds about 6 points of CAGR and never adds Sharpe, since
+               its interest exceeds the 6.5% risk-free rate.
+             - At Rs 6 lakh, the charges cost about 0.6 points more.
+             Steps:
+             - check the book's names are MTF-eligible (Group I);
+             - a paper book with interest accrual, pledges (DDPI), margin
+               calls and the 80% square-off;
+             - then live, under protocol 6.4's live-tracking condition
+               (12 months: keep it or shorten it, your call).
+                                                        Prompt: do L11
 [ ] P3  GT9  Costs and tax: staggered rebalance tranches and wider exit
              bands (core family, one configuration, after V3); 20% STCG
              takes ~5 pts a year.
@@ -742,7 +803,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 [ ] P3  LN-T21b Phase 1 of LN-T21, deferred (your call 10 Oct): paper fills
              record would_fill_live (open / at_limit / unfilled) from the
              session's bar; needs a paper_fills column (Neon and SQLite).
-[ ] P3  LN-T28b Optional, from LN-T28: import the ~17 missed 2006-09 bonus /
+[x] P3  LN-T28b DONE 17 Oct (section 8).  Was: Optional, from LN-T28: import the ~17 missed 2006-09 bonus /
              demerger events (and dividends) into store_ext2006, rebuild it,
              run refresh-registry --dry-run.  Only after a source covering
              2006-09, delisted names included, is confirmed; keep the 35%
@@ -795,6 +856,119 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+17 Oct  L9   Futures paper book built (your idea: a Rs 2 crore paper book with
+             futures, emails as the other books, real money only after full
+             validation; uncommitted).
+             - Rs 2 crore in paper: possible.  A paper book is simulated on
+               NSE's daily files, with no broker money, so capital is only a
+               setting.  At Rs 2 crore the share book meets the participation
+               cap and impact in mid-caps, which is what we want measured.
+             - config/nse_engine_futures.json (status candidate: live
+               refused):
+               - the deployed rules and drawdown rule;
+               - shares at Rs 1.6 crore, plus Rs 40 lakh futures cash for
+                 margin;
+               - futures on the book's F&O names for 1.75x its exposure
+                 (plan 5ae's L7-A overlay).
+               - Paper start 21 Oct; set it to your first session after the
+                 merge.
+             - kite_connect/trading/futures_overlay.py, the futures ledger
+               (JSON in the book's Neon paper_state), each night:
+               - fills at the real futures open from NSE's F&O bhavcopy;
+               - NSE's bonus / split adjustment;
+               - mark-to-market at the settle;
+               - rolls 3 sessions before expiry;
+               - the drawdown rule on shares + futures;
+               - whole lots, margin half in cash, and margin calls.
+             - Captured each session: the book's NAV, shares and futures
+               cash, futures P&L, costs and rolls, notional, exposure,
+               margin, contracts, the largest contract, the premium held over
+               spot, rule state; every fill.
+             - Daily email: a "Futures leg" section (fills at the open, rolls,
+               queued, held), with subject "book Rs X (+y%) at 1.62x".
+             - Weekly email: a futures block.  The Saturday comparison scores
+               the book on shares + futures.  Alerts on a margin call and on
+               a failed futures step.
+             - Workflow: syncs the F&O bhavcopy when a futures book exists;
+               each book's own capital for its reference backtest.  Other
+               books are unchanged (no paper_capital_inr: the shared
+               capital).
+             - Checked:
+               - an offline replay over Oct-Dec 2025 (61 sessions, 65 fills,
+                 43 rolls) broke no invariant (fills at the open, cash
+                 identity, whole lots, rolled in time, cash >= half the
+                 margin);
+               - exposure averaged 1.68x and margin 19% of the book;
+               - emails rendered from samples; fast suite 221.
+             - Duration: at least 6 monthly expiries (~125 sessions, to about
+               Apr 2027) for mechanics.  The decision on real money comes no
+               earlier than Dec 2027 (protocol 6.4: 12 months of the core's
+               live record).
+             - Before real money:
+               - a futures dry run through Kite (NFO orders and Kite's real
+                 margins: L9b, to build);
+               - the 2026 holdout for the futures family (L7), opened once:
+                 your call;
+               - capital of about Rs 1-2 crore.
+             - Known limits:
+               - margin is a volatility proxy, not SPAN (Kite margins in
+                 L9b);
+               - the share book keeps its own drawdown rule on its own
+                 equity; the book's rule cuts only the futures;
+               - the web Trade Center shows this book's shares, not its
+                 futures yet.
+17 Oct  L7   1.75x from real NSE stock futures (your ask: real contracts, not
+             leverage on the whole book): FAIL, both configurations (plan
+             5ae, pre-registered 16:40 IST).  The positions are the
+             walk-forward's own (2017-25), at Rs 2 crore:
+                                     CAGR   Sharpe   MaxDD   avg exposure
+               L6 synthetic 1.75x    35.9%   1.25   -39.1%    1.50x
+               L7-A overlay          29.6%   0.98   -40.0%    1.38x
+               L7-B replace          26.2%   1.09   -34.7%    1.15x
+             - Costs: rolls and resizing take about 4.4% of NAV a year.
+             - Concentration: about 31% of the book has stock futures; one
+               contract reached 35% of NAV.
+             - Shortfall: the cash rule leaves the exposure short.
+             - Diagnostics (not trials):
+               - 1 bp futures spread: 33.3% / 1.11 / -39.7%;
+               - Rs 1 crore: 31.0%; Rs 5 crore: 27.6%;
+               - fractional lots: 29.7%.
+             - What it delivers: about 29-31% CAGR, Sharpe ~1.0, MaxDD ~-40%.
+             - L9 is blocked by rule.  One configuration is left in the
+               family, the cost lever: weekly-only resizing, a one-lot band,
+               second-month rolls.
+             Code: nse_engine/futures_book.py (python -m nse_engine.futures_book
+             l7).  Registry runs_leverage.  Journal: experiment L7 FAIL.
+17 Oct  LN-T28b 2006-09 corporate actions and dividends imported (your ask).
+             - Source: NSE's corporate-actions API, which reaches back past
+               2010, where the PR zips have no Bc file.
+               - python -m nse_engine.data.archive --backfill-corpact writes
+                 them as Bc files.
+               - Dividends given as a % of face value are converted at the
+                 face value of the time, rebuilt from later splits.
+               - Today's symbols are mapped back with symbolchange.csv.
+               - "Spl-Rs10 To Rs2" is read as a split.
+               - Two price-checked fixes: SUNTV 2007, NIRMA 2007.
+             - Result:
+               - 5,823 rows: 306 share-count events and ~1,000 dividends a
+                 year;
+               - known gaps now adjust (ONGC 2006-10-27: -31.6% -> +2.6%;
+                 EIHOTEL, KPIT, SUNTV, NIRMA too);
+               - two event-like gaps remain, both Feb 2006 and illiquid.
+             - Rebuilt the main store (registry fingerprint unchanged,
+               dab49d3c) and store_ext2006.  Backed up; on Kaggle as
+               centurion-nse-store-ext2006.
+             - Re-runs on cost model 4, Kaggle.  Deployed rules, 2008-25:
+               - no rule: 17.4% / 0.81 / -37.7% -> 16.4% / 0.75 / -37.2%;
+               - with the rule: 16.8% / 0.78 / -31.9%, 2008 -26.9%.
+               The walk-forward re-run (R4's grid) runs on Kaggle
+               (srees16/centurion-nse-research-ln28w, pushed 16:34 IST).  To
+               finish (say "finish LN-T28b"):
+               python -m cloud.kaggle_local pull --kernel srees16/centurion-nse-research-ln28w --dest data/nse_engine/kaggle_out/ln28w
+               python -m cloud.wf_stitch import-runs --src data/nse_engine/kaggle_out/ln28w/runs --dest data/nse_engine/runs
+               python -m cloud.wf_stitch stitch --dirs data/nse_engine/kaggle_out/ln28w/wf --out data/nse_engine/wf_stitched_r4b.json --returns-out data/nse_engine/wf_oos_returns_r4b.csv
+               then the consolidated 2008-25 table (levered / unlevered, rule
+               on / off, realistic live).
 16 Oct  LP   Leverage plan scheduled (your ask: validate 1.75x by an out-of-
              sample test, a forward walk or a paper trade).  Queue: L7a
              (done), L7, L8, L9, L10, in the LEVERAGE PLAN block beside GT8.
