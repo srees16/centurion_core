@@ -29,6 +29,9 @@ trials never enter another family's PBO or deflated-Sharpe matrix.
 | Equity sleeves | `data/nse_engine/runs_<sleeve>` (O9: `runs_sepa`) | At most 3 configurations per sleeve. A new sleeve gets its own registry. |
 | Commodity (GT5, MCX futures) | `data/nse_engine/runs_mcx` | At most 3 configurations. N = 2 after GT5 (12 Oct, plan 5y: both FAIL, closed); the third stays unused unless a new source justifies it. |
 | Value (GT4) | `data/nse_engine/runs_value` | At most 3 configurations. N = 2 after GT4 (12 Oct, plan 5z: both FAIL, closed); the third is kept for a beta-hedged variant once capital covers a NIFTY lot. |
+| US core (US5, the India rules on US stocks) | `data/nse_engine/runs_us` | At most 3 configurations. N = 3 after round 1 (17 Oct, plan 5ad: all FAIL against SPY, closed). The next US idea starts its own family. |
+| Bonds (BD1, gilts) | `data/nse_engine/runs_bonds` | At most 3 configurations. N = 3 after BD1 (17 Oct, plan 5ag: all FAIL, closed). The cost of trading debt ETFs was modelled, not measured; a low-churn round would need your call. |
+| Leverage (L7, real stock futures) | `data/nse_engine/runs_leverage` | At most 3 configurations. N = 3 after L7-C (17 Oct, plans 5ae and 5af: all FAIL against L6's synthetic, closed). Its 2026 holdout is used (own lock, `runs_leverage/holdout.lock`). |
 | Event studies (e.g. GT13) | none; the verdict goes in the plan | The study's hypotheses count as its N (GT13: N = 2). A study that becomes a sleeve then starts a family. |
 
 **Budget rules:**
@@ -53,11 +56,17 @@ containing:
    Any translation (an expiry horizon, a strike step, a missing threshold)
    is fixed here and marked (A).
 4. **Data and window.** The 2013–25 test window; the 2007–25 window,
-   reported only; 2026 is the sealed holdout, opened once per family. Each January the window rolls forward (RF1, from Jan 2027): the past year joins the test window and the new year becomes the sealed holdout. Also
+   reported only; 2026 is the sealed holdout, opened once per family.
+   Anything headed for live money is also tested on 2008–25 (section 6,
+   your rule). Where no 2008 data exists (stock futures before 2013, filings
+   before 2012), the pre-registration states the gap, and going live
+   without 2008 is your call. Each January the window rolls forward (RF1, from Jan 2027): the past year joins the test window and the new year becomes the sealed holdout. Also
    the store and its data hash.
-5. **Costs and sizing.** The current cost model (`nse_engine.costs`;
-   `fno_costs` for F&O) at its dated rates. Size against broker-feasible
-   capital, never at the maximum loss alone (OX3).
+5. **Costs and sizing.** Every instrument at its own current cost model,
+   at its dated rates: `nse_engine.costs` for stocks and ETFs, `fno_costs`
+   for F&O, and MCX's and bonds' own models (built with the stream if
+   missing; your rule, 17 Oct). Size against broker-feasible capital, never
+   at the maximum loss alone (OX3).
 6. **Pass rules** (section 5) and what a pass leads to.
 
 Rules that need intraday prices or a same-day exit are out of scope;
@@ -65,8 +74,11 @@ Centurion is swing and positional only.
 
 ## 3. Running
 
-- **One environment:** Kaggle, for every recorded trial in a family. The
-  manifest's runtime stamp and LN-T26's warnings check this.
+- **One environment:** Kaggle, for every recorded trial in a family that
+  runs the engine. The manifest's runtime stamp and LN-T26's warnings check
+  this. A family whose trials are plain arithmetic on recorded series (no
+  engine decisions: leverage 5ae–5af, bonds 5ag) may run on the Mac, stated
+  as (A) in its pre-registration, with all of its trials in one place.
 - **Debugging runs:** short windows, never recorded. If one leads to a
   change, the change is logged (section 4). Precedent: the 5x sizing
   clarification after a 2014-only run.
@@ -125,6 +137,18 @@ your decision, parked at OX6.
 
 ## 6. Paper, then live
 
+**Before real money (your rule, 17 Oct 2026).** A configuration goes live
+only after these steps, in order, each passed before the next:
+1. a backtest over 2008–25 on the current cost model;
+2. a walk-forward over 2008–25;
+3. the out-of-sample holdout, opened once;
+4. paper for at least 60 sessions;
+5. 5 dry-run episodes: the live path builds the real orders without
+   placing them.
+
+Every data store a stream uses reaches back through 2008, so the MaxDD of a
+repeat crisis is measured, not guessed.
+
 1. **Paper:** a passer is paper-traded for at least 60 sessions (options:
    and at least 6 cycles), tracked against a shadow backtest G4-style:
    tracking error, cost ratio, drawdown.
@@ -135,13 +159,17 @@ your decision, parked at OX6.
    launch), and 0.85× for the core (D2).
 3. **Live:** at small size, under the kill switch and the live risk limits.
    A drawdown beyond the simulated 95th percentile triggers a review.
-4. **Leverage:** futures only, at most half-Kelly on a haircut Sharpe of
-   0.7, and only after 12+ months of live tracking (GT8).
+4. **Leverage:**
+   - futures only.  Your call, 17 Oct 2026: MTF was reconsidered and
+     dropped, because its 14.6% interest lowers CAGR and Sharpe, while
+     futures barely do (L6, L11).
+   - up to 1.75x, accepted with a MaxDD of about −40% (17 Oct);
+   - at most half-Kelly on a haircut Sharpe of 0.7;
+   - only after 12+ months of live tracking (GT8).
 
 ## 7. Never
 
 - book-level volatility targeting (scoped: it hurts this book);
-- MTF leverage;
 - naked option selling outside a defined-risk structure;
 - more price signals inside the core (plan 6, item 5);
 - re-tuning a failed configuration;
@@ -150,6 +178,13 @@ your decision, parked at OX6.
 
 ## 8. Recording a result
 
+- **Headline numbers (your rule, 17 Oct 2026):** lead with the honest
+  base: 2008–25, walk-forward, current cost model, real instruments, after
+  the live haircut. Anything rosier (in-sample, a shorter window, a
+  synthetic model) is labelled as such.
+- **Discarding a stream:** only after a recorded test. A desk study or a
+  regulatory bar is labelled as such, never as "tested", with what would
+  reopen it.
 - **The plan section's result:**
   - a table;
   - what the runs say, in plain words;

@@ -6,6 +6,7 @@ Separate datasets, so a code change does not re-upload 200 MB of prices:
     <user>/centurion-nse-store           data/nse_engine/store (the parquet store)
     <user>/centurion-nse-fundamentals    data/nse_engine/fundamentals (GT1, for GT4 / GT7)
     <user>/centurion-mcx-store           data/nse_engine/mcx_store (GT2, for GT5)
+    <user>/centurion-us-store            data/nse_engine/us_store/panel (US tracker US2, for US5 / US6)
 
 A kernel always attaches the code and one store (``--store-slug``); ``--attach``
 adds more, e.g. the fundamentals beside the equity store.  The runner finds
@@ -52,6 +53,7 @@ CODE_SLUG = "centurion-nse-code"
 STORE_SLUG = "centurion-nse-store"
 FUNDAMENTALS_SLUG = "centurion-nse-fundamentals"
 MCX_SLUG = "centurion-mcx-store"
+US_STORE_SLUG = "centurion-us-store"     # data/nse_engine/us_store/panel (US tracker US2, for US5 / US6)
 KERNEL_SLUG = "centurion-nse-research"   # default; --kernel-suffix runs a second one alongside
 STAGE_DIR = _ROOT / "data" / "kaggle" / "stage"
 OUT_DIR = _ROOT / "data" / "nse_engine" / "kaggle_out"
@@ -59,7 +61,7 @@ OUT_DIR = _ROOT / "data" / "nse_engine" / "kaggle_out"
 # Only what a research run needs; the store travels as its own dataset.  The
 # options sleeves (tracker O2) need kite_connect/options; its package file is
 # copied after the directory that creates its parent.
-CODE_PATHS = ["nse_engine", "runners", "cloud", "config", "requirements.txt",
+CODE_PATHS = ["nse_engine", "us_engine", "runners", "cloud", "config", "requirements.txt",
               "kite_connect/options", "kite_connect/__init__.py",
               "kite_connect/trading/__init__.py", "kite_connect/trading/book_events.py"]   # GT4's share-count rule
 
@@ -364,7 +366,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                             ("push-code", "upload code + job spec"),
                             ("run", "push code, then the kernel")):
         p = sub.add_parser(name, help=help_text)
-        p.add_argument("--task", default="walk-forward", choices=["walk-forward", "grid", "configs", "options", "sepa", "value", "mcx"])
+        p.add_argument("--task", default="walk-forward", choices=["walk-forward", "grid", "configs", "options", "sepa", "value", "mcx", "us-round"])
         p.add_argument("--args", default="", help="arguments for cloud.kaggle_runner, one string")
         p.add_argument("--heartbeat-url", default=None)
         p.add_argument("--pin", action="store_true",

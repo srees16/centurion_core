@@ -29,6 +29,31 @@ to about 1.5σ. At this book's 1.8σ, the 35% drawdown cap limits σ to about
 
 ## 0. Verdict
 
+**Update, 17 Oct 2026: the honest base (your rule).** It is 2008–25,
+walk-forward, cost model 4 and real instruments. The rest of this verdict
+uses 2013–25 backtests and reads high.
+
+| 2008–25, walk-forward | CAGR | Sharpe | MaxDD | Calmar |
+|---|---|---|---|---|
+| The book (LN-T28b) | 13.2% | 0.62 | −32.5% | 0.41 |
+| Live estimate (D2's haircut) | about 11% | 0.43 | −31.5% | 0.35 |
+| + a 25% gilt sleeve (BD1's B3) | 11.7% | 0.61 | −22.9% | 0.51 |
+| 1.75× modelled leverage, the rule on | 19.4% | 0.71 | −44.6% | 0.43 |
+| 1.75× modelled + a 25% gilt sleeve (a look) | 16.6% | 0.71 | −32.6% | 0.51 |
+
+- **Real stock futures run about 7 points below the model** (L7,
+  LN-T28b). They can lever only the book's weaker half, its F&O names (19.5%
+  a year against 38.0% for the rest, 2017–25).
+- **Bonds are the drawdown lever, not a return stream (BD1).** Gilts earned
+  about what cash earned over 2008–25. A 25% sleeve cuts MaxDD by about 10
+  points, at every leverage, with Sharpe unchanged. That brings the MaxDD
+  leg within reach of a levered book.
+- **The gap is Sharpe, as below, and larger than it read.** The honest
+  base is about 0.6, not 1.16. Uncorrelated streams add in quadrature, so
+  reaching 1.4 needs about 1.26 more: roughly 6–7 independent streams of
+  Sharpe 0.5 each. Every stream tested so far failed (section 6, stream
+  register).
+
 - **The golden target is a Sharpe problem, not a CAGR problem.**
   - CAGR ≈ rf + Sharpe·σ − σ²/2, and this book's MaxDD runs about 1.8σ.
   - So CAGR ≥ 35% with MaxDD ≤ 35% needs σ ≤ ~19% and a net Sharpe of about
@@ -73,7 +98,9 @@ to about 1.5σ. At this book's 1.8σ, the 35% drawdown cap limits σ to about
 ### 1.1 Scoping on the deployed book's daily returns
 
 2013–25, cost model 4, 252-day convention. Financing at rf plus a spread on
-the borrowed part.
+the borrowed part. (L5's figures for the same leverage, 26.9 / 30.7 / 34.5%,
+are on the calendar-year convention, B2; both are 2013–25 scoping looks, not
+the honest base above.)
 
 | Variant | CAGR | Sharpe | Vol | MaxDD | Calmar |
 |---|---|---|---|---|---|
@@ -392,7 +419,7 @@ Value-add is the expected effect on the golden target: H high, M medium, L low.
 | 1 | One return engine: three books at 0.96 correlation; the metal sleeve is the only diversifier | Architecture | H | Correlations; section 2.1 arithmetic | GT4–GT7 |
 | 2 | No fundamentals or earnings dates in the store, so value, quality and earnings drift cannot be tested | Data | H | Store contents; value correlates −0.4 to −0.6 with momentum | GT1 |
 | 3 | Bear and sideways regimes earn nothing, and idle cash earns 0% under cost model 4 | Regime / return | L–M (+0.3–0.4 pt CAGR after tax, measured) | Section 3.2; IC1; section 6.1 | GT3 → LN-T29 (after IC2) |
-| 4 | Leverage only via MTF (dead); futures leverage is cheaper but lumpy (lots about Rs 15 lakh) | Leverage | H, capital-gated | Section 1.1 | GT8 |
+| 4 | Leverage: MTF dropped (L11, your call 17 Oct); futures are cheaper but lumpy (lots about Rs 15 lakh) and cover only the book's weaker half (L7, 3 of 3 FAIL) | Leverage | H, capital-gated | Section 1.1; plans 5ae–5af | GT8, L9 |
 | 5 | No multi-asset diversifier beyond gold and silver ETFs; MCX commodity trend untested | Architecture | M | Section 2.1; Indian alpha memo | GT2, GT5 |
 | 6 | Price-signal saturation in the core | Signal | Avoids waste | Plan 6, item 5 | Not doing |
 | 7 | The deployed configuration sits on a fragile peak | Robustness | M | Neighbours −0.39 to 0.00 | V3 (existing) |
@@ -438,10 +465,10 @@ yield, and lever last.
 | Phase | When | What | Gate to the next phase |
 |---|---|---|---|
 | 0. Build, no trials | Oct–Dec 2026 | Go live with the core as planned (D3). GT1: point-in-time fundamentals and results dates. GT2: MCX bhavcopy and continuous roll series. GT3: cash-engine decision (after tax). GT10: research protocol written. Scoping looks (one look each, nothing recorded) allowed | Data stores built and fingerprinted; protocol and pre-registrations written |
-| 1. Sleeve trials | Jan–Mar 2027 | GT4: selective value / quality sleeve (≤3 configurations; a beta-hedged variant only once capital covers a NIFTY lot). Core family, one configuration each after V3: GT7 earnings-drift overlay, GT9 tranches and exit bands, GT11 exclusion filters. GT5: MCX commodity trend (≤3). All on Kaggle, one environment, 2013–25, cost model 5 (IC2 first). Walk-forward OOS 2017–25 for each passer | Per sleeve: net Sharpe ≥ 0.5; combined Sharpe ≥ core + 0.10 at the fixed weight; monthly correlation with the core reported, not a gate (owner, 11 Oct); family PBO ≤ 30%; t ≥ 3 for a new signal |
-| 2. Combination | Mar–Apr 2027 | GT6: the combined book at fixed equal-risk weights with a portfolio drawdown cushion; walk-forward 2017–25; combined deflated Sharpe at total N | Combined backtest Sharpe ≥ 1.30, MaxDD ≤ 1.6σ, PBO ≤ 30% |
+| 1. Sleeve trials | Jan–Mar 2027 (GT4 and GT5 ran early, 12 Oct, on cost model 4: both FAIL; BD1 bonds 17 Oct: FAIL) | Core family, one configuration each after V3: GT7 earnings-drift overlay, GT9 tranches and exit bands, GT11 exclusion filters. New streams per the register (section 6). Each on 2008–25 where data allows, with a walk-forward (your rule 4) | Per sleeve: net Sharpe ≥ 0.5; combined Sharpe ≥ core + 0.10 at the fixed weight; monthly correlation with the core reported, not a gate (owner, 11 Oct); family PBO ≤ 30%; t ≥ 3 for a new signal |
+| 2. Combination | Once a sleeve passes (GT6 closed 12 Oct with GT5: none to combine) | GT6: the combined book at fixed equal-risk weights with a portfolio drawdown cushion; walk-forward; combined deflated Sharpe at total N | Combined backtest Sharpe ≥ 1.30, MaxDD ≤ 1.6σ, PBO ≤ 30% |
 | 3. Paper, then live | Apr 2027 → | Sleeves paper-traded beside the live core (≥ 60 sessions, G4-style tracking per sleeve), then ladder in at small weight | Tracking within G4 limits; costs ≤ 1.5× model |
-| 4. Leverage | Capital ≥ about Rs 1 crore and ≥ 12 months of live combined tracking | GT8: futures leverage at ≤ 1.3–1.5×, at most half-Kelly on a haircut Sharpe of 0.7; floor cushion on | Live tracking within limits; drawdown inside the simulated 95th percentile |
+| 4. Leverage | Capital ≥ about Rs 1 crore and ≥ 12 months of live combined tracking | GT8: futures leverage up to 1.75× (your call, 17 Oct: MaxDD about −40% accepted), at most half-Kelly on a haircut Sharpe of 0.7, with a 25–30% gilt sleeve as the drawdown lever (BD1; your call, 17 Oct). The sleeve runs your five steps first (2026 holdout, 60 paper sessions, 5 dry runs) | Live tracking within limits; drawdown inside the simulated 95th percentile |
 
 **Scorecards to expect at each step** (backtest, pre-tax; live after about a
 30% haircut):
@@ -452,6 +479,9 @@ yield, and lever last.
 | + cash engine (GT3, measured) | about 1.19 | about 23.5% (+0.4 pt pre-tax) | −24% | A small gain: the book is only 12.8% idle |
 | + 1–2 sleeves passing phase 1 | 1.25–1.35 | 24–27% | −20% to −25% | Sharpe; Calmar about 1 |
 | + futures leverage 1.5× (≥ Rs 1 crore) | 1.25–1.35 | 29–33% | −32% to −36% | All but CAGR 35%; that needs a combined Sharpe ≥ 1.4 |
+| **Honest base, 17 Oct: 2008–25 walk-forward** | 0.62 (live about 0.43) | 13.2% (live about 11%) | −32.5% | None |
+| + 25% gilt sleeve (BD1, B3) | 0.61 | 11.7% | −22.9% | MaxDD |
+| 1.75× modelled + 25% gilts (a look; real contracts about 7 points lower) | 0.71 | 16.6% | −32.6% | MaxDD |
 
 ## 6. New alpha sources and timeframes
 
@@ -467,11 +497,62 @@ Ranked by expected value at Rs 6–30 lakh.
 | 6 | Buyback tenders | +0.5–1 pt a year | About 0.3 | Rs 2 lakh per event | In hand | Marginal: tendering is in Console, outside the API |
 | 7 | FII participant-OI overlay on exposure | ≤ +0.2 | Overlay | 0 | `participant_oi.parquet` | Marginal: the same family as the rejected PCR / VIX timing |
 | 8 | Listed REITs / InvITs (owner's ask, 11 Oct 2026): 6–14% distributions | 0.47 measured (2017–25) | 0.16 daily / 0.26 monthly | Rs 1–5 lakh | Raw bhavcopies, series RR / IV | **Closed (GT14, 11 Oct)**: Sharpe 0.47 alone (REITs 0.31, InvITs 0.67, with imputed payouts). Every blend lowers CAGR 2–4 pts, so it fails gate 2. Fell 25% in the Covid crash vs the book's 14.5% |
-| — | Option premium selling (NIFTY put-writes, condors) | Negative net, 2015–25 | Long beta in the tails | Rs 14.5 lakh a lot | In hand | **Not viable** (O2–O4 agree) |
+| — | Option premium selling (NIFTY put-writes, condors) | Literature: negative net, 2015–25. Our tests (O2–O8, 2013–25): Sharpe up to 0.82, but every one failed deflated Sharpe and gate 2 | Long beta in the tails | Rs 14.5 lakh a lot | In hand | **Not viable** (tested O2–O8; naked selling on the never-list) |
 | — | Pairs / sector-neutral stock futures | About 0.1 | About 0 | Rs 30–50 lakh+ | In hand | Not viable |
 | — | USDINR, G-sec futures | — | — | — | — | Closed: RBI exposure rule; no liquidity |
-| — | Weekly reversal, F&O ban list, dividend capture, delisting, demergers, IPO drift | ≤ 0.2 or no evidence | — | — | — | Not viable |
-| — | Short-momentum futures, NIFTY trend, MON100, MTF | — | — | — | — | Closed: U28, R5, R14, L4 |
+| — | Short-term (weekly) reversal | Tested in R10 (rank-IC screen, 2013–25) | — | — | — | Failed the screen (17 Sep) |
+| — | F&O ban list, dividend capture, delisting, demergers, IPO drift | ≤ 0.2 or no evidence (desk) | — | — | — | Not viable |
+| — | MON100 sleeve | Tested (R14, 2013–25) | — | — | — | FAIL (1 Oct) |
+| — | Short-momentum futures, NIFTY trend, MTF | Looks, not trials (U28, R5; L4 and L11) | — | — | — | Closed; MTF dropped by your call (17 Oct) |
+
+**Stream register (17 Oct 2026, your rule 3).** Every India stream, with
+the kind of evidence behind its verdict:
+- **test:** a recorded trial, with runs in a registry;
+- **look:** numbers computed but not a trial;
+- **desk:** reasoning or literature only;
+- **bar:** a rule or the broker forbids it.
+
+"2008" says whether the 2008 crash was inside a window that was run. Only a
+test closes a stream for good. The others say what would reopen them.
+
+| Stream | IDs | Evidence | Window; 2008 | N | Verdict (date) | Reopens if |
+|---|---|---|---|---|---|---|
+| Core trend engine | core | in the core | 2013–25; WF 2017–25 and 2008–25; yes | 61 | Live / paper. WF 2008–25 13.2% / 0.62 / −32.5% | V3 picks the live config |
+| Gold / silver ETF trend sleeve | core, R13 | in the core | inside every core run; yes | — | In the core. Correlation −0.02. R13 variant FAIL (1 Oct) | — |
+| **Government bonds (gilts)** | **BD1, 5ag** | **test** | **2008–25, backtest and WF; yes** | **3** | **FAIL (17 Oct).** Sharpe 0.01 alone. The 25% sleeve cuts MaxDD ~10 pts, Sharpe flat | Measured debt-ETF costs plus a low-churn rule (your call) |
+| MCX commodity trend | GT5, 5y | test | 2013–25; 2007–25 reported; yes | 2 | FAIL (12 Oct). 2.4–3.4% / −0.06 to −0.09 | A new source for the third config |
+| Value / quality sleeve | GT4, 5z | test | 2013–25; no (filings from 2012) | 2 | FAIL (12 Oct). B 16.8% / 0.69, gate 2 fails | Beta-hedged variant once capital covers a NIFTY lot |
+| Options rounds O2–O8 | O2–O8 | test | 2013–25; 2007–25 reported; mostly yes | 17 | FAIL / CLOSED (4–10 Oct). Sharpe −0.54 to 0.82 | OX bridge, then OX6 re-tests |
+| Options execution bridge | OX1–OX6 | desk | — | 0 | OPEN, P1 | In progress |
+| Minervini SEPA sleeve | O9 | test | 2013–25; no | 1 | CLOSED (11 Oct). Sharpe −2.24 | Rules go to the core as MV1 |
+| Pre-announcement drift (RBI, FOMC) | GT13 | test (event study) | 2013–25; no | 2 | FAIL (10 Oct). t 1.16 / 0.91 | New data via event_drift.py |
+| Crash-recovery staged buys | CR1, CR1b | test (event study) | 1929–2022, 13 indices; yes | 6 | FAIL (11 Oct) | Closed for good |
+| Leverage from real stock futures | L7, L7-C | test | 2017–25; 2026 holdout; no (no contracts before 2013) | 3 | FAIL (17 Oct). 26–30% | Family closed; L9 paper book runs |
+| Synthetic leverage on the whole book | L5, L6, L7a | look | 2017–25 and 2008–25; yes | 0 | NO-GO. 1.75x 35.9% (2017–25) is a model | GT8 route |
+| MTF leverage | L4, L11 | look | 2013–25, 2008–25; yes | 0 | DROPPED (17 Oct, your call) | — |
+| MON100 sleeve | R14 | test | 2013–25; no | 1 | FAIL (1 Oct) | — |
+| Short momentum in stock futures | R15, U28 | look | 2013–25; no | 0 | CLOSED. −11%/yr | Book past Rs 2 crore, market-neutral |
+| NIFTY trend on idle cash | R5 | look | 2013–25; no | 0 | CLOSED. At most +0.5 pt | — |
+| NIFTY futures overlay (beta) | L2 | look | 2013–25; no | 0 | CLOSED. Adds beta, not edge | — |
+| REITs / InvITs | GT14 | look | 2017–25; no | 0 | CLOSED. Sharpe 0.47 alone | Only if the MaxDD leg binds |
+| Factor-index ETFs beside the book | §1.1 | look | 2016–25; no | 0 | NOT VIABLE. Lowers Sharpe | A selective or hedged sleeve |
+| Price / calendar anomalies | R10 | test (rank-IC screen) | 2013–25; no | 6 | FAIL (17 Sep) | — |
+| Book-level volatility targeting | R3 | test (WF) | 2017–25; no | 3 | CLOSED: every fold chose off | Only inside a momentum sleeve |
+| Cash engine: liquid ETF sweep | GT3, LN-T29 | look | 2013–25; no | 0 | "Do, after go-live". BD1's baseline: −0.4 pt with equity impact, +1 pt with spread-only costs | Measured liquid-ETF costs |
+| Earnings drift; Minervini on the core | GT7, MV1 | desk (pre-registered) | — | 0 | PENDING after V3 | — |
+| Index deletions; buybacks; FII OI | §6 rows 5–7 | desk | — | 0 | Marginal | — |
+| Pairs / sector-neutral futures | — | desk | — | 0 | NOT VIABLE (Sharpe ~0.1) | — |
+| Option premium selling, naked | — | desk (and O2–O4) | — | — | NOT VIABLE; never-list | — |
+| Intraday options | OX | bar (swing only) | — | 0 | CLOSED | — |
+| USDINR and G-sec futures | — | bar (RBI exposure rule; no liquidity) | — | 0 | CLOSED | A rule change |
+| Weekly reversal, ban list, dividend capture, IPO drift | — | desk | — | 0 | NOT VIABLE | — |
+| US stocks | US5, US6 | test | 2013–25; 2007–25 reported | 3 | FAIL (17 Oct); on hold | Your restart |
+
+**What the register shows:**
+- Of the streams closed by a test, only options, crash recovery, MCX and
+  now bonds covered 2008. Value, SEPA, MON100, the anomalies and stock
+  futures did not, because their data starts later.
+- Forex is closed by RBI's exposure rule, not by a test.
 
 **Timeframes, each with its own holding period:**
 - weekly: the core rebalance;
@@ -551,10 +632,13 @@ which supersedes the list below.
    0.7; only after phase 3 tracking holds.
 9. **Never:**
    - book-level volatility targeting (scoped: it hurts);
-   - MTF;
-   - option selling;
+   - naked option selling outside a defined-risk structure;
    - more price signals in the core;
    - re-tuning a failed sleeve.
+
+   MTF is not a never rule. It was dropped by your call on 17 Oct after a
+   re-look (L11): its 14.6% interest lowers Sharpe. Defined-risk option
+   selling stays testable (OX).
 
 ## 8. Unverified items
 

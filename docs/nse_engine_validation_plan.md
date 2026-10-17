@@ -2779,6 +2779,578 @@ What the result says:
   times it at 3 years. The family now has 6 trials; another variant would
   be fitting.
 
+## 5ad. US round 1: the India books' rules on US stocks (US tracker US5; pre-registered 16 Oct 2026, 23:15 IST)
+
+**Hypothesis.** The India engine harvests trend and momentum: under-reaction
+to news and slow-moving flows (Jegadeesh & Titman 1993; Moskowitz, Ooi &
+Pedersen 2012). Both are documented in US large caps. Do the India books'
+rules, unchanged, earn more than simply holding SPY?
+
+**The US book's job (US-Y7, your go-ahead 16 Oct):**
+- alone, in USD, it must beat SPY;
+- beside India, in INR, it must raise the book's Sharpe more than SPY would.
+
+The golden target applies to the combined book. Leverage stays India-only
+(GT8).
+
+- **Family:** US core, registry `data/nse_engine/runs_us`. This round uses
+  3 of its 3 configurations: N goes from 0 to 3.
+- **Data:**
+  - the US store `us_store/panel`, hash d5854e5a3a4c2f2c; engine data
+    fe0af5f9468e7ee0, union with total return;
+  - point-in-time members of the S&P 500 and the Nasdaq-100 (the union,
+    US-Y3);
+  - split- and dividend-adjusted prices, with spin-offs as distributions
+    (US4).
+- **Window:**
+  - 2013-01-01 to 2025-12-31 for the gates, with warm-up from 2006-01-03;
+  - 2007-01-01 to 2025-12-31 reported only. 2007–12 is 91.6% priced and
+    runs +1.1%/yr against RSP, because the 2008 failures are missing, so it
+    flatters the result;
+  - 2026 sealed: the store ends 2025-12-31.
+- **Configurations:** the India books' rules, each with its drawdown overlay
+  (20/30/35, half 0.5, re-arm 60):
+  - **A**, `config/nse_engine_deployed.json`: what the US-A1 emails run,
+    without their sector cap on today's lists. Hash 2ca6b779.
+  - **B**, candidate: regime `scale_neutral` 0.6. Hash 2beeac17.
+  - **C**, E4: exit rank 60 and refill exits. Hash 936f7472.
+
+  B and C also carry `universe.price_filter_unadjusted`, which does nothing
+  here (no price floor). All three use the US settings
+  (`us_engine.backtest.US_MARKET`, unchanged since US4):
+  - members only, $20M median daily value, top 600, no price floor;
+  - calendar schedules: rebalance on each week's first session;
+  - fractional shares at $10,000 (US-Y2), minimum trade $100;
+  - no sector cap (no point-in-time sectors) and no metal sleeves;
+  - regime on the S&P 500 and VIX;
+  - risk-free 1.7%, the engine's constant, used only for walk-forward
+    selection.
+- **Costs:**
+  - SEC and FINRA fees on sells, no commission (Vested, INDmoney);
+  - a 3 bp spread floor plus square-root impact, at most 5% participation;
+  - fills at the next open.
+  - Not in the gates: FX, plan fees, TCS and tax (US3, UG11).
+- **Walk-forward:** anchored, 4 training years from 2013, yearly test folds
+  2017–25 (9). Each fold picks A, B or C by training excess Sharpe.
+- **Gates.** Sharpe is excess over the dated 3-month T-bill (IRX / 252 a
+  day). SPY is SPY total return on the same dates.
+  - **G1:** deflated Sharpe ≥ 0.95 at N = 3.
+  - **G2:** Sharpe above SPY's, 2013–25.
+  - **G3:** alpha over SPY with Newey–West t ≥ 2 (lags
+    ⌊4 (T/100)^(2/9)⌋).
+  - **G4:** MaxDD no worse than SPY's, 2013–25.
+  - **G5 (family):** walk-forward out-of-sample Sharpe above SPY's over
+    2017–25.
+  - **G6 (earns its place):** India 75% plus US 25% in INR, rebalanced
+    monthly, has a higher monthly Sharpe over 6.5% than India 75% plus SPY
+    25%, 2013–25.
+    - The weights come from your capital: Rs 30 lakh in India (U6) and
+      $10,000 in the US, about 23% US.
+    - India is the deployed book's register backtest,
+      run 20261010T032441064151Z_679cbd0c.
+  - **Pass:** G1–G4 and G6, with G5 passing. If several pass, the one with
+    the highest 2013–25 Sharpe goes forward.
+- **A pass leads to:**
+  - the 2026 holdout, opened once for the pick, after the store is
+    extended;
+  - US7: 60 sessions of forward test, G4-style;
+  - US8: the emails move to the pick, on the union (US-Y9).
+- **A fail:**
+  - the emails keep their "unvalidated" banner and the US-Y8 rule;
+  - the next family follows the golden-target plan (UG0, then UG7 or UG4),
+    pre-registered as its own round;
+  - A, B and C are never re-tuned.
+- **Reported, not gates:**
+  - INR results (US-Y2);
+  - RSP, QQQ and QQQE;
+  - correlation with the India book;
+  - years, turnover and costs;
+  - 2007–25 with 2008;
+  - the family's PBO, which is coarse at N = 3;
+  - the combined book against the golden target.
+- **Code:**
+  - `cloud.kaggle_runner us-round` runs the round on Kaggle, in one
+    environment;
+  - `python -m us_engine.backtest verdict` applies the gates above.
+
+**Result (17 Oct 2026): FAIL, all three.** Run on Kaggle
+(srees16/centurion-nse-research-us, 7 minutes after an hour in Kaggle's
+queue); registry `runs_us` (39 runs). Figures are 2013–25, USD, with
+Sharpe over the T-bill.
+
+| | CAGR | Sharpe | MaxDD | Alpha (t) | DSR | Gates failed |
+|---|---|---|---|---|---|---|
+| A (deployed) | 5.6% | 0.36 | −25.7% | −1.2% (−0.41) | 0.82 | G1, G2, G3, G6 |
+| B (candidate) | 6.3% | 0.43 | −16.0% | −0.1% (−0.03) | 0.88 | G1, G2, G3, G6 |
+| C (E4) | 9.4% | 0.61 | −21.9% | +2.0% (0.68) | 0.96 | G2, G3, G6 |
+| SPY | 14.6% | 0.79 | −33.7% | | | |
+
+- **Walk-forward 2017–25 (G5): FAIL.** It picked C in every fold:
+  - out of sample, 9.5% / Sharpe 0.54 / −24.5%, against SPY's 15.0% /
+    0.73 / −33.7%;
+  - 4 of 9 years lost money.
+- **Earns its place (G6): FAIL.** India 75% plus US 25%, in INR, monthly
+  Sharpe: with A 1.01, with B 1.03, with C 1.07. With SPY it is 1.14.
+- **What the runs say.** The India rules make 6–9% a year on US large caps,
+  with a beta of about 0.4. The S&P 500 regime gate kept the book in cash
+  through rallies that India's gate would have caught:
+  - SPY: 2019 +31%, 2021 +29%, 2023 +26%;
+  - C, the same years: +16%, +18%, +1%.
+  Stock selection added no alpha. Only drawdowns were smaller, and that
+  was cash, not edge.
+- **Diagnostics (reported, not trials):**
+  - 2007–25: A 5.1%, B 5.6%, C 7.2%, against SPY 10.7%. In 2008 the
+    books lost 3–7% while SPY lost 37%.
+  - In INR, C made 13.7% a year.
+  - Correlation with the India book: 0.17–0.20.
+  - RSP 12.0% / 0.64, QQQ 19.6% / 0.88, QQQE 14.6% / 0.71.
+  - Turnover about 10x, costs 0.7–0.8% a year.
+  - PBO is 0.2%, meaningless at N = 3.
+- **What carries forward:**
+  - the US core family is closed (3 of 3 used), and A, B and C are never
+    re-tuned;
+  - SPY itself is the US leg to beat; it already raises the India book's
+    Sharpe (G6);
+  - the US-A1 emails run A, so US8's rule applies: stop them, or replace
+    them, pending your call;
+  - the next family follows the golden-target plan (UG0, then UG7 or
+    UG4), pre-registered as its own round.
+
+**Correction (17 Oct 2026, US3), dated as section 4 requires.** The round
+ran without a broker commission: US4 took Vested and INDmoney to be
+commission-free. They charge 0.25% a trade (Vested Premium 0.15%) and
+0.295% (INDmoney). Charged on the recorded orders, 2013–25 CAGR in USD
+becomes:
+- A: 0.0% / 1.9% / −1.1% (Vested Basic / Premium / INDmoney);
+- B: 0.7% / 2.5% / −0.4%;
+- C: 4.4% / 6.1% / 3.5%.
+
+The verdict stands: FAIL, by a wider margin. The runs are not re-recorded.
+Future US backtests charge the commission (`us_engine.costs.BROKERS`).
+
+## 5ae. L7: 1.75x built from real NSE stock futures (India tracker L7; pre-registered 17 Oct 2026, 16:40 IST)
+
+**Question.** L6 levered the whole book synthetically, at rf + 1%. Real
+stock futures differ in four ways:
+- they exist for only part of the book (about 31% of its weight in 2021);
+- they trade in whole lots (median about Rs 6.5 lakh);
+- they carry their own basis and roll monthly;
+- they need margin, half of it in cash.
+
+Does a book built from real contracts keep L6's 1.75x result?
+
+- **Family:** leverage (new), registry `data/nse_engine/runs_leverage`. This
+  round uses 2 configurations: N goes from 0 to 2.
+- **Inputs:**
+  - the recorded walk-forward out-of-sample positions 2017–25 (runs of
+    `wf_stitched_r12a5`: the K5 deployed family, RR2 data, cost model 4;
+    each fold starts from cash);
+  - spot prices from the main store (dab49d3c);
+  - stock futures from the F&O store (13bb08a45e61d147), 2013–25 only; 2026
+    stays sealed;
+  - corporate-action factors from the store; NSE adjusts futures on a
+    bonus or split ex-date by the same factor.
+- **Common rules:**
+  - Target: 1.75x the book's exposure. The drawdown rule (20/30/35, half
+    0.5, re-arm 60) runs on the levered NAV and scales every target.
+  - Contracts: the near month, rolled at the close 3 sessions before
+    expiry.
+  - Trading days: a name is resized only when the book trades it, on a roll,
+    or when the rule changes state.
+  - Fills: whole lots, the nearest number. A trade fills at a synthetic
+    open, the previous futures close x spot open / spot previous close (A:
+    the F&O store has no opens). Positions are marked to the futures settle
+    daily, with mark-to-market in cash.
+  - Margin per name: clip(3.5 x 60-day daily volatility + 0.05, 0.20,
+    0.50) of notional (A: no SPAN history).
+  - Collateral: cash plus pledged shares at 85% (A: a 15% haircut).
+  - Cash must cover at least half the margin (SEBI's cash rule), plus a
+    buffer of 5% of NAV (A).
+  - A shortfall at a close cuts the futures pro rata that day, counted as
+    a margin call.
+  - Costs, futures: `kite_connect.options.fno_costs.futures_charges` (Rs 20
+    an order, STT on sells, exchange, SEBI, stamp, GST), plus impact from
+    `nse_engine.costs` on the contract's 20-day median traded value.
+  - Costs, cash shares: `nse_engine.costs`.
+  - Idle cash earns nothing (cost model 4).
+- **Configurations:**
+  - **L7-A, overlay.** The cash book as recorded, scaled down only as far
+    as the cash rule needs. Extra futures exposure, (L - 1) x the book's
+    exposure, is spread over the book's F&O names in proportion to their
+    weights.
+  - **L7-B, replace.** F&O names are held only through futures, at L x
+    their weight. Other names are held in cash at L x their weight, as far
+    as collateral allows, cut pro rata when it does not.
+- **Capital:** Rs 2 crore for the gate. Rs 1 crore, Rs 5 crore and
+  fractional lots are reported as diagnostics, not trials.
+- **Pass,** per configuration, at Rs 2 crore over 2017–25:
+  - CAGR within 2 points of L6's 35.9% (>= 33.9%);
+  - MaxDD within 3 points of L6's -39.1% (>= -42.1%).
+
+  A pass leads to L9 (the futures paper book). If both fail, the
+  real-contract route cannot deliver 1.75x at this capital; the result
+  states what it does deliver.
+- **Reported:**
+  - leverage reached (mean and range) and the share of exposure in futures;
+  - the largest single-name weight;
+  - basis (carry) and roll costs a year;
+  - margin calls and the cash used for margin;
+  - tracking error against L6's synthetic series.
+- **Environment (A):** this Mac. The inputs are recorded positions and price
+  files; no engine decisions run, so the result is plain arithmetic. All
+  of the family's trials run here.
+- **Code:** `nse_engine/futures_book.py` (`python -m nse_engine.futures_book
+  l7`).
+- **Clarifications (17 Oct, 17:05 IST, before any recorded run):** debugging
+  runs on 2017 only, unrecorded, settled three points.
+  - The cash buffer applies only while futures are held. With that, the
+    overlay at 1.0x reproduces the recorded book exactly (largest daily gap
+    1.7e-16).
+  - The equity impact model charges 6–8 bp a leg on liquid stock futures,
+    so a monthly roll costs about 16 bp of notional. The gate keeps the
+    model as pre-registered. A run with a 1 bp floor and a 10 bp
+    coefficient is reported as a diagnostic, not a trial.
+  - Exposure reached: about 1.5x in L7-A (1.75 x the book's gross of
+    about 0.86) and about 1.3x in L7-B. The F&O share of the book limits
+    L7-B.
+
+**Result (17 Oct 2026): FAIL, both.** Runs are in `runs_leverage`
+(recorded 17 Oct, this Mac). Figures are 2017–25 at Rs 2 crore, Sharpe over
+6.5%.
+
+| | CAGR | Sharpe | MaxDD | Calmar | Average exposure | In futures | Futures + roll costs a year |
+|---|---|---|---|---|---|---|---|
+| L6 synthetic 1.75x | 35.9% | 1.25 | −39.1% | 0.92 | 1.50x | | 0.75% carry |
+| L7-A overlay | 29.6% | 0.98 | −40.0% | 0.74 | 1.38x | 0.66 | 2.0% + 2.4% |
+| L7-B replace | 26.2% | 1.09 | −34.7% | 0.75 | 1.15x | 0.39 | 1.3% + 1.2% (cash legs 8.4%) |
+
+- **What the runs say:**
+  - Real contracts cost L6's 1.75x about 6 points of CAGR and 0.27 of
+    Sharpe.
+  - Most of the loss is cost: monthly rolls and resizing each name when
+    the book trades it, about 4.4% of NAV a year, which grows as the book
+    grows. The rest is the exposure the cash rule leaves short.
+  - Lot rounding barely matters at Rs 2 crore: fractional lots give 29.7%.
+- **Concentration:** about 31% of the book's weight has stock futures, so
+  the overlay loads its extra exposure onto those names. One contract
+  reached 35% of NAV. The overlay's cash rule sold slices of the book 71
+  times.
+- **L7-B** reaches only 1.15x. Collateral caps the cash legs, and at Rs 2
+  crore the mid-cap legs pay realistic impact: 8.4% of NAV a year.
+- **Diagnostics (not trials):**
+  - L7-A at Rs 1 crore: 31.0% / 1.03 / −39.0%;
+  - L7-A at Rs 5 crore: 27.6% / 0.92 / −39.8%;
+  - L7-A with a 1 bp futures spread: 33.3% / 1.11 / −39.7%, still 0.6
+    points short of the gate;
+  - L7-B at Rs 1 crore: 27.5% / 1.20 / −32.4%.
+- **Caveat:** the overlay's cash book and L6 both use the walk-forward's
+  runs, which were sized at Rs 5 lakh. At Rs 2 crore the book's own
+  impact would be higher, so both read somewhat high; L7-B shows the
+  effect.
+- **What carries forward:**
+  - The real-contract route delivers about 29–31% CAGR at Rs 1–2 crore,
+    with Sharpe about 1.0 and MaxDD about −40%, over 2017–25. That is not
+    35%.
+  - L9 (the futures paper book) was gated on a pass and does not start by
+    rule. Running it anyway is your call.
+  - The family has one configuration left. The visible lever is cost:
+    resize only on weekly rebalance days, with a one-lot band, and roll
+    into the second month. That would be pre-registered first.
+
+## 5af. L7-C: the cost lever for 1.75x from real stock futures (India tracker L7-C; pre-registered 17 Oct 2026, 20:29 IST)
+
+**Question.** L7-A's recorded costs over 2017–25 were 4.4% of NAV a year:
+- resizing 2.0% (impact 1.9, charges 0.1), on 28% of sessions;
+- rolls 2.4%.
+
+How much of that can an execution rule recover without changing what the
+book holds?
+
+- **Levers weighed, from recorded data only (no L7-C run made):**
+  - **Rolling every two months: dropped.** It needs the far month, which
+    traded a median Rs 11 lakh a day on the last 2021 session, against Rs
+    125 crore for the near month. A Rs 2 crore book's legs, about Rs 25
+    lakh each, would be most of a day's volume.
+  - **Staggered rolls: dropped.** The model prices both roll legs on the
+    near month's traded value. Slicing a roll over earlier sessions would
+    cut modelled impact while the next month is in fact thinner then, so
+    the saving would be an artefact.
+  - **Weekly-only resizing: dropped.** The book rebalances every 5
+    sessions, and L7-A already resizes a name only when the book trades it.
+    Waiting longer would delay new legs, losing exposure, for little
+    saving.
+  - **One-lot band: kept.** Each time the book trades a name, L7-A
+    re-targets its leg to that day's NAV, and whole-lot rounding turns
+    small drifts into 1-lot trades at the full spread and impact.
+- **Configuration, L7-C:** L7-A's overlay with one change. A held leg is
+  resized only when its new target, rounded to whole lots, differs from the
+  held lots by 2 or more; it then trades to the target. These always trade:
+  - a new leg;
+  - a leg whose target is zero (the name left the book or the F&O list);
+  - a change of drawdown-rule state;
+  - a margin-call cut;
+  - rolls, as in L7-A.
+
+  Everything else is as 5ae: inputs, common rules, Rs 2 crore, costs, idle
+  cash earning nothing.
+- **Family:** leverage. N goes from 2 to 3, and the family then closes.
+- **Pass:** 5ae's gate, at Rs 2 crore over 2017–25: CAGR >= 33.9% and
+  MaxDD >= −42.1%.
+- **Expectation, stated before the run:**
+  - The band reaches only part of the 2.0% resizing cost; entries and
+    exits still trade in full.
+  - Expected gain: 0.5–1 point, so about 30–31%, a FAIL.
+  - A pass would need 4.3 points, more than the whole resizing cost.
+- **Reported:**
+  - as 5ae;
+  - the resizes the band skipped, and the cost split;
+  - diagnostics, not trials: Rs 1 crore and Rs 5 crore.
+- **Then the 2026 holdout, opened once for the family:**
+  - **Inputs:**
+    - the deployed book's recorded holdout run,
+      `20260915T161516314162Z_679cbd0c` (1 Jan–11 Sep 2026, 172 sessions,
+      opened 15 Sep, the one L7a used; recorded on cost model 1 and pre-B1
+      data, used as recorded);
+    - the F&O store's 2026 file, unseen until then.
+  - **One look, all three configurations:** L7-A, L7-B and L7-C, beside
+    L7a's synthetic (+28.0%, MaxDD −22.2%) and the unlevered book (+18.0%,
+    −13.0%).
+  - **Read:** the drag in 2026 (synthetic minus real contracts) against
+    2017–25's, about 4 points pro rata over 8 months.
+  - **If L7-C passes the gate,** the holdout must agree:
+    - its 2026 return is at least +23.0% (the unlevered +18.0% plus half of
+      L7a's 10-point uplift);
+    - its MaxDD is no worse than −25.2% (L7a's −22.2% less 3 points).
+  - **If the family fails,** the look is a diagnostic for L9 and L10, and it
+    does not reopen the family.
+- **Environment (A):** this Mac, as 5ae.
+- **Code:** `nse_engine/futures_book.py`:
+  - a `band_lots` setting (0 keeps L7-A's and L7-B's hashes);
+  - `python -m nse_engine.futures_book l7c`;
+  - then `holdout`.
+
+**Result (17 Oct 2026): FAIL. The leverage family closes, 3 of 3 failed.**
+The run is `runs_leverage/20261017T150734009177Z_a8061af2` (this Mac).
+Figures are 2017–25 at Rs 2 crore, Sharpe over 6.5%.
+
+| | CAGR | Sharpe | MaxDD | Resizes | Skipped by the band | Resizing + rolls a year |
+|---|---|---|---|---|---|---|
+| L6 synthetic 1.75x | 35.9% | 1.25 | −39.1% | | | |
+| L7-A (re-run, identical to the record) | 29.6% | 0.98 | −40.0% | 1,374 | | 2.0% + 2.4% |
+| L7-C band | 29.5% | 0.98 | −39.8% | 1,312 | 83 | 2.0% + 2.4% |
+
+- **The expectation (+0.5–1 point) was wrong: −0.1 point.** Almost every
+  resize moves 2 lots or more (entries, exits, the book's reweights), so
+  the band skipped 6% of them and saved nothing.
+- **Diagnostics (not trials):** Rs 1 crore 30.5% / 1.02 / −39.2%; Rs 5
+  crore 27.6% / 0.92 / −39.6%.
+
+**2026 holdout, opened once (17 Oct, lock `runs_leverage/holdout.lock`).**
+The deployed book's recorded run, 1 Jan–11 Sep 2026 (172 sessions), and
+the 2026 F&O file.
+
+| 1 Jan–11 Sep 2026 | Return | Sharpe | MaxDD | Average exposure | Costs a year (resizing + rolls) |
+|---|---|---|---|---|---|
+| Unlevered book | +18.0% | 1.04 | −13.0% | | |
+| L6 synthetic 1.75x | +28.1% | 1.08 | −22.2% | | |
+| L7-A overlay | +19.4% | 0.84 | −19.8% | 1.30x | 1.5% + 1.4% |
+| L7-B replace | +26.4% | 1.08 | −21.8% | 1.14x | 1.5% + 0.9% |
+| L7-C band | +18.9% | 0.81 | −20.0% | 1.33x | 1.3% + 1.6% |
+
+- **The overlay lost about 9 points to the model in 8 months,** twice the
+  rate 2017–25 implies. Costs explain about 2 points. The rest is
+  composition: the overlay puts all the extra exposure on the book's F&O
+  names, and those are the book's weaker half.
+  - 2026: the F&O names (43% of the weight) made +15.3%, the rest +45.2%.
+  - 2017–25: the F&O names (36%) made 19.5% a year, the rest 38.0%.
+  - The book's edge sits in names that have no futures.
+- **L7-B came within 1.7 points of the model** at lower exposure: it
+  levers every name at its own weight, so it carries no such bet.
+- **L7-C's check** (+23.0%, −25.2%) fails, but binds only on a gate pass.
+- **What carries forward:**
+  - real contracts deliver 26–30% in 2017–25, not 35%;
+  - stock futures can lever only the book's weaker half, which the
+    synthetic model hides;
+  - L9's paper book uses the overlay. The replace design tracked the model
+    better in 2026 and had the better Sharpe and MaxDD in 2017–25.
+
+## 5ag. BD1: government bonds as a return stream (India tracker BD1; pre-registered 17 Oct 2026, 21:35 IST)
+
+**Question.** Do Indian government bonds, held through an exchange-traded
+gilt ETF, add to the book over 2008–25? Three forms: on its idle cash,
+timed by their own trend, or as a fixed sleeve.
+
+**Why it should exist.** Gilts pay a term premium over cash, and they rally
+when equities crash and the RBI cuts: the 10-year index made +27.5% in
+2008. The risk is rate shocks (2009 −7%, the 2013 taper).
+
+- **Family:** bonds (new), registry `data/nse_engine/runs_bonds`, at most 3
+  configurations. N goes from 0 to 3.
+- **Data:** the bond store (`data/nse_engine/bond_store`, hash
+  520b9eba4594fd89; `nse_engine/data/bond_store.py`).
+  - **10-year gilts:** NSE's 10-year benchmark G-sec index, total return,
+    from 3 Jan 2011. Before it, the NAV of ABSL's 10-year constant-maturity
+    gilt fund (AMFI 100061). Over 2011–13 it tracked the index with
+    correlation 0.95 and 2.1% tracking error.
+  - **Overnight:** NSE's 1D rate index from 3 Jan 2011. Before it, SBI
+    Liquid's NAV (AMFI 105274, correlation 0.92). A liquid fund holds paper
+    out to 91 days, so cash reads about a point generous before 2011, which
+    makes the test harder for bonds.
+  - The proxies were chosen on the 2011–13 overlap, before any stream
+    result.
+- **The book, two bases (your rule 4: backtest, then walk-forward):**
+  1. **Backtest:** the deployed rules with the drawdown rule, 2008–25. Run
+     `20261017T110545845367Z_2cb1c053` (store_ext2006 01927c09, cost model
+     4).
+  2. **Walk-forward:** R4's 2008–25 out-of-sample returns
+     (`wf_stitched_r4b`), with each fold's weights.
+
+  Idle cash is 1 − the book's invested weight, each session: 19.6% on
+  average in the backtest, about 70% in 2008; 30% in the walk-forward.
+- **Benchmark for alpha:** NIFTY 50 TRI. Before 2012 the store has no TRI,
+  so NIFTY 50's price index plus 1.3% a year of dividends stands in (A).
+- **Instrument and costs: the bond cost model.**
+  - **Vehicle:** a 10-year gilt ETF bought for delivery on Kite (the
+    LTGILTBEES / SETF10GILT class). Its return is the G-sec index less a
+    0.15% expense ratio (A).
+  - **Statutory charges** (`nse_engine.costs.statutory_cost` with the
+    ETF's symbol; debt ETFs added on 17 Oct):
+    - no STT (a debt ETF);
+    - stamp duty 0.015% on buys (no debt-ETF rate is published, so the
+      equity delivery rate);
+    - NSE's exchange charge, the SEBI fee, GST, and the DP charge on sells.
+  - **Spread and impact:**
+    - a 10 bp floor: gilt ETFs quote wider than shares, and LTGILTBEES's
+      median day range is 43 bp;
+    - plus `nse_engine.costs`'s square-root impact, 25 bp at 1%
+      participation, on Rs 3.1 crore a day of traded value: LTGILTBEES's
+      2022–25 median (A). Before 2022 no liquid gilt ETF existed, so the
+      backtest assumes today's liquidity.
+    - Orders are capped at 5% of that a day; the rest waits for the next
+      session.
+  - **The overnight vehicle** (B2's off state and the baseline): a liquid
+    ETF at the 1D rate less a 0.10% expense ratio, the same statutory
+    charges, and a 3 bp floor (LIQUIDCASE's median day range is 2 bp).
+  - **Capital:** Rs 35 lakh, the paper book's. Rs 1 crore and Rs 2 crore
+    are diagnostics.
+- **Common rules:**
+  - The bond position never exceeds the book's idle cash less a buffer of
+    2% of NAV. When idle cash shrinks below it, gilts are sold that session,
+    because the book's buys need the cash.
+  - Gilts are bought only when the gap to the target exceeds 5% of NAV (a
+    band against churn).
+  - Trades and marks are at the session's close (the index has no open).
+  - Combined NAV is the book's recorded NAV plus the bond P&L less costs.
+    The book's own path, its idle cash earning nothing (cost model 4) and
+    its drawdown rule are as recorded. Bonds change none of its decisions.
+- **Configurations:**
+  - **B1, idle cash in gilts:** the target is idle cash less the buffer.
+  - **B2, idle cash in gilts while their trend is up:** gilts while the
+    G-sec index is above its 252-session average (12-month time-series
+    momentum, the literature's horizon, not fitted); otherwise the idle
+    cash goes to the liquid ETF.
+  - **B3, a fixed 25% sleeve:** 0.75 × the book + 0.25 × gilts (index less
+    expense ratio), rebalanced on each month's first session, with costs on
+    the rebalancing trades. This is the protocol's sleeve form.
+- **Baseline, reported, not a trial:** idle cash in the liquid ETF (LN-T29's
+  plan).
+- **Gates,** each on both bases over 2008–25:
+  - **Gate 1, alone:** deflated Sharpe >= 0.95 at the family's N, excess
+    over 6.5%, on the return per rupee of the position (gilts, or the liquid
+    ETF while B2 is out), less costs.
+  - **Gate 2, beside the book:** the combined book raises CAGR, excess
+    Sharpe and alpha against NIFTY 50 TRI, with MaxDD no more than 2 points
+    worse.
+  - **Bond-specific:** B1 and B2 must also beat the liquid baseline's excess
+    Sharpe. Otherwise any yield on idle cash would pass gate 2.
+  - A configuration passes when every gate holds on both bases.
+- **Expectation, stated before the run:**
+  - Gilts alone earn an excess Sharpe of about 0.1–0.3 over 6.5%, so gate
+    1 fails for all three. Protocol section 5 parks the question of judging
+    a diversifier on gate 2 plus a significance test with you (OX6).
+  - B1: +1–2 points of CAGR, and a much shallower 2008. 2009 and 2013 cost.
+  - B3: about 1.5 points less CAGR and a MaxDD several points better. Gate 2
+    probably fails on CAGR.
+- **Then, for a configuration you accept:** the 2026 holdout, opened once
+  for the family; 60 paper sessions; 5 dry runs (your rule 4).
+- **Reported:**
+  - each year, especially 2008, 2009, 2013 and 2022;
+  - the worst drawdown with and without bonds;
+  - correlation with the book;
+  - turnover and costs a year, and how much of the time gilts are held;
+  - the 2013–25 and 2017–25 slices.
+- **Environment (A):** this Mac, as 5ae. The inputs are recorded returns,
+  weights and index files; no engine decisions run, so the result is plain
+  arithmetic.
+- **Code:** `nse_engine/bond_stream.py` (`python -m nse_engine.bond_stream
+  bd1`).
+- **Clarification (17 Oct, before the recorded run):** mechanical checks
+  on 2017 only, unrecorded. With zero bond returns and zero costs, the
+  combined book reproduces the recorded book (largest daily gap 2e-16).
+  NIFTY 50 before 2012 is back-filled from the store's external history,
+  as the engine's loader does.
+
+**Result (17 Oct 2026): FAIL, all three. The bond family closes at N = 3.**
+Runs are in `runs_bonds` (this Mac). Figures are 2008–25 at Rs 35 lakh,
+compounding, with Sharpe over 6.5%.
+
+| | Backtest base: CAGR / Sharpe / MaxDD | 2008 | Walk-forward base: CAGR / Sharpe / MaxDD | 2008 |
+|---|---|---|---|---|
+| Book alone | 16.8% / 0.78 / −31.9% | −26.9% | 13.2% / 0.62 / −32.5% | −29.7% |
+| Baseline: idle cash in a liquid ETF | 16.4% / 0.76 / −28.7% | −23.3% | 13.2% / 0.61 / −29.7% | −26.8% |
+| B1 idle cash in gilts | 14.5% / 0.62 / −31.0% | −19.3% | 10.8% / 0.40 / −32.2% | −22.7% |
+| B2 gilts while trending up | 14.1% / 0.59 / −31.0% | −19.3% | 10.0% / 0.34 / −32.2% | −22.7% |
+| B3 25% gilt sleeve | 14.4% / 0.78 / **−22.1%** | **−15.0%** | 11.7% / 0.61 / **−22.9%** | **−18.0%** |
+
+- **Gilts alone: CAGR 6.5%, Sharpe 0.01 over 6.5%, MaxDD −12.8%; DSR
+  0.45.** Gate 1 fails, as expected.
+  - Over 2008–25 the 10-year index made 6.7% a year against 6.3% for
+    overnight money: a term premium of about a third of a point.
+  - Correlation with the book is −0.09 (monthly).
+  - 2008: +27.5% while NIFTY lost 51%; 2009 −7%.
+- **B1 and B2 fail on costs, not on bonds.**
+  - The book's idle cash swings between 0% and 100% (the drawdown rule,
+    the regime scale, weekly rebalances), so following it trades 6–10
+    times NAV a year.
+  - At the pre-registered impact (the equity model, about 20–50 bp a side
+    as the book grows past Rs 1 crore), that costs 3.5–4.7% of NAV a year
+    for gilts and 1.4% even for the liquid baseline.
+  - 2008 improved by 7–8 points all the same.
+- **B3 is the robust finding.**
+  - A 25% gilt sleeve trades 0.1 times NAV a year and costs 0.05%.
+  - It cuts the worst drawdown by about 10 points on both bases, with
+    Sharpe unchanged, for 2.4 (backtest) and 1.5 (walk-forward) points of
+    CAGR.
+  - 2013–25: 17.6% / 1.03 / −17.3% against the book's 21.2% / 1.04 /
+    −25.1%. 2017–25: 18.5% / 1.16 / −16.4% against 22.9% / 1.20 / −25.1%.
+  - It fails gate 2 on CAGR, as expected.
+- **Diagnostics, not trials:**
+  - **Spread floor only, no square-root impact:**
+
+    | | Backtest: CAGR / Sharpe / MaxDD | 2008 | Walk-forward: CAGR / Sharpe | Costs a year |
+    |---|---|---|---|---|
+    | Liquid baseline | 17.7% / 0.85 / −28.4% | −23.0% | 14.8% / 0.74 | 0.3% |
+    | B1 | 17.9% / 0.85 / −30.2% | −17.4% | 14.5% / 0.70 | 0.6–0.7% |
+    | B2 | 17.7% / 0.83 | | 14.3% / 0.68 | 0.7–0.9% |
+
+    So with cheap execution, parking idle cash adds about 1–1.6 points.
+    Gilts do no better than liquid on Sharpe: they buy a better 2008 with
+    a worse 2009, 2013 and 2022.
+  - **Rs 1 crore and Rs 2 crore** read better than Rs 35 lakh (B1 backtest
+    15.4% and 16.4%). The 5% daily participation cap then throttles the
+    churn: 430 days were capped at Rs 35 lakh.
+- **What carries forward:**
+  - Bonds are a drawdown tool for this book, not a return stream. B3's
+    trade (about −2 points of CAGR for about −10 points of MaxDD, Sharpe
+    flat) is the one the golden target's MaxDD leg can use.
+  - The cost of trading debt and liquid ETFs must be measured (quotes or
+    paper fills), not taken from the equity impact model. That also
+    decides LN-T29 (the liquid sweep): under this model it loses 0.4
+    point; with spread-only costs it gains about 1.
+  - A low-churn rule for idle cash is the visible fix: park only cash
+    that has stayed idle for N sessions, or band both sides. It would be a
+    new round, and the family's budget is spent: your call.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast

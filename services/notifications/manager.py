@@ -700,6 +700,37 @@ class NotificationManager:
         ]
         summary = "".join(f"<tr><td style='{td}color:#666;width:38%;'>{k}</td><td style='{td}'>{v}</td></tr>"
                           for k, v in rows)
+        futures_html, fut = "", report.get("futures") or {}
+        if fut and not fut.get("error"):                  # a book levered with stock futures (tracker L9)
+            m = fut.get("metrics") or {}
+            since = fut["nav"] / float(fut.get("initial") or fut["nav"]) - 1.0
+            frows = [
+                ("Book (shares + futures)", f"<b>{inr(fut['nav'])}</b> <span style='color:#9ca3af;'>(start "
+                                            f"{inr(fut.get('initial'))}; {since:+.2%} since; today {inr(fut['day_pnl'])})</span>"),
+                ("Exposure", f"{fut['exposure']:.2f}x of the book; futures {inr(fut['notional'])} in {fut['legs']} contracts, "
+                             f"largest {fut['biggest_pct']:.0%} of the book"),
+                ("Futures cash / margin", f"{inr(fut['futures_cash'])} / {inr(fut['margin'])} ({fut['margin_pct']:.0%} of the book)"),
+                ("Futures today", f"P&amp;L {inr(fut['futures_pnl'])}, costs {inr(fut['costs'])} (rolls {inr(fut['roll_costs'])}); "
+                                  f"premium held over spot {inr(fut.get('premium', 0))} ({fut.get('premium_pct', 0):.2%})"),
+                ("Since start", f"{m.get('sessions', 0)} sessions, max drawdown {m.get('max_drawdown', 0):.1%}, average exposure "
+                                f"{m.get('exposure_mean', 0):.2f}x, costs {inr(m.get('costs_total', 0))}, margin calls "
+                                f"{m.get('margin_calls', 0)}" + (f", Sharpe {m['sharpe']:.2f}" if m.get("sharpe") == m.get("sharpe")
+                                                                 and m.get("sharpe") is not None else "")),
+            ]
+            futures_html = ("<h3 style='margin:22px 0 8px;color:#1a1a2e;font-size:15px;'>Futures leg (paper, L9)</h3>"
+                            "<table style='border-collapse:collapse;width:100%;font-size:14px;'>"
+                            + "".join(f"<tr><td style='{td}color:#666;width:38%;'>{k}</td><td style='{td}'>{v}</td></tr>"
+                                      for k, v in frows) + "</table>")
+            futures_html += table("Futures filled at today's open", ["Contract", "Side", "Lots", "Price", "Value", "Costs"],
+                                  [[f"{f['symbol']} {f['expiry']}", f["side"], f"{f['lots']:g}", f"{f['price']:,.2f}",
+                                    inr(f["value"]), inr(f["costs"])] for f in fut.get("fills", [])])
+            futures_html += table("Rolled at today's settle", ["Symbol", "From", "To", "Lots"],
+                                  [[r["symbol"], r["from"], r["to"], f"{r['lots']:g}"] for r in fut.get("rolls", [])])
+            futures_html += table("Futures queued for the next open", ["Contract", "Target lots"],
+                                  [[f"{q['symbol']} {q['expiry']}", f"{q['lots']:g}"] for q in fut.get("queued", [])])
+            futures_html += table("Futures held", ["Contract", "Lots", "Notional"],
+                                  [[f"{h['symbol']} {h['expiry']}", f"{h['lots']:g}", inr(h["notional"])]
+                                   for h in fut.get("holdings", [])])
         session = report.get("session", "")
         # paper (default) | live | live dry run - never let a live session read as paper
         mode = str(report.get("mode") or "paper")
@@ -724,7 +755,7 @@ class NotificationManager:
   <div style="padding:20px 24px;">
     {alerts_html}
     <table style="border-collapse:collapse;width:100%;font-size:14px;">{summary}</table>
-    {fills_html}{stops_html}{queued_html}{cancelled_html}{activity}{notes_html}{objective_html}
+    {futures_html}{fills_html}{stops_html}{queued_html}{cancelled_html}{activity}{notes_html}{objective_html}
   </div>
   <div style="padding:12px 24px;background:#f3f4f6;font-size:12px;color:#9ca3af;text-align:center;">
     {footer}
@@ -735,8 +766,14 @@ class NotificationManager:
         dd_tag = f" [drawdown {dd_state}]" if dd_state != "normal" else ""
         alert_tag = " [alerts]" if alerts else ""
         book = f" [{report['book_label']}]" if report.get("book_label") else ""
-        subject = (f"Centurion {mode}{book} {session}{dd_tag}{alert_tag} — equity {inr(report.get('equity'))[:-3]} "
-                   f"({pnl_pct:+.2f}%) — {len(filled)} filled, {len(stops)} stops, {len(queued)} queued")
+        if fut and not fut.get("error"):                  # a levered book is named by its whole value
+            since = fut["nav"] / float(fut.get("initial") or fut["nav"]) - 1.0
+            subject = (f"Centurion {mode}{book} {session}{dd_tag}{alert_tag} — book {inr(fut['nav'])[:-3]} "
+                       f"({since:+.2%}) at {fut['exposure']:.2f}x — {len(filled)} filled, {len(fut.get('fills', []))} futures, "
+                       f"{len(queued) + len(fut.get('queued', []))} queued")
+        else:
+            subject = (f"Centurion {mode}{book} {session}{dd_tag}{alert_tag} — equity {inr(report.get('equity'))[:-3]} "
+                       f"({pnl_pct:+.2f}%) — {len(filled)} filled, {len(stops)} stops, {len(queued)} queued")
         return self._send_html_email(subject, html)
 
     # ── R22: Bull-Run Capital Infusion Alert ─────────────────────────

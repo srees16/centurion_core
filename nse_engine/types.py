@@ -70,6 +70,9 @@ class MarketData:
     #: {column: [(first session, name traded under), ...]} for columns renamed in the data: decisions break
     #: ties by the name in force that day (tracker LN-T15); empty when no column was renamed.
     trade_names: Dict[str, List[Tuple[pd.Timestamp, str]]] = field(default_factory=dict)
+    #: True where a column is an index member that day (dates x columns): the point-in-time S&P 500 /
+    #: Nasdaq-100 lists of the US store, read when ``universe.members_only`` (tracker US4); None for NSE.
+    members: Optional[pd.DataFrame] = None
 
     @property
     def symbols(self) -> List[str]:
@@ -93,6 +96,9 @@ class MarketData:
         if self.close_unadj is not None and (not self.close_unadj.index.equals(self.dates)
                                              or not self.close_unadj.columns.equals(cols)):
             raise ValueError("close_unadj is not aligned to dates/close columns")
+        if self.members is not None and (not self.members.index.equals(self.dates)
+                                         or not self.members.columns.equals(cols)):
+            raise ValueError("members is not aligned to dates/close columns")
 
     def until(self, as_of: pd.Timestamp) -> "MarketData":
         """Return a view containing only rows dated <= ``as_of``.
@@ -166,6 +172,8 @@ class MarketData:
         if ic is not None and len(ic.columns):
             h.update("|".join(map(str, ic.columns)).encode())
             h.update(np.nan_to_num(ic.to_numpy(dtype="float64"), nan=-1.0).round(4).tobytes())
+        if self.members is not None:                       # US panels only: NSE hashes are unchanged
+            h.update(b"members" + self.members.to_numpy(dtype=bool)[:, order].tobytes())
         return h.hexdigest()[:16]
 
     def symbol_fingerprints(self) -> Dict[str, str]:

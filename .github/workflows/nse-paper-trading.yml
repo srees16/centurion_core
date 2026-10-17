@@ -267,6 +267,22 @@ jobs:
         run: |
           python -m nse_engine.data.archive --start "$SYNC_START" --end "$TODAY" \
             --root "$ARCHIVE_DIR" --rps "$NSE_ARCHIVE_RPS"
+          # A book levered with stock futures (tracker L9) reads the F&O bhavcopy: its opens, settles, lots.
+          # The book reads only the session's file, so the runner keeps 30 days (~1 MB a day), even after a bootstrap.
+          if grep -l '"futures_overlay"' config/nse_engine_*.json > /dev/null 2>&1; then
+            FO_START=$(python -c "from datetime import date, timedelta; print(max('$SYNC_START', str(date.fromisoformat('$TODAY') - timedelta(days=30))))")
+            python -m nse_engine.data.archive --start "$FO_START" --end "$TODAY" \
+              --root "$ARCHIVE_DIR" --rps "$NSE_ARCHIVE_RPS" --kinds fo --no-reference
+            python - "$FO_START" <<'EOF'
+          import os, re, sys
+          from pathlib import Path
+          cutoff = sys.argv[1].replace("-", "")
+          for f in Path(os.environ["ARCHIVE_DIR"], "fo").rglob("*fo*.csv.zip"):
+              m = re.search(r"(\d{8})", f.name)
+              if m and m.group(1) < cutoff:
+                  f.unlink()
+          EOF
+          fi
           du -sh "$ARCHIVE_DIR"
 
       - name: Mark bootstrap complete
@@ -541,11 +557,13 @@ jobs:
             echo "::group::paper book $BOOK"
             START=$(python -m nse_engine.deployment --path "$CFG" get paper_start_date) || START=""
             if [[ "$TODAY" < "$START" ]]; then echo "$BOOK paper trading starts $START"; echo "::endgroup::"; continue; fi
+            CAPITAL=$(python -m nse_engine.deployment --path "$CFG" get paper_capital) || CAPITAL=""
+            CAPITAL=${CAPITAL:-$CENTURION_PAPER_INITIAL_CAPITAL}      # a book's own capital (L9), else the shared one
             if [[ "$TODAY" > "$START" ]]; then
               python -m nse_engine.deployment --path "$CFG" write-engine-config --out "$RUNNER_TEMP/${BOOK}_engine.json" &&
               python -m runners.run_nse_engine shift-reference --config "$RUNNER_TEMP/${BOOK}_engine.json" \
                 --start "$START" --data-start "$(python -m nse_engine.deployment --path "$CFG" get data_start)" \
-                --set initial_capital="$CENTURION_PAPER_INITIAL_CAPITAL" --out "data/shift_reference_${BOOK}.csv" ||
+                --set initial_capital="$CAPITAL" --out "data/shift_reference_${BOOK}.csv" ||
                 echo "::warning::$BOOK shift reference failed"
             fi
             if ! CENTURION_NSE_DEPLOYMENT="$CFG" CENTURION_PAPER_SCHEMA="$BOOK" CENTURION_PAPER_BOOK_LABEL="$BOOK" \

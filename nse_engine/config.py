@@ -27,9 +27,14 @@ HASH_NEUTRAL_DEFAULTS: Dict[Tuple[str, str], Any] = {
     ("signals", "beta_lookback"): 252,
     ("portfolio", "calendar_schedule"): False,
     ("portfolio", "refill_exits"): False,
+    ("portfolio", "fractional_shares"): False,
     ("universe", "calendar_schedule"): False,
     ("universe", "history_window_days"): 0,
     ("universe", "price_filter_unadjusted"): False,
+    ("universe", "members_only"): False,
+    ("costs", "market"): "NSE",
+    ("costs", "commission_rate"): 0.0,
+    ("costs", "commission_cap"): 0.0,
     ("allocator", "target_vol_annual"): 0.0,
     ("allocator", "vol_target_min_scale"): 0.3,
     ("drawdown", "enabled"): False,
@@ -81,6 +86,9 @@ class UniverseConfig:
     # eligible in 2013 depends on splits and dividends that came later - a look-ahead
     # worth ~0.14 Sharpe over 2013-19. True: test the price actually printed that day.
     price_filter_unadjusted: bool = False
+    # Only names that are index members that day (``MarketData.members``: the point-in-time
+    # S&P 500 / Nasdaq-100 lists, tracker US4).  False: the liquidity universe alone (NSE).
+    members_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -151,6 +159,9 @@ class PortfolioConfig:
     # names at their rebalance weights, within the allocator's gross (E1).
     # False = legacy: freed capital waits in cash for the next rebalance.
     refill_exits: bool = False
+    # Quantities in fractions of a share (to 1e-6), as US brokers sell them (tracker US4).
+    # False: whole shares, as NSE and BSE trade (``order_service.whole_share_refusal``).
+    fractional_shares: bool = False
 
 
 @dataclass(frozen=True)
@@ -247,6 +258,14 @@ class CostConfig:
     impact_coefficient_bps: float = 25.0
     adv_lookback_days: int = 20
     dp_charge_inr: float = 15.93
+    # Whose statutory charges: "NSE" (STT, stamp duty, exchange and SEBI fees, GST, DP charge) or
+    # "US" (SEC and FINRA fees on sells), tracker US4.
+    market: str = "NSE"
+    # The broker's commission on each order, as a fraction of its value with any GST, and its cap per
+    # order in the market's currency (0 = no cap).  Zerodha charges nothing for delivery; Vested and
+    # INDmoney charge 0.15-0.3% (tracker US3, us_engine.costs.BROKERS).
+    commission_rate: float = 0.0
+    commission_cap: float = 0.0
 
 
 @dataclass(frozen=True)
