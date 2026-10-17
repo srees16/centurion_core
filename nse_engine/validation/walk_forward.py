@@ -47,10 +47,13 @@ def _default_backtest_fn() -> BacktestFn:
     return run_backtest
 
 
-def expand_grid(param_grid: Optional[Dict[str, List[Any]]]) -> List[Dict[str, Any]]:
-    """Cartesian product of a ``{dotted.key: [values]}`` grid (``[{}]`` if empty)."""
+def expand_grid(param_grid: Optional[Union[Dict[str, List[Any]], List[Dict[str, Any]]]]) -> List[Dict[str, Any]]:
+    """Cartesian product of a ``{dotted.key: [values]}`` grid (``[{}]`` if empty); a list of points
+    (``[{dotted.key: value, ...}, ...]``, configurations that differ in several fields) is kept as given."""
     if not param_grid:
         return [{}]
+    if isinstance(param_grid, list):
+        return [dict(point) for point in param_grid]
     keys = list(param_grid)
     return [dict(zip(keys, vals)) for vals in itertools.product(*(param_grid[k] for k in keys))]
 

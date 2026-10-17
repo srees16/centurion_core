@@ -1,18 +1,27 @@
 """
-Execution costs for NSE cash-equity delivery (CNC) trades.
+Execution costs for NSE cash-equity delivery (CNC) trades, and for US stocks.
 
 Two parts, both per side:
 
 * **Statutory charges** on a date-aware schedule (zero brokerage assumed):
   STT, stamp duty (buys), NSE exchange transaction charge, SEBI turnover fee,
   GST (service tax before 2017-07-01) on exchange charge + SEBI fee, and the
-  depository (DP) charge per sell per symbol.
+  depository (DP) charge per sell per symbol.  For US stocks
+  (``CostConfig.market`` "US", tracker US4) none of these: the SEC fee and
+  FINRA's trading activity fee on sells.
+* **Commission**: the broker's, per order (``CostConfig.commission_rate``,
+  capped by ``commission_cap``).  Zero by default, as at Zerodha; Vested and
+  INDmoney charge 0.15-0.3% of each US order (tracker US3; FX, account fees
+  and tax are in ``us_engine.costs``).
 * **Market impact**: ``spread_floor_bps + impact_coefficient_bps *
   sqrt(participation / 1%)`` where participation is order value over the
   median traded value of the past ``adv_lookback_days`` sessions.  Orders are
   cut so participation never exceeds ``max_participation``.
 
-All functions are pure; the simulator in ``nse_engine.engine`` composes them.
+Quantities are whole shares, or fractions of a share when ``fractional`` (US
+brokers sell them; NSE does not).  Money is in the market's currency (the
+``_inr`` names are NSE's).  All functions are pure; the simulator in
+``nse_engine.engine`` composes them.
 """
 
 from __future__ import annotations
@@ -46,6 +55,13 @@ GST_RATE = 0.18
 SERVICE_TAX_RATE = 0.15
 GST_START = pd.Timestamp("2017-07-01")
 IMPACT_REFERENCE_PARTICIPATION = 0.01
+MARKETS = ("NSE", "US")
+#: US sells (tracker US4): the SEC's Section 31 fee (between $5.10 and $27.80 per $1 million sold in
+#: 2013-25, re-set each fiscal year) plus FINRA's trading activity fee ($0.000166 a share, capped per
+#: trade), together about a quarter of a basis point of the value sold.  Buys pay neither.
+US_SELL_FEE_BPS = 0.25
+#: Fractional quantities are kept to this many decimals of a share (US brokers settle to 1e-6 or finer).
+FRACTION_DECIMALS = 6
 
 # ETFs the engine trades (the metal sleeves), tracker U25, 30 Sep 2026.  Delivery
 # STT on equity shares is 0.1% a side, but ETFs differ (Zerodha, "Is STT levied
@@ -106,10 +122,11 @@ class Fill:
     impact_bps: float
     impact_inr: float
     statutory_inr: float
+    commission_inr: float = 0.0
 
     @property
     def cost_inr(self) -> float:
-        return self.impact_inr + self.statutory_inr
+        return self.impact_inr + self.statutory_inr + self.commission_inr
 
     @property
     def capped(self) -> bool:
@@ -174,10 +191,30 @@ def statutory_charges(
 
 def statutory_cost(
     value_inr: float, side: str, date: DateLike, dp_charge_inr: float = CostConfig.dp_charge_inr,
-    symbol: Optional[str] = None,
+    symbol: Optional[str] = None, market: str = "NSE",
 ) -> float:
-    """Total statutory charges in INR (see :func:`statutory_charges`)."""
+    """Total statutory charges (see :func:`statutory_charges`); for ``market`` "US", the SEC and FINRA
+    fees on a sell (``US_SELL_FEE_BPS``), in dollars."""
+    if market == "US":
+        if side.upper() not in ("BUY", "SELL"):
+            raise ValueError(f"side must be BUY or SELL, got {side!r}")
+        return abs(float(value_inr)) * US_SELL_FEE_BPS / 1e4 if side.upper() == "SELL" else 0.0
+    if market != "NSE":
+        raise ValueError(f"market must be one of {MARKETS}, got {market!r}")
     return statutory_charges(value_inr, side, date, dp_charge_inr, symbol=symbol).total
+
+
+def commission(value: float, cfg: CostConfig) -> float:
+    """The broker's commission on an order of ``value``: ``commission_rate`` of it, at most ``commission_cap``
+    when that is set."""
+    c = abs(float(value)) * float(cfg.commission_rate)
+    return min(c, float(cfg.commission_cap)) if cfg.commission_cap > 0 else c
+
+
+def fractional_units(quantity: float) -> float:
+    """A quantity in fractions of a share (US brokers), rounded down to ``FRACTION_DECIMALS``."""
+    scale = 10 ** FRACTION_DECIMALS
+    return math.floor(float(quantity) * scale + 1e-6) / scale
 
 
 def participation_rate(order_value_inr: float, adv_value_inr: float) -> float:
@@ -197,14 +234,17 @@ def impact_bps(order_value_inr: float, adv_value_inr: float, cfg: CostConfig) ->
     return cfg.spread_floor_bps + cfg.impact_coefficient_bps * math.sqrt(p / IMPACT_REFERENCE_PARTICIPATION)
 
 
-def cap_quantity(requested_quantity: int, price: float, adv_value_inr: float, max_participation: float) -> int:
-    """Largest quantity <= requested with participation <= ``max_participation``."""
-    q = max(int(requested_quantity), 0)
+def cap_quantity(requested_quantity: float, price: float, adv_value_inr: float, max_participation: float,
+                 fractional: bool = False) -> float:
+    """Largest quantity <= requested with participation <= ``max_participation`` (whole shares unless
+    ``fractional``)."""
+    q = max(float(requested_quantity), 0.0) if fractional else max(int(requested_quantity), 0)
     if q == 0 or not np.isfinite(price) or price <= 0:
         return 0
     if adv_value_inr is None or not np.isfinite(adv_value_inr) or adv_value_inr <= 0:
         return 0
-    max_qty = int(math.floor(max_participation * adv_value_inr / price + 1e-9))
+    max_qty = (fractional_units(max_participation * adv_value_inr / price) if fractional
+               else int(math.floor(max_participation * adv_value_inr / price + 1e-9)))
     return min(q, max(max_qty, 0))
 
 
@@ -218,19 +258,21 @@ def simulate_fill(
     *,
     apply_cap: bool = True,
     symbol: Optional[str] = None,
+    fractional: bool = False,
 ) -> Fill:
     """Simulate a fill: participation cap, impact cost and statutory charges.
 
     ``price`` is the reference execution price (the open, or the stop level);
     impact is charged as an INR cost rather than moving the recorded price.
+    ``fractional`` keeps fractions of a share (US); otherwise whole shares.
     """
     side = side.upper()
-    req = max(int(requested_quantity), 0)
-    qty = cap_quantity(req, price, adv_value_inr, cfg.max_participation) if apply_cap else req
+    req = max(float(requested_quantity), 0.0) if fractional else max(int(requested_quantity), 0)
+    qty = cap_quantity(req, price, adv_value_inr, cfg.max_participation, fractional) if apply_cap else req
     value = qty * float(price) if qty > 0 else 0.0
     part = participation_rate(value, adv_value_inr) if qty > 0 else 0.0
     bps = impact_bps(value, adv_value_inr, cfg) if qty > 0 else 0.0
-    stat = statutory_cost(value, side, date, cfg.dp_charge_inr, symbol=symbol) if qty > 0 else 0.0
+    stat = statutory_cost(value, side, date, cfg.dp_charge_inr, symbol=symbol, market=cfg.market) if qty > 0 else 0.0
     return Fill(
         side=side,
         requested_quantity=req,
@@ -241,6 +283,7 @@ def simulate_fill(
         impact_bps=bps,
         impact_inr=value * bps / 1e4,
         statutory_inr=stat,
+        commission_inr=commission(value, cfg) if qty > 0 else 0.0,
     )
 
 
@@ -250,8 +293,8 @@ def buy_cash_needed(value_inr: float, adv_value_inr: float, date: DateLike, cfg:
     if value_inr <= 0:
         return 0.0
     return value_inr * (1 + impact_bps(value_inr, adv_value_inr, cfg) / 1e4) + statutory_cost(
-        value_inr, "BUY", date, cfg.dp_charge_inr, symbol=symbol
-    )
+        value_inr, "BUY", date, cfg.dp_charge_inr, symbol=symbol, market=cfg.market
+    ) + commission(value_inr, cfg)
 
 
 def fillable_open(open_: pd.DataFrame, close: pd.DataFrame, etfs) -> pd.DataFrame:

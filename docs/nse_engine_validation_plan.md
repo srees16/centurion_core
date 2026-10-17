@@ -2779,6 +2779,155 @@ What the result says:
   times it at 3 years. The family now has 6 trials; another variant would
   be fitting.
 
+## 5ad. US round 1: the India books' rules on US stocks (US tracker US5; pre-registered 16 Oct 2026, 23:15 IST)
+
+**Hypothesis.** The India engine harvests trend and momentum: under-reaction
+to news and slow-moving flows (Jegadeesh & Titman 1993; Moskowitz, Ooi &
+Pedersen 2012). Both are documented in US large caps. Do the India books'
+rules, unchanged, earn more than simply holding SPY?
+
+**The US book's job (US-Y7, your go-ahead 16 Oct):**
+- alone, in USD, it must beat SPY;
+- beside India, in INR, it must raise the book's Sharpe more than SPY would.
+
+The golden target applies to the combined book. Leverage stays India-only
+(GT8).
+
+- **Family:** US core, registry `data/nse_engine/runs_us`. This round uses
+  3 of its 3 configurations: N goes from 0 to 3.
+- **Data:**
+  - the US store `us_store/panel`, hash d5854e5a3a4c2f2c; engine data
+    fe0af5f9468e7ee0, union with total return;
+  - point-in-time members of the S&P 500 and the Nasdaq-100 (the union,
+    US-Y3);
+  - split- and dividend-adjusted prices, with spin-offs as distributions
+    (US4).
+- **Window:**
+  - 2013-01-01 to 2025-12-31 for the gates, with warm-up from 2006-01-03;
+  - 2007-01-01 to 2025-12-31 reported only. 2007–12 is 91.6% priced and
+    runs +1.1%/yr against RSP, because the 2008 failures are missing, so it
+    flatters the result;
+  - 2026 sealed: the store ends 2025-12-31.
+- **Configurations:** the India books' rules, each with its drawdown overlay
+  (20/30/35, half 0.5, re-arm 60):
+  - **A**, `config/nse_engine_deployed.json`: what the US-A1 emails run,
+    without their sector cap on today's lists. Hash 2ca6b779.
+  - **B**, candidate: regime `scale_neutral` 0.6. Hash 2beeac17.
+  - **C**, E4: exit rank 60 and refill exits. Hash 936f7472.
+
+  B and C also carry `universe.price_filter_unadjusted`, which does nothing
+  here (no price floor). All three use the US settings
+  (`us_engine.backtest.US_MARKET`, unchanged since US4):
+  - members only, $20M median daily value, top 600, no price floor;
+  - calendar schedules: rebalance on each week's first session;
+  - fractional shares at $10,000 (US-Y2), minimum trade $100;
+  - no sector cap (no point-in-time sectors) and no metal sleeves;
+  - regime on the S&P 500 and VIX;
+  - risk-free 1.7%, the engine's constant, used only for walk-forward
+    selection.
+- **Costs:**
+  - SEC and FINRA fees on sells, no commission (Vested, INDmoney);
+  - a 3 bp spread floor plus square-root impact, at most 5% participation;
+  - fills at the next open.
+  - Not in the gates: FX, plan fees, TCS and tax (US3, UG11).
+- **Walk-forward:** anchored, 4 training years from 2013, yearly test folds
+  2017–25 (9). Each fold picks A, B or C by training excess Sharpe.
+- **Gates.** Sharpe is excess over the dated 3-month T-bill (IRX / 252 a
+  day). SPY is SPY total return on the same dates.
+  - **G1:** deflated Sharpe ≥ 0.95 at N = 3.
+  - **G2:** Sharpe above SPY's, 2013–25.
+  - **G3:** alpha over SPY with Newey–West t ≥ 2 (lags
+    ⌊4 (T/100)^(2/9)⌋).
+  - **G4:** MaxDD no worse than SPY's, 2013–25.
+  - **G5 (family):** walk-forward out-of-sample Sharpe above SPY's over
+    2017–25.
+  - **G6 (earns its place):** India 75% plus US 25% in INR, rebalanced
+    monthly, has a higher monthly Sharpe over 6.5% than India 75% plus SPY
+    25%, 2013–25.
+    - The weights come from your capital: Rs 30 lakh in India (U6) and
+      $10,000 in the US, about 23% US.
+    - India is the deployed book's register backtest,
+      run 20261010T032441064151Z_679cbd0c.
+  - **Pass:** G1–G4 and G6, with G5 passing. If several pass, the one with
+    the highest 2013–25 Sharpe goes forward.
+- **A pass leads to:**
+  - the 2026 holdout, opened once for the pick, after the store is
+    extended;
+  - US7: 60 sessions of forward test, G4-style;
+  - US8: the emails move to the pick, on the union (US-Y9).
+- **A fail:**
+  - the emails keep their "unvalidated" banner and the US-Y8 rule;
+  - the next family follows the golden-target plan (UG0, then UG7 or UG4),
+    pre-registered as its own round;
+  - A, B and C are never re-tuned.
+- **Reported, not gates:**
+  - INR results (US-Y2);
+  - RSP, QQQ and QQQE;
+  - correlation with the India book;
+  - years, turnover and costs;
+  - 2007–25 with 2008;
+  - the family's PBO, which is coarse at N = 3;
+  - the combined book against the golden target.
+- **Code:**
+  - `cloud.kaggle_runner us-round` runs the round on Kaggle, in one
+    environment;
+  - `python -m us_engine.backtest verdict` applies the gates above.
+
+**Result (17 Oct 2026): FAIL, all three.** Run on Kaggle
+(srees16/centurion-nse-research-us, 7 minutes after an hour in Kaggle's
+queue); registry `runs_us` (39 runs). Figures are 2013–25, USD, with
+Sharpe over the T-bill.
+
+| | CAGR | Sharpe | MaxDD | Alpha (t) | DSR | Gates failed |
+|---|---|---|---|---|---|---|
+| A (deployed) | 5.6% | 0.36 | −25.7% | −1.2% (−0.41) | 0.82 | G1, G2, G3, G6 |
+| B (candidate) | 6.3% | 0.43 | −16.0% | −0.1% (−0.03) | 0.88 | G1, G2, G3, G6 |
+| C (E4) | 9.4% | 0.61 | −21.9% | +2.0% (0.68) | 0.96 | G2, G3, G6 |
+| SPY | 14.6% | 0.79 | −33.7% | | | |
+
+- **Walk-forward 2017–25 (G5): FAIL.** It picked C in every fold:
+  - out of sample, 9.5% / Sharpe 0.54 / −24.5%, against SPY's 15.0% /
+    0.73 / −33.7%;
+  - 4 of 9 years lost money.
+- **Earns its place (G6): FAIL.** India 75% plus US 25%, in INR, monthly
+  Sharpe: with A 1.01, with B 1.03, with C 1.07. With SPY it is 1.14.
+- **What the runs say.** The India rules make 6–9% a year on US large caps,
+  with a beta of about 0.4. The S&P 500 regime gate kept the book in cash
+  through rallies that India's gate would have caught:
+  - SPY: 2019 +31%, 2021 +29%, 2023 +26%;
+  - C, the same years: +16%, +18%, +1%.
+  Stock selection added no alpha. Only drawdowns were smaller, and that
+  was cash, not edge.
+- **Diagnostics (reported, not trials):**
+  - 2007–25: A 5.1%, B 5.6%, C 7.2%, against SPY 10.7%. In 2008 the
+    books lost 3–7% while SPY lost 37%.
+  - In INR, C made 13.7% a year.
+  - Correlation with the India book: 0.17–0.20.
+  - RSP 12.0% / 0.64, QQQ 19.6% / 0.88, QQQE 14.6% / 0.71.
+  - Turnover about 10x, costs 0.7–0.8% a year.
+  - PBO is 0.2%, meaningless at N = 3.
+- **What carries forward:**
+  - the US core family is closed (3 of 3 used), and A, B and C are never
+    re-tuned;
+  - SPY itself is the US leg to beat; it already raises the India book's
+    Sharpe (G6);
+  - the US-A1 emails run A, so US8's rule applies: stop them, or replace
+    them, pending your call;
+  - the next family follows the golden-target plan (UG0, then UG7 or
+    UG4), pre-registered as its own round.
+
+**Correction (17 Oct 2026, US3), dated as section 4 requires.** The round
+ran without a broker commission: US4 took Vested and INDmoney to be
+commission-free. They charge 0.25% a trade (Vested Premium 0.15%) and
+0.295% (INDmoney). Charged on the recorded orders, 2013–25 CAGR in USD
+becomes:
+- A: 0.0% / 1.9% / −1.1% (Vested Basic / Premium / INDmoney);
+- B: 0.7% / 2.5% / −0.4%;
+- C: 4.4% / 6.1% / 3.5%.
+
+The verdict stands: FAIL, by a wider margin. The runs are not re-recorded.
+Future US backtests charge the commission (`us_engine.costs.BROKERS`).
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast

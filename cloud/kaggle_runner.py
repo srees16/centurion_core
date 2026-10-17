@@ -108,6 +108,11 @@ def find_mcx_store_dir(explicit: Optional[str] = None) -> str:
     return find_dataset_dir("continuous.parquet", "data/nse_engine/mcx_store", explicit)
 
 
+def find_us_store_dir(explicit: Optional[str] = None) -> str:
+    """The survivorship-free US store's panel (US tracker US2)."""
+    return find_dataset_dir("member_sp500.parquet", "data/nse_engine/us_store/panel", explicit)
+
+
 def _find_marker(root: Path, marker: str, max_depth: int = 8) -> Optional[Path]:
     """Directory holding ``marker`` somewhere under ``root`` (at most ``max_depth`` levels down)."""
     if not root.is_dir():
@@ -173,6 +178,35 @@ def load_data(cfg, data_start: Optional[str], warmup_years: int = 2):
     )
 
 
+def is_us(args) -> bool:
+    return getattr(args, "market", "nse") == "us"
+
+
+def build_us_config(args):
+    """US round 1's configuration A (``us_engine.backtest.round1_configs``) with the run's overrides."""
+    from us_engine.backtest import round1_configs
+
+    cfg = round1_configs(args.universe)["A"]
+    overrides: Dict[str, Any] = {}
+    for item in getattr(args, "set", None) or []:
+        key, _, value = item.partition("=")
+        overrides[key] = _parse_value(value)
+    for key in ("start", "end"):
+        if getattr(args, key, None):
+            overrides[key] = getattr(args, key)
+    overrides["data.store_dir"] = find_us_store_dir(getattr(args, "store_dir", None))
+    overrides["runs_dir"] = getattr(args, "runs_dir", None) or default_runs_dir()
+    return cfg.replace(**overrides)
+
+
+def load_us(cfg, universe: str):
+    """The US store as engine data: every session from its 2006 start (warm-up), members of ``universe``."""
+    from us_engine.backtest import load_us_market
+
+    logger.info("Loading the US store (%s) from %s", universe, cfg.data.store_dir)
+    return load_us_market(universe, panel_dir=Path(cfg.data.store_dir))
+
+
 def parse_folds(spec: str, n_folds: int) -> List[int]:
     """``"all"``, ``"0-3"``, ``"0,2,5"`` or ``"2-"`` → fold indices."""
     if not spec or spec == "all":
@@ -211,14 +245,29 @@ def _evaluate(job: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _run_jobs(jobs: List[Dict[str, Any]], workers: int) -> List[Dict[str, Any]]:
-    """Evaluate jobs in order, in parallel when asked for more than one worker."""
+def _report(job: Dict[str, Any]) -> Dict[str, Any]:
+    """One backtest that is reported, not recorded (a window outside the family's test window)."""
+    import pandas as pd
+
+    from nse_engine.engine import run_backtest
+    from nse_engine.validation.walk_forward import _window_returns
+
+    cfg = _BASE.replace(**job["params"], start=job["start"], end=job["end"])
+    result = run_backtest(_DATA, cfg, record=False)
+    returns = _window_returns(result, pd.Timestamp(job["start"]), pd.Timestamp(job["end"]))
+    return {"params": job["params"], "window": [job["start"], job["end"]], "config_hash": cfg.config_hash(),
+            "returns": {str(d.date()): float(r) for d, r in returns.items()}}
+
+
+def _run_jobs(jobs: List[Dict[str, Any]], workers: int, fn=None) -> List[Dict[str, Any]]:
+    """Evaluate jobs in order (``fn``, default a recorded backtest), in parallel when asked for more than one worker."""
+    fn = fn or _evaluate
     if workers <= 1:
-        return [_evaluate(job) for job in jobs]
+        return [fn(job) for job in jobs]
     # fork keeps the loaded panels shared; spawn would reload them per worker
     ctx = get_context("fork")
     with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as pool:
-        return list(pool.map(_evaluate, jobs))
+        return list(pool.map(fn, jobs))
 
 
 # ── walk-forward ─────────────────────────────────────────────────
@@ -250,10 +299,13 @@ def job_signature(args, grid: List[Dict[str, Any]]) -> Dict[str, Any]:
     Measured on a 2-fold toy run: end 2018-12-31 vs 2019-12-31 moved the
     stitched OOS Sharpe by 0.003.
     """
-    return {"start": args.start, "end": args.end, "data_start": args.data_start,
-            "train_years": args.train_years, "test_months": args.test_months,
-            "anchored": not args.rolling,
-            "grid": json.dumps(grid, sort_keys=True, default=str)}
+    signature = {"start": args.start, "end": args.end, "data_start": args.data_start,
+                 "train_years": args.train_years, "test_months": args.test_months,
+                 "anchored": not args.rolling,
+                 "grid": json.dumps(grid, sort_keys=True, default=str)}
+    if is_us(args):                 # NSE signatures stay as recorded, so their resumes still match
+        signature.update(market="us", universe=args.universe)
+    return signature
 
 
 def canonical_job(job: Dict[str, Any]) -> str:
@@ -303,7 +355,7 @@ def run_walk_forward_folds(args) -> Dict[str, Any]:
 
     global _DATA, _BASE
 
-    cfg = build_config(args)
+    cfg = build_us_config(args) if is_us(args) else build_config(args)
     grid = expand_grid(json.loads(args.grid))
     out_dir = Path(args.out_dir or default_out_dir())
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -312,7 +364,7 @@ def run_walk_forward_folds(args) -> Dict[str, Any]:
     hb = Heartbeat(name=f"wf:{cfg.config_hash()}", state_path=out_dir / "heartbeat.json")
 
     _BASE = cfg
-    _DATA = load_data(cfg, args.data_start)
+    _DATA = load_us(cfg, args.universe) if is_us(args) else load_data(cfg, args.data_start)
     rf = float(getattr(cfg, "risk_free_annual", 0.0))
 
     folds = generate_folds(_DATA.dates, args.train_years, args.test_months,
@@ -590,6 +642,37 @@ def run_mcx_task(args) -> Dict[str, Any]:
     return state
 
 
+def run_us_round(args) -> Dict[str, Any]:
+    """US round 1 (US tracker US5 / US6, plan 5ad): A, B and C over the test window into the US registry,
+    the wider window reported (not recorded), then the anchored walk-forward choosing among the three."""
+    from us_engine.backtest import round1_points
+
+    global _DATA, _BASE
+
+    points = round1_points(args.universe)
+    _BASE = build_us_config(argparse.Namespace(universe=args.universe, start=args.start, end=args.end,
+                                               store_dir=args.store_dir, runs_dir=args.runs_dir))
+    _DATA = load_us(_BASE, args.universe)
+    rf = float(_BASE.risk_free_annual)
+    recorded = _run_jobs([{"params": p, "start": args.start, "end": args.end, "tag": f"us5-{k}", "rf": rf}
+                          for k, p in points.items()], args.workers)
+    reported = _run_jobs([{"params": p, "start": args.reported_start, "end": args.end}
+                          for p in points.values()], args.workers, fn=_report)
+    wf_args = argparse.Namespace(
+        market="us", universe=args.universe, set=None, start=args.start, end=args.end, data_start=None,
+        store_dir=args.store_dir, runs_dir=args.runs_dir, out_dir=args.out_dir, workers=args.workers,
+        force=False, folds="all", train_years=args.train_years, test_months=args.test_months, rolling=False,
+        max_hours=args.max_hours, grid=json.dumps(list(points.values())))
+    wf_state = run_walk_forward_folds(wf_args)
+    state = {"task": "us-round", "universe": args.universe, "points": points,
+             "results": dict(zip(points, recorded)), "reported": dict(zip(points, reported)),
+             "walk_forward": wf_state, "data_hash": _DATA.data_hash, "provenance": provenance()}
+    out_dir = Path(args.out_dir or default_out_dir())
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "us_round.json").write_text(json.dumps(state, indent=2, default=str))
+    return state
+
+
 def run_options(args) -> Dict[str, Any]:
     """Backtest the pre-registered options-family candidates (O2 sleeves, O3 signal futures, O4 F&O
     anomalies) and record them."""
@@ -720,6 +803,20 @@ def main(argv: Optional[List[str]] = None) -> None:
     p.add_argument("--out-dir")
     p.set_defaults(func=run_mcx_task)
 
+    p = sub.add_parser("us-round", help="US round 1: A, B, C on the US store, then their walk-forward (plan 5ad)")
+    p.add_argument("--universe", default="union", choices=["union", "sp500", "ndx"])
+    p.add_argument("--start", default="2013-01-01")
+    p.add_argument("--end", default="2025-12-31")
+    p.add_argument("--reported-start", default="2007-01-01", help="the wider window, reported and not recorded")
+    p.add_argument("--train-years", type=int, default=4)
+    p.add_argument("--test-months", type=int, default=12)
+    p.add_argument("--max-hours", type=float, default=11.0)
+    p.add_argument("--store-dir", help="US store panel (default: attached dataset, else repo)")
+    p.add_argument("--runs-dir", help="US registry (default: /kaggle/working/runs)")
+    p.add_argument("--out-dir")
+    p.add_argument("--workers", type=int, default=min(4, os.cpu_count() or 1))
+    p.set_defaults(func=run_us_round)
+
     p = sub.add_parser("options", help="the pre-registered options-family candidates (O2 A1/A2/B, O3 X1-X4, O4 Y1-Y3, "
                                        "O5-O8 from kite_connect.options.book_rounds)")
     p.add_argument("--candidates", default="A1,A2,B")
@@ -734,7 +831,8 @@ def main(argv: Optional[List[str]] = None) -> None:
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     state = args.func(args)
-    print(json.dumps({k: v for k, v in state.items() if k != "results"}, indent=2, default=str))
+    # results and reported windows (daily returns) go to the output files, not the log
+    print(json.dumps({k: v for k, v in state.items() if k not in ("results", "reported")}, indent=2, default=str))
 
 
 if __name__ == "__main__":

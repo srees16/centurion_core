@@ -648,6 +648,80 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              - stock futures need about Rs 2 crore (median lot Rs 9
                lakh, about half the book's weight eligible);
              - paper-trade the futures mechanics first.
+             L6 (16 Oct, out of sample): 1.75x gives 35.9% / Sharpe 1.26 /
+             MaxDD -39.1% in 2017-25, and 25.8% / -41.0% over 2008-25.
+             Validation of 1.75x: the LEVERAGE PLAN below (L7-L10).
+ LEVERAGE PLAN (your ask 16 Oct): validate L6's 35% configuration (1.75x)
+ before any live leverage.
+ - The book's edge is validated by its own gates (paper, V3, live).
+   Static leverage holds the same names, so it changes no signal.
+ - What this plan tests is what leverage adds: the cost, the mechanics and
+   the drawdown path of building 1.75x from stock futures.
+ - Order: history, then a forward record, then a futures paper book, then
+   a decision.  MTF stays barred (research protocol section 7).
+[x] P2  L7a  2026 holdout, one look (done 16 Oct, not a trial): L6's model on
+             the deployed book's recorded holdout (1 Jan-11 Sep, 172
+             sessions, opened 15 Sep):
+             - 1.0x: +18.0%, Sharpe 1.04, MaxDD -13.0%;
+             - 1.75x: +28.0%, Sharpe 1.08, MaxDD -22.2%.
+             Levered, the drawdown rule would have reached halt at -20% (no
+             new entries; not modelled), never half.  The holdout was
+             recorded on pre-B1 data (cost model 1), as opened.
+[ ] P2  L7   Futures-built 1.75x on history, Nov 2026.  Pre-registered first
+             (validation plan): family "leverage", registry runs_leverage,
+             at most 2 configurations.  Input: the walk-forward's recorded
+             daily positions 2017-25 (K5 deployed family, RR2), mapped onto
+             NSE stock futures from the F&O store (2013-26: expiry, settle,
+             lot size, open interest).
+             - F&O names levered through near-month futures, rolled before
+               expiry week (physical settlement); the rest stay cash.
+             - Carry and roll cost from actual futures prices (the basis),
+               not L6's rf + 1%.
+             - Whole lots at Rs 2 crore and at Rs 1 crore; a margin proxy and
+               a cash buffer for daily MTM.
+             - The drawdown rule on levered equity.
+             Reported:
+             - the leverage actually reached;
+             - tracking error against L6's synthetic 1.75x;
+             - carry and roll cost a year;
+             - the cash buffer needed;
+             - concentration.
+             Pass rule fixed at pre-registration.  Proposal: CAGR within 2
+             points of L6's 35.9%, MaxDD within 3 points of -39.1%, at Rs 2
+             crore.  2008 stays synthetic: the store has no stock futures
+             before 2013.  Medium.                      Prompt: do L7
+[ ] P2  L8   Forward walk (a shadow record), weekly in the Saturday books
+             report and email.
+             - Each paper book's 1.75x shadow, from its Neon daily snapshots,
+               with L6's model.  The live book is added from D3.
+             - The record starts with the book (deployed: 17 Sep).  Static
+               leverage needs no new positions, so nothing is lost by
+               building it later.
+             - Checkpoints: session 60 (~mid Dec), 6 months (~Mar 2027), 12
+               months (~Sep 2027).
+             - Judged on drawdowns and the rule's behaviour against L6's
+               bootstrap band, not on Sharpe (a 60-session Sharpe has a
+               standard error of ~2).
+             Small.                                     Prompt: do L8
+[ ] P3  L9   Futures paper book (GT8's mechanics), Feb-Jul 2027.  Needs L7
+             PASS and comes after V3 and D3.  Paper only, never live, at a
+             notional Rs 2 crore on Kite quotes:
+             - stock futures for eligible names, cash for the rest;
+             - rolls, with a physical-settlement guard;
+             - margin from Kite's basket-margin API, daily MTM in cash.
+             Runs at least 60 sessions and 3 rolls, tracked G4-style against
+             L7's model.  Pass: carry and roll cost <= 1.5x the model, no
+             margin shortfall.  Large.                  Prompt: do L9
+[ ] P3  L10  Decision, earliest Dec 2027.  Live futures leverage only if all
+             of these hold:
+             - 12+ months of live tracking of the core (protocol 6.4; live
+               from ~mid Dec 2026);
+             - capital >= Rs 2 crore (stock futures lots), or Rs 1 crore if
+               L7 shows partial leverage works;
+             - L7 and L9 pass, and L8's drawdowns stay inside L6's band;
+             - your call on the cap.  GT8 caps leverage at 1.25x until the
+               Sharpe nears 1.4.  1.75x means accepting P(MaxDD > 35%) ~43%,
+               and a 2008-type loss of 37-49%.         Prompt: do L10
 [ ] P3  GT9  Costs and tax: staggered rebalance tranches and wider exit
              bands (core family, one configuration, after V3); 20% STCG
              takes ~5 pts a year.
@@ -721,6 +795,46 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+16 Oct  LP   Leverage plan scheduled (your ask: validate 1.75x by an out-of-
+             sample test, a forward walk or a paper trade).  Queue: L7a
+             (done), L7, L8, L9, L10, in the LEVERAGE PLAN block beside GT8.
+             - L7a, 2026 holdout, one look: 1.75x made +28.0% (1.0x: +18.0%),
+               MaxDD -22.2% (-13.0%).
+             - Next: L8 (small; its record runs back to 17 Sep), then L7 in
+               November.
+16 Oct  L6   Leverage on the walk-forward (your ask: accept the drawdown for
+             35% CAGR; try it as a walk-forward or a paper trade).  One look,
+             not a trial, on the recorded out-of-sample returns (K5 grid, RR2
+             data, cost model 4):
+             - futures-style leverage, exposure reset weekly;
+             - carry rf + 1% (7.5%) on the borrowed part;
+             - the drawdown rule (20/30/35) replayed on the LEVERED equity.
+                                     CAGR   Sharpe   MaxDD   Calmar
+               OOS 2017-25, 1.0x     23.1%   1.25   -22.1%    1.04
+                            1.5x     31.1%   1.24   -35.9%    0.87
+                            1.75x    35.9%   1.26   -39.1%    0.92
+               E4's family, 1.75x    31.0%   1.14   -37.1%    0.84
+               OOS 2008-25, 1.75x    25.8%   1.00   -41.0%    0.63
+             - The 35% holds out of sample in 2017-25, at MaxDD -39%.  With
+               2008 in the window, 1.75x gives 26%.  Sharpe stays ~1.25 at
+               every step, so the golden target's Sharpe, MaxDD and Calmar
+               legs still fail.
+             - Bootstrap at 1.75x (63-day blocks, 2017-25):
+               - P(MaxDD > 35%) 43%; P(> 50%) 6%;
+               - 5th-percentile CAGR 14%.
+             - The drawdown rule on levered equity is the brake that matters:
+               it cut 2008 from -48.7% to -36.7%.
+             - Not tradable at your capital:
+               - stock futures need about Rs 2 crore (lots ~Rs 9 lakh, half
+                 the names eligible);
+               - MTF is on the protocol's never-list;
+               - a NIFTY futures overlay adds beta, not the book's edge.
+             - A levered paper book would add nothing: static leverage holds
+               the same names, so its record is the deployed paper book x
+               1.75.  What paper must test is the futures mechanics (GT8:
+               lots, rolls, margin, daily MTM), worth building near Rs 1-2
+               crore.
+             NO-GO for live now; GT8 stays the route.
 16 Oct  JR3  Experiments in the metrics journal (your ask; both repos,
              uncommitted).  The journal had rows only when a book's
              evidence moved, so the failed work since 10 Oct was invisible.

@@ -39,8 +39,8 @@ import pandas as pd
 
 from nse_engine.allocator import allocate, basket_vol
 from nse_engine.config import EngineConfig
-from nse_engine.costs import (COST_MODEL_VERSION, IDLE_CASH_YIELD_ANNUAL, fillable_open, median_traded_value,
-                               simulate_fill)
+from nse_engine.costs import (COST_MODEL_VERSION, IDLE_CASH_YIELD_ANNUAL, fillable_open, fractional_units,
+                               median_traded_value, simulate_fill)
 from nse_engine import live_rules as lr
 from nse_engine.drawdown import NORMAL as DD_NORMAL, DrawdownDecision, DrawdownTracker, summarise as dd_summarise
 from nse_engine.metrics import compute_metrics
@@ -249,7 +249,7 @@ def generate_targets(
         raise ValueError(f"as_of {as_of} precedes the data")
     pcfg = config.portfolio
     date = cache.dates[pos]
-    holdings = {s: h for s, h in (holdings or {}).items() if h is not None and int(h.quantity) > 0}
+    holdings = {s: h for s, h in (holdings or {}).items() if h is not None and float(h.quantity) > 0}
     notes: List[str] = []
     if cache.warmup[pos]:
         notes.append("signal_warmup: forecast normalisers have fewer than normalizer_min_obs dates")
@@ -463,26 +463,27 @@ class _Book:
     notes: List[str] = field(default_factory=list)
 
 
-def _record_trade(book: _Book, date, sym, side, fill, reason) -> None:
+def _record_trade(book: _Book, date, sym, side, fill, reason, fractional: bool = False) -> None:
     book.trades.append(
         Trade(
-            date=date, symbol=sym, side=side, quantity=int(fill.quantity), price=float(fill.price),
-            value_inr=float(fill.value_inr), cost_inr=float(fill.cost_inr), reason=reason,
-            requested_quantity=int(fill.requested_quantity),
+            date=date, symbol=sym, side=side, quantity=fill.quantity if fractional else int(fill.quantity),
+            price=float(fill.price), value_inr=float(fill.value_inr), cost_inr=float(fill.cost_inr), reason=reason,
+            requested_quantity=fill.requested_quantity if fractional else int(fill.requested_quantity),
         )
     )
 
 
 def _sell(book: _Book, cache: EngineCache, sym: str, qty: int, price: float, adv: float, date, reason: str, cap: bool) -> int:
-    fill = simulate_fill("SELL", qty, price, adv, date, cache.config.costs, apply_cap=cap, symbol=sym)
+    frac = cache.config.portfolio.fractional_shares
+    fill = simulate_fill("SELL", qty, price, adv, date, cache.config.costs, apply_cap=cap, symbol=sym, fractional=frac)
     if fill.quantity <= 0:
         return 0
     book.cash += fill.value_inr - fill.cost_inr
     h = book.positions[sym]
     h.quantity -= fill.quantity
-    if h.quantity <= 0:
+    if h.quantity <= 1e-9:                                 # whole shares: <= 0; fractions: no float dust left
         del book.positions[sym]
-    _record_trade(book, date, sym, "SELL", fill, reason)
+    _record_trade(book, date, sym, "SELL", fill, reason, frac)
     return fill.quantity
 
 
@@ -530,13 +531,14 @@ def _live_fill(live: _LiveRules, cache: EngineCache, book: _Book, side: str, sym
 def _execute_order(book: _Book, cache: EngineCache, order: _Order, u: int, skip: set,
                    live: Optional[_LiveRules] = None) -> None:
     cfg = cache.config
+    frac = cfg.portfolio.fractional_shares
     date = cache.dates[u]
     min_val = cfg.portfolio.min_trade_value_inr
     dpos = order.decision_pos
     # sells first
     for sym in list(book.positions):
         h = book.positions[sym]
-        tgt = int(order.target_qty.get(sym, 0))
+        tgt = order.target_qty.get(sym, 0) if frac else int(order.target_qty.get(sym, 0))
         if tgt >= h.quantity:
             continue
         j = cache.sym_index[sym]
@@ -566,7 +568,7 @@ def _execute_order(book: _Book, cache: EngineCache, order: _Order, u: int, skip:
         o = cache.open[u, j]
         if not np.isfinite(o) or o <= 0:
             continue
-        diff = int(tgt - cur)
+        diff = fractional_units(tgt - cur) if frac else int(tgt - cur)
         if diff * o < min_val:
             continue
         st = order.stops.get(sym) if sym not in book.positions else book.positions[sym].stop_price
@@ -577,7 +579,7 @@ def _execute_order(book: _Book, cache: EngineCache, order: _Order, u: int, skip:
             o = _live_fill(live, cache, book, "BUY", sym, j, u, dpos)
             if o is None:
                 continue
-        fill = simulate_fill("BUY", diff, o, cache.adv[dpos, j], date, cfg.costs, symbol=sym)
+        fill = simulate_fill("BUY", diff, o, cache.adv[dpos, j], date, cfg.costs, symbol=sym, fractional=frac)
         if fill.quantity > 0:
             wanted.append([sym, j, fill])
     need = sum(f.value_inr + f.cost_inr for _, _, f in wanted)
@@ -586,16 +588,18 @@ def _execute_order(book: _Book, cache: EngineCache, order: _Order, u: int, skip:
         factor = avail / need
         for item in wanted:
             sym, j, f = item
-            q = int(math.floor(f.quantity * factor))
-            item[2] = simulate_fill("BUY", q, f.price, cache.adv[dpos, j], date, cfg.costs, apply_cap=False, symbol=sym)
+            q = fractional_units(f.quantity * factor) if frac else int(math.floor(f.quantity * factor))
+            item[2] = simulate_fill("BUY", q, f.price, cache.adv[dpos, j], date, cfg.costs, apply_cap=False, symbol=sym,
+                                    fractional=frac)
             item[2] = dataclasses.replace(item[2], requested_quantity=f.requested_quantity)
         # integer rounding plus concave impact can still overshoot by pennies
         wanted.sort(key=lambda it: -it[2].value_inr)
         while sum(f.value_inr + f.cost_inr for _, _, f in wanted) > avail and wanted:
             sym, j, f = wanted[0]
-            q = f.quantity - 1
+            q = fractional_units(f.quantity * 0.999) if frac else f.quantity - 1
             wanted[0][2] = dataclasses.replace(
-                simulate_fill("BUY", q, f.price, cache.adv[dpos, j], date, cfg.costs, apply_cap=False, symbol=sym),
+                simulate_fill("BUY", q, f.price, cache.adv[dpos, j], date, cfg.costs, apply_cap=False, symbol=sym,
+                              fractional=frac),
                 requested_quantity=f.requested_quantity,
             )
             if q <= 0:
@@ -612,10 +616,10 @@ def _execute_order(book: _Book, cache: EngineCache, order: _Order, u: int, skip:
             h.quantity = tot
         else:
             book.positions[sym] = Holding(
-                symbol=sym, quantity=int(f.quantity), avg_price=float(f.price), entry_date=date,
-                stop_price=order.stops.get(sym),
+                symbol=sym, quantity=f.quantity if frac else int(f.quantity), avg_price=float(f.price),
+                entry_date=date, stop_price=order.stops.get(sym),
             )
-        _record_trade(book, date, sym, "BUY", f, order.reasons.get(sym, "rebalance"))
+        _record_trade(book, date, sym, "BUY", f, order.reasons.get(sym, "rebalance"), frac)
 
 
 def _projected_holdings(
@@ -629,9 +633,10 @@ def _projected_holdings(
     """
     latest_pos = max(pending)
     order = pending[latest_pos]
+    frac = cache.config.portfolio.fractional_shares
     out: Dict[str, Holding] = {}
     for sym in sorted(set(book.positions) | set(order.target_qty)):
-        qty = int(order.target_qty.get(sym, 0))
+        qty = order.target_qty.get(sym, 0) if frac else int(order.target_qty.get(sym, 0))
         h = book.positions.get(sym)
         if qty <= 0 or (h is None and book.stopped_pos.get(sym, -1) > order.decision_pos):
             continue
@@ -685,6 +690,7 @@ def run_backtest(
     eq_vals: List[float] = []
     w_rows: List[Dict[str, float]] = []
     cfg_costs = config.costs
+    frac = config.portfolio.fractional_shares
     tracker = DrawdownTracker(config.drawdown) if config.drawdown.enabled else None
     dd_rows: List[Dict[str, object]] = []
 
@@ -700,10 +706,10 @@ def run_backtest(
                 h = book.positions[sym]
                 px = cache.close[lv, j] if lv >= 0 else np.nan
                 fill = simulate_fill("SELL", h.quantity, px, cache.adv[max(lv, 0), j], date, cfg_costs, apply_cap=False,
-                                     symbol=sym)
+                                     symbol=sym, fractional=frac)
                 book.cash += fill.value_inr - fill.cost_inr
                 del book.positions[sym]
-                _record_trade(book, date, sym, "SELL", fill, "delisted")
+                _record_trade(book, date, sym, "SELL", fill, "delisted", frac)
                 book.notes.append(f"{date.date()} {sym}: stopped trading after {dates[lv].date()}; liquidated at last close {px:.2f}")
         stopped_today: set = set()
         carried: set = set()                              # live: a triggered stop GTT that did not fill today
@@ -781,7 +787,7 @@ def run_backtest(
             j = cache.sym_index[s]
             px = close_row[j]
             if np.isfinite(px) and px > 0 and w > 0:
-                tq[s] = int(math.floor(w * equity / px + 1e-6))
+                tq[s] = fractional_units(w * equity / px) if frac else int(math.floor(w * equity / px + 1e-6))
         reasons: Dict[str, str] = {}
         for s in set(tq) | set(book.positions):
             if s in tp.exits:

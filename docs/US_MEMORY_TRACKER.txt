@@ -87,14 +87,16 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                1996) and prices for names that left.  This is the hardest
                problem and decides everything after it (US2).
   2 Costs/tax  An India-resident investor pays costs no US model has:
-               - USD/INR conversion both ways (about 0.25-1% a leg);
+               - USD/INR conversion both ways (measured at US3: 0.5-1.5%
+                 a leg, plus ~0.1% GST);
                - LRS limit (USD 250,000 a year) and TCS on remittances
                  above Rs 10 lakh a year (adjustable against tax; a cash
                  cost meanwhile);
                - 25% US withholding on dividends (credit in India);
                - Indian tax: 12.5% LTCG after 24 months, slab-rate STCG;
-               - broker commissions and platform fees.
-               Rates as of 2025-26; verify at US3.
+               - broker commissions (0.15-0.3% a trade) and plan fees.
+               Modelled 17 Oct (US3, us_engine/costs.py); rules checked
+               (UG12).
   3 Execution  Manual only.  Suggestions must allow for a fill at the next
                US open, decided in India's evening, at the broker you
                choose.
@@ -144,36 +146,53 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
     S&P 500, labelled unvalidated.  The queue below runs in parallel; the
     US6 verdict decides whether v0 continues, changes configuration or
     stops.  Never an automated order.
+  - Your answers, 16 Oct:
+    - US-Y1 broker: Vested and INDmoney (both custody at DriveWealth,
+      fractional shares).  US3 models their costs.
+    - US-Y2 capital: $10,000; results judged in USD and in INR.
+    - US-Y8 safety rule agreed: until US6, the emails pause when the model
+      book falls 20% below its peak or trails the S&P 500 by 15 points
+      since its start; the model book keeps running as the forward test.
+    - US-Y9: the live emails stay on the S&P 500 until the US6 verdict.
+    - US4 must adapt the engine to the US market, S&P 500 and Nasdaq
+      alike, not just port it (your ask).
+  - US-Y7 (your go-ahead, 16 Oct; leverage is possible only in India):
+    - the golden target applies to the combined India + US book in INR;
+    - the US book alone must beat SPY in USD (US5's gates);
+    - it must also earn its place: India + the US book needs a higher INR
+      Sharpe than India + SPY at the same weight.
+    Gates are pre-tax, as India's; the after-tax view is reported (UG11).
+    The 35% CAGR leg needs India's futures leverage (India tracker L6, GT8).
 
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
-[!] P3  US-Y4 Optional: repository variable US_ADVISORY_CAPITAL_USD (your US
-             capital) so the email sizes orders in your dollars (until
-             then, per $10,000).  The 15 Oct fix is merged.
-[!] P1  US-Y7 Golden target for US (GOLDEN TARGET PLAN, phase 0): hold the
-             US book to it (a) alone, in USD; (b) alone, in INR (adds the
-             rupee's fall, ~3-4% a year since 2013); or (c) recommended:
-             the combined India + US book in INR meets the golden target,
-             while the US book alone must pass its US TARGET (UG0 drafts
-             it: Sharpe and alpha over SPY, MaxDD bound).  Also: pre-tax
-             as India, or after tax too (US short-term gains are taxed at
-             your slab rate, India's at 20%).
-[!] P1  US-Y8 Safety rule for the unvalidated emails (US-A1), until US6:
-             pause the emails if the model book falls 20% below its peak
-             or underperforms SPY by 15 points (proposed; your call).
-[!] P1  US-Y1 Choose the broker you will place US orders with (e.g.
-             Interactive Brokers, Vested, INDmoney).  It sets the cost and
-             tax model (US3): commissions, FX spread, fees, statements.
-             Check that it takes good-till-cancelled stop orders on
-             fractional quantities (the advisory's stops need them).
-[!] P1  US-Y2 Capital and currency: roughly how much for US stocks (under
-             LRS), and whether to judge results in INR, USD or both
-             (suggested: both).
-[!] P1  US-Y9 Nasdaq-100 in the live email: add today's 15 Nasdaq-100-only
-             members (ARM, ASML, SHOP, MELI, PDD, MSTR ...) to the US-A1
-             universe now, or when US6 validates the combined universe
-             (recommended: the email's forward record stays one setup).
+[!] P1  US-Y10 Round 1 failed (US6): the US-A1 emails run rule set A, which
+             made 5.6% a year against SPY's 14.6% (2013-25).  US3 adds the
+             broker's commission (0.15-0.3% a trade at ~20x turnover) and
+             Indian tax: A makes 1-3% a year in INR after both, SPY 17%.
+             US8's rule is to stop the emails when the gates fail.  Your call:
+             (a) recommended: stop the stock suggestions, and hold an S&P
+                 500 index fund as the US leg until a strategy beats it.
+                 Vehicle, to check in each app:
+                 - VOO / SPY / IVV at either broker: simplest;
+                 - CSPX or VUAA (Irish UCITS, accumulating) on INDmoney:
+                   outside US estate tax (US-situs holdings above $60,000,
+                   which $10,000 a year reaches in ~6 years), 15% US
+                   withholding inside the fund, no yearly Indian dividend
+                   tax (all at 12.5% on sale after 24 months).  Vested
+                   does not offer them yet.
+             (b) keep the emails, labelled "fails its backtest";
+             (c) stop the US module.
+             Either change is a workflow edit that you merge.
+[!] P2  US-Y11 What next for US research: (a) recommended: UG0 (the
+             study), then one new family, pre-registered: UG7, sector-ETF
+             dual momentum, which is cheap and has few orders; (b) stop
+             researching and keep SPY as the US leg.  US-Y7 holds either
+             way: a US strategy must beat SPY alone and beside India.
+[!] P3  US-Y4 Optional: repository variable US_ADVISORY_CAPITAL_USD=10000.
+             Your capital (US-Y2) is the email's default already; the
+             variable only changes its wording to "your capital".
 
 --------------------------------------------------------------------------------
  5. IN PROGRESS [~]
@@ -184,8 +203,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
  6. QUEUE — do #1 first.  Every item: pass rule fixed before running, every
     backtest recorded, no tuning on 2026 data.
 --------------------------------------------------------------------------------
-#1  [~] P1  US2  Survivorship-free US data (plan 15 Oct, your ask: no
-                 survivorship bias in the stock selection).
+#1  [x] P1  US2  Survivorship-free US data, PASSED 16 Oct (plan 15 Oct, your
+                 ask: no survivorship bias in the stock selection).
                  - Membership: point-in-time S&P 500 from fja05680/sp500
                    (MIT; daily member lists since 1996; its author trusts
                    2001 on), checked against Wikipedia's dated changes and
@@ -327,18 +346,70 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                    (a text column read back as float); fixed, and pass 2
                    then the 2006-12 pass restarted 15:20
                    (us_store/pass2_then_2006.sh).
-                 1 NOV (if the monthly allowance ran out; see the chain
-                   log us_store/tiingo_chain.log): resume with
-                   python -m us_engine.tiingo fetch --from 2006-01-01, then
-                   history, then pass2 (each resumable).  Prompt: resume
-                   Tiingo.
-                 5 the RSP tracking check and the bias report.
-#2  [ ] P1  US3  Cost and tax model for an India-resident investor, for the
+                   Both finished 16:42 inside October's free allowance (no
+                   1 Nov resume needed): 350 spells tried, 187 resolved,
+                   29 review, 134 absent (not on Tiingo: Wachovia, WaMu,
+                   Wyeth, Tribune, TXU ...).  S&P 500 member-days priced
+                   (estimate; the store build gives the exact figure):
+                   2006-12 67.1% -> 88.7%, 2013-25 87.7% -> 99.4%.
+                   History top-up 17:44-18:40: nothing to add (Tiingo has
+                   no earlier history for those names).
+                 16 Oct evening, steps 3-5 finished (your "go"):
+                 - Fixes found on the way:
+                   - a re-judge over 2013-25 only had marked the spells that
+                     ended before 2013 absent, so the store dropped their
+                     prices (AK Steel, Convergys, Barr, Constellation,
+                     Compuware ...): verdicts now always over 2006-25;
+                   - the store read one file per Tiingo series, so a company
+                     with two spells lost the second (COG -> CTRA, DISCA ->
+                     WBD, CDAY -> DAY, MXIM, COV): files now merged;
+                   - a pass-2 cut-over (ARNC: Yahoo's HWM from 2016-11-01)
+                     now applies when pass 2 found nothing better;
+                   - an identity guard: a Yahoo series that starts mid-spell
+                     or jumps > 60% without a reviewed reason is another
+                     security's (dropped: EP is not El Paso, KG not King
+                     Pharmaceuticals); 13 genuine big moves reviewed (2008
+                     crisis, MO's 2008 and Tyco's 2007 spin-offs, WY 2010);
+                   - Tiingo's GAS is AGL Resources throughout, so Nicor's
+                     spell is unpriced, not mispriced (NOT_THE_COMPANY).
+                 - Rename map: ATGE -> CVSA (DeVry, now Covista), NCR -> VYX,
+                   IAC -> MTCH (43 aliases); pass 2: RadioShack (RSH) and
+                   SunEdison resolved, prices checked against known levels.
+                 - Store (us_store/panel, hash 9180b36846cb393f): 982
+                   instruments (771 Yahoo, 211 Tiingo), S&P 500 + Nasdaq-100
+                   2007-25, per-index masks (member_sp500 / member_ndx).
+                 5 DONE (python -m us_engine.store check, panel/check.json):
+                   PASS on both pre-registered rules.
+                   - S&P 500 2013-25: 99.26% of member-days priced (>= 99%);
+                     equal-weight members 12.52%/yr vs RSP 12.19%/yr,
+                     +0.33%/yr (quarterly, as RSP; daily +0.84%).
+                   - Bias, reported: today's members backfilled 18.10%/yr,
+                     +5.06%/yr over point-in-time (Nasdaq-100: +11.3%/yr).
+                   - Nasdaq-100 2013-25: 98.4% priced; -0.17%/yr vs QQQE.
+                   - 2007-12 stress: 91.6% priced, +1.14%/yr vs RSP: the
+                     2008 failures free data lacks (Lehman, WaMu, Bear,
+                     Wachovia) flatter it; read 2008 results with that.
+                   Residual: 16 leavers lack prices for part of 2013-25
+                   (0.74% of member-days: Broadcom Corp, Starwood, Linear,
+                   Precision Castparts, 21st Century Fox, IHS Markit ...),
+                   mostly acquired; the RSP check passes with them out.
+                 Left (small, not blocking US4): Nasdaq-100 2007-12 names
+                   renamed since (HANS -> MNST, AEOS -> AEO, RIMM -> BB, KFT
+                   -> MDLZ, IACI, UAUA) and its leavers on Tiingo (November
+                   allowance); a Yahoo-vs-Tiingo identity sample (November);
+                   spin-off days (MO 2008, Tyco 2007, WY 2010) for US4's
+                   loader to treat as distributions, not losses.
+#2  [x] P1  US3  DONE 17 Oct (section 8): us_engine/costs.py.
+                 Cost and tax model for an India-resident investor, for the
                  broker from US-Y1: commissions, FX both ways, TCS cash
                  cost, dividend withholding and credit, Indian capital-gains
                  tax; dated rates and a version, like costs.py.  Medium.
+                 Unblocked 16 Oct: Vested and INDmoney (US-Y1), $10,000,
+                 USD and INR (US-Y2).  US4's per-trade schedule (SEC and
+                 FINRA fees, no commission) stays; US3 adds the account
+                 costs (FX both ways, plan fees, TCS) and the taxes.
                                                        Prompt: do US3
-#3  [ ] P2  US4  Port the engine through an adapter (the India book
+#3  [x] P2  US4  DONE 16 Oct (see section 8).  Port the engine through an adapter (the India book
                  untouched): US store -> MarketData; universe = point-in-
                  time members AND the liquidity filter (an optional
                  membership mask in the engine, off by default so the India
@@ -351,7 +422,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                  sector snapshots (departed companies have none in today's
                  list).  Pass: the India suite and the canary unchanged; a
                  US smoke backtest runs.  Large.       Prompt: do US4
-#4  [ ] P2  US5  Pre-register round 1 (validation plan section) before any
+#4  [x] P2  US5  DONE 16 Oct 23:15 IST: validation plan 5ad (section 8).
+                 Pre-register round 1 (validation plan section) before any
                  US number is read.  Three configurations, one per India
                  book, with the US-A1 inputs:
                  - A = deployed rules (what the US-A1 emails run);
@@ -368,7 +440,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                  Reported, not gates: INR and USD returns, correlation
                  with the India book, the US2 survivorship bias, a
                  scorecard against RSP.                Prompt: do US5
-#5  [ ] P2  US6  Run on Kaggle: the three backtests and the walk-forward,
+#5  [x] P2  US6  DONE 17 Oct: FAIL, all three (section 8).
+                 Run on Kaggle: the three backtests and the walk-forward,
                  recorded in a US registry (runs_us); the 18-metric
                  scorecard; the verdict against US5.  Results journaled
                  in docs/metrics_journal.csv as books us_a / us_b / us_c
@@ -432,7 +505,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
    golden target                1.4-1.5    35%       1.4 (CAGR 35% still needs
                                                      India futures leverage)
 
-#10 [ ] P1  UG0  Golden-target study for US (research, no trials): what the
+#10 [x] P1  UG0  DONE 17 Oct (section 8): hold SPY; no route better than even.
+                 Golden-target study for US (research, no trials): what the
                  target implies for a US leg (vol, drawdown, Sharpe, in USD
                  and INR); live records of US long-only systematic books;
                  post-publication decay (McLean and Pontiff 2016); momentum
@@ -447,7 +521,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                  Output: odds per route, the US TARGET draft for US-Y7, the
                  ranked sleeve list for phase 2, a memo in chat (a .md file
                  only with your OK).  Medium.         Prompt: do UG0
-#11 [ ] P1  UG12 Rules check: can a resident under LRS / the 2022 overseas
+#11 [x] P1  UG12 DONE 17 Oct (section 8): no derivatives, no margin abroad.
+                 Rules check: can a resident under LRS / the 2022 overseas
                  investment rules hold US index futures?  Options are
                  settled: not possible from a non-US DriveWealth account
                  (your fact, 16 Oct).  Margin is barred.  Also
@@ -455,7 +530,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                  type issues for US ETFs, dividend withholding.  Primary
                  sources (RBI, CBDT); decides whether leverage or hedges exist
                  for a US leg at all.  Small.         Prompt: do UG12
-#12 [ ] P1  UG14 FX and rates in the US store: USD/INR (FRED DEXINUS), US
+#12 [x] P1  UG14 DONE 17 Oct (section 8): Yahoo's series checked; no change.
+                 FX and rates in the US store: USD/INR (FRED DEXINUS), US
                  3-month T-bill (FRED DTB3), RSP and SPY total return; every
                  US result reported in USD and INR; the FX and TCS cash costs
                  from US3 applied to flows.  Small.   Prompt: do UG14
@@ -532,6 +608,200 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first
 --------------------------------------------------------------------------------
+17 Oct  US3  Cost and tax model for an India resident (your ask;
+             uncommitted).  Pages checked 17 Oct; rules per UG12.
+             - Correction to US4: neither broker is commission-free.
+               - Vested: 0.25% a trade, or 0.15% on Premium (Rs 4,500 a
+                 year), at most $35.
+               - INDmoney: 0.25% + GST (0.295%), at most $29.50, plus an
+                 0.005% IFSCA fee.
+               - FX: Vested ~1.5% over the reference rate in, 1-2% out;
+                 INDmoney's bank 0.5-1.2% each way.
+               - GST on conversion (rule 32(2)(b)): ~0.1%.
+               - SEC $20.60 per $1M sold from 4 Apr 2026; FINRA's TAF is
+                 zero for Oct-Dec 2026.
+             - Engine: CostConfig.commission_rate / commission_cap (off by
+               default; India's hashes unchanged).  Future US backtests
+               charge Vested Premium's 0.15%.  Round 1 stays as
+               pre-registered (no commission; correction in plan 5ad).
+             - us_engine/costs.py (account model v1):
+               - the brokers' dated rates, GST on conversion, TCS;
+               - FIFO lots taxed in INR at rule 206's rate: 24 months /
+                 12.5%, slab, 4% cess, set-off and 8-year carry-forward;
+               - US 25% dividend withholding with India's credit;
+               - plan fees;
+               - inr_view: before and after the account's costs and tax.
+               python -m us_engine.costs report
+             - 2013-25, $10,000 deposited once, INR CAGR, at the slab rate
+               of 30% + cess (before costs / after costs / after tax):
+                 C (best book), Vested Premium  10.5% /  9.9% /  6.4%
+                 C, INDmoney                     7.5% /  7.4% /  4.5%
+                 A (the emails), Vested Premium  6.2% /  5.3% /  2.8%
+                 SPY held, INDmoney             19.0% / 18.3% / 17.2%
+                 SPY held, Vested Basic         19.0% / 18.2% / 17.1%
+             - What this says:
+               - weekly trading at $10,000 costs 2-5% a year in commission
+                 alone;
+               - its gains are all short-term, at the slab rate;
+               - holding an index pays 12.5% once, at the sale.
+             - Checked on hand-worked cases: set-off, carry-forward, GST
+               slabs, TCS, FIFO, rule 206.  Fast suite 221 passed.
+17 Oct  UG12 Rules check, from primary sources (RBI, the Income-tax Act 2025,
+             Finance Act 2026, IRS).
+             - Not allowed for a resident:
+               - derivatives abroad (OI Master Direction para 1(ix)(a)),
+                 so no US futures or options;
+               - margin or margin remittances (LRS para A.5; FEMA 3(R)/2018).
+               So no leverage or hedge exists for a US leg.
+             - LRS: USD 250,000 gross per financial year.
+             - TCS: 20% above Rs 10 lakh a year across all LRS remittances
+               (s.394(1), table item 7), credited as tax paid.  $10,000 sits
+               just under the threshold, if it is your only LRS
+               remittance.
+             - Indian tax:
+               - long-term after 24 months at 12.5%, no Rs 1.25 lakh
+                 exemption;
+               - short-term and dividends at the slab rate;
+               - credit for US withholding via Form No. 44;
+               - Schedule FA every year.  The Black Money Act's Rs 10 lakh
+                 penalty is waived while foreign assets stay <= Rs 20 lakh.
+             - US side:
+               - 25% dividend withholding with a W-8BEN, 30% without;
+               - no US tax on gains;
+               - US estate tax on US-situs assets above $60,000, with no
+                 treaty.  US ETFs are US-situs; Irish UCITS ETFs are not
+                 (INDmoney lists CSPX and VUAA; Vested not yet).
+               - PFIC applies to US persons only.
+             - 180-day rule: idle proceeds abroad must be reinvested or
+               brought home (LRS para A.17).  A cash-heavy regime gate sits
+               badly with it.
+             - Unclear, for your CA:
+               - how a resident converts cost;
+               - how TCS adds up across banks;
+               - US debt ETFs under s.76 (not used here).
+17 Oct  UG0  US golden-target study (literature and live funds, no trials).
+             Verdict: hold SPY (or an equivalent) as the US leg.
+             - Published anomalies lose 1/3 to 1/2 out of sample (McLean &
+               Pontiff 2016; Jensen, Kelly & Pedersen 2023).  Large-cap
+               momentum is ~0 since 2000 (Ken French data, t 0.1); earnings
+               drift is gone in large caps.
+             - Live funds 2013-25: of 20 long-only factor, rotation and
+               timing funds, only SPMO clearly beat SPY's Sharpe (on
+               mega-cap tech).  MTUM, QUAL, USMV, trend (PTLC) and
+               sector-rotation funds sat at or below SPY.
+             - Seven mega-caps gave ~40% of SPY's 2013-25 gain.  A 20-name
+               equal-weight book usually holds none of them: a structural
+               reason round 1 lagged.
+             - Diversification: every US style correlates 0.24-0.38 with
+               NIFTY 500 in INR.  Most of the benefit is USD and a different
+               market, which SPY gives.
+             - Odds of beating SPY's Sharpe over the next decade: our own
+               stock book 10-15%; quality or momentum ETFs 30-45%; timing
+               15-25%.
+             - Golden target: the combined book reaches Sharpe 1.4 only if
+               the US sleeve has a Sharpe of ~1.15 in INR, which no live
+               fund has had.  Scoping look (not a trial), 2017-25: India
+               1.75x + SPY 25% gave 32.0% / Sharpe 1.13 / MaxDD -29.3%.
+             - If you want a test (US-Y11): SPHQ or USMV judged at the
+               combined-book level, with SPY as the control.  Each needs
+               1-4 orders a year.
+17 Oct  UG14 FX and rates.  FRED times out from this Mac, so the series were
+             checked against their publishers over 2013-25:
+             - Yahoo's USD/INR vs the Fed's H.10 (the source of DEXINUS):
+               mean gap 0.03%, worst day 2.95%; the rupee's fall 3.89% vs
+               3.96% a year;
+             - the 3-month T-bill vs the Treasury's daily rate: mean gap
+               -0.02 points, worst 0.25.
+             No store change.  INR results are in every verdict; flows are
+             costed in us_engine.costs.
+17 Oct  US6  Round 1: FAIL, all three (validation plan 5ad; your "initiate
+             backtest or forward walk").  Run on Kaggle in 7 minutes, after an
+             hour in Kaggle's queue; 39 runs in data/nse_engine/runs_us.  A
+             one-worker rerun (srees16/centurion-nse-research-us1)
+             reproduced every return exactly; not imported.
+             Figures are 2013-25, USD, Sharpe over the T-bill:
+                           CAGR   Sharpe   MaxDD   alpha (t)      DSR
+               A deployed   5.6%   0.36   -25.7%   -1.2% (-0.41)  0.82
+               B candidate  6.3%   0.43   -16.0%   -0.1% (-0.03)  0.88
+               C E4         9.4%   0.61   -21.9%   +2.0% (0.68)   0.96
+               SPY         14.6%   0.79   -33.7%
+             - Walk-forward 2017-25: picked C in every fold; 9.5% / 0.54 /
+               -24.5% against SPY's 15.0% / 0.73.
+             - Beside India, 75/25 in INR (monthly Sharpe): with C 1.07, with
+               SPY 1.14.  So the books do not earn their place; SPY does.
+             - Why: beta ~0.4.  The S&P 500 regime gate sat in cash through
+               big rallies:
+               - 2019: SPY +31%, C +16%;
+               - 2021: SPY +29%, C +18%;
+               - 2023: SPY +26%, C +1%.
+               Stock selection added no alpha.  Smaller drawdowns came from
+               cash: 2008 -3% to -7% against SPY's -37%.
+             - Reported:
+               - in INR, C made 13.7% a year;
+               - correlation with India 0.17-0.20;
+               - turnover ~10x, costs 0.7-0.8% a year.
+             - Recorded: the metrics journal (books us_a, us_b, us_c, the
+               walk-forward under us, the experiment US6 FAIL); the research
+               protocol's family table (US core: closed, N = 3).  The
+               registry is backed up (centurion-backup-state).
+             Code (uncommitted):
+             - us_engine.backtest: round1_configs, verdict, record_journal;
+             - cloud.kaggle_runner us-round and its US store dataset
+               (centurion-us-store);
+             - walk_forward.expand_grid takes a list of settings.
+             Fast suite 219 passed.  Decisions: US-Y10 (the emails), US-Y11
+             (next research).
+16 Oct  US5  Round 1 pre-registered (validation plan 5ad, 23:15 IST) before
+             any US strategy number was read: A, B and C on the union, the
+             gates G1-G6, the US-Y7 "earns its place" test.
+16 Oct  US4  The NSE engine adapted to US stocks (your ask: the S&P 500 and
+             the Nasdaq alike; uncommitted).
+             - Engine switches, all off by default, so India does not move
+               (deployed and E4 backtests reproduce to the last digit; the
+               three config hashes unchanged; suite 219):
+               universe.members_only (point-in-time index lists),
+               portfolio.fractional_shares (US brokers), costs.market "US"
+               (SEC and FINRA fees on sells, no commission).
+             - us_engine/backtest.py: the store as engine data, total
+               return (Yahoo records most spin-offs as dividends, e.g. MO
+               2008 $51.06; Tyco 2007, Time Warner 2009, Expedia 2011 and
+               Liberty Media 2014 are added); regime on the universe's
+               index (S&P 500 + VIX, or Nasdaq-100 + VXN); $10,000 in
+               fractional shares; no sector cap (no point-in-time
+               sectors); no metal sleeves; USD and INR (in_inr).
+             - The store adds market.parquet (SPX, NDX, VIX, VXN,
+               USD/INR, the 3-month T-bill) and benchmarks.parquet (SPY,
+               RSP, QQQ, QQQE total return).
+             - Smoke runs, 2013-25, mechanics only (returns withheld
+               until US5): union 506 eligible a day, 19 names held, 6,723
+               trades, 0 buys of non-members, all in fractions, 3.6 bp a
+               trade; S&P 500 and Nasdaq-100 alike.
+             Data fixes on the way (US2 still passes: 99.25% priced,
+             +0.29%/yr vs RSP; Nasdaq-100 98.4%, -0.13%/yr vs QQQE; hash
+             d5854e5a3a4c2f2c, backed up to Kaggle):
+             - Yahoo's DD before 2017 is Dow Chemical's history; old
+               DuPont now comes from Tiingo (checked against its prices);
+             - the identity guard covers Tiingo too: Life Technologies and
+               Millipore had garbage series (moves of +600%), now dropped;
+             - the stored fund returns had lost the day after each US
+               holiday (fixed: RSP is 12.19%/yr, not 12.57%).
+16 Oct  US-Y8 Safety rule built (your OK): the emails and the page pause
+             when the model book is 20% below its peak or 15 points behind
+             the S&P 500; red banner, no orders; the model book keeps
+             running; python -m us_engine.advisory resume clears it.
+16 Oct  US-UI2 Advisory page grouped by date (your ask; both repos,
+             uncommitted): Overview and Daily Detail tabs, as the India
+             Trade Center.  Daily Detail: a chip per session (green:
+             holdings changed; amber: orders suggested for the next open);
+             for the session picked, the model book at your capital (day
+             P&L, since start, names held), what executed (fills, stops,
+             orders that did not fill, sell returns) and what was suggested
+             after its close with the outcome at the next open.  The API
+             returns the last 60 sessions (us_engine.advisory.ui_days) in
+             place of the flat list of the latest 40 trades.  Checked on a
+             synthetic book; frontend tsc and next build pass; backend fast
+             suite 216.  Merge the backend first: until it is live the
+             Daily Detail tab shows "No sessions recorded yet".
 16 Oct  US-UI1 The US backend changes on the web UI, where relevant (your
              ask; uncommitted in both repos).
              - New US Stocks > Advisory page (owner only): the next

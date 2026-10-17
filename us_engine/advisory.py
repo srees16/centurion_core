@@ -67,6 +67,11 @@ NOTIONAL_USD = 10_000_000.0
 REFERENCE_CAPITAL = 10_000.0
 #: Per side, on every model fill: spread and slippage at a zero-commission broker (US3 replaces it).
 FILL_COST_BPS = 10.0
+#: The safety rule (US-Y8, your call 16 Oct), until US6 validates a configuration: the suggestions pause when
+#: the model book falls this far below its peak, or trails the S&P 500 (price) by this much since its start.
+#: The pause holds until you clear it (``resume``); the model book keeps running as the forward test.
+PAUSE_DRAWDOWN = 0.20
+PAUSE_BEHIND_SPX = 0.15
 SCHEMA = "us_advisory"
 STATE_KEY = "us_advisory_book"
 BOOK_VERSION = 1
@@ -118,6 +123,8 @@ class Book:
     report_html: str = ""            # that email, for a resend
     #: the latest decision's market facts and raised stops, for the web UI (``ui_view``)
     facts: Dict = field(default_factory=dict)
+    #: the safety rule's pause, {"since", "reason"} once it trips (US-Y8); empty while suggestions flow
+    paused: Dict = field(default_factory=dict)
     version: int = BOOK_VERSION
 
     def to_json(self) -> str:
@@ -573,6 +580,19 @@ def market_facts(book: Book, plan: Plan, panel: UsPanel) -> Dict:
             "dd_state": dd.state if dd else "normal", "dd": dd.drawdown if dd else 0.0}
 
 
+def safety_check(book: Book, facts: Dict) -> Optional[str]:
+    """Why the safety rule (US-Y8) pauses the suggestions now, or None."""
+    peak = max([e for _, e in book.equity] + [NOTIONAL_USD])
+    below = 1.0 - book.value() / peak
+    behind = facts["book_return"] - facts["spx_return"]
+    if below >= PAUSE_DRAWDOWN:
+        return f"the model book is {below:.1%} below its peak (the limit is {PAUSE_DRAWDOWN:.0%})"
+    if behind <= -PAUSE_BEHIND_SPX:
+        return (f"the model book trails the S&P 500 by {-behind:.1%} since {book.start} "
+                f"(the limit is {PAUSE_BEHIND_SPX:.0%})")
+    return None
+
+
 def summary_lines(book: Book, plan: Plan, panel: UsPanel) -> List[str]:
     f = market_facts(book, plan, panel)
     lines = [
@@ -639,8 +659,10 @@ def render_html(book: Book, plan: Plan, panel: UsPanel, capital: float, capital_
     buy_total = sum(o.qty * o.price * k for o in buys)
     tiles = (
         "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr>"
-        + tile("Tonight", f"{_count(len(buys), 'buy')} &middot; {_count(len(sells), 'sell')}",
-               _count(len(plan.raised), "stop") + " to raise" + (f" &middot; buys {_money(buy_total)}" if buys else ""))
+        + (tile("Tonight", f"<span style=\"color:{RED};\">paused</span>", "safety rule US-Y8: no suggestions")
+           if book.paused else
+           tile("Tonight", f"{_count(len(buys), 'buy')} &middot; {_count(len(sells), 'sell')}",
+                _count(len(plan.raised), "stop") + " to raise" + (f" &middot; buys {_money(buy_total)}" if buys else "")))
         + tile("Market", f"<span style=\"color:{regime_color};\">{regime}</span>",
                f"S&amp;P 500 {f['spx_vs_ma200']:+.1%} vs 200-day &middot; VIX {f['vix']:.1f}")
         + "</tr><tr>"
@@ -669,6 +691,10 @@ def render_html(book: Book, plan: Plan, panel: UsPanel, capital: float, capital_
     if not orders:
         orders = (f"<p style=\"font-size:13px;color:{MUTED};margin:6px 0;\">No orders tonight: hold, and keep the "
                   "stops in place.</p>")
+    if book.paused:                                       # US-Y8: the model's orders are journaled, not suggested
+        orders = (f"<p style=\"font-size:13px;color:{RED};margin:6px 0;\"><b>No suggestions: paused since "
+                  f"{escape(book.paused['since'])}.</b> Keep your stops in place; whether to hold or exit is your "
+                  "call until the US6 verdict.</p>")
 
     raised = table(["Stock", "Old stop", "New stop"], [
         [f"<b>{escape(s)}</b>", f"{old:,.2f}" if old else "&mdash;", f"<b>{new:,.2f}</b>"]
@@ -714,6 +740,9 @@ def render_html(book: Book, plan: Plan, panel: UsPanel, capital: float, capital_
         f"<div style=\"background:#fff7ed;border-left:4px solid #f59e0b;padding:10px 20px;font-size:13px;"
         f"color:#7c2d12;\"><b>Unvalidated.</b> The India book's deployed rules on today's S&amp;P 500; no US backtest "
         f"or gate has passed yet. Advisory only: you place every order.</div>",
+        (f"<div style=\"background:#fef2f2;border-left:4px solid {RED};padding:10px 20px;font-size:13px;"
+         f"color:#7f1d1d;\"><b>Suggestions paused (safety rule US-Y8).</b> {escape(book.paused['reason'])}. The "
+         f"model book keeps running as the forward test.</div>") if book.paused else "",
         f"<div style=\"padding:14px 18px 22px;\">", tiles,
         section("Tonight's orders", orders, "Sells first, then buys." if sells and buys else ""),
         section("Raise these stops", raised) if raised else "",
@@ -733,6 +762,8 @@ def render_text(book: Book, plan: Plan, panel: UsPanel, capital: float, events: 
     tables = report_tables(book, plan, panel, capital)
     opens = next_open_ist(plan.as_of)
     out = [f"US suggestions for the {opens:%a %d %b} open ({opens:%H:%M} IST); UNVALIDATED, advisory only",
+           *([f"PAUSED since {book.paused['since']} (US-Y8): {book.paused['reason']}; the orders below are the "
+              "model's, not suggestions"] if book.paused else []),
            *summary_lines(book, plan, panel)]
     for name, title in (("sells", "Sell"), ("buys", "Buy"), ("raised", "Raise stops"), ("held", "Model holdings")):
         df = tables[name]
@@ -742,7 +773,7 @@ def render_text(book: Book, plan: Plan, panel: UsPanel, capital: float, events: 
     return "\n".join(out)
 
 
-def ui_view(book: Optional[Book], capital: float, capital_set: bool, trades: int = 40) -> Dict:
+def ui_view(book: Optional[Book], capital: float, capital_set: bool, sessions: int = 60) -> Dict:
     """The saved book for the web UI's US Advisory page (/api/v1/us-advisory), read-only.
 
     Quantities are the model's whole shares at ``NOTIONAL_USD``; the page scales them to the capital
@@ -771,18 +802,53 @@ def ui_view(book: Optional[Book], capital: float, capital_set: bool, trades: int
             pd.Timestamp(book.last_session)).isoformat(), "emailed": book.emailed == book.last_session,
         "equity": equity, "cash": book.cash, "return": equity / NOTIONAL_USD - 1,
         "max_drawdown": float((1 - curve / curve.cummax()).max()) if len(curve) else 0.0, "facts": book.facts,
+        "paused": book.paused,
         "orders": [order(o) for o in book.pending],          # sells first, then buys by target weight
         "holdings": [{"symbol": s, "qty": int(h["qty"]), "entry": h["avg_price"], "last": h["last_price"],
                       "since": h["entry_date"], "stop": h.get("stop"), "weight": h["qty"] * h["last_price"] / equity,
                       "pnl": h["last_price"] / h["avg_price"] - 1}
                      for s, h in sorted(held.items(), key=lambda kv: -kv[1]["qty"] * kv[1]["last_price"])],
         "equity_curve": [{"date": d, "equity": e} for d, e in book.equity],
-        "trades": [{"date": t["date"], "symbol": t["symbol"], "side": t["side"], "qty": t["qty"],
-                    "price": t["price"], "status": t["status"], "reason": REASONS.get(t["reason"], t["reason"]),
-                    "pnl": (t["price"] / t["avg_price"] - 1) if t.get("avg_price") and t["qty"] else None,
-                    "note": t.get("note", "")} for t in reversed(book.trades[-trades:])],
+        "days": ui_days(book)[:sessions],
     })
     return out
+
+
+def ui_days(book: Book) -> List[Dict]:
+    """The book session by session, newest first (the page's Daily Detail, as the India Trade Center's): the
+    close's equity, the orders suggested after it and what became of them at the next open, and what was
+    executed at that session (fills, stops, orders that did not fill).  Quantities are the model's."""
+    def trade(t: Dict) -> Dict:
+        return {"symbol": t["symbol"], "side": t["side"], "qty": int(t["qty"]), "price": float(t["price"]),
+                "status": t["status"], "stop_hit": t.get("source") == "stop", "closed": bool(t.get("closed")),
+                "reason": REASONS.get(t["reason"], t["reason"]), "note": t.get("note", ""),
+                "pnl": (t["price"] / t["avg_price"] - 1) if t.get("avg_price") and t["qty"] else None}
+
+    marks = {d: e for d, e in book.equity}                  # a day's last mark
+    names: set = set()
+    prev, out = NOTIONAL_USD, []
+    for d in sorted(marks):
+        done = [t for t in book.trades if t["date"] == d]
+        for t in done:                                       # by entries and exits, so a split cannot miscount
+            if t["status"] == "FILLED" and t["side"] == "BUY":
+                names.add(t["symbol"])
+            elif t["status"] == "FILLED" and t.get("closed"):
+                names.discard(t["symbol"])
+        suggested = [{**trade(t), "qty": int(t.get("requested") or t["qty"]),
+                      "price": float(t.get("ref_price") or t["price"]), "filled_on": t["date"],
+                      "fill_price": float(t["price"]), "filled_qty": int(t["qty"]), "stop": None}
+                     for t in book.trades if t.get("decided") == d and t.get("source") != "stop"]
+        if d == book.last_session:                           # tonight's: they fill at the next open
+            suggested += [{"symbol": o["symbol"], "side": o["side"], "qty": int(o["qty"]),
+                           "price": float(o.get("price") or 0.0), "status": "PENDING", "stop_hit": False,
+                           "closed": o["side"] == "SELL" and int((book.holdings.get(o["symbol"]) or {}).get("qty", 0))
+                           <= int(o["qty"]), "reason": REASONS.get(o["reason"], o["reason"]), "note": "",
+                           "pnl": None, "filled_on": None, "fill_price": None, "filled_qty": None,
+                           "stop": o.get("stop")} for o in book.pending]
+        out.append({"date": d, "equity": marks[d], "day_pnl": marks[d] - prev, "return": marks[d] / NOTIONAL_USD - 1,
+                    "names": len(names), "suggested": suggested, "executed": [trade(t) for t in done]})
+        prev = marks[d]
+    return out[::-1]
 
 
 def send(html: str, subject: str) -> bool:
@@ -835,6 +901,10 @@ def run(store, dry_run: bool = False, email: bool = True, capital: Optional[floa
                   "spx_vs_ma200": f["spx_vs_ma200"], "vix": f["vix"], "spx_return": f["spx_return"],
                   "dd_state": str(f["dd_state"]), "dd": float(f["dd"]),
                   "raised": [[s, None if old is None else float(old), float(new)] for s, old, new in plan.raised]}
+    why = None if book.paused else safety_check(book, f)
+    if why:                                               # US-Y8: holds until you clear it (``resume``)
+        book.paused = {"since": last, "reason": why}
+        events.append(f"Suggestions paused (safety rule US-Y8): {why}.")
     cap, cap_set = _capital(capital)
     book.report_html = render_html(book, plan, panel, cap, cap_set, events)
     logger.info("US advisory %s: %d sells, %d buys, %d stops raised, %d holdings (names by email)",
@@ -851,7 +921,9 @@ def run(store, dry_run: bool = False, email: bool = True, capital: Optional[floa
     if not email:
         return 0
     opens = next_open_ist(plan.as_of)
-    subject = (f"[Centurion US] {opens:%a %d %b} open: {_count(len(plan.side('BUY')), 'buy')}, "
+    subject = (f"[Centurion US] PAUSED (safety rule US-Y8): no suggestions for the {opens:%a %d %b} open"
+               if book.paused else
+               f"[Centurion US] {opens:%a %d %b} open: {_count(len(plan.side('BUY')), 'buy')}, "
                f"{_count(len(plan.side('SELL')), 'sell')} (unvalidated)")
     if not send(book.report_html, subject):
         logger.error("US advisory email not sent; the next run resends it")
@@ -871,10 +943,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     r.add_argument("--capital", type=float, help=f"your US capital in USD (default: ${ENV_CAPITAL})")
     r.add_argument("--last-attempt", action="store_true",
                    help="the day's last scheduled try: data not published yet is a failure, not a wait")
+    u = sub.add_parser("resume", help="clear the safety rule's pause (US-Y8): suggestions flow again")
+    u.add_argument("--state-file", type=Path, help="the book's JSON file instead of Neon")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     in_actions = os.getenv("GITHUB_ACTIONS") == "true"      # public logs: counts only
     store = FileStore(args.state_file) if args.state_file else NeonStore()
+    if args.cmd == "resume":
+        book = store.load()
+        if book is None or not book.paused:
+            print("not paused")
+            return 0
+        print(f"resumed: paused since {book.paused['since']} ({book.paused['reason']})")
+        book.paused = {}
+        store.save(book)
+        return 0
     try:
         return run(store, dry_run=args.dry_run, email=not args.no_email, capital=args.capital, quiet=in_actions)
     except UsDataNotReady as exc:
