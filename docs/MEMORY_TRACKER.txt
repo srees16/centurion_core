@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — MEMORY TRACKER            updated 10 Oct 2026, 16:45 IST
+  CENTURION IND STOCKS — MEMORY TRACKER            updated 17 Oct 2026, 22:10 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -9,7 +9,7 @@ STATUS      [ ] pending   [~] in progress   [!] needs you   [x] done
 PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 
 --------------------------------------------------------------------------------
- 1. WHERE WE STAND (28 Sep 2026)
+ 1. WHERE WE STAND (28 Sep 2026; honest base 17 Oct: section 8, LN-T28b)
 --------------------------------------------------------------------------------
  TARGET   CAGR > 25% | Sharpe > 1.2 (your 1 Oct revision; was 1.5) | MaxDD
           <= 30%* | Calmar >= 1 | overfit gates: DSR >= 0.95 at the full
@@ -50,6 +50,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
    Walk-forward OOS 2017-25, RR2 (r12a5, r12b5): K5 grid 1.24 / 23.1% /
      -22.1%; + exit rank 60 (E4's family) 1.11 / 20.4% / -21.9%
    Walk-forward OOS 2008-25 (R4)      0.87   16.4%   -32.9%   0.50
+   Walk-forward OOS 2008-25, R4 re-run (LN-T28b: 2006-09 corporate
+     actions, model 4)                0.62   13.2%   -32.5%   0.41
    Paper since 17 Sep (10 sessions)    -     +0.59%   -3.5%     -   too early
      (same days: NIFTY 500 -2.0%, NIFTY 50 -2.6%; backtest replay +0.8%)
    * 8 months annualised.  All CAGRs on calendar years (B2).  Walk-forward
@@ -677,9 +679,12 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              a fourth forecast group, ranked like the other rank groups; no
              recent results scores 0.  Weights: fast trend, slow trend and
              earnings at 1/3 each.                       Prompt: do GT7
-[ ] P3  GT8  Futures leverage <= 1.3-1.5x (never MTF): only at >= ~Rs 1
-             crore (lots ~Rs 15 lakh) and after 12+ months of live combined
-             tracking; half-Kelly on a haircut Sharpe of 0.7.
+[ ] P3  GT8  Futures leverage up to 1.75x (your call 17 Oct, U36: MaxDD
+             about -40% accepted; MTF dropped by your call, L11): only at
+             >= ~Rs 1 crore (lots ~Rs 15 lakh) and after 12+ months of live
+             combined tracking; half-Kelly on a haircut Sharpe of 0.7; a
+             25-30% gilt sleeve as the drawdown lever (BD1, your call 17
+             Oct).  The 1.25x cap below was L5's advice, superseded by U36.
              L5 (11 Oct) tightened this:
              - static leverage only; monthly re-estimated Kelly lost out
                of sample;
@@ -689,7 +694,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                lakh, about half the book's weight eligible);
              - paper-trade the futures mechanics first.
              L6 (16 Oct, out of sample): 1.75x gives 35.9% / Sharpe 1.26 /
-             MaxDD -39.1% in 2017-25, and 25.8% / -41.0% over 2008-25.
+             MaxDD -39.1% in 2017-25 (L7's replication on the same folds
+             reads 1.25), and 25.8% / -41.0% over 2008-25.  Re-run on
+             LN-T28b's data and cost model 4: 19.4% / 0.71 / -44.6%.
+             Real contracts: 3 of 3 FAIL (L7, L7-C).
              Validation of 1.75x: the LEVERAGE PLAN below (L7-L10).
  LEVERAGE PLAN (your ask 16 Oct): validate L6's 35% configuration (1.75x)
  before any live leverage.
@@ -731,6 +739,34 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              points of L6's 35.9%, MaxDD within 3 points of -39.1%, at Rs 2
              crore.  2008 stays synthetic: the store has no stock futures
              before 2013.  Medium.                      Prompt: do L7
+[x] P2  L7-C DONE 17 Oct: FAIL (section 8; plan 5af).  The leverage family
+             closes, 3 of 3 failed; the 2026 holdout is used.  Was: the cost
+             lever, L7-A plus a one-lot band, then the family's 2026
+             holdout.
+[~] P1  BD2  Measure what debt and liquid ETFs cost to trade (your call 17
+             Oct), before deciding LN-T29's liquid sweep and any second bond
+             round.  BUILT 17 Oct: nse_engine/etf_costs.py.
+             - history: the daily-bar spread estimator fails its check
+               (55-127 bp on large caps whose spreads are 1-3 bp).  It only
+               bounds the near-flat liquid ETFs: LIQUIDETF / LIQUIDIETF
+               0.1-5 bp, LIQUIDBEES 3-15 bp.  BD1's equity model charged
+               them 20+ bp.
+             - depth: etf-depth.yml reads Kite's five-level books for 14
+               gilt / Bharat Bond ETFs, 10 liquid ETFs and 5 checks, four
+               times a market day.  Read-only, into Neon schema etf_depth.
+               It needs your morning Kite login and the merge.
+             - After about 20 sessions (mid-Nov): `python -m
+               nse_engine.etf_costs report`; recalibrate the bond cost
+               model per ETF; re-read BD1's baseline (a diagnostic); decide.
+                                                 Prompt: do BD2 (mid-Nov)
+[ ] P2  BD3  The gilt sleeve as the drawdown lever (your call 17 Oct; BD1's
+             B3 failed gate 2 on CAGR only): your five steps, in order.
+             The 2008-25 backtest and walk-forward are done (plan 5ag).
+             Next: the 2026 holdout, opened once for the bonds family (your
+             OK at the prompt); then a paper book with a 25% gilt sleeve for
+             60 sessions; then 5 dry runs.  A look (not a trial): 1.75x
+             modelled + 25% gilts reads 16.6% / 0.71 / -32.6% over 2008-25.
+                                                 Prompt: do BD3
 [ ] P2  L8   Forward walk (a shadow record), weekly in the Saturday books
              report and email.
              - Each paper book's 1.75x shadow, from its Neon daily snapshots,
@@ -834,7 +870,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              COST_MODEL_VERSION (LN-T29 likely; LN-T30 if it does).
 [ ] P3  U20  Refill exits: now tested through E4 / D5 in the queue (was a
              decision due ~24 Dec).  Drop it if E4 fails.
-[ ] P3  E3   MTF-levered variant: only after U20 (b), ~24 Dec.   Prompt: do E3
+[x] P3  E3   CLOSED 17 Oct: MTF dropped by your call (L11).  Was: MTF-levered
+             variant, only after U20 (b), ~24 Dec.
              Moved from the queue 28 Sep: it levers the refill variant,
              which is untested forward, and L4 found MTF not worth it at
              14.6% (every step of leverage lowers Sharpe).  At L4's terms
@@ -856,6 +893,85 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+17 Oct  BD1  Government bonds as a stream, plus their cost model (your ask:
+             "test bonds and build the cost model"; plan 5ag, pre-registered
+             21:35 IST): FAIL, all three.  The bond family closes at N = 3.
+             - Data (nse_engine/data/bond_store.py, 2006 on):
+               - NSE's 10-year G-sec and 1D rate indices (total return,
+                 from 2011);
+               - before them, AMFI NAVs of ABSL's 10-year constant-maturity
+                 gilt fund and SBI Liquid (picked on the 2011-13 overlap);
+               - in the Kaggle state backup.
+             - Cost model: debt and liquid ETFs added to nse_engine.costs
+               (no STT; stamp 0.015% on buys; exchange, SEBI, GST, DP).
+               BD1 adds the ETF's expense ratio, a 10 bp spread floor
+               (3 bp liquid), the square-root impact on Rs 3.1 crore a day,
+               and a 5% participation cap.
+             - 2008-25 (CAGR / Sharpe / MaxDD; 2008):
+                                 backtest base              walk-forward base
+               book              16.8% 0.78 -31.9% -26.9%   13.2% 0.62 -32.5%
+               B1 idle in gilts  14.5% 0.62 -31.0% -19.3%   10.8% 0.40 -32.2%
+               B2 + gilt trend   14.1% 0.59 -31.0%          10.0% 0.34
+               B3 25% sleeve     14.4% 0.78 -22.1% -15.0%   11.7% 0.61 -22.9%
+             - Gilts alone: 6.5% a year, Sharpe 0.01 over 6.5%.  The term
+               premium over overnight money was about 0.3 point.  2008:
+               +27.5% while NIFTY lost 51%.
+             - B1 and B2 lose to costs: the book's idle cash swings 6-10x
+               NAV a year.  With spread-only costs (diagnostic) they add
+               about 1 point, about as much as a liquid ETF.
+             - B3 is the robust part: about -10 points of MaxDD for about
+               -2 points of CAGR, Sharpe flat.  It fails gate 2 on CAGR.
+             - Next (your call): measure debt and liquid ETF costs (quotes
+               or paper fills), which also decides LN-T29; a low-churn
+               idle-cash rule; B3-style bonds as the MaxDD lever for the
+               golden target.
+             Runs in runs_bonds.  Journal: experiment BD1.
+17 Oct  SR1  Stream register (your rule 3): every India stream labelled
+             test / look / desk / bar, with its window, 2008 coverage and
+             what reopens it (golden_target_review.md, section 6).
+             - Of the streams closed by a test, only options, crash
+               recovery, MCX and bonds covered 2008.
+             - Forex is closed by RBI's rule, not by a test.
+             - 13 inconsistencies between the docs found and fixed (your
+               OK, 17 Oct):
+               - the review: the option-selling row, the mixed "closed"
+                 row, MTF on its never-list, the schedule, weekly reversal,
+                 the two leverage-scoping conventions;
+               - the tracker: the GT8 cap, L6's Sharpe and 2008-25 figure,
+                 E3, the headings;
+               - the protocol: 2008 vs the 2013-25 gates, Kaggle vs Mac
+                 runs;
+               - the checklist's GT6 line;
+               - the journal: a dated correction row for O2's re-run.
+                 Older rows stay as recorded.
+17 Oct  L7-C The cost lever and the family's 2026 holdout (your ask; plan
+             5af, pre-registered 20:29 IST): FAIL.  The leverage family closes,
+             3 of 3 failed.
+             - 2017-25, Rs 2 crore: L7-C 29.5% / 0.98 / -39.8% (L7-A 29.6%).
+               The band skipped 83 of 1,374 resizes and saved nothing: the
+               expected +0.5-1 point was wrong.
+             - 2026 holdout (1 Jan-11 Sep, opened once; lock in
+               runs_leverage):
+                                     return  Sharpe   MaxDD
+               unlevered             +18.0%   1.04   -13.0%
+               L6 synthetic 1.75x    +28.1%   1.08   -22.2%
+               L7-A overlay          +19.4%   0.84   -19.8%
+               L7-B replace          +26.4%   1.08   -21.8%
+               L7-C band             +18.9%   0.81   -20.0%
+             - Why the overlay lags: it puts all the extra exposure on the F&O
+               names, and those are the book's weaker half.
+               - 2017-25: 19.5% a year, against 38.0% for the names without
+                 futures.
+               - 2026: +15.3% against +45.2%.
+               Costs explain only ~2 of the overlay's 9 points in 2026.
+             - L7-B levers every name at its own weight, so it tracked the
+               model (-1.7 points).  It also had the better Sharpe and MaxDD
+               in 2017-25.
+             - For L9 (the paper book, overlay design): expect it to trail
+               the model.  The replace design would track it better, but it
+               is a different share book, not a setting.
+             Code: futures_book.py band_lots (hash-neutral), l7c, holdout.
+             Run 20261017T150734009177Z_a8061af2.  Journal: experiment L7-C.
 17 Oct  L9   Futures paper book built (your idea: a Rs 2 crore paper book with
              futures, emails as the other books, real money only after full
              validation; uncommitted).
@@ -870,8 +986,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                  margin;
                - futures on the book's F&O names for 1.75x its exposure
                  (plan 5ae's L7-A overlay).
-               - Paper start 21 Oct; set it to your first session after the
-                 merge.
+               - Paper start Mon 19 Oct (your go-ahead, 17 Oct): merge
+                 before Monday's 19:00 IST run, or move it to the day you
+                 merge.  With a start date before its first run, the book's
+                 reference backtest would begin sessions before the book.
              - kite_connect/trading/futures_overlay.py, the futures ledger
                (JSON in the book's Neon paper_state), each night:
                - fills at the real futures open from NSE's F&O bhavcopy;
@@ -889,8 +1007,11 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              - Weekly email: a futures block.  The Saturday comparison scores
                the book on shares + futures.  Alerts on a margin call and on
                a failed futures step.
-             - Workflow: syncs the F&O bhavcopy when a futures book exists;
-               each book's own capital for its reference backtest.  Other
+             - Workflow: syncs the F&O bhavcopy when a futures book exists,
+               only the last 30 days (older files pruned, so the runner's
+               cache doesn't grow by ~1 MB a session, and a cache bootstrap
+               doesn't pull 2012 onwards); each book's own capital for its
+               reference backtest.  Other
                books are unchanged (no paper_capital_inr: the shared
                capital).
              - Checked:
@@ -916,7 +1037,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                - the share book keeps its own drawdown rule on its own
                  equity; the book's rule cuts only the futures;
                - the web Trade Center shows this book's shares, not its
-                 futures yet.
+                 futures yet;
+               - expect less than L7's 2017-25: on the R4 picks over
+                 2013-25, real contracts made 19.4% against 17.7%
+                 unlevered, at Sharpe 0.66 and MaxDD -39.9% (LN-T28b).
 17 Oct  L7   1.75x from real NSE stock futures (your ask: real contracts, not
              leverage on the whole book): FAIL, both configurations (plan
              5ae, pre-registered 16:40 IST).  The positions are the
@@ -961,14 +1085,32 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              - Re-runs on cost model 4, Kaggle.  Deployed rules, 2008-25:
                - no rule: 17.4% / 0.81 / -37.7% -> 16.4% / 0.75 / -37.2%;
                - with the rule: 16.8% / 0.78 / -31.9%, 2008 -26.9%.
-               The walk-forward re-run (R4's grid) runs on Kaggle
-               (srees16/centurion-nse-research-ln28w, pushed 16:34 IST).  To
-               finish (say "finish LN-T28b"):
-               python -m cloud.kaggle_local pull --kernel srees16/centurion-nse-research-ln28w --dest data/nse_engine/kaggle_out/ln28w
-               python -m cloud.wf_stitch import-runs --src data/nse_engine/kaggle_out/ln28w/runs --dest data/nse_engine/runs
-               python -m cloud.wf_stitch stitch --dirs data/nse_engine/kaggle_out/ln28w/wf --out data/nse_engine/wf_stitched_r4b.json --returns-out data/nse_engine/wf_oos_returns_r4b.csv
-               then the consolidated 2008-25 table (levered / unlevered, rule
-               on / off, realistic live).
+             - Walk-forward re-run (R4's grid, Kaggle ln28w, 18 folds, 594
+               backtests; wf_stitched_r4b.json): 16.4% / 0.87 / -32.9% ->
+               13.2% / 0.62 / -32.5%.
+               - About 2.2 points of the drop is IC1: R4's picks hold ~30%
+                 cash, which earned 6% under model 3.  My earlier caveat
+                 (0.3-0.5 point) was wrong for these picks.
+               - About 1 point comes from 9 folds picking different settings.
+               - 2008 improved by 3 points: the corporate actions.
+             - Consolidated 2008-25 (Sharpe over 6.5%; futures modelled as
+               in L6):
+                                       CAGR   Sharpe   MaxDD   Calmar
+               unlevered, WF + rule    13.2%   0.62   -31.5%    0.42
+               unlevered, live est.    11.0%   0.43   -31.5%    0.35
+               1.75x modelled, WF+rule 19.4%   0.71   -44.6%    0.43
+             - Real contracts, 2013-25 on the same picks (L7-A, diagnostic,
+               not a trial; ln28b/l7_2013.json):
+               - unlevered 17.7% / 0.94 / -21.7%; modelled 1.75x 26.4% /
+                 0.97 / -34.4%; real 19.4% / 0.66 / -39.9%;
+               - exposure 1.23x on average, costs 4.4% of NAV a year
+                 (2.0 trading, 2.4 rolls), 99 margin calls, one contract at
+                 49% of NAV.
+             - So real futures lose about 7 points to the model.  Live,
+               1.75x would make about 9-11% over 2008-25: no better than
+               unlevered, at about -40% MaxDD.  No 2008-12 contract data
+               (those F&O files lack lot sizes).
+             Journal: three rows (backtest, with the rule, walk-forward).
 16 Oct  LP   Leverage plan scheduled (your ask: validate 1.75x by an out-of-
              sample test, a forward walk or a paper trade).  Queue: L7a
              (done), L7, L8, L9, L10, in the LEVERAGE PLAN block beside GT8.
@@ -1001,7 +1143,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              - Not tradable at your capital:
                - stock futures need about Rs 2 crore (lots ~Rs 9 lakh, half
                  the names eligible);
-               - MTF is on the protocol's never-list;
+               - MTF is on the protocol's never-list (no longer: U36 found
+                 that was Claude's advice; your re-look dropped MTF, L11);
                - a NIFTY futures overlay adds beta, not the book's edge.
              - A levered paper book would add nothing: static leverage holds
                the same names, so its record is the deployed paper book x

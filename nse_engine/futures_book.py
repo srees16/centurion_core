@@ -18,7 +18,11 @@ The positions are the walk-forward's recorded out-of-sample runs (``wf_stitched_
 starting from cash as the book did.  Nothing re-decides what to hold: this measures what the contracts do to
 the result.  The drawdown rule (20/30/35) runs on the levered NAV, as in L6.
 
+L7-C (plan 5af) is L7-A with a one-lot band: a held leg is resized only when its target moves 2 lots or more.
+
     python -m nse_engine.futures_book l7        # L7-A and L7-B at Rs 2 crore, recorded; diagnostics beside
+    python -m nse_engine.futures_book l7c       # L7-C, recorded; L7-A re-run beside it for the resizes saved
+    python -m nse_engine.futures_book holdout   # the family's 2026 holdout, opened once (lock in runs_leverage)
 """
 
 from __future__ import annotations
@@ -54,11 +58,20 @@ SYNTHETIC_CARRY = 0.075
 #: contract too (bonus, split, demerger, a dividend above 2% of the price); smaller ones are dividends (A).
 CA_THRESHOLD = 0.02
 RULE = DrawdownConfig(enabled=True, halt_dd=0.20, half_dd=0.30, risk_off_dd=0.35, half_scale=0.5, rearm_sessions=60)
+#: Plan 5ae's gate, per configuration at Rs 2 crore over 2017-25: within 2 points of L6's CAGR, 3 of its MaxDD.
+GATE_CAGR, GATE_MAX_DD = 0.339, -0.421
+#: Settings added after L7-A and L7-B were recorded; at these values they stay out of the hash.
+HASH_NEUTRAL = {"band_lots": 0.0}
+#: Plan 5af's holdout: the deployed book's recorded 2026 run (opened 15 Sep; L7a's input), opened once for the
+#: family, with its own lock (the engine's ``holdout.lock`` is keyed by window and serves the core).
+HOLDOUT_RUN = "20260915T161516314162Z_679cbd0c"
+HOLDOUT_WINDOW = ("2026-01-01", "2026-09-11")
+HOLDOUT_LOCK = Path(RUNS_DIR) / "holdout.lock"
 
 
 @dataclass(frozen=True)
 class FuturesBookConfig:
-    """Plan 5ae's rules; ``mode`` "overlay" (L7-A) or "replace" (L7-B)."""
+    """Plan 5ae's rules; ``mode`` "overlay" (L7-A) or "replace" (L7-B); plan 5af's ``band_lots`` (L7-C)."""
 
     name: str = "L7-A overlay"
     mode: str = "overlay"
@@ -80,15 +93,20 @@ class FuturesBookConfig:
     #: as pre-registered; the diagnostic sets a liquid contract's tighter spread.
     futures_spread_bps: Optional[float] = None
     futures_impact_bps: Optional[float] = None
+    #: A held leg trades only when its target, in whole lots, moves more than this many lots; new legs, closes,
+    #: rule changes, margin cuts and rolls always trade (plan 5af).
+    band_lots: float = 0.0
 
     def config_hash(self) -> str:
-        payload = {k: v for k, v in asdict(self).items() if k != "name"}
+        payload = {k: v for k, v in asdict(self).items()
+                   if k != "name" and not (k in HASH_NEUTRAL and v == HASH_NEUTRAL[k])}
         payload.update(kind="futures_book", rule=asdict(RULE))
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
 
 
 CONFIGS = {"L7-A": FuturesBookConfig(),
-           "L7-B": FuturesBookConfig(name="L7-B replace", mode="replace")}
+           "L7-B": FuturesBookConfig(name="L7-B replace", mode="replace"),
+           "L7-C": FuturesBookConfig(name="L7-C band", band_lots=1.0)}
 
 
 # ------------------------------------------------------------------ inputs
@@ -263,7 +281,7 @@ def simulate(inp: Inputs, cfg: FuturesBookConfig) -> Result:
         resize_all = True
         for day in r.index:
             costs = {"charges": 0.0, "impact": 0.0, "cash_costs": 0.0, "roll": 0.0}
-            calls = 0
+            calls = resizes = skips = 0
             pnl = 0.0
             wt = w.loc[day] if day in w.index else pd.Series(dtype="float64")
             held = wt[wt > 1e-9]
@@ -339,13 +357,17 @@ def simulate(inp: Inputs, cfg: FuturesBookConfig) -> Result:
                 lots = value / (lot * px) if px > 0 else 0.0
                 qty = (round(lots) if cfg.whole_lots else lots) * lot
                 old = leg.qty if leg else 0.0
+                delta = qty - old
+                if leg and qty > 1e-9 and not resize_all and 1e-9 < abs(delta) <= cfg.band_lots * lot + 1e-9:
+                    skips += 1          # inside the band: the leg stays as it is, marked at the settle below
+                    continue
                 if leg:
                     pnl += old * (px - leg.ref)
-                delta = qty - old
                 if abs(delta) > 1e-9:
                     ch, im = _fut_cost(inp, abs(delta) * px, "BUY" if delta > 0 else "SELL", day, sym, cfg)
                     costs["charges"] += ch
                     costs["impact"] += im
+                    resizes += 1
                 if qty > 1e-9:
                     legs[sym] = Leg(expiry, qty, px, lot)
                 else:
@@ -434,7 +456,7 @@ def simulate(inp: Inputs, cfg: FuturesBookConfig) -> Result:
                          "in_futures": sum(leg.qty * leg.ref for leg in legs.values()) / nav if nav > 0 else 0.0,
                          "biggest_future": biggest / nav if nav > 0 else 0.0, "margin": margin / nav if nav > 0 else 0.0,
                          "cash": cash / nav if nav > 0 else 0.0, "margin_calls": calls, "state": d.state,
-                         **{k: v / nav_prev for k, v in costs.items()}})
+                         "resizes": resizes, "band_skips": skips, **{k: v / nav_prev for k, v in costs.items()}})
             prev = day
         # the fold ends: close every leg at the last settle (the book goes to cash)
         for sym, leg in legs.items():
@@ -491,7 +513,8 @@ def _metrics(returns: pd.Series, daily: Optional[pd.DataFrame] = None) -> Dict:
                    margin_calls=int(daily["margin_calls"].sum()),
                    futures_costs_a_year=float((daily["charges"] + daily["impact"]).sum() / years),
                    roll_costs_a_year=float(daily["roll"].sum() / years),
-                   cash_costs_a_year=float(daily["cash_costs"].sum() / years))
+                   cash_costs_a_year=float(daily["cash_costs"].sum() / years),
+                   resizes=int(daily["resizes"].sum()), band_skips=int(daily["band_skips"].sum()))
     return out
 
 
@@ -510,23 +533,81 @@ def record(res: Result, runs_dir: str = RUNS_DIR, extra: Optional[Dict] = None) 
     return run_dir
 
 
+def _trial(inp: Inputs, syn: pd.Series, cfg: FuturesBookConfig, record_runs: bool, round_: str) -> Dict:
+    """One gated configuration at Rs 2 crore: its metrics, tracking error against L6, the pass rule, the record."""
+    res = simulate(inp, cfg)
+    te = float((res.returns - syn.reindex(res.returns.index).fillna(0.0)).std() * math.sqrt(252))
+    m = {**res.metrics, "tracking_error_vs_L6": te}
+    m["passed"] = bool(m["cagr"] >= GATE_CAGR and m["max_drawdown"] >= GATE_MAX_DD)
+    if record_runs:
+        m["run_dir"] = record(res, extra={"round": round_, "tracking_error_vs_L6": te, "passed": m["passed"]})
+    return m
+
+
 def l7(record_runs: bool = True) -> Dict:
     """Plan 5ae: L7-A and L7-B at Rs 2 crore (recorded), the pass rule against L6, and the diagnostics."""
     inp = load_inputs()
     syn = synthetic(inp)
     out: Dict = {"synthetic_L6": _metrics(syn), "configs": {}, "diagnostics": {}, "hashes": inp.hashes}
-    for key, cfg in CONFIGS.items():
-        res = simulate(inp, cfg)
-        te = float((res.returns - syn.reindex(res.returns.index).fillna(0.0)).std() * math.sqrt(252))
-        m = {**res.metrics, "tracking_error_vs_L6": te}
-        m["passed"] = bool(m["cagr"] >= 0.339 and m["max_drawdown"] >= -0.421)
-        if record_runs:
-            m["run_dir"] = record(res, extra={"tracking_error_vs_L6": te, "passed": m["passed"]})
-        out["configs"][key] = m
+    for key in ("L7-A", "L7-B"):
+        cfg = CONFIGS[key]
+        out["configs"][key] = _trial(inp, syn, cfg, record_runs, "L7")
         for label, variant in (("Rs 1 crore", replace(cfg, capital_inr=1e7)), ("Rs 5 crore", replace(cfg, capital_inr=5e7)),
                                ("fractional lots", replace(cfg, whole_lots=False)),
                                ("futures spread 1 bp", replace(cfg, futures_spread_bps=1.0, futures_impact_bps=10.0))):
             out["diagnostics"][f"{key}, {label}"] = simulate(inp, variant).metrics
+    return out
+
+
+def l7c(record_runs: bool = True) -> Dict:
+    """Plan 5af: L7-C at Rs 2 crore (recorded) against the same gate; L7-A re-run beside it, unrecorded, for the
+    resizes the band saved; Rs 1 and 5 crore as diagnostics."""
+    inp = load_inputs()
+    syn = synthetic(inp)
+    cfg = CONFIGS["L7-C"]
+    return {"synthetic_L6": _metrics(syn), "L7-C": _trial(inp, syn, cfg, record_runs, "L7-C"),
+            "L7-A, re-run": simulate(inp, CONFIGS["L7-A"]).metrics,
+            "diagnostics": {f"L7-C, {label}": simulate(inp, replace(cfg, capital_inr=c)).metrics
+                            for label, c in (("Rs 1 crore", 1e7), ("Rs 5 crore", 5e7))},
+            "hashes": inp.hashes}
+
+
+def holdout(lock_path: Path = HOLDOUT_LOCK, runs_dir: str = "data/nse_engine/runs") -> Dict:
+    """Plan 5af: the family's 2026 holdout, opened once.  L7-A, L7-B and L7-C on the deployed book's recorded
+    holdout run and the 2026 F&O file, beside L6's synthetic and the unlevered book.  The lock entry is written
+    before anything runs, so a crash still counts as the look."""
+    from datetime import datetime, timezone
+
+    from nse_engine.validation.holdout import HoldoutLockedError, _read_lock, _write_lock
+    from nse_engine.validation.trials import git_state
+
+    window = {"start": HOLDOUT_WINDOW[0], "end": HOLDOUT_WINDOW[1]}
+    lock = _read_lock(Path(lock_path))
+    if any(e.get("window") == window for e in lock["evaluations"]):
+        raise HoldoutLockedError(f"the leverage family's 2026 holdout was already opened (lock {lock_path})")
+    entry = {"window": window, "family": "leverage", "run": HOLDOUT_RUN, "status": "started",
+             "configs": {k: c.config_hash() for k, c in CONFIGS.items()}, **git_state(),
+             "created_at": datetime.now(timezone.utc).isoformat(), "metrics": {}}
+    lock["evaluations"].append(entry)
+    _write_lock(Path(lock_path), lock)
+
+    spec = Path(lock_path).with_name("holdout_2026_input.json")
+    spec.write_text(json.dumps({"folds": [{"test_run_id": HOLDOUT_RUN, "test_start": window["start"],
+                                           "test_end": window["end"]}]}))
+    inp = load_inputs(walk_forward=str(spec), runs_dir=runs_dir)
+
+    def summary(r: pd.Series, daily: Optional[pd.DataFrame] = None) -> Dict:
+        return {"return": float((1.0 + r).prod() - 1.0), **_metrics(r, daily)}
+
+    out = {"unlevered": summary(inp.folds[0]["returns"]), "synthetic_L6": summary(synthetic(inp))}
+    for key, cfg in CONFIGS.items():
+        res = simulate(inp, cfg)
+        out[key] = summary(res.returns, res.daily)
+    c = out["L7-C"]
+    out["L7-C agrees"] = bool(c["return"] >= 0.23 and c["max_drawdown"] >= -0.252)   # binding only on a gate pass
+    entry.update({"status": "completed", "completed_at": datetime.now(timezone.utc).isoformat(),
+                  "data_hash": inp.hashes["equity"], "fo_hash": inp.hashes["fo"], "metrics": out})
+    _write_lock(Path(lock_path), lock)
     return out
 
 
@@ -535,9 +616,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("l7", help="plan 5ae: L7-A and L7-B at Rs 2 crore, with diagnostics")
     p.add_argument("--no-record", action="store_true", help="do not record the runs (debugging)")
+    p = sub.add_parser("l7c", help="plan 5af: L7-C (the one-lot band) at Rs 2 crore, with diagnostics")
+    p.add_argument("--no-record", action="store_true", help="do not record the run (debugging)")
+    sub.add_parser("holdout", help="plan 5af: the family's 2026 holdout, opened once")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    print(json.dumps(l7(record_runs=not args.no_record), indent=1, default=str))
+    if args.cmd == "holdout":
+        out = holdout()
+    else:
+        out = (l7 if args.cmd == "l7" else l7c)(record_runs=not args.no_record)
+    print(json.dumps(out, indent=1, default=str))
     return 0
 
 

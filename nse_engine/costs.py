@@ -69,7 +69,16 @@ FRACTION_DECIMALS = 6
 # for other ETFs.  Silver ETFs are non-equity funds and reported exempt, but
 # Zerodha's page does not name them, so they are charged the other-ETF rate
 # (Rs 1 per lakh sold): within a rupee of exempt either way.
-STT_EXEMPT_ETFS = frozenset({"GOLDBEES"})
+STT_EXEMPT_ETFS = frozenset({"GOLDBEES"}) | frozenset({
+    # The bond stream's instruments (tracker BD1, plan 5ag): debt ETFs are not equity-oriented, so no STT
+    # (Zerodha: "not applicable to gold, liquid and gilt ETFs").  Stamp duty, exchange, SEBI, GST and the DP
+    # charge are the equity delivery rates (no debt-ETF stamp rate is published, so 0.015% on buys).  No
+    # recorded run has traded any of them (7,097 runs checked, 17 Oct 2026).
+    "SETF10GILT", "NETFLTGILT", "LTGILTBEES", "NETFGILT5Y", "GILT5YBEES", "MOGSEC", "GSEC10YEAR", "GSEC10IETF",
+    "GSEC5IETF", "NIF10GETF", "GSEC10ABSL", "ABGSEC", "GILT10BETA", "GILT5BETA", "LTGILTCASE", "GSEC10ADD",
+    "EBBETF0430", "EBBETF0431", "EBBETF0433", "BBETF0432",
+    "LIQUIDBEES", "LIQUIDETF", "LIQUIDIETF", "LIQUIDSBI", "HDFCLIQUID", "ABSLLIQUID", "LIQUID", "LIQUID1",
+    "LIQUIDADD", "LIQUIDBETF", "LIQUIDSHRI", "LIQUIDPLUS", "LIQUIDCASE", "AONELIQUID", "ELIQUID", "LIQUIDBETA"})
 STT_OTHER_ETFS = frozenset({"SILVERBEES", "MON100",   # MON100 (tracker R14): an equity ETF, the other-ETF rate
                             "NIFTYBEES"})            # NIFTYBEES (tracker GT13, the event-drift test): the same
 STT_OTHER_ETF_SELL = 0.00001

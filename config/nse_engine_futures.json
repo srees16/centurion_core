@@ -1,7 +1,7 @@
 {
   "status": "candidate",
   "description": "L9: the deployed rules levered 1.75x with NSE stock futures on the book's F&O names (plan 5ae's L7-A overlay), Rs 2 crore: shares Rs 1.6 crore plus Rs 40 lakh futures cash for margin. Paper only.",
-  "paper_start_date": "2026-10-21",
+  "paper_start_date": "2026-10-19",
   "notes": "Paper book for the futures route (your idea, 17 Oct 2026). Backtest L7-A (2017-25, Rs 2 crore): CAGR 29.6%, Sharpe 0.98, MaxDD -40.0% against the synthetic 35.9% / 1.25 / -39.1%. Run for at least 6 monthly expiries (about 125 sessions) before any decision; real money only after the core's live record and a futures dry run. Paper only: never places live orders.",
   "data_anchor_date": "2012-01-02",
   "risk_overlay": {
