@@ -209,8 +209,9 @@ def paper_book_from_frames(name: str, snapshots: Optional[pd.DataFrame], session
         idx = pd.DatetimeIndex(pd.to_datetime(snapshots["date"].astype(str))).normalize()
         s = pd.Series(snapshots["equity"].astype(float).to_numpy(), index=idx)
         equity = s[~s.index.duplicated(keep="last")].sort_index().dropna()
-    ledger = (state or {}).get("futures_ledger")
-    if ledger:                       # a book levered with futures (tracker L9) is scored on shares + futures
+    # a book levered with futures (tracker L9) or with a gilt sleeve (BD3) is scored on the whole book
+    ledger = (state or {}).get("futures_ledger") or (state or {}).get("bond_ledger")
+    if ledger:
         rows = json.loads(ledger).get("history") or []
         if rows:
             equity = pd.Series([float(r["nav"]) for r in rows],

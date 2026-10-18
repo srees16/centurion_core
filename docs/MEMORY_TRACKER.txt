@@ -759,14 +759,18 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                nse_engine.etf_costs report`; recalibrate the bond cost
                model per ETF; re-read BD1's baseline (a diagnostic); decide.
                                                  Prompt: do BD2 (mid-Nov)
-[ ] P2  BD3  The gilt sleeve as the drawdown lever (your call 17 Oct; BD1's
+[~] P2  BD3  The gilt sleeve as the drawdown lever (your call 17 Oct; BD1's
              B3 failed gate 2 on CAGR only): your five steps, in order.
-             The 2008-25 backtest and walk-forward are done (plan 5ag).
-             Next: the 2026 holdout, opened once for the bonds family (your
-             OK at the prompt); then a paper book with a 25% gilt sleeve for
-             60 sessions; then 5 dry runs.  A look (not a trial): 1.75x
-             modelled + 25% gilts reads 16.6% / 0.71 / -32.6% over 2008-25.
-                                                 Prompt: do BD3
+             - Steps 1-3 done: the 2008-25 backtest and walk-forward (plan
+               5ag), and the 2026 holdout (18 Oct): B3 agrees.
+             - Step 4 BUILT 18 Oct: the paper book config/nse_engine_bonds.json
+               (start Mon 19 Oct; merge before 19:00 IST or move the date),
+               60 sessions, to about mid-Jan 2027.
+             - Then step 5: 5 dry runs (the live path building the sleeve's
+               order; to build).
+             A look (not a trial): 1.75x modelled + 25% gilts reads 16.6% /
+             0.71 / -32.6% over 2008-25.
+                                   Prompt: do BD3 (after 60 sessions)
 [ ] P2  L8   Forward walk (a shadow record), weekly in the Saturday books
              report and email.
              - Each paper book's 1.75x shadow, from its Neon daily snapshots,
@@ -893,6 +897,33 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+18 Oct  BD3  The gilt sleeve's 2026 holdout and its paper book (your "do BD3").
+             - Holdout (fixed 22:00 IST before opening; lock in runs_bonds):
+               B3 agrees.  1 Jan-11 Sep 2026:
+                                   return  Sharpe   MaxDD
+               book                +18.0%   1.04   -13.0%
+               B3 25% gilt sleeve  +13.6%   0.92    -9.8%
+               costless blend      +13.8%   0.94    -9.9%
+               gilts alone          +1.4%  -1.24    -2.8%
+               - 2026 was a poor gilt year: the sleeve cost 4.4 points for
+                 3.2 points less drawdown.
+               - B1 and B2 churned again (3.7-5.0% of NAV in costs).
+             - Paper book (Rs 35 lakh, deployed rules 679cbd0c + drawdown
+               rule):
+               - shares on Rs 26.25 lakh;
+               - LTGILTBEES on Rs 8.75 lakh, whole units, filled at the next
+                 open at the bond cost model;
+               - static split in paper (no cash moves between the ledgers);
+               - daily and weekly emails gain a "Gilt sleeve" section; the
+                 Saturday comparison scores shares + gilts.
+               Code: kite_connect/trading/bond_sleeve.py; hooks in
+               cloud_paper_runner.py, deployment.py, books.py, manager.py.
+             - Checked offline on Oct-Dec 2025 LTGILTBEES bars:
+               - the first buy was 30,125 units at the open, costing 36 bp
+                 (the model's);
+               - NAV reconciles, cash stays >= 0, a re-run changes nothing;
+               - both emails render; the config guards refuse a live
+                 status, futures alongside, and a bad weight.
 17 Oct  BD1  Government bonds as a stream, plus their cost model (your ask:
              "test bonds and build the cost model"; plan 5ag, pre-registered
              21:35 IST): FAIL, all three.  The bond family closes at N = 3.

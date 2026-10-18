@@ -3351,6 +3351,51 @@ compounding, with Sharpe over 6.5%.
     that has stayed idle for N sessions, or band both sides. It would be a
     new round, and the family's budget is spent: your call.
 
+**BD3, the 2026 holdout for B3 (fixed 18 Oct 2026, 22:00 IST, before it is
+opened).** You accepted B3 as the drawdown lever on 17 Oct.
+- **Inputs:**
+  - the deployed book's recorded holdout run,
+    `20260915T161516314162Z_679cbd0c` (1 Jan–11 Sep 2026, 172 sessions,
+    opened 15 Sep). L7a and the leverage family used it too. It was
+    recorded on cost model 1, so its idle cash earns 6%, and on pre-B1
+    data. It is used as recorded;
+  - the bond store's 2026 rows, unseen until now.
+- **One look:** B3, with B1, B2 and the liquid baseline beside it, at Rs 35
+  lakh. The lock is `runs_bonds/holdout.lock`.
+- **B3 agrees** if both hold over the window:
+  1. its MaxDD is shallower than the book's;
+  2. its return is within 1 point of the costless 75/25 monthly blend of
+     the book and gilts, so execution costs no more than the model says.
+- **If it agrees,** BD3 moves to 60 paper sessions. **If not,** BD3 stops
+  and the result goes to you. The family stays closed either way.
+
+**BD3 holdout result (18 Oct 2026): B3 agrees.** It was opened once; the lock
+is `runs_bonds/holdout.lock`.
+
+| 1 Jan–11 Sep 2026 | Return | Sharpe | MaxDD | Costs over the window |
+|---|---|---|---|---|
+| Book | +18.0% | 1.04 | −13.0% | |
+| Gilts (index less expense ratio) | +1.4% | −1.24 | −2.8% | |
+| Liquid baseline | +17.2% | 0.99 | −13.1% | |
+| B1 idle cash in gilts | +13.0% | 0.70 | −14.3% | 3.7% of NAV |
+| B2 gilts while trending up | +11.0% | 0.56 | −14.3% | 5.0% |
+| **B3 25% gilt sleeve** | **+13.6%** | 0.92 | **−9.8%** | 0.19% |
+| B3's costless blend | +13.8% | 0.94 | −9.9% | |
+
+- **Both tests hold:** MaxDD −9.8% against −13.0%, and the return is 0.2
+  point from the costless blend.
+- **2026 was a poor year for gilts** (+1.4% in eight months), so the sleeve
+  cost 4.4 points of return for 3.2 points less drawdown. That is the price
+  of the hedge in a year without a crash.
+- **B1 and B2 churned again** (3.7–5.0% of NAV in eight months), which
+  confirms BD1 out of sample.
+- **Next: 60 paper sessions.** The paper book is `config/nse_engine_bonds.json`
+  (`kite_connect/trading/bond_sleeve.py`), Rs 35 lakh: shares on Rs 26.25
+  lakh, LTGILTBEES on Rs 8.75 lakh.
+  - The split is static in paper: the paper share book cannot pass cash to
+    the sleeve, so the monthly rebalance waits for the live ledger.
+  - Then 5 dry runs (your rule 4).
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast
