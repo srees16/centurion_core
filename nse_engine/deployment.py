@@ -66,7 +66,7 @@ STATUSES = (STATUS_PLACEHOLDER, STATUS_APPROVED, STATUS_CANDIDATE)
 
 REQUIRED_KEYS = ("engine", "paper_start_date", "status")
 OPTIONAL_KEYS = ("source_run_id", "approved_at", "notes", "data_anchor_date", "risk_overlay", "description",
-                 "paper_capital_inr", "futures_overlay")
+                 "paper_capital_inr", "futures_overlay", "bond_sleeve", "mcx_sleeve")
 ALLOWED_KEYS = frozenset(REQUIRED_KEYS + OPTIONAL_KEYS)
 
 #: Years of archive history synced before paper_start_date on a fresh runner
@@ -104,6 +104,12 @@ class Deployment:
     #: A paper book levered with stock futures (tracker L9): the ``futures_overlay`` block, read by
     #: ``kite_connect.trading.futures_overlay.OverlayConfig``.  Paper only (status candidate).
     futures_overlay: Optional[Dict[str, Any]] = None
+    #: A paper book with a gilt sleeve (tracker BD3): the ``bond_sleeve`` block, read by
+    #: ``kite_connect.trading.bond_sleeve.SleeveConfig``.  Paper only (status candidate).
+    bond_sleeve: Optional[Dict[str, Any]] = None
+    #: A paper book with an MCX trend sleeve (tracker DL1): the ``mcx_sleeve`` block, read by
+    #: ``kite_connect.trading.mcx_sleeve.SleeveConfig``.  Paper only (status candidate).
+    mcx_sleeve: Optional[Dict[str, Any]] = None
 
     @property
     def is_placeholder(self) -> bool:
@@ -138,12 +144,19 @@ class Deployment:
         return cfg
 
     def share_capital(self) -> Optional[float]:
-        """The share book's paper capital: ``paper_capital_inr``, less the futures reserve when levered."""
+        """The share book's paper capital: ``paper_capital_inr``, less the futures reserve when levered, or less
+        the gilt or MCX sleeve's weight."""
         if self.paper_capital_inr is None:
             return None
         if self.futures_overlay:
             from kite_connect.trading.futures_overlay import OverlayConfig
             return self.paper_capital_inr * (1.0 - OverlayConfig.from_dict(self.futures_overlay).reserve_share)
+        if self.bond_sleeve:
+            from kite_connect.trading.bond_sleeve import SleeveConfig
+            return self.paper_capital_inr * (1.0 - SleeveConfig.from_dict(self.bond_sleeve).weight)
+        if self.mcx_sleeve:
+            from kite_connect.trading.mcx_sleeve import SleeveConfig as McxSleeveConfig
+            return self.paper_capital_inr * (1.0 - McxSleeveConfig.from_dict(self.mcx_sleeve).weight)
         return self.paper_capital_inr
 
     def data_start(self) -> date:
@@ -262,10 +275,36 @@ def parse_deployment(raw: Any, path: str = "") -> Deployment:
             OverlayConfig.from_dict(overlay)
         except (TypeError, ValueError) as exc:
             raise DeploymentError(f"invalid futures_overlay{where}: {exc}") from exc
+    sleeve = raw.get("bond_sleeve")
+    if sleeve is not None:
+        if not isinstance(sleeve, dict):
+            raise DeploymentError(f"bond_sleeve{where} must be an object")
+        if status != STATUS_CANDIDATE or capital is None or overlay is not None:
+            raise DeploymentError(f"bond_sleeve{where} needs status 'candidate' (paper only), paper_capital_inr "
+                                  "and no futures_overlay")
+        from kite_connect.trading.bond_sleeve import SleeveConfig
+        try:
+            SleeveConfig.from_dict(sleeve)
+        except (TypeError, ValueError) as exc:
+            raise DeploymentError(f"invalid bond_sleeve{where}: {exc}") from exc
+    mcx = raw.get("mcx_sleeve")
+    if mcx is not None:
+        if not isinstance(mcx, dict):
+            raise DeploymentError(f"mcx_sleeve{where} must be an object")
+        # one lever per book: the gilts + MCX pair failed DG2 and runs as two books (your decision, 19 Oct)
+        if status != STATUS_CANDIDATE or capital is None or overlay is not None or sleeve is not None:
+            raise DeploymentError(f"mcx_sleeve{where} needs status 'candidate' (paper only), paper_capital_inr, "
+                                  "and neither futures_overlay nor bond_sleeve")
+        from kite_connect.trading.mcx_sleeve import SleeveConfig as McxSleeveConfig
+        try:
+            McxSleeveConfig.from_dict(mcx)
+        except (TypeError, ValueError) as exc:
+            raise DeploymentError(f"invalid mcx_sleeve{where}: {exc}") from exc
     return Deployment(engine=engine, paper_start_date=paper_start, status=status,
                       source_run_id=run_id, approved_at=approved_at, notes=notes, description=description,
                       path=path, data_anchor_date=anchor, drawdown_rule=rule,
-                      paper_capital_inr=float(capital) if capital is not None else None, futures_overlay=overlay)
+                      paper_capital_inr=float(capital) if capital is not None else None, futures_overlay=overlay,
+                      bond_sleeve=sleeve, mcx_sleeve=mcx)
 
 
 def _parse_risk_overlay(raw: Any, where: str) -> Optional[DrawdownConfig]:

@@ -135,6 +135,54 @@ A low-Sharpe uncorrelated sleeve can fail gate 1 at a large N even when it
 would help the book. Judging overlays on gate 2 plus a significance test is
 your decision, parked at OX6.
 
+### 5.1 The diversifier gate (your decision, 19 Oct 2026; settles OX6)
+
+For a stream added beside the book to diversify it, this gate replaces
+gate 2's "must raise CAGR" and gate 1's deflated Sharpe of 0.95. Your
+words: minimising MaxDD matters as much as maximising Sharpe or CAGR.
+- **Base:** the honest base, on two books where they exist, over 2008–25
+  (or the stream's own span when its data starts later):
+  1. the deployed rules' backtest with the drawdown rule;
+  2. their walk-forward.
+
+  Both use the current cost model. It is never the 2013–25 in-sample
+  book.
+- **Weight,** fixed before any result:
+  - **Sharpe levers: equal risk.**
+    - Each month, the stream is sized so that its trailing 252-session
+      volatility matches the book's. Funded sleeves are (1 − w) × book +
+      w × stream. Overlays, whose margin is pledged from the book, are
+      book + w × stream.
+    - Caps: a sleeve at 50% of capital; an overlay at 3×.
+    - The stream's tested weight (e.g. 25%) is reported beside it.
+  - **Drawdown levers: their own fixed sleeve weight** (your decision, 19
+    Oct 2026). The weight must be written in the stream's pre-registration
+    before any result: gilts 25% (5ag), MCX-B 25% (5y). Equal risk
+    over-allocates a low-Sharpe stream and lowers the book's Sharpe.
+- **Idle cash and collateral** earn the liquid rate (the 1D rate less a
+  0.10% expense ratio), never nothing.
+- **A stream passes by either route, on both books:**
+  - **Sharpe lever:** combined excess Sharpe above the book's, with
+    one-sided p ≤ 0.10 in a paired stationary bootstrap (63-session mean
+    blocks, 2,000 resamples). MaxDD no more than 1 point worse.
+  - **Drawdown lever:** at its own fixed weight, all three hold:
+    1. MaxDD at least 3 points shallower;
+    2. combined Sharpe no more than 0.02 below the book's;
+    3. in the same paired bootstrap, MaxDD 3+ points shallower in at least
+       80% of resamples. MaxDD is one path, so this checks it is not one
+       lucky crash.
+- **Two or more drawdown levers** are tested together, at their own
+  weights, before they run together, and go to paper only as that tested
+  set.
+- **A pass whose 2026 holdout was already seen is provisional.** Its 60
+  paper sessions and 5 dry runs are the fresh evidence, and paper must agree
+  with its shadow backtest before anything else follows.
+- **CAGR, alpha and the deflated Sharpe at the family's N** are reported,
+  not gates.
+- **Overfitting control is your five steps** (section 6): 2008–25, a
+  walk-forward for anything fitted, and the 2026 holdout opened once with a
+  check written down before it is opened. Then paper and dry runs.
+
 ## 6. Paper, then live
 
 **Before real money (your rule, 17 Oct 2026).** A configuration goes live

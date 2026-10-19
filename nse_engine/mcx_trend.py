@@ -297,13 +297,16 @@ def run_trend(cfg: TrendConfig, prepared: Optional[Dict[str, Any]] = None,
     years = max((eq.index[-1] - eq.index[0]).days / 365.25, 1e-9)
     window = slice(s0, s1 + 1)
     m = compute_metrics(rets, eq, rf_annual=BOOK_RF, initial_capital=cfg.initial_capital)
+    decided = len(dec) > 0               # a short window (the DL1 paper sleeve's first nights) may hold no decision
     m.update(trades=len(trades), rolls=sum(x["reason"] in ("roll", "switch") for x in trades),
              cost_drag_annual=float(sum(costs.values()) / eq.mean() / years), costs_inr=costs,
              pnl_by_instrument={k: round(v, 2) for k, v in pnl_by.items()},
-             zero_lot_months={x.name: round(float((dec[f"{x.name}_lots"] == 0).mean()), 3) for x in insts},
+             zero_lot_months={x.name: round(float((dec[f"{x.name}_lots"] == 0).mean()), 3) if decided else None
+                              for x in insts},
              lots_traded={x.name: int(sum(tr["lots"] for tr in trades if tr["instrument"] == x.name)) for x in insts},
              standin_share={x.name: round(float(x.standin[window].mean()), 3) for x in insts},
-             average_gross_exposure=float(dec["gross_exposure"].mean()), margin_scaled_months=int(dec["margin_scaled"].sum()))
+             average_gross_exposure=float(dec["gross_exposure"].mean()) if decided else 0.0,
+             margin_scaled_months=int(dec["margin_scaled"].sum()) if decided else 0)
     return TrendResult(cfg, rets, eq, trades, dec, m, prep["data_hash"])
 
 

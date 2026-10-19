@@ -731,6 +731,55 @@ class NotificationManager:
             futures_html += table("Futures held", ["Contract", "Lots", "Notional"],
                                   [[f"{h['symbol']} {h['expiry']}", f"{h['lots']:g}", inr(h["notional"])]
                                    for h in fut.get("holdings", [])])
+        bond = report.get("bonds") or {}
+        if bond and not bond.get("error"):                # a book with a gilt sleeve (tracker BD3)
+            m = bond.get("metrics") or {}
+            since = bond["nav"] / float(bond.get("initial") or bond["nav"]) - 1.0
+            brows = [
+                ("Book (shares + gilts)", f"<b>{inr(bond['nav'])}</b> <span style='color:#9ca3af;'>(start "
+                                          f"{inr(bond.get('initial'))}; {since:+.2%} since; today {inr(bond['day_pnl'])})</span>"),
+                ("Gilt sleeve", f"{bond['units']:,} {bond['symbol']} at {bond['price']:,.2f} = {inr(bond['value'])}, "
+                                f"{bond['weight']:.1%} of the book (target {bond['target_weight']:.0%}); cash {inr(bond['cash'])}"),
+                ("Since start", f"{m.get('sessions', 0)} sessions, max drawdown {m.get('max_drawdown', 0):.1%}, costs "
+                                f"{inr(m.get('costs_total', 0))}" + (f", Sharpe {m['sharpe']:.2f}" if m.get("sharpe") == m.get("sharpe")
+                                                                     and m.get("sharpe") is not None else "")),
+            ]
+            futures_html += ("<h3 style='margin:22px 0 8px;color:#1a1a2e;font-size:15px;'>Gilt sleeve (paper, BD3)</h3>"
+                             "<table style='border-collapse:collapse;width:100%;font-size:14px;'>"
+                             + "".join(f"<tr><td style='{td}color:#666;width:38%;'>{k}</td><td style='{td}'>{v}</td></tr>"
+                                       for k, v in brows) + "</table>")
+            futures_html += table("Gilts filled at today's open", ["Symbol", "Side", "Units", "Price", "Value", "Costs"],
+                                  [[bond["symbol"], f["side"], f"{f['units']:,}", f"{f['price']:,.2f}", inr(f["value"]),
+                                    inr(f["costs"])] for f in bond.get("fills", [])])
+            futures_html += table("Gilts queued for the next open", ["Symbol", "Side", "Value"],
+                                  [[bond["symbol"], q["side"], inr(q["value"])] for q in bond.get("queued", [])])
+        mcx = report.get("mcx") or {}
+        if mcx and not mcx.get("error"):                  # a book with an MCX trend sleeve (tracker DL1)
+            m = mcx.get("metrics") or {}
+            since = mcx["nav"] / float(mcx.get("initial") or mcx["nav"]) - 1.0
+            mrows = [
+                ("Book (shares + MCX trend)", f"<b>{inr(mcx['nav'])}</b> <span style='color:#9ca3af;'>(start "
+                                              f"{inr(mcx.get('initial'))}; {since:+.2%} since; today {inr(mcx['day_pnl'])})</span>"),
+                ("MCX sleeve", f"{inr(mcx['sleeve'])} ({mcx['sleeve'] / float(mcx['capital']) - 1:+.2%} on {inr(mcx['capital'])}), "
+                               f"{mcx['weight']:.1%} of the book (target {mcx['target_weight']:.0%}); gross exposure "
+                               f"{mcx['gross']:.2f}x; marked at the MCX close of {mcx['mcx_asof']}"),
+                ("Since start", f"{m.get('sessions', 0)} sessions, {m.get('decisions', 0)} monthly decisions, max drawdown "
+                                f"{m.get('max_drawdown', 0):.1%}, costs {inr(m.get('costs_total', 0))}"
+                                + (f", Sharpe {m['sharpe']:.2f}" if m.get("sharpe") == m.get("sharpe") and m.get("sharpe") is not None else "")),
+            ]
+            futures_html += ("<h3 style='margin:22px 0 8px;color:#1a1a2e;font-size:15px;'>MCX trend sleeve (paper, DL1)</h3>"
+                             "<table style='border-collapse:collapse;width:100%;font-size:14px;'>"
+                             + "".join(f"<tr><td style='{td}color:#666;width:38%;'>{k}</td><td style='{td}'>{v}</td></tr>"
+                                       for k, v in mrows) + "</table>")
+            futures_html += table("MCX filled (model fills at the close)", ["Date", "Contract", "Side", "Lots", "Price", "Costs", "Why"],
+                                  [[f["date"], f["contract"], f["side"], str(f["lots"]), f"{f['price']:,.2f}",
+                                    inr(f["fee"] + f["slippage"]), f["reason"]] for f in mcx.get("fills", [])])
+            futures_html += table("MCX held", ["Contract", "Lots", "Notional"],
+                                  [[h["contract"], f"{h['lots']:+d}", inr(h["notional"])] for h in mcx.get("holdings", [])])
+            if mcx.get("signals"):
+                futures_html += table(f"Last monthly decision ({mcx.get('decision_date')})", ["Instrument", "Signal", "Volatility", "Lots"],
+                                      [[s["instrument"], f"{s['signal']:+.2f}", f"{(s['vol'] or 0):.0%}", f"{s['lots']:+d}"]
+                                       for s in mcx["signals"]])
         session = report.get("session", "")
         # paper (default) | live | live dry run - never let a live session read as paper
         mode = str(report.get("mode") or "paper")
@@ -771,6 +820,16 @@ class NotificationManager:
             subject = (f"Centurion {mode}{book} {session}{dd_tag}{alert_tag} — book {inr(fut['nav'])[:-3]} "
                        f"({since:+.2%}) at {fut['exposure']:.2f}x — {len(filled)} filled, {len(fut.get('fills', []))} futures, "
                        f"{len(queued) + len(fut.get('queued', []))} queued")
+        elif mcx and not mcx.get("error"):                # a book with an MCX trend sleeve, named by its whole value
+            since = mcx["nav"] / float(mcx.get("initial") or mcx["nav"]) - 1.0
+            subject = (f"Centurion {mode}{book} {session}{dd_tag}{alert_tag} — book {inr(mcx['nav'])[:-3]} "
+                       f"({since:+.2%}) with {mcx['weight']:.0%} MCX trend — {len(filled)} filled, "
+                       f"{len(mcx.get('fills', []))} MCX, {len(queued)} queued")
+        elif bond and not bond.get("error"):              # a book with a gilt sleeve, named by its whole value
+            since = bond["nav"] / float(bond.get("initial") or bond["nav"]) - 1.0
+            subject = (f"Centurion {mode}{book} {session}{dd_tag}{alert_tag} — book {inr(bond['nav'])[:-3]} "
+                       f"({since:+.2%}) with {bond['weight']:.0%} gilts — {len(filled)} filled, {len(stops)} stops, "
+                       f"{len(queued)} queued")
         else:
             subject = (f"Centurion {mode}{book} {session}{dd_tag}{alert_tag} — equity {inr(report.get('equity'))[:-3]} "
                        f"({pnl_pct:+.2f}%) — {len(filled)} filled, {len(stops)} stops, {len(queued)} queued")

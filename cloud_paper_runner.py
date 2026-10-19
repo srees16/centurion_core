@@ -505,17 +505,81 @@ def _run_engine_paper():
     if gate:
         msg += f" | gate {gate.get('verdict')}"
     futures = None
-    if getattr(dep, "futures_overlay", None) and session.get("fills") is not None:
+    # The sleeves run on every run, not only when the share session is new: their ledgers skip a session already
+    # done, so a backup cron catches up a leg the first run could not do (NSE publishes the F&O bhavcopy after
+    # 19:00 IST some nights: 19 Oct 2026).
+    if getattr(dep, "futures_overlay", None):
         try:
             futures = _futures_overlay_session(pt, dep, session, plan)
             msg += (f" | futures nav={futures['nav']:.0f} legs={futures['legs']} exposure={futures['exposure']:.2f}"
                     f" calls={futures['margin_calls']}")
+        except FileNotFoundError as exc:              # tonight's F&O file is not out yet: a later run catches up
+            logger.warning("Futures overlay deferred: %s", exc)
+            futures = {"deferred": str(exc)[:300]}
+            msg += " | futures deferred (F&O bhavcopy not published yet)"
         except Exception as exc:                      # the share book's session stands; the email says why
             logger.exception("Futures overlay failed: %s", exc)
             futures = {"error": str(exc)[:300]}
             msg += f" | FUTURES FAILED: {str(exc)[:120]}"
-    _email_engine_session(pt, dep, session, snapshot, shift, gate, futures)
+    bonds = None
+    if getattr(dep, "bond_sleeve", None):
+        try:
+            bonds = _bond_sleeve_session(pt, dep, session)
+            msg += f" | gilt sleeve nav={bonds['nav']:.0f} weight={bonds['weight']:.1%} units={bonds['units']}"
+        except Exception as exc:                      # the share book's session stands; the email says why
+            logger.exception("Gilt sleeve failed: %s", exc)
+            bonds = {"error": str(exc)[:300]}
+            msg += f" | GILT SLEEVE FAILED: {str(exc)[:120]}"
+    mcx = None
+    if getattr(dep, "mcx_sleeve", None):
+        try:
+            mcx = _mcx_sleeve_session(pt, dep, session)
+            msg += f" | MCX sleeve nav={mcx['nav']:.0f} as of {mcx['mcx_asof']} gross={mcx['gross']:.2f}"
+        except Exception as exc:                      # the share book's session stands; the email says why
+            logger.exception("MCX sleeve failed: %s", exc)
+            mcx = {"error": str(exc)[:300]}
+            msg += f" | MCX SLEEVE FAILED: {str(exc)[:120]}"
+    _email_engine_session(pt, dep, session, snapshot, shift, gate, futures, bonds, mcx)
     return "success", msg
+
+
+def _mcx_sleeve_session(pt, dep, session: dict) -> dict:
+    """The MCX trend sleeve of a paper book (tracker DL1, ``kite_connect.trading.mcx_sleeve``), after the share
+    book has processed the session; reads the MCX store the workflow rebuilt tonight."""
+    import pandas as pd
+
+    from kite_connect.trading import mcx_sleeve as msl
+    from nse_engine.mcx_trend import prepare
+
+    cfg = msl.SleeveConfig.from_dict(dep.mcx_sleeve)
+    cloud = pt._get_cloud()
+    ledger = msl.load_ledger(cloud, start=dep.paper_start_date.isoformat(),
+                             capital=dep.paper_capital_inr * cfg.weight)
+    day = pd.Timestamp(session["session"])
+    prepared = prepare(os.environ.get("MCX_STORE_DIR", "data/nse_engine/mcx_store"))
+    liquid = msl.liquid_closes(dep.engine.data.store_dir, pd.Timestamp(ledger.start), day)
+    summary = msl.run_session(ledger, cfg, day, share_equity=float(pt.dashboard().current_capital),
+                              initial=float(dep.paper_capital_inr), prepared=prepared, liquid=liquid)
+    msl.save_ledger(cloud, ledger)
+    return summary
+
+
+def _bond_sleeve_session(pt, dep, session: dict) -> dict:
+    """The gilt sleeve of a paper book (tracker BD3, ``kite_connect.trading.bond_sleeve``), after the share book
+    has processed the session."""
+    import pandas as pd
+
+    from kite_connect.trading import bond_sleeve as bsl
+
+    cfg = bsl.SleeveConfig.from_dict(dep.bond_sleeve)
+    cloud = pt._get_cloud()
+    ledger = bsl.load_ledger(cloud, dep.paper_capital_inr * cfg.weight)
+    day = pd.Timestamp(session["session"])
+    bars = bsl.etf_bars(dep.engine.data.store_dir, cfg.symbol, day)
+    summary = bsl.run_session(ledger, cfg, day, bars, share_equity=float(pt.dashboard().current_capital),
+                              initial=float(dep.paper_capital_inr))
+    bsl.save_ledger(cloud, ledger)
+    return summary
 
 
 def _futures_overlay_session(pt, dep, session: dict, plan) -> dict:
@@ -701,7 +765,8 @@ def _drift_check_line(pt, shift: dict, plan) -> str:
 
 
 def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict, gate: Optional[dict] = None,
-                          futures: Optional[dict] = None) -> None:
+                          futures: Optional[dict] = None, bonds: Optional[dict] = None,
+                          mcx: Optional[dict] = None) -> None:
     """Daily email for a newly processed session (best-effort).
 
     A re-run of a session already processed (a backup cron or a manual
@@ -747,6 +812,19 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict, g
                   [alerts[-1]], book=book)
         elif futures and futures.get("margin_calls"):
             alerts.append("MARGIN CALL: the futures leg no longer fitted its margin and was cut at the settle")
+        deferred = (["Futures leg: NSE's F&O bhavcopy was not out at this run; a later run tonight catches it up "
+                     "(tomorrow's email shows it)"] if futures and futures.get("deferred") else [])
+        if bonds and bonds.get("error"):
+            alerts.append(f"GILT SLEEVE FAILED tonight (the share book ran): {bonds['error']}")
+            alert(WARNING, f"bond_sleeve_failed:{book}", f"Centurion paper [{book}]: gilt sleeve failed",
+                  [alerts[-1]], book=book)
+        if mcx and mcx.get("error"):
+            alerts.append(f"MCX SLEEVE FAILED tonight (the share book ran): {mcx['error']}")
+            alert(WARNING, f"mcx_sleeve_failed:{book}", f"Centurion paper [{book}]: MCX sleeve failed",
+                  [alerts[-1]], book=book)
+        for note in (mcx or {}).get("alerts", []):    # stale MCX data, or a replay that moved
+            alerts.append(f"MCX SLEEVE: {note}")
+            alert(WARNING, f"mcx_sleeve_data:{book}", f"Centurion paper [{book}]: MCX sleeve data", [note], book=book)
         sent = NotificationManager().email_engine_daily_report({
             "session": session.get("session"),
             "deployment": f"{dep.status} {dep.engine.config_hash()[:8]} · paper since {dep.paper_start_date}",
@@ -766,13 +844,15 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict, g
             "stops": session.get("stops", []),
             "queued": [r for r in session.get("results", []) if r.get("status") == "PENDING"],
             "notes": list(session.get("notes", [])) + (
-                [f"shift multiplier {plan.shift_multiplier:.2f}"] if plan and plan.shift_multiplier != 1.0 else []),
+                [f"shift multiplier {plan.shift_multiplier:.2f}"] if plan and plan.shift_multiplier != 1.0 else []) + deferred,
             "alerts": alerts,
             "drawdown_rule": dd_line,
             "drawdown_state": dd_state,
             "drift_check": drift_check,
             "paper_gate": gate_line,
-            "futures": futures,
+            "futures": None if deferred else futures,
+            "bonds": bonds,
+            "mcx": mcx,
         })
         if not sent:
             logger.warning("Daily email returned False — check CENTURION_EMAIL_USER / CENTURION_EMAIL_PASS / "
@@ -820,6 +900,87 @@ def _weekly_futures_block(pt) -> tuple:
     except Exception as exc:                          # the weekly email still goes, without the block
         logger.warning("Weekly futures block failed: %s", exc)
         return f"<p style='color:#dc2626;'>Futures leg: report failed ({exc}).</p>", ""
+
+
+def _weekly_bond_block(pt) -> tuple:
+    """(html, subject tag) for a book with a gilt sleeve: the sleeve's week and the combined book's record since
+    the start (tracker BD3); ("", "") for the other books."""
+    dep = _load_engine_deployment()
+    if not getattr(dep, "bond_sleeve", None):
+        return "", ""
+    try:
+        import pandas as pd
+
+        from kite_connect.trading import bond_sleeve as bsl
+
+        ledger = bsl.load_ledger(pt._get_cloud(), 0.0)
+        if not ledger.history:
+            return "<p style='color:#6b7280;'>Gilt sleeve: no session yet.</p>", ""
+        h = ledger.history
+        this_week = pd.Timestamp(h[-1]["date"]).isocalendar()[:2]
+        week = [r for r in h if pd.Timestamp(r["date"]).isocalendar()[:2] == this_week]
+        wk_ret = h[-1]["nav"] / (week[0]["nav"] - week[0]["day_pnl"]) - 1.0
+        initial = float(dep.paper_capital_inr)
+        m = bsl.metrics(ledger, initial)
+        cfg = bsl.SleeveConfig.from_dict(dep.bond_sleeve)
+        cell = "padding:6px 12px;border:1px solid #e5e7eb;"
+        rows = [("Book (shares + gilts)", f"₹{initial:,.0f} → ₹{h[-1]['nav']:,.0f} ({h[-1]['nav'] / initial - 1:+.2%})"),
+                ("This week", f"{wk_ret:+.2%} over {len(week)} session(s)"),
+                ("Gilt sleeve", f"{h[-1]['units']:,} {cfg.symbol} at ₹{h[-1]['price']:,.2f} = ₹{h[-1]['value']:,.0f}, "
+                                f"{h[-1]['weight']:.1%} of the book (target {cfg.weight:.0%}); cash ₹{h[-1]['cash']:,.0f}"),
+                ("Costs since start", f"₹{m.get('costs_total', 0):,.0f}"),
+                ("Max drawdown", f"{m.get('max_drawdown', 0):.1%}" + (f"; Sharpe {m['sharpe']:.2f}" if "sharpe" in m else "")),
+                ("Days the ETF did not trade", str(m.get("untraded_days", 0)))]
+        html = ("<h3 style='color:#1a1a2e;margin-top:24px;'>Gilt sleeve (paper, BD3)</h3>"
+                "<table style='border-collapse:collapse;width:100%;font-size:14px;'>"
+                + "".join(f"<tr><td style='{cell}color:#666;'>{k}</td><td style='{cell}'>{v}</td></tr>" for k, v in rows)
+                + "</table>")
+        return html, f" | book {wk_ret * 100:+.1f}%"
+    except Exception as exc:                          # the weekly email still goes, without the block
+        logger.warning("Weekly gilt-sleeve block failed: %s", exc)
+        return f"<p style='color:#dc2626;'>Gilt sleeve: report failed ({exc}).</p>", ""
+
+
+def _weekly_mcx_block(pt) -> tuple:
+    """(html, subject tag) for a book with an MCX trend sleeve: its week and the combined book's record since the
+    start (tracker DL1); ("", "") for the other books."""
+    dep = _load_engine_deployment()
+    if not getattr(dep, "mcx_sleeve", None):
+        return "", ""
+    try:
+        import pandas as pd
+
+        from kite_connect.trading import mcx_sleeve as msl
+
+        ledger = msl.load_ledger(pt._get_cloud(), "", 0.0)
+        if not ledger.history:
+            return "<p style='color:#6b7280;'>MCX trend sleeve: no session yet.</p>", ""
+        h = ledger.history
+        this_week = pd.Timestamp(h[-1]["date"]).isocalendar()[:2]
+        week = [r for r in h if pd.Timestamp(r["date"]).isocalendar()[:2] == this_week]
+        wk_ret = h[-1]["nav"] / (week[0]["nav"] - week[0]["day_pnl"]) - 1.0
+        initial = float(dep.paper_capital_inr)
+        m = msl.metrics(ledger, initial)
+        last = ledger.decisions[-1] if ledger.decisions else {}
+        lots = ", ".join(f"{k[:-5]} {v:+d}" for k, v in last.items() if k.endswith("_lots")) or "none yet"
+        cell = "padding:6px 12px;border:1px solid #e5e7eb;"
+        rows = [("Book (shares + MCX trend)", f"₹{initial:,.0f} → ₹{h[-1]['nav']:,.0f} ({h[-1]['nav'] / initial - 1:+.2%})"),
+                ("This week", f"{wk_ret:+.2%} over {len(week)} session(s)"),
+                ("MCX sleeve", f"₹{h[-1]['sleeve']:,.0f} ({m.get('sleeve_return', 0):+.2%} since start), "
+                               f"{h[-1]['weight']:.1%} of the book; gross exposure {h[-1]['gross']:.2f}x; "
+                               f"marked at the MCX close of {h[-1]['mcx_asof']}"),
+                ("Last decision", f"{last.get('date', '—')}: lots {lots}"),
+                ("Costs since start", f"₹{m.get('costs_total', 0):,.0f}"),
+                ("Max drawdown", f"{m.get('max_drawdown', 0):.1%}" + (f"; Sharpe {m['sharpe']:.2f}" if "sharpe" in m else "")),
+                ("Decisions so far", f"{m.get('decisions', 0)} (the test wants at least 6)")]
+        html = ("<h3 style='color:#1a1a2e;margin-top:24px;'>MCX trend sleeve (paper, DL1)</h3>"
+                "<table style='border-collapse:collapse;width:100%;font-size:14px;'>"
+                + "".join(f"<tr><td style='{cell}color:#666;'>{k}</td><td style='{cell}'>{v}</td></tr>" for k, v in rows)
+                + "</table>")
+        return html, f" | book {wk_ret * 100:+.1f}%"
+    except Exception as exc:                          # the weekly email still goes, without the block
+        logger.warning("Weekly MCX-sleeve block failed: %s", exc)
+        return f"<p style='color:#dc2626;'>MCX trend sleeve: report failed ({exc}).</p>", ""
 
 
 
@@ -879,6 +1040,10 @@ def _run_weekly_checkpoint(use_engine: bool = False):
     # ── Build weekly email HTML ───────────────────────────────────
     dash = pt.dashboard()
     futures_html, futures_tag = _weekly_futures_block(pt) if use_engine else ("", "")
+    if use_engine and not futures_html:
+        futures_html, futures_tag = _weekly_bond_block(pt)
+    if use_engine and not futures_html:
+        futures_html, futures_tag = _weekly_mcx_block(pt)
     week_days = max(_week_session_count(pt, checkpoint), 1)
     pnl_color = "#15803d" if dash.total_pnl >= 0 else "#dc2626"
     wk_color = "#15803d" if checkpoint["week_return_pct"] >= 0 else "#dc2626"
