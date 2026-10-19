@@ -649,10 +649,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 [ ] P1  OX6  After OX1-OX4: re-test the books' ideas where data was binding -
              Natenberg's implied-vs-forecast volatility trades, calendars,
              defined-risk weekly credit spreads held overnight - as new
-             pre-registered rounds.  Decide then (yours): judge overlays on
-             gate 2 plus a significance test on the Sharpe improvement
-             instead of standalone DSR at raw N (DSR >= 0.95 at N = 17 needs
-             an observed Sharpe of ~0.9 over 13 years).
+             pre-registered rounds.  The gate question is SETTLED (your
+             decision 19 Oct): the diversifier gate, protocol 5.1 (a Sharpe
+             lever or a drawdown lever on the honest base; CAGR not a gate).
 [ ] P1  OP1  Options engine: mark an untraded or thin leg at a model price from
              its own expiry's smile, not its stale last close (O6-A's Jan
              2018 call: 251.0 then 337.75 with spot up).  Mark noise
@@ -764,13 +763,37 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              - Steps 1-3 done: the 2008-25 backtest and walk-forward (plan
                5ag), and the 2026 holdout (18 Oct): B3 agrees.
              - Step 4 BUILT 18 Oct: the paper book config/nse_engine_bonds.json
-               (start Mon 19 Oct; merge before 19:00 IST or move the date),
+               (start Wed 21 Oct, moved 19 Oct: not merged by Monday's run),
                60 sessions, to about mid-Jan 2027.
              - Then step 5: 5 dry runs (the live path building the sleeve's
                order; to build).
              A look (not a trial): 1.75x modelled + 25% gilts reads 16.6% /
              0.71 / -32.6% over 2008-25.
                                    Prompt: do BD3 (after 60 sessions)
+[~] P2  DL1  MCX-B paper book, the second drawdown lever (your decisions 19
+             Oct: DG2 PASS, provisional; no waiver for the pair).  BUILT 19
+             Oct: config/nse_engine_mcx.json, shares 75% + MCX-B 25% on Rs
+             35 lakh (start Wed 21 Oct; merge before 19:00 IST or move the
+             date).  A book separate from BD3's gilts.
+             - Each night GT5-B's own simulator (run_trend) runs from the
+               start at the sleeve's capital and appends the new day, so
+               paper follows exactly the rules DG2 passed.
+             - The leg is marked at the latest MCX close the store has
+               (MCX trades to ~23:30, after the 19:00 run).
+             - Cash and margin earn LIQUIDCASE's return (A: live, a pledged
+               liquid ETF).
+             - MCX fills are the model's: no broker paper for MCX.
+             - Workflow: a nightly MCX sync from Jun 2025 (resumable) and a
+               store build, warning-only on failure.  The sleeve alerts on
+               stale MCX data or a replay that moved.
+             - After the merge, check the first night's MCX sync step: MCX
+               filters bots, and GitHub runners are untested.
+             - Paper: at least 60 sessions and 6 monthly decisions (to about
+               Apr 2027).  The gilts + MCX-B pair is then judged from the
+               two books' records (0.5 x shares + 0.25 x each sleeve).
+               Then 5 dry runs: Kite's commodity segment and an MCX order
+               path, both to build.
+                                   Prompt: do DL1 (after the paper period)
 [ ] P2  L8   Forward walk (a shadow record), weekly in the Saturday books
              report and email.
              - Each paper book's 1.75x shadow, from its Neon daily snapshots,
@@ -897,6 +920,77 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+19 Oct  DL1  MCX-B paper book built (your "do DL1"); no waiver for the pair
+             (your decision).
+             - Code:
+               - kite_connect/trading/mcx_sleeve.py;
+               - config/nse_engine_mcx.json;
+               - hooks in deployment.py (one lever per book: MCX refused
+                 beside gilts or futures), cloud_paper_runner.py,
+                 manager.py and books.py;
+               - the workflow's MCX sync and build.
+               - mcx_trend's summary now tolerates a window with no decision
+                 yet; results with decisions are unchanged.
+             - Checked offline (Sep-Dec 2025): the night-by-night ledger
+               equals one straight GT5-B run (MCX equity 1,032,104.87 both;
+               43 trades; holdings = the last decision).  No false alerts; a
+               re-run changes nothing; both emails render; the guards
+               refuse bad configs.  The MCX sync and build commands work
+               from this Mac.
+             - Found on the futures book's first night (19 Oct, run
+               39260682040): NSE's F&O file was not out at 19:03 IST, so
+               the futures leg failed, and the backup runs never retried it
+               (sleeves ran only on a new share session).  Fixed:
+               - every sleeve now runs on every run (its ledger skips a
+                 session already done);
+               - a missing F&O file is "deferred", a note in the email
+                 rather than an alert.
+               The futures ledger starts on its next good night.
+             - BD3's start moved to Wed 21 Oct (not merged before Monday's
+               run).
+19 Oct  DG2  Drawdown levers at their own fixed weight (your decision 19 Oct,
+             with the safeguards; protocol 5.1 amended; plan 5ai).
+             Live-like 2008-25 (book 13.0% / 0.60 / -29.5%):
+                                     walk-forward            bootstrap  verdict
+               gilts 25%             11.5% 0.59 -21.5%         99%      PASS
+               MCX-B 25%             12.6% 0.63 -20.7%         84%      PASS, provisional
+               MCX-A 25%             12.4% 0.56 -25.2%         62%      FAIL
+               gilts + MCX-B (25+25) 11.1% 0.58 -14.5%         99%      FAIL*
+             * Fails only on the in-sample backtest book (Sharpe -0.03
+               against -0.02 allowed); on the walk-forward 2008 goes from
+               -26.4% to +8.1%.  Waiving it is your call.
+             - Seen in the 19 Oct look before the rule was chosen, so MCX-B
+               is provisional and paper is the test (DL1).
+             Results: runs_mcx/dg2_results.json.  Journal: DG2.
+19 Oct  DG1  The diversifier gate and the re-test (your decisions 19 Oct:
+             no "must raise CAGR"; MaxDD counts as much as Sharpe; honest,
+             live-like figures only).
+             - Gate: research_protocol.md 5.1.  On the honest base (the
+               walk-forward book, idle cash at the liquid rate, D2's
+               haircut), at equal risk, a stream passes as:
+               - a Sharpe lever (Sharpe up, bootstrap p <= 0.10, MaxDD no
+                 more than 1 point worse); or
+               - a drawdown lever (MaxDD 3+ points better, Sharpe no more
+                 than 0.02 lower).
+               Code: nse_engine/diversifier_gate.py.
+             - Re-test (plan 5ah, pre-registered 17:45 IST; your live-like
+               clarification 18:20, before results): FAIL, all five.  Book
+               13.0% / 0.60 / -29.5% (2008-25):
+                                 + equal risk           dSharpe (p)  fails on
+               A1 call spread    15.5% 0.76 -34.6%      +0.16 (0.03) MaxDD
+               X2 TRIN timing    18.6% 0.78 -31.9%      +0.19 (0.20) p, 2008-12
+               Y3 overnight      24.0% 1.08 -27.1%*     +0.22 (0.15) p, MaxDD
+               MCX-A (30%)       11.6% 0.48 -29.7%      -0.12        Sharpe
+               MCX-B (37%)       10.8% 0.45 -26.5%      -0.15        Sharpe
+               * Y3 from 2012 (book 16.4% / 0.86 / -20.9% there).
+               - A1 and X2 lost 7.8% and 3.6% in the 2008 crash.
+               - The options family's 2026 stays sealed (no passer).
+               - MCX re-run on Kaggle (dg1mcx) reproduced GT5 exactly.
+             - Your call: at its own 25% (fixed in 5y), MCX-B would meet the
+               drawdown route on both books (walk-forward MaxDD -29.5% ->
+               -20.7%, Sharpe +0.03).  Judging drawdown levers at their own
+               weight is a rule change after the result.
+             Results: runs_options/dg1_results.json.  Journal: DG1.
 18 Oct  BD3  The gilt sleeve's 2026 holdout and its paper book (your "do BD3").
              - Holdout (fixed 22:00 IST before opening; lock in runs_bonds):
                B3 agrees.  1 Jan-11 Sep 2026:

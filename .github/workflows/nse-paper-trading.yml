@@ -283,6 +283,15 @@ jobs:
                   f.unlink()
           EOF
           fi
+          # A book with an MCX trend sleeve (tracker DL1) reads MCX's bhavcopy: GT5-B needs 252 sessions of
+          # history, so the mirror reaches back to Jun 2025 (resumable: after the first night only new days load).
+          # A failed sync warns and the share books still run; the sleeve then reports stale MCX data.
+          if grep -l '"mcx_sleeve"' config/nse_engine_*.json > /dev/null 2>&1; then
+            python -m nse_engine.data.mcx_store sync --archive "$ARCHIVE_DIR/mcx" --start 2025-06-01 --end "$TODAY" ||
+              echo "::warning::MCX bhavcopy sync failed or was incomplete (MCX filters bots); the MCX sleeve uses what it has"
+            python -m nse_engine.data.mcx_store build --archive "$ARCHIVE_DIR/mcx" --store data/nse_engine/mcx_store ||
+              echo "::warning::MCX store build failed; the MCX sleeve will report the failure"
+          fi
           du -sh "$ARCHIVE_DIR"
 
       - name: Mark bootstrap complete

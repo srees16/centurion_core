@@ -1,7 +1,7 @@
 {
   "status": "candidate",
   "description": "BD3: the deployed rules with a 25% gilt sleeve (plan 5ag's B3, your drawdown lever, 17 Oct 2026), Rs 35 lakh: shares Rs 26.25 lakh plus Rs 8.75 lakh in LTGILTBEES. Paper only.",
-  "paper_start_date": "2026-10-19",
+  "paper_start_date": "2026-10-21",
   "notes": "Paper book for the gilt sleeve (BD3, your call 17 Oct 2026). Backtest 2008-25 (BD1, B3): 14.4% / Sharpe 0.78 / MaxDD -22.1% against the book's 16.8% / 0.78 / -31.9%; walk-forward 11.7% / 0.61 / -22.9%; 2026 holdout (opened 18 Oct) +13.6%, MaxDD -9.8% against +18.0%, -13.0%. The split is static in paper (no cash moves between the share book and the sleeve); monthly rebalancing comes with the live ledger. Run 60 sessions, then 5 dry runs (your rule 4). Paper only: never places live orders.",
   "data_anchor_date": "2012-01-02",
   "risk_overlay": {

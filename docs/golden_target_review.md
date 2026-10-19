@@ -48,6 +48,17 @@ uses 2013–25 backtests and reads high.
   about what cash earned over 2008–25. A 25% sleeve cuts MaxDD by about 10
   points, at every leverage, with Sharpe unchanged. That brings the MaxDD
   leg within reach of a levered book.
+- **MCX trend (GT5-B) is the second drawdown lever, provisionally (DG2,
+  your decision 19 Oct: drawdown levers judged at their own weight).**
+  - At 25% it cuts the live-like walk-forward MaxDD from −29.5% to −20.7%,
+    Sharpe +0.03. The gain holds in 84% of bootstrap resamples.
+  - It made +18% in 2026 while NIFTY lost 13%.
+  - Its 2026 was seen, so paper is the test (DL1).
+  - Gilts and MCX-B together (25% each) reach −14.5%, but fail by 0.01 of
+    Sharpe on the in-sample backtest book. So far they run as separate
+    paper books.
+- **The diversifier gate (19 Oct) found no reliable Sharpe lever yet.** A1
+  adds +0.16 of Sharpe but loses in crashes. X2 and Y3 are not significant.
 - **The gap is Sharpe, as below, and larger than it read.** The honest
   base is about 0.6, not 1.16. Uncorrelated streams add in quadrature, so
   reaching 1.4 needs about 1.26 more: roughly 6–7 independent streams of
@@ -520,9 +531,10 @@ test closes a stream for good. The others say what would reopen them.
 | Core trend engine | core | in the core | 2013–25; WF 2017–25 and 2008–25; yes | 61 | Live / paper. WF 2008–25 13.2% / 0.62 / −32.5% | V3 picks the live config |
 | Gold / silver ETF trend sleeve | core, R13 | in the core | inside every core run; yes | — | In the core. Correlation −0.02. R13 variant FAIL (1 Oct) | — |
 | **Government bonds (gilts)** | **BD1, 5ag** | **test** | **2008–25, backtest and WF; yes** | **3** | **FAIL (17 Oct).** Sharpe 0.01 alone. The 25% sleeve cuts MaxDD ~10 pts, Sharpe flat | Measured debt-ETF costs plus a low-churn rule (your call) |
-| MCX commodity trend | GT5, 5y | test | 2013–25; 2007–25 reported; yes | 2 | FAIL (12 Oct). 2.4–3.4% / −0.06 to −0.09 | A new source for the third config |
+| MCX commodity trend | GT5, 5y; DG1, 5ah; DG2, 5ai | test | 2013–25; 2008–25 under the diversifier gate; yes | 2 | GT5-B: PASS as a drawdown lever at its own 25% (DG2, 19 Oct; provisional): walk-forward MaxDD −29.5% → −20.7%, Sharpe +0.03. GT5-A: FAIL. Both FAIL at equal risk (DG1) | Paper (DL1) is the test |
 | Value / quality sleeve | GT4, 5z | test | 2013–25; no (filings from 2012) | 2 | FAIL (12 Oct). B 16.8% / 0.69, gate 2 fails | Beta-hedged variant once capital covers a NIFTY lot |
 | Options rounds O2–O8 | O2–O8 | test | 2013–25; 2007–25 reported; mostly yes | 17 | FAIL / CLOSED (4–10 Oct). Sharpe −0.54 to 0.82 | OX bridge, then OX6 re-tests |
+| Options near misses re-tested (A1, X2, Y3) | DG1, 5ah | test (diversifier gate) | 2008–25 (Y3 from 2012), live-like; yes for A1 and X2 | 0 new | FAIL (19 Oct). A1 +0.16 Sharpe (p 0.03) but MaxDD 5 points worse (lost 7.8% in 2008); X2 +0.19 (p 0.20); Y3 +0.22 (p 0.15) | A1 with a crash guard, as a new pre-registered config; the options family's 2026 stays sealed |
 | Options execution bridge | OX1–OX6 | desk | — | 0 | OPEN, P1 | In progress |
 | Minervini SEPA sleeve | O9 | test | 2013–25; no | 1 | CLOSED (11 Oct). Sharpe −2.24 | Rules go to the core as MV1 |
 | Pre-announcement drift (RBI, FOMC) | GT13 | test (event study) | 2013–25; no | 2 | FAIL (10 Oct). t 1.16 / 0.91 | New data via event_drift.py |
