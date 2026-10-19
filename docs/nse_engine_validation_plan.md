@@ -3351,6 +3351,260 @@ compounding, with Sharpe over 6.5%.
     that has stayed idle for N sessions, or band both sides. It would be a
     new round, and the family's budget is spent: your call.
 
+**BD3, the 2026 holdout for B3 (fixed 18 Oct 2026, 22:00 IST, before it is
+opened).** You accepted B3 as the drawdown lever on 17 Oct.
+- **Inputs:**
+  - the deployed book's recorded holdout run,
+    `20260915T161516314162Z_679cbd0c` (1 Jan–11 Sep 2026, 172 sessions,
+    opened 15 Sep). L7a and the leverage family used it too. It was
+    recorded on cost model 1, so its idle cash earns 6%, and on pre-B1
+    data. It is used as recorded;
+  - the bond store's 2026 rows, unseen until now.
+- **One look:** B3, with B1, B2 and the liquid baseline beside it, at Rs 35
+  lakh. The lock is `runs_bonds/holdout.lock`.
+- **B3 agrees** if both hold over the window:
+  1. its MaxDD is shallower than the book's;
+  2. its return is within 1 point of the costless 75/25 monthly blend of
+     the book and gilts, so execution costs no more than the model says.
+- **If it agrees,** BD3 moves to 60 paper sessions. **If not,** BD3 stops
+  and the result goes to you. The family stays closed either way.
+
+**BD3 holdout result (18 Oct 2026): B3 agrees.** It was opened once; the lock
+is `runs_bonds/holdout.lock`.
+
+| 1 Jan–11 Sep 2026 | Return | Sharpe | MaxDD | Costs over the window |
+|---|---|---|---|---|
+| Book | +18.0% | 1.04 | −13.0% | |
+| Gilts (index less expense ratio) | +1.4% | −1.24 | −2.8% | |
+| Liquid baseline | +17.2% | 0.99 | −13.1% | |
+| B1 idle cash in gilts | +13.0% | 0.70 | −14.3% | 3.7% of NAV |
+| B2 gilts while trending up | +11.0% | 0.56 | −14.3% | 5.0% |
+| **B3 25% gilt sleeve** | **+13.6%** | 0.92 | **−9.8%** | 0.19% |
+| B3's costless blend | +13.8% | 0.94 | −9.9% | |
+
+- **Both tests hold:** MaxDD −9.8% against −13.0%, and the return is 0.2
+  point from the costless blend.
+- **2026 was a poor year for gilts** (+1.4% in eight months), so the sleeve
+  cost 4.4 points of return for 3.2 points less drawdown. That is the price
+  of the hedge in a year without a crash.
+- **B1 and B2 churned again** (3.7–5.0% of NAV in eight months), which
+  confirms BD1 out of sample.
+- **Next: 60 paper sessions.** The paper book is `config/nse_engine_bonds.json`
+  (`kite_connect/trading/bond_sleeve.py`), Rs 35 lakh: shares on Rs 26.25
+  lakh, LTGILTBEES on Rs 8.75 lakh.
+  - The split is static in paper: the paper share book cannot pass cash to
+    the sleeve, so the monthly rebalance waits for the live ledger.
+  - Then 5 dry runs (your rule 4).
+
+## 5ah. DG1: re-testing streams under the diversifier gate (India tracker DG1; pre-registered 19 Oct 2026, 17:45 IST)
+
+**Why.** Your decisions of 19 Oct:
+- the diversifier gate (protocol 5.1) replaces "must raise CAGR" and the
+  0.95 deflated Sharpe for streams beside the book;
+- re-test the three options near misses;
+- MCX trend joins bonds as a drawdown lever.
+
+**What is not clean (stated before the run).** My 19 Oct look combined all
+17 options strategies with the honest book over 2013–25. It showed Y3, A1
+and X2 adding the most, at weights near this gate's caps. Their 2013–25
+numbers are therefore selected, not out of sample. The out-of-sample
+evidence is:
+- 2008–12 for A1 and X2 (their recorded 2007–25 runs; never combined
+  before);
+- the 2026 holdout for all three (the options family's, unopened).
+
+MCX's 2007–25 sleeve figures were reported in 5y. Its combinations with
+the book over 2008–25 are new.
+
+- **Streams (recorded configurations; no new parameters, so no family's N
+  changes):**
+  - **Sharpe-lever candidates, as overlays** (margin pledged from the
+    book):
+    - O2-A1, the 15-day 2/3-SD bear call spread (LN-T20 re-run,
+      2007–25);
+    - O3-X2, TRIN bands on the near-month NIFTY future (2007–25);
+    - O4-Y3, NIFTYBEES from the close to the next open on two sentiment
+      conditions (from Feb 2012; its data starts then). It trades every
+      night, bought at the close and sold at the next open: a delivery
+      position held overnight, never a same-day exit. Live, each held
+      night is an order pair at the close and the open (market-hours
+      events). Its exposure above the book's idle cash would be carried by
+      NIFTY futures (A).
+  - **Drawdown-lever candidates, as funded sleeves:** GT5-A and GT5-B, MCX
+    trend. The 2007–25 series is re-run on Kaggle (`mcx` task,
+    `--reported-start 2007-01-01`, the same configurations). Margin and
+    idle cash earn the liquid rate.
+- **Books:**
+  1. the deployed rules with the drawdown rule, 2008–25 (run
+     `20261017T110545845367Z_2cb1c053`);
+  2. the 2008–25 walk-forward (`wf_stitched_r4b`).
+
+  The book's idle cash earns the liquid rate too, in both the base and the
+  combination. Y3 is judged from its first session.
+- **Weight (protocol 5.1):** equal risk on trailing volatility (up to 252
+  sessions, at least 63), re-set on each month's first session. Caps: an
+  overlay at 3×, a sleeve at 50%. The tested weight (overlay 0.25, sleeve
+  25%) is reported beside it.
+- **Routes (both books):**
+  - **Sharpe lever:** combined excess Sharpe above the book's. One-sided p
+    ≤ 0.10 in a paired stationary bootstrap (63-session mean blocks,
+    2,000 resamples, seed 7). MaxDD no more than 1 point worse.
+  - **Drawdown lever:** MaxDD at least 3 points shallower, Sharpe no more
+    than 0.02 lower.
+- **Extra condition for A1 and X2 (their 2013–25 was seen):** their
+  combined Sharpe must not fall in 2008–12 on either book.
+- **Reported:**
+  - CAGR, alpha against NIFTY 50 TRI, correlation;
+  - 2008 and each year;
+  - the weights reached and how often a cap bound;
+  - the deflated Sharpe at the family's N (options 17, commodity 2).
+- **Then the 2026 holdout, opened once per family, for the passers:**
+  - **Options:** the passers re-run on Kaggle over 1 Jan–11 Sep 2026,
+    beside the deployed book's recorded holdout run
+    (`20260915T161516314162Z_679cbd0c`, cost model 1, as recorded). A pass
+    agrees if, at its last 2008–25 weight, the combination's 2026 Sharpe
+    is at least the book's and its MaxDD is no more than 1 point worse
+    (Sharpe lever), or its MaxDD is shallower (drawdown lever).
+  - **MCX:** its family opened 2026 on 12 Oct (A +21.3%, B +18.1%, NIFTY
+    50 TRI −13.0%). That look cannot be repeated. The combination over
+    2026 is reported, not judged.
+- **Then, for an agreeing pass:** 60 paper sessions and 5 dry runs (your
+  rule 4).
+- **Environment (A):** Kaggle for the MCX re-run (an engine-like
+  simulation). The combinations are arithmetic on recorded series, on
+  this Mac (protocol 3).
+- **Code:** `nse_engine/diversifier_gate.py` (`python -m
+  nse_engine.diversifier_gate dg1`).
+- **Clarification (19 Oct 2026, 18:20 IST, your instruction, before any
+  combination was computed): honest, live-like figures only.**
+  - **The book's part carries D2's measured live haircut:** a day's delay
+    and twice the impact, 3% a year at full exposure, scaled by the
+    invested weight. It applies in the base and the combination alike, and
+    the gates are judged on these figures.
+  - **The walk-forward book is the headline.** The deployed-rules backtest
+    is in-sample for 2013–25, so it is only an extra condition: a pass
+    still needs both books.
+  - **Streams run as recorded, with their modelled costs.** Their own live
+    gap is unmeasured (stated).
+  - **The selected years (2013–25 for the options streams) are reported
+    apart** from the out-of-sample ones (2008–12 for A1 and X2; 2026).
+  - **The MCX re-run** (Kaggle, `centurion-nse-research-dg1mcx`, store
+    8350d7128f3d6fe6) reproduces GT5: 2013–25 2.4% and 3.4%; 2007–25 1.3%
+    / MaxDD −71% and 3.1% / −54%.
+
+**Result (19 Oct 2026): FAIL, all five.** Nothing passes either route on
+either book, so no 2026 holdout is opened: the options family's stays
+sealed. Results are in `runs_options/dg1_results.json` (copied to
+`runs_mcx`).
+
+Figures are live-like: the walk-forward book, idle cash at the liquid rate,
+and D2's haircut. Shown as CAGR / Sharpe over 6.5% / MaxDD, 2008–25 (Y3
+from Feb 2012).
+
+| | Walk-forward book | + stream at equal risk (weight) | Change in Sharpe (p) | + stream at 0.25 | Why it fails |
+|---|---|---|---|---|---|
+| Book alone | 13.0% / 0.60 / −29.5% | | | | |
+| O2-A1 call spread | | 15.5% / 0.76 / −34.6% (2.7×) | +0.16 (0.03) | 13.2% / 0.61 / −30.0% | MaxDD 5 points worse: it lost 7.8% in the 2008 crash |
+| O3-X2 TRIN timing | | 18.6% / 0.78 / −31.9% (1.4×) | +0.19 (0.20) | 13.6% / 0.63 / −34.8% | Not significant; worse in 2008–12 |
+| O4-Y3 overnight (book from 2012: 16.4% / 0.86 / −20.9%) | | 24.0% / 1.08 / −27.1% (2.6×) | +0.22 (0.15) | 17.3% / 0.92 / −20.8% | Not significant over 14 years; MaxDD 6 points worse (2015–16) |
+| GT5-A MCX trend | | 11.6% / 0.48 / −29.7% (30%) | −0.12 | 12.4% / 0.56 / −25.2% | Sharpe falls; MaxDD no better at equal risk |
+| GT5-B MCX trend | | 10.8% / 0.45 / −26.5% (37%) | −0.15 | 12.6% / 0.63 / −20.7% | Sharpe falls at equal risk |
+
+The backtest book (15.5% / 0.70 / −28.6%) gives the same verdicts. A1's p
+there is 0.044, X2's 0.23, Y3's 0.13.
+
+- **A1 is a real Sharpe lever with a drawdown cost.** Its gain is
+  significant and holds in 2008–12. It fails only the MaxDD condition:
+  short call spreads lose in sharp moves.
+- **X2 and Y3 have Sharpe-sized point estimates, not evidence.** Y3 has no
+  2008, and its 2013–25 was selected.
+- **Equal risk is the wrong weight for a low-Sharpe drawdown lever.** It
+  puts 30–40% into MCX trend, whose Sharpe on its own is 0.43–0.59 against
+  the liquid rate, and the book's Sharpe falls.
+- **At its own 25% (fixed in 5y, not chosen now), GT5-B meets the drawdown
+  route on both books:**
+  - walk-forward: MaxDD −29.5% → −20.7%, Sharpe +0.03;
+  - backtest: −28.6% → −21.7%, Sharpe +0.02.
+
+  That is reported, not judged: judging it at 25% now would change the
+  weight after the result. Your call.
+- **Reported:**
+  - deflated Sharpe at the family's N: A1 0.14, X2 0.18, Y3 0.93, GT5-A
+    0.57, GT5-B 0.71;
+  - monthly correlations with the book, −0.05 to 0.17.
+
+## 5ai. DG2: drawdown levers at their own weight (India tracker DG2; your decision 19 Oct 2026, 18:45 IST)
+
+**Why.** You adopted protocol 5.1's drawdown route at a stream's own fixed
+sleeve weight, with three safeguards:
+- a bootstrap check of the MaxDD gain;
+- joint testing of levers that run together;
+- provisional status when the holdout was already seen.
+
+**Not clean, stated first.** My look of 19 Oct already showed these
+combinations: book 13.0% / 0.60 / −29.5%; + gilts 25% 11.5% / 0.59 /
+−21.5%; + MCX-B 25% 12.6% / 0.63 / −20.7%; both 11.1% / 0.58 / −14.5%. The
+weights were fixed before any result (gilts in 5ag on 17 Oct, MCX in 5y on
+11 Oct). The choice of rule came after equal risk failed. So any pass here
+is provisional by construction, and paper trading is the test that counts.
+
+- **Streams at their own weight,** each a funded sleeve, monthly constant
+  mix:
+  - gilts 25% (BD1's B3: the 10-year G-sec index less a 0.15% expense
+    ratio);
+  - MCX-B 25% and MCX-A 25% (the 2007–25 re-run of DG1, with margin and
+    idle cash at the liquid rate);
+  - the pair, gilts 25% + MCX-B 25% (the book at 50%).
+- **Books and figures:** as DG1. The live-like walk-forward is the
+  headline; the deployed-rules backtest is an extra condition. Both use
+  idle cash at the liquid rate and D2's haircut, over 2008–25.
+- **Drawdown route (protocol 5.1),** on both books:
+  1. MaxDD 3+ points shallower;
+  2. Sharpe no more than 0.02 lower;
+  3. MaxDD 3+ points shallower in at least 80% of 2,000 paired
+     stationary-bootstrap resamples (63-session blocks, seed 7).
+- **Status of a pass:**
+  - **Gilts:** already on paper alone (BD3, holdout agreed).
+  - **MCX-B and the pair:** provisional. 2026 was seen for both: MCX's on
+    12 Oct, the gilts' on 18 Oct.
+- **Next for a passing pair:** a paper book with shares 50%, gilts 25% and
+  MCX-B 25% (tracker DL1), then 5 dry runs.
+- **Code:** `nse_engine/diversifier_gate.py dg2`.
+
+**Result (19 Oct 2026): gilts PASS and MCX-B PASS (provisional), alone;
+MCX-A and the pair FAIL.** Results are in `runs_mcx/dg2_results.json`
+(copied to `runs_bonds`). Figures are live-like, 2008–25, CAGR / Sharpe /
+MaxDD (2008), with the share of bootstrap resamples where MaxDD is 3+
+points shallower.
+
+| At its own weight | Walk-forward book: 13.0% / 0.60 / −29.5% (−26.4%) | Backtest book: 15.5% / 0.70 / −28.6% (−23.2%) | Verdict |
+|---|---|---|---|
+| Gilts 25% | 11.5% / 0.59 / −21.5% (−15.4%); 99% | 13.4% / 0.69 / −21.3% (−12.6%); 100% | Pass |
+| MCX-B 25% | 12.6% / 0.63 / −20.7% (−5.8%); 84% | 14.5% / 0.72 / −21.7% (−2.8%); 90% | Pass, provisional |
+| MCX-A 25% | 12.4% / 0.56 / −25.2%; 62% | 14.2% / 0.66 / −24.6%; 74% | Fail: Sharpe −0.04, bootstrap below 80% |
+| Gilts 25% + MCX-B 25% | 11.1% / 0.58 / −14.5% (+8.1%); 99% | 12.3% / 0.67 / −15.2% (+10.5%); 100% | Fail: Sharpe −0.03 on the backtest book |
+
+- **The pair fails by 0.01 of Sharpe, and only on the in-sample backtest
+  book.** On the walk-forward it passes all three checks: MaxDD −29.5% →
+  −14.5%, 2008 from −26.4% to +8.1%. By the rule written before the
+  result, the pair does not go to paper as a pair. Waiving the extra
+  condition is your call.
+- **What goes to paper by the rule:**
+  - gilts alone (BD3, built);
+  - MCX-B alone (tracker DL1: shares 75%, MCX-B 25%), provisional;
+  - not both in one book.
+- **Your decision (19 Oct): no waiver.** The pair is judged after the paper
+  period from the two books' records, on the drawdown route, against the
+  books' own shadow:
+  - the pair's daily return is 0.5 × the share book + 0.25 × the gilt
+    sleeve + 0.25 × the MCX sleeve;
+  - the period is at least 60 sessions and 6 monthly MCX decisions;
+  - a pass goes to 5 dry runs as the pair.
+- **DL1 built (19 Oct):** `config/nse_engine_mcx.json`,
+  `kite_connect/trading/mcx_sleeve.py`. The sleeve replays GT5-B's
+  simulator nightly from its start, so paper follows the rules that
+  passed.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast

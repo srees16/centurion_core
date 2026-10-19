@@ -14,6 +14,7 @@ it a day; the ETF's expense ratio comes off its index's return.  The book's path
 of its decisions.
 
     python -m nse_engine.bond_stream bd1        # B1-B3 and the baseline, gates, recorded in runs_bonds
+    python -m nse_engine.bond_stream holdout    # BD3: the family's 2026 holdout, opened once (lock in runs_bonds)
 """
 
 from __future__ import annotations
@@ -42,6 +43,11 @@ WALK_FORWARD = "data/nse_engine/wf_stitched_r4b.json"  # R4's 2008-25 walk-forwa
 BOOK_RUNS = "data/nse_engine/runs"
 INDEX_STORE = "data/nse_engine/store_ext2006"
 WINDOW = ("2008-01-01", "2025-12-31")
+#: BD3: the deployed book's recorded 2026 holdout run (opened 15 Sep, cost model 1 as recorded), opened once for
+#: the bond family with its own lock (the engine's ``holdout.lock`` is keyed by window and serves the core).
+HOLDOUT_RUN = "20260915T161516314162Z_679cbd0c"
+HOLDOUT_WINDOW = ("2026-01-01", "2026-09-11")
+HOLDOUT_LOCK = Path(RUNS_DIR) / "holdout.lock"
 RF = 0.065
 #: Before the store has NIFTY 50 TRI (2012), its price index plus this dividend yield stands in (plan 5ag, A).
 NIFTY_DIVIDEND_YIELD = 0.013
@@ -349,14 +355,80 @@ def bd1(record_runs: bool = True) -> Dict:
     return out
 
 
+def blend(book: pd.Series, gilt: pd.Series, weight: float = 0.25) -> pd.Series:
+    """The costless sleeve: (1 - weight) x the book + weight x gilts, rebalanced on each month's first session."""
+    a, b, out, month = 1.0 - weight, weight, [], None
+    for day in book.index:
+        if day.to_period("M") != month:
+            month = day.to_period("M")
+            total = a + b
+            a, b = (1.0 - weight) * total, weight * total
+        before = a + b
+        a *= 1.0 + book[day]
+        b *= 1.0 + gilt[day]
+        out.append((a + b) / before - 1.0)
+    return pd.Series(out, index=book.index)
+
+
+def holdout(lock_path: Path = HOLDOUT_LOCK, runs_dir: str = BOOK_RUNS) -> Dict:
+    """BD3 (plan 5ag): the bond family's 2026 holdout, opened once.  B3 is judged (shallower MaxDD than the book;
+    return within 1 point of the costless blend); B1, B2 and the liquid baseline are reported beside it.  The
+    lock entry is written before anything runs, so a crash still counts as the look."""
+    from datetime import datetime, timezone
+
+    from nse_engine.validation.holdout import HoldoutLockedError, _read_lock, _write_lock
+    from nse_engine.validation.trials import git_state
+
+    window = {"start": HOLDOUT_WINDOW[0], "end": HOLDOUT_WINDOW[1]}
+    lock = _read_lock(Path(lock_path))
+    if any(e.get("window") == window for e in lock["evaluations"]):
+        raise HoldoutLockedError(f"the bond family's 2026 holdout was already opened (lock {lock_path})")
+    entry = {"window": window, "family": "bonds", "run": HOLDOUT_RUN, "status": "started",
+             "configs": {k: c.config_hash() for k, c in CONFIGS.items()}, **git_state(),
+             "created_at": datetime.now(timezone.utc).isoformat(), "metrics": {}}
+    lock["evaluations"].append(entry)
+    _write_lock(Path(lock_path), lock)
+
+    r = pd.read_csv(Path(runs_dir) / HOLDOUT_RUN / "returns.csv", index_col=0).squeeze("columns").astype("float64")
+    r.index = pd.DatetimeIndex(r.index)
+    g = pd.read_parquet(Path(runs_dir) / HOLDOUT_RUN / "weights.parquet").fillna(0.0).clip(lower=0.0).sum(axis=1)
+    r = r[window["start"]:window["end"]]
+    base = Base("holdout_2026", r, g.reindex(r.index).ffill().fillna(0.0))
+    bonds = bond_returns(r.index, BondConfig())
+    tri = nifty_tri(r.index)
+
+    def summary(x: pd.Series) -> Dict:
+        s = _summary(x, tri)
+        s.pop("y2008", None)
+        return {"return": float((1 + x).prod() - 1), **s}
+
+    out = {"book": summary(r), "gilts": summary(bonds["gilt"]),
+           "baseline_liquid": summary(simulate(base, bonds, BASELINE).returns)}
+    for k, cfg in CONFIGS.items():
+        res = simulate(base, bonds, cfg)
+        out[k] = {**summary(res.returns), "costs": float(res.daily["cost"].sum()),
+                  "in_gilts_mean": float(res.daily["gilt"].mean())}
+    mech = summary(blend(r, bonds["gilt"], CONFIGS["B3"].sleeve_weight))
+    out["B3 costless blend"] = mech
+    out["B3 agrees"] = {"shallower_maxdd": bool(out["B3"]["max_drawdown"] > out["book"]["max_drawdown"]),
+                        "within_1pt_of_blend": bool(abs(out["B3"]["return"] - mech["return"]) <= 0.01)}
+    out["B3 agrees"]["all"] = all(out["B3 agrees"].values())
+    entry.update({"status": "completed", "completed_at": datetime.now(timezone.utc).isoformat(),
+                  "metrics": out})
+    _write_lock(Path(lock_path), lock)
+    return out
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m nse_engine.bond_stream", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("bd1", help="plan 5ag: B1-B3 beside the book, gates, recorded")
     p.add_argument("--no-record", action="store_true", help="do not record the runs (debugging)")
+    sub.add_parser("holdout", help="BD3: the bond family's 2026 holdout, opened once")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    print(json.dumps(bd1(record_runs=not args.no_record), indent=1, default=str))
+    out = holdout() if args.cmd == "holdout" else bd1(record_runs=not args.no_record)
+    print(json.dumps(out, indent=1, default=str))
     return 0
 
 
