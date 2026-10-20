@@ -3605,6 +3605,64 @@ points shallower.
   simulator nightly from its start, so paper follows the rules that
   passed.
 
+## 5aj. A1G: A1 with a crash guard (India tracker A1G; pre-registered 20 Oct 2026, 10:42 IST)
+
+**Why.** Under the diversifier gate (DG1, 5ah), A1 was the only real
+Sharpe lever: +0.16 at equal risk, p 0.03, holding in 2008–12. It failed
+only because the worst drawdown grew by 5 points: it lost 7.8% in the 2008
+crash, when bear call spreads were run over by violent rallies. You asked
+for a crash guard (20 Oct).
+
+**Not clean, stated first.** The guard is designed knowing that A1 lost in
+2008. So 2008–12 is not out of sample for A1G. The only clean check is the
+options family's 2026 holdout, still sealed.
+
+- **Configuration, A1G:** O2-A1 (5q: a 2-SD short call and a 3-SD wing on
+  NIFTY's monthly options, 15 days out, early exit at the money; cost model
+  as 5q's LN-T20 re-run) with one change. On a decision day **no new spread
+  is opened** if either holds at that day's close:
+  1. **the book's drawdown rule is not normal** (halt, half or risk-off),
+     which is the book's own crash state, known live each session;
+  2. **India VIX is 22 or higher,** the fear level round 2's X3 took from
+     its source (5r), not fitted here. India VIX starts in Mar 2008; before
+     that only the first condition applies.
+
+  A spread already open runs to its exit as in A1.
+- **Family:** options. N goes from 17 to 18.
+- **The guard per book:**
+  - the deployed rules' backtest uses its recorded rule states (run
+    `20261017T110545845367Z_2cb1c053`, `drawdown.csv`);
+  - the walk-forward uses the rule replayed on its equity (20/30/35, half
+    0.5, re-arm 60).
+
+  So A1G has one series per book: what it would have done beside that book.
+- **Runs:** Kaggle, the options task, 2007–25. The skipped decision dates
+  are an input; the configuration's hash names the guard, not the dates.
+  The code change is a `skip_entry_dates` input to
+  `kite_connect.options.backtest.run_sleeve`, beside its event skips.
+- **Gate:** protocol 5.1's Sharpe-lever route, as DG1:
+  - overlay, equal risk, capped at 3×;
+  - live-like books (idle cash at the liquid rate, D2's haircut) over
+    2008–25;
+  - the walk-forward book as the headline and the backtest book as an
+    extra condition;
+  - combined Sharpe higher with p ≤ 0.10, and MaxDD no more than 1 point
+    worse, on both books.
+- **Expectation, stated before the run:**
+  - the guard should remove most of 2008's loss: the rule halted in 2008
+    and VIX was above 22 for most of it;
+  - it also skips months A1 earned in: 2020's recovery, part of 2022;
+  - the Sharpe gain likely shrinks from +0.16. A pass is far from certain.
+- **Then, if it passes:**
+  - **the 2026 holdout, opened once for the options family:** A1G over 1
+    Jan–11 Sep 2026 beside the deployed book's recorded holdout run
+    (`20260915T161516314162Z_679cbd0c`), at its last 2008–25 weight;
+  - **it agrees** if the combination's 2026 Sharpe is at least the book's
+    and its MaxDD is no more than 1 point worse;
+  - **then paper** (at least 60 sessions and 6 monthly cycles), then 5 dry
+    runs.
+- **If it fails:** recorded, not re-tuned. A1 and A1G close.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast

@@ -14,7 +14,7 @@ versions are deleted), so the quota holds one copy, about 12 GB::
                                       mcx-store, fundamentals, us-store)
     centurion-backup-state            the small things: the other registries (runs_*),
                                       walk-forward results, scorecards, the bond store,
-                                      holdout.lock,
+                                      the paper books' CSV exports (JR2), holdout.lock,
                                       archive manifests, the scheduler scripts and the
                                       assistant's project memory
 
@@ -144,7 +144,8 @@ def pieces(data: Path = DATA) -> Dict[str, List[Tuple[Path, str]]]:
     state: List[Tuple[Path, str]] = [(p, p.name) for p in sorted(data.glob("runs_*")) if p.is_dir()]
     state += [(p, p.name) for g in _STATE_GLOBS for p in sorted(data.glob(g)) if p.is_file()]
     state += [(p, f"{p.parent.name}/{p.name}") for p in (data / "runs" / "runtime_index.json",) if p.exists()]
-    state += [(p, p.name) for p in (data / "scorecard", data / "bond_store") if p.is_dir()]   # bond_store: BD1
+    state += [(p, p.name) for p in (data / "scorecard", data / "bond_store", data / "book_exports")
+              if p.is_dir()]                                     # bond_store: BD1; book_exports: JR2
     state += [(p, f"archive/{p.relative_to(archive)}") for p in
               (archive / "reference", archive / "manifest", archive / "filings" / "manifest",
                archive / "mcx" / "manifest") if p.exists()]
