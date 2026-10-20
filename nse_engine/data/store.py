@@ -50,6 +50,13 @@ STORE_VERSION = 3  # bump when parsing changes so every year is rebuilt
 #: bump when corporate-action / dividend event derivation changes (no year rebuild needed)
 EVENTS_VERSION = 3
 KEEP_SERIES = ("EQ", "BE")
+#: Sessions NSE held for a handful of instruments only, never market-wide.  Counting one would add a session to
+#: every stock's calendar and shift every later rebalance day (they count sessions from the data anchor), so the
+#: store skips their files; the archive keeps them.  Found 20 Oct 2026: a full bootstrap on Actions probed every
+#: Sunday and fetched Dhanteras 2012, which the validated store never had (canary: data dab49d3c -> d72858ed).
+PARTIAL_SESSIONS = {"20121111": "Sun 11 Nov 2012, Dhanteras: a special session for 14 gold ETFs only"}
+#: An equity bhavcopy with fewer rows than this is reported as a possible partial session.
+PARTIAL_SESSION_ROWS = 100
 EQUITY_COLUMNS = ["date", "symbol", "series", "isin", "open", "high", "low", "close",
                   "prev_close", "volume", "value_inr", "trades", "deliv_qty", "deliv_pct"]
 INDEX_COLUMNS = ["date", "index_name", "open", "high", "low", "close"]
@@ -252,7 +259,8 @@ def year_sources(archive_root: PathLike, year: int) -> Dict[str, List[Path]]:
     out = {}
     for kind in ("equity", "delivery", "indices", "corpact"):
         d = root / kind / str(year)
-        out[kind] = sorted(p for p in d.glob("*") if p.is_file() and not p.name.startswith(".")) if d.exists() else []
+        out[kind] = sorted(p for p in d.glob("*") if p.is_file() and not p.name.startswith(".")
+                           and _date_of(p) not in PARTIAL_SESSIONS) if d.exists() else []
     return out
 
 
@@ -280,6 +288,9 @@ def build_year_frames(sources: Dict[str, List[Path]], keep_series: Sequence[str]
         parser = parse_udiff_bhavcopy if p.name.startswith("udiff") else parse_legacy_bhavcopy
         df = _safe(parser, p)
         if df is not None:
+            if len(df) < PARTIAL_SESSION_ROWS:
+                logger.warning("%s has only %d rows: a session for a few instruments? If so, add its date to "
+                               "nse_engine.data.store.PARTIAL_SESSIONS", p.name, len(df))
             eq_parts.append(df[df["series"].isin(keep_series)])
     for p in sources.get("delivery", []):
         if p.name.startswith("mto"):

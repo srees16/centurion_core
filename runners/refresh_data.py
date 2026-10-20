@@ -17,7 +17,10 @@ and diagnostics.  Steps:
    the store.
 5. **Fundamentals:** filing lists, new result documents and the store.  This
    step is skipped while a GT1 run holds the archive.
-6. **Backup** (``cloud.backup push``): every piece that changed goes to the
+6. **Paper books** (``tools.export_books``, tracker JR2): every book's Neon record
+   as CSV, so the backup carries it.  It needs ``CENTURION_DATABASE_URL`` in
+   ``.env``; without it the step fails and the rest still runs.
+7. **Backup** (``cloud.backup push``): every piece that changed goes to the
    private Kaggle backup datasets, so nothing lives only on this machine.
 
 Each step is its own process, the same command as by hand, so one failing does
@@ -50,7 +53,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 DATA = _ROOT / "data" / "nse_engine"
 STATUS = DATA / "refresh_status.json"
 LATE_FILES = timedelta(days=14)
-STEPS = ("nse", "equity_store", "fo_store", "mcx", "fundamentals", "backup")
+STEPS = ("nse", "equity_store", "fo_store", "mcx", "fundamentals", "books", "backup")
 
 
 def _last_session(calendar: Path, fallback: date) -> date:
@@ -90,6 +93,7 @@ def commands(today: date) -> Dict[str, List[List[str]]]:
                 [py, "-m", "nse_engine.data.mcx_store", "build"]],
         "fundamentals": [[py, "-m", "nse_engine.data.fundamentals", "sync"],
                          [py, "-m", "nse_engine.data.fundamentals", "build"]],
+        "books": [[py, "-m", "tools.export_books"]],
         "backup": [[py, "-m", "cloud.backup", "push"]],
     }
 

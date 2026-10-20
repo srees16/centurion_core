@@ -462,18 +462,23 @@ class NotificationManager:
         recipients: Optional[List[str]] = None,
         attachments: Optional[List[Tuple[str, bytes]]] = None,
     ) -> bool:
-        """Send a generic HTML email via configured SMTP.
+        """Send a generic HTML email via configured SMTP, or Gmail's HTTPS API where SMTP is blocked.
 
         ``attachments`` are (file name, bytes) pairs, e.g. the books register
         CSV (tracker V4).  Returns True on success, False on failure or
-        missing config.
+        missing config.  With the CENTURION_GMAIL_* settings (the HF Space,
+        whose outbound SMTP Hugging Face blocks: MU2, 20 Oct 2026) the message
+        goes through ``gmail_api``; otherwise over SMTP as before.
         """
+        from services.notifications import gmail_api
+
         if recipients is None:
             recipients = ["s.srees@live.com"]
 
         smtp_host, smtp_port, smtp_user, smtp_pass = _smtp_settings()
+        use_api = gmail_api.configured()
 
-        if not smtp_user or not smtp_pass:
+        if not smtp_user or not (smtp_pass or use_api):
             logger.debug("Email not configured — skipping")
             return False
 
@@ -488,11 +493,14 @@ class NotificationManager:
             msg.attach(part)
 
         try:
-            with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
-                server.starttls()
-                server.login(smtp_user, smtp_pass)
-                server.sendmail(smtp_user, recipients, msg.as_string())
-            logger.info("Email sent: %s → %s", subject[:60], ", ".join(recipients))
+            if use_api:
+                gmail_api.send(msg)
+            else:
+                with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
+                    server.starttls()
+                    server.login(smtp_user, smtp_pass)
+                    server.sendmail(smtp_user, recipients, msg.as_string())
+            logger.info("Email sent%s: %s → %s", " (Gmail API)" if use_api else "", subject[:60], ", ".join(recipients))
             return True
         except Exception as exc:
             logger.error("Failed to send email '%s': %s", subject[:60], exc)

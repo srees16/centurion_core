@@ -1573,7 +1573,7 @@ Anyone can create an account at **/signup** (`api/users.py`, stored in Neon as `
   - changing the shared price alerts.
 
   The API refuses these for the `user` role, not just the UI. On Fly Kite a user sees only their own Zerodha account. Connecting it is optional, one account per user. The same rules apply as for any connected account: Dry run after the terms, Live only with Centurion's registration.
-- **Space settings:** `CENTURION_USER_DATA_KEY` (a Fernet key; sign-up refuses without it) as an HF Space secret. The emails use the same SMTP account as the paper emails: the deploy workflow copies the `CENTURION_EMAIL_*` GitHub secrets to the Space. Links point at `CENTURION_FRONTEND_URL` (default `https://centurion-core-fe.vercel.app`).
+- **Space settings:** `CENTURION_USER_DATA_KEY` (a Fernet key; sign-up refuses without it) as an HF Space secret. The emails come from the same Gmail account as the paper emails. Hugging Face blocks outbound SMTP, so on the Space they go through Gmail's HTTPS API (`services/notifications/gmail_api.py`): the deploy workflow copies the `CENTURION_EMAIL_*` and `CENTURION_GMAIL_*` GitHub secrets to the Space (one-time setup: `python -m services.notifications.gmail_api authorize`). Links point at `CENTURION_FRONTEND_URL` (default `https://centurion-core-fe.vercel.app`).
 
 ### Styling
 - Enterprise CSS: dark gradient theme with Centurion branding (dark mode default)

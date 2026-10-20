@@ -68,6 +68,12 @@ jobs:
           CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
           CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
           CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
+          # Hugging Face blocks outbound SMTP (Sentry CENTURION-CORE-4A, 20 Oct 2026): with these the Space sends
+          # through Gmail's HTTPS API instead (services/notifications/gmail_api.py).  Only the Space gets them, so
+          # GitHub Actions keeps sending over SMTP.
+          CENTURION_GMAIL_CLIENT_ID: ${{ secrets.CENTURION_GMAIL_CLIENT_ID }}
+          CENTURION_GMAIL_CLIENT_SECRET: ${{ secrets.CENTURION_GMAIL_CLIENT_SECRET }}
+          CENTURION_GMAIL_REFRESH_TOKEN: ${{ secrets.CENTURION_GMAIL_REFRESH_TOKEN }}
         run: |
           # The Space is public: its repository must never hold the login
           # hashes. The API reads them from the CENTURION_CREDENTIALS_YAML
@@ -79,7 +85,8 @@ jobs:
           from huggingface_hub import add_space_secret
           add_space_secret("srees16/centurion-core", "CENTURION_CREDENTIALS_YAML",
                            os.environ["CREDENTIALS_YAML"], token=os.environ["HF_TOKEN"])
-          for name in ("CENTURION_EMAIL_HOST", "CENTURION_EMAIL_PORT", "CENTURION_EMAIL_USER", "CENTURION_EMAIL_PASS"):
+          for name in ("CENTURION_EMAIL_HOST", "CENTURION_EMAIL_PORT", "CENTURION_EMAIL_USER", "CENTURION_EMAIL_PASS",
+                       "CENTURION_GMAIL_CLIENT_ID", "CENTURION_GMAIL_CLIENT_SECRET", "CENTURION_GMAIL_REFRESH_TOKEN"):
               if os.environ.get(name, "").strip():
                   add_space_secret("srees16/centurion-core", name, os.environ[name], token=os.environ["HF_TOKEN"])
           PY

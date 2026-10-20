@@ -247,6 +247,62 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
+ >>> TUE 20 / WED 21 OCT - YOUR ACTIONS (checked 20 Oct: merged; Kite
+     Connect renewed, since Monday's dry run read Kite; Monday's login
+     worked, since the ETF snapshots stored)
+     1. Optional, today (holiday): start the paper workflow once
+        (Actions > Paper Trading Cron > Run, or gh workflow run
+        nse-paper-trading.yml).  The new code then catches up the futures
+        leg's first session (19 Oct), which last night's old-code runs
+        missed.  Otherwise it starts Wed, one session behind the shares.
+     2. Wed 09:00: Kite login from the email (ETF snapshots BD2, the live
+        dry run, the sell test).
+     3. Sell test (ST2 step 3): rescheduled by you (20 Oct) to Fri 23 and
+        Mon 26 Oct, from step 1.  See the SELL TEST block below.
+     4. Wed after the 19:00 run: check the gilt (bonds) and MCX books'
+        first emails, and the MCX sync line in Actions > Sync NSE archive
+        (MCX filters bots; GitHub runners are untested).
+     4b. Merge before Wed 19:00 IST: the store fix for the canary's "data
+        differs" (CAN1; otherwise Wed's books run on a shifted calendar).
+     5. Sign-up emails (MU2): the one-time Gmail API setup in Claude's 20 Oct
+        reply, then three GitHub secrets, a merge and a sign-up test.
+     6. JR2 needs one thing from you: paste the Neon connection string into
+        .env on this Mac (CENTURION_DATABASE_URL=..., the same value as the
+        GitHub secret), then run python -m tools.export_books once.  A1G
+        (A1 with a crash guard) is written up: say "do A1G" to run it.
+ >>> SELL TEST, FRI 23 + MON 26 OCT (ST2 step 3; your call 20 Oct: rerun
+     from step 1, since step 2, the GTT leg, failed on 14 Oct when every
+     HDFCBANK share was sold by mistake)
+     Why one day per test: Record sell path reads both orders from Kite,
+     whose API returns only that day's orders.  So the AMO SELL and the GTT
+     SELL must both COMPLETE on the same day, on settled shares, and be
+     recorded that evening.  23 Oct is the first full test, 26 Oct the
+     second.
+     Every order: NSE, CNC, quantity 1 (the buy: 4), never "Exit" or
+     sell-all.  Send Claude a screenshot before each swipe.
+     Step 1. Wed 21 Oct, by 15:30: BUY 4 HDFCBANK, NSE, CNC (2 for each
+             test).  Skip what Holdings already shows settled.
+     Thu 22 Oct, evening: Holdings shows the 4 shares settled (not T1).
+             After 20:00: AMO SELL 1 HDFCBANK, LIMIT at Thursday's close x
+             0.995 (round to Rs 0.05).
+     Fri 23 Oct, TEST 1:
+             - 09:00: Kite login from the email.
+             - ~09:10: Orders shows the AMO COMPLETE (pre-open).  Note its
+               order ID.
+             - Step 2, after 09:15: GTT Single SELL, qty 1, trigger = LTP x
+               0.997, limit = trigger x 0.996.  Note the GTT ID.  If not
+               triggered by 14:30, modify it to the new LTP the same way.
+               Orders shows its sell COMPLETE.
+             - Evening: Actions > Record sell path (the DDPI date from
+               Console, the AMO order ID, the GTT ID).  Claude checks the
+               run.
+             - After 20:00 (or the weekend, before 08:57 Mon): AMO SELL 1
+               for Monday, LIMIT at Friday's close x 0.995.
+     Mon 26 Oct, TEST 2: the same steps as Friday, on the 2 remaining
+             shares.  Record sell path that evening.
+     Afterwards: no share left; delete any GTT still active.  If a leg
+             fails, tell Claude that day: the next test date is set from
+             what is left.
  >>> TUESDAY 13 OCT - YOUR ACTIONS (merged to main 09:29: BK1, GT4/GT5,
      LN-T32/33/34, Record sell path)
      1. DONE: Kite login (the 19:00 live dry run ran on it).
@@ -256,7 +312,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      4. DONE: dead man's switch fire drill (DMfd); schedule restored, ping
         URL out of my_todos.txt, Outlook rule added.
  >>> FRIDAY 16 OCT - YOUR ACTIONS
-     1. P0 Renew Kite Connect (app centurion-core-zerodha expires Sat 17 Oct):
+     1. DONE (by 19 Oct: the live dry run read Kite). P0 Renew Kite Connect (app centurion-core-zerodha expires Sat 17 Oct):
         developers.kite.trade > Billing > add credits (about Rs 500 a month,
         check the price shown) or link your Zerodha account for auto-renewal;
         then My apps > centurion-core-zerodha > Renew.  Check it reads
@@ -342,7 +398,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                     session later (about -0.7 pt CAGR a year);
                 (c) a second pass at ~09:20 after the sells fill (needs that
                     day's login before it).
-             3. REDO PLAN (15 Oct).  Why: the record reads both orders from
+             3. SUPERSEDED 20 Oct by the SELL TEST block at the top of
+                section 4 (tests Fri 23 and Mon 26 Oct, from step 1).
+                REDO PLAN (15 Oct), kept for the record.  Why: the record reads both orders from
                 Kite, whose API returns only that day's orders, so the AMO
                 sell and the GTT sell must both COMPLETE on one day, on
                 settled shares, and be recorded that evening.  14 Oct had
@@ -475,7 +533,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              lean_review.md item 11.  14 Oct: the sell AMO executed in the
              09:00 pre-open, so sale credit very likely cannot fund that
              morning's buy AMOs (ST2 step 2).
-[ ] P2  JR2  Proposed 14 Oct, awaiting your yes.  Each book's paper record
+[x] P2  JR2  DONE 20 Oct (section 8).  Was: proposed 14 Oct.  Each book's paper record
              (fills, positions, snapshots, sessions, signals) lives only in
              Neon (schemas public = deployed, candidate, e4; also live and
              us_advisory, the US book's journal since 16 Oct).  Weekly CSV
@@ -794,6 +852,17 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                Then 5 dry runs: Kite's commodity segment and an MCX order
                path, both to build.
                                    Prompt: do DL1 (after the paper period)
+[ ] P2  A1G  A1 with a crash guard (your ask 20 Oct; plan 5aj, pre-registered
+             10:42 IST).  O2-A1 opens no new spread when the book's drawdown
+             rule is not normal, or India VIX is at or above 22 (round 2's
+             fear level).  Options N 17 -> 18.  Kaggle, 2007-25, one series
+             per book (its own rule states).  Gate: protocol 5.1's Sharpe
+             lever, live-like, both books.  A pass opens the options
+             family's 2026 holdout once (check fixed in 5aj), then paper.
+             2008-12 is not clean for it (the guard was designed after A1's
+             2008 loss): 2026 is the clean check.  Code: a skip_entry_dates
+             input to options backtest.run_sleeve.  Medium.
+                                                   Prompt: do A1G
 [ ] P2  L8   Forward walk (a shadow record), weekly in the Saturday books
              report and email.
              - Each paper book's 1.75x shadow, from its Neon daily snapshots,
@@ -920,6 +989,61 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+20 Oct  CAN1 Canary "data differs" on every book (dab49d3c -> d72858ed, 2,606
+             symbols) after your manual run 39376512292 with full_bootstrap and
+             new_book ticked.  new_book was refused (29 open positions); the
+             full bootstrap re-scanned the archive from 2012.
+             - Cause: the current sync probes every Sunday.  It fetched Sun 11
+               Nov 2012 (Dhanteras): a special session for 14 gold ETFs only,
+               which the validated store never had.  One extra 2012 session
+               shifts every later rebalance day (they count sessions from the
+               2012 anchor) and every stock's fingerprint.
+             - No decision used it: that run stopped before the books and the
+               live dry run.  But the Actions cache saved the store, so Wed's
+               run would have.
+             - Fix: nse_engine/data/store.py PARTIAL_SESSIONS: the store skips
+               that date's files (the archive keeps them), and a bhavcopy with
+               fewer than 100 rows is now logged as a possible partial session.
+               The runner's 2012 file list changes, so its next run rebuilds
+               2012.
+             - Checked locally: rebuilt with the 11 Nov file, 2012 is identical
+               to the validated store (251 sessions, 379,051 rows); without the
+               fix it reproduces the runner's (252, 379,065).
+             - Merge before Wed 19:00 IST; the next canary should read ok.
+20 Oct  MU2  Sign-up emails failed (Sentry CENTURION-CORE-4A and -49, 20 Oct
+             05:27 UTC): "Failed to send email 'Activate your Centurion
+             account': [Errno 101] Network is unreachable", then the 503
+             "could not send the activation email".
+             - Cause: Hugging Face blocks outbound SMTP.  The Space had never
+               sent email before; reminders and paper emails go from GitHub
+               Actions.  Every account email from the Space was affected.
+             - Fix (your choice, the Gmail API): services/notifications/
+               gmail_api.py sends over HTTPS from the same Gmail account when
+               CENTURION_GMAIL_CLIENT_ID / _CLIENT_SECRET / _REFRESH_TOKEN are
+               set.  Otherwise it is SMTP as before, so GitHub Actions is
+               unchanged.  deploy.yml copies the three secrets to the Space.
+             - Checked offline: the API path, a refused token (logged without
+               credentials), the SMTP fallback, and the authorize round trip
+               (PKCE, loopback).
+             - Needs your one-time setup (section 4).
+20 Oct  JR2  Weekly CSV export of the paper books (your yes, 20 Oct).
+             - python -m tools.export_books copies the seven paper tables of
+               every book's Neon schema, read-only, into
+               data/nse_engine/book_exports/<book>/<table>.csv.gz, with a
+               manifest.  Books: deployed (public), candidate, e4, futures,
+               bonds, mcx, live, us_advisory, plus etf_depth (BD2's order
+               books).
+             - It never copies a state key naming a token, secret, password
+               or API key (the stored Kite login is one), or any other
+               table (no user accounts).
+             - Weekly: the Mac's refresh job (runners.refresh_data) runs it
+               before the backup push, and the backup's state piece carries
+               the folder to the private Kaggle backup.  Not on GitHub
+               Actions: this repository's logs and artifacts are public.
+             - Checked offline against SQLite stand-in schemas: tables
+               copied, secret keys skipped, a missing schema noted.
+             - Needs CENTURION_DATABASE_URL in .env on this Mac; it is empty
+               today, so the step stops with that message until you add it.
 19 Oct  DL1  MCX-B paper book built (your "do DL1"); no waiver for the pair
              (your decision).
              - Code:
