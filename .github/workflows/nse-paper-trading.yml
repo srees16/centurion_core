@@ -34,6 +34,10 @@ on:
         required: false
         type: boolean
         default: false
+      sync_lookback_days:
+        description: "NSE engine: days of NSE files to sync (after an outage, e.g. 30); blank = the usual 14"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -192,7 +196,7 @@ jobs:
       CENTURION_NSE_ENGINE: "true"
       CENTURION_NSE_DEPLOYMENT: ${{ vars.CENTURION_NSE_DEPLOYMENT || 'config/nse_engine_deployed.json' }}
       CENTURION_PAPER_INITIAL_CAPITAL: ${{ vars.CENTURION_PAPER_INITIAL_CAPITAL || '100000' }}
-      NSE_SYNC_LOOKBACK_DAYS: ${{ vars.CENTURION_NSE_SYNC_LOOKBACK_DAYS || '14' }}
+      NSE_SYNC_LOOKBACK_DAYS: ${{ github.event.inputs.sync_lookback_days || vars.CENTURION_NSE_SYNC_LOOKBACK_DAYS || '14' }}
       NSE_ARCHIVE_RPS: ${{ vars.CENTURION_NSE_ARCHIVE_RPS || '2' }}
       FULL_BOOTSTRAP: ${{ github.event.inputs.full_bootstrap || 'false' }}
       NEW_BOOK: ${{ github.event.inputs.new_book || 'false' }}
