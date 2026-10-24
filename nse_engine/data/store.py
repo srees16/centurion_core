@@ -369,6 +369,18 @@ def latest_session(store_dir: PathLike, on_or_before=None) -> Optional[str]:
     return None if days.empty else days.max().date().isoformat()
 
 
+def sessions_after(store_dir: PathLike, after, on_or_before=None) -> List[str]:
+    """The store's sessions after ``after`` (on or before ``on_or_before`` if given), as ISO dates in order."""
+    path = Path(store_dir) / "calendar.parquet"
+    if not path.exists():
+        return []
+    days = pd.to_datetime(pd.read_parquet(path, columns=["date"])["date"]).sort_values()
+    days = days[days > pd.Timestamp(after)]
+    if on_or_before is not None:
+        days = days[days <= pd.Timestamp(on_or_before)]
+    return [d.date().isoformat() for d in days]
+
+
 def _write_parquet(df: pd.DataFrame, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.tmp{os.getpid()}")
