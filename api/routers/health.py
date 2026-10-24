@@ -2,7 +2,9 @@
 Health check API endpoints.
 """
 
+import asyncio
 import logging
+import time
 from datetime import datetime
 
 from fastapi import APIRouter
@@ -13,6 +15,29 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Health"])
 
+#: How long a database check stands.  The Space's Docker HEALTHCHECK calls /health every 30 s and the frontend's
+#: keep-alive cron pings it too; a SELECT 1 each time kept Neon awake around the clock (it scales to zero only
+#: after 5 idle minutes) and used up the free plan's 100 CU-hours by 20 Oct 2026 (Sentry CENTURION-CORE-4B).
+DB_CHECK_INTERVAL_S = 6 * 3600
+_db_status = {"checked_at": 0.0, "ok": False}
+
+
+def _check_database() -> bool:
+    from api.dependencies import get_db_service
+    return get_db_service() is not None
+
+
+async def _database_ok(force: bool = False) -> bool:
+    """The database's status, re-checked at most every ``DB_CHECK_INTERVAL_S`` (or when ``force``)."""
+    now = time.monotonic()
+    if force or not _db_status["checked_at"] or now - _db_status["checked_at"] > DB_CHECK_INTERVAL_S:
+        try:
+            _db_status["ok"] = await asyncio.to_thread(_check_database)
+        except Exception:                                   # noqa: BLE001 - a health probe never raises
+            _db_status["ok"] = False
+        _db_status["checked_at"] = now
+    return _db_status["ok"]
+
 
 @router.api_route(
     "/health",
@@ -20,20 +45,15 @@ router = APIRouter(tags=["Health"])
     response_model=HealthResponse,
     summary="System health check",
 )
-async def health_check():
+async def health_check(deep: bool = False):
     """
-    Check the health of all system components.
+    Check the health of all system components.  The database is re-checked at most every 6 hours, so the
+    30-second probes let Neon scale to zero; ``?deep=1`` checks it now.
     """
     components: dict[str, bool] = {}
 
     # Database
-    db_ok = False
-    try:
-        from api.dependencies import get_db_service
-        db = get_db_service()
-        db_ok = db is not None
-    except Exception:
-        pass
+    db_ok = await _database_ok(force=deep)
     components["database"] = db_ok
 
     # RAG / ChromaDB

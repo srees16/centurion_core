@@ -151,3 +151,5 @@ what are three ways to handle the funding?
 ST2, LN-T2
 
 ~~~~~~~
+
+At C step 7, it says "To publish your app, you must complete your configuration on the Branding page". Publish App button is greyed out

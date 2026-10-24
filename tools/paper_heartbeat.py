@@ -179,9 +179,16 @@ def main() -> int:
     # Tracker AL2: CRITICAL, since no session also means no live session; the exit code stays the backup alarm.
     from services.notifications.alerts import CRITICAL, alert
 
+    reason = str(result.get("reason"))
+    if "latest_session" not in result:                    # the book could not be read (24 Oct 2026: "since None")
+        why = "Neon's compute quota is used up" if "exceeded the quota" in reason else reason.split(":")[0]
+        alert(CRITICAL, "heartbeat_stale", f"Centurion paper book could not be read: {why}",
+              [reason, "The share books replay the missed sessions once the database is back.",
+               "Check the database (Neon console) and the CENTURION_DATABASE_URL secret."])
+        return 1
     alert(CRITICAL, "heartbeat_stale", f"Centurion paper book has not traded since {result.get('latest_session')}",
           [f"The paper book is {result.get('weekdays_behind')} weekdays behind (today {result.get('today_ist')} IST).",
-           str(result.get("reason")), f"Last run recorded: {result.get('last_run_at') or 'never'}.",
+           reason, f"Last run recorded: {result.get('last_run_at') or 'never'}.",
            "Check the Paper Trading Cron workflow and the 19:00 IST dispatch."])
     return 1
 
