@@ -250,17 +250,19 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
  >>> SAT 24 OCT, URGENT - Neon still suspended (NEO1-NEO3); your card
      payment to Neon fails.  All of Fri's failure emails are this one cause.
      1. DONE 24 Oct: the /health and heartbeat fixes merged (9b79886).
-     2. Merge NEO3 (missed sessions replayed in full): the first run after
-        Neon is back then replays every missed session of all 6 books, as
-        those nights' runs would have, so no paper results are lost (the
-        gilt and MCX books from their 21 Oct start).
+     2. DONE 24 Oct: NEO3 merged (5f01dec).  The first run after Neon is
+        back replays every missed session of all 6 books, as those nights'
+        runs would have (the gilt and MCX books from their 21 Oct start).
+     2b. DONE 24 Oct: the four workflows below are disabled (NEO4).
+        MERGE neon-watch.yml BEFORE THU 29 OCT: it keeps the NSE data cache
+        alive (GitHub deletes it after 7 unused days, ~30 Oct 20:00 UTC)
+        and switches everything back on when Neon answers.
      3. No payment needed: ~0.5 CU-hours a day against the free plan's 100
         a month.  The reset date is on the Neon console (Billing), about
         1 Nov.  If the card goes through first, Launch works the same way.
-     4. Error emails until then: on your "yes", Claude disables Paper
-        Trading Cron, Paper Heartbeat, Kite login reminder and ETF order-book
-        snapshots.  At the reset Claude re-enables them, syncs 30 days of NSE
-        data (lookback variable) and starts the replay run.
+     4. No Kite login needed until Neon is back (the token is stored in
+        Neon; the paper books never use Kite).  First morning after: log in
+        from the 09:00 reminder as usual.
      5. The sell test waits for the reset (SELL TEST block).
  >>> TUE 20 / WED 21 OCT - YOUR ACTIONS (checked 20 Oct: merged; Kite
      Connect renewed, since Monday's dry run read Kite; Monday's login
@@ -1007,6 +1009,20 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+24 Oct  NEO4 Your call: no error emails while Neon is down.  Disabled (gh,
+             11:05 UTC): Paper Trading Cron, Paper Heartbeat, Kite login
+             reminder, ETF order-book snapshots.  Nothing runs or records
+             meanwhile; the paper sessions come back through NEO3's replay.
+             Lost either way (live data): the live book's dry runs and the
+             ETF depth snapshots of those days.
+             - New .github/workflows/neon-watch.yml (every 3 h): restores the
+               NSE data cache daily (else gone after 7 unused days, and the
+               first run would re-sync from 2012); once Neon answers SELECT 1,
+               it enables the four, starts Paper Trading Cron with
+               sync_lookback_days=30 (new dispatch input) and disables itself.
+             - Fallback if it fails (its failure email says so): gh workflow
+               enable for the four, then gh workflow run nse-paper-trading.yml
+               -f sync_lookback_days=30.
 24 Oct  NEO3 Missed sessions are replayed in full (your point: ~2 weeks of
              paper results across 6 books).  cloud_paper_runner runs each
              store session after the book's last processed one, in order, as
