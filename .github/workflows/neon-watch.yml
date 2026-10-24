@@ -1,0 +1,82 @@
+name: Neon watch
+
+# Tracker NEO4 (24 Oct 2026): Neon's free compute quota ran out on 20 Oct, so Paper Trading Cron, Paper
+# Heartbeat, Kite login reminder and ETF order-book snapshots were disabled (your call) until the project
+# resumes: the next billing period (~1 Nov) or an upgrade.  Every 3 hours this asks Neon for a connection.
+# Once one opens, it enables the four, starts Paper Trading Cron with 30 days of NSE sync (its first run
+# replays every missed session of every book, NEO3) and disables itself.  Until then it restores the NSE
+# data cache once a day: GitHub deletes a cache unused for 7 days, and without it that first run would
+# re-download the archive from 2012.
+on:
+  schedule:
+    - cron: "23 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write     # enable the workflows, start the paper run, disable this one
+  contents: read
+
+concurrency:
+  group: neon-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      # The 00:23 and 03:23 UTC runs (two, since GitHub drops a scheduled run now and then), and any manual run.
+      - name: Once a day
+        id: when
+        run: echo "daily=$([ "$(date -u +%-H)" -lt 6 ] || [ "${{ github.event_name }}" = workflow_dispatch ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      # The restore is what counts as use; nothing is saved.
+      - name: Keep the NSE data cache
+        if: steps.when.outputs.daily == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            data/nse_engine/archive
+            data/nse_engine/store
+          key: nse-engine-data-v1-keepalive
+          restore-keys: |
+            nse-engine-data-v1-
+
+      - name: Is Neon back?
+        id: neon
+        env:
+          CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
+        run: |
+          pip install -q "psycopg2-binary==2.9.13"
+          python - <<'EOF'
+          import os
+          import re
+
+          import psycopg2
+
+          url = re.sub(r"[&?]channel_binding=[^&]*", "", os.environ["CENTURION_DATABASE_URL"])
+          url = re.sub(r"^postgres(ql)?(\+psycopg2)?://", "postgresql://", url)
+          try:
+              with psycopg2.connect(url, connect_timeout=20, sslmode="require") as conn, conn.cursor() as cur:
+                  cur.execute("SELECT 1")
+              up = True
+          except Exception as exc:                      # the URL stays out of this public log
+              up = False
+              print("Neon not reachable yet:", "quota exceeded" if "quota" in str(exc) else type(exc).__name__)
+          print("Neon is back" if up else "still down: the four workflows stay disabled")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write(f"up={'true' if up else 'false'}\n")
+          EOF
+
+      - name: Neon is back - enable the four, start the replay run, retire this watch
+        if: steps.neon.outputs.up == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for wf in nse-paper-trading.yml paper-heartbeat.yml kite-login-reminder.yml etf-depth.yml; do
+            gh workflow enable "$wf" --repo "$GITHUB_REPOSITORY"
+          done
+          gh workflow run nse-paper-trading.yml --repo "$GITHUB_REPOSITORY" --ref main \
+            -f reason="Neon is back: replay the missed sessions (tracker NEO3)" -f sync_lookback_days=30
+          gh workflow disable neon-watch.yml --repo "$GITHUB_REPOSITORY"
