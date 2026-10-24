@@ -594,7 +594,8 @@ class EngineExecutor:
                                     sessions_in_state=run)
         return decision, frame
 
-    def plan(self, as_of=None, data=None) -> ExecutionPlan:
+    def plan(self, as_of=None, data=None, replay: bool = False) -> ExecutionPlan:
+        # replay: ``as_of`` is a missed session planned after the fact, so the live-date checks are off
         cfg = self._cfg()
         pcfg = cfg.portfolio
         raw_holdings, cash = self._current_book()
@@ -625,7 +626,8 @@ class EngineExecutor:
         try:
             from services.execution.carver_pipeline import last_completed_nse_session
             expected = last_completed_nse_session()
-            if as_of is not None and pd.Timestamp(data.dates[-1]).date() < expected and self._as_of_is_live(as_of):
+            if (as_of is not None and pd.Timestamp(data.dates[-1]).date() < expected and not replay
+                    and self._as_of_is_live(as_of)):
                 plan.notes.append(f"stale data: last bar {data.dates[-1].date()} < session {expected}")
                 logger.warning("EngineExecutor: %s — no orders planned", plan.notes[-1])
                 plan.skipped.append({"symbol": "*", "reason": "stale_data"})
@@ -634,7 +636,7 @@ class EngineExecutor:
             logger.debug("Freshness check unavailable: %s", exc)
 
         view = data.until(as_of) if hasattr(data, "until") else data
-        gaps = presence_gaps(view, cfg) if self._as_of_is_live(as_of) else []
+        gaps = presence_gaps(view, cfg) if not replay and self._as_of_is_live(as_of) else []
         if gaps:                                          # LN-T19: still plan; the trends carry the gap
             plan.notes.append("data gap: " + "; ".join(gaps))
             from services.notifications.alerts import WARNING, alert
@@ -884,7 +886,7 @@ class EngineExecutor:
         opens = fillable_open(view.open[cols].iloc[-1:], view.close[cols].iloc[-1:], view.etfs).iloc[-1]
         return {s: {"open": float(opens[s]), "adv": float(adv_row[s])} for s in cols}
 
-    def run_paper_session(self, as_of=None) -> dict:
+    def run_paper_session(self, as_of=None, replay: bool = False) -> dict:
         """EOD paper run for the latest store session: stops, next-open fills, plan, queue.
 
         1. gap stops at the session open (lots from earlier sessions);
@@ -898,6 +900,10 @@ class EngineExecutor:
         on the same day only re-plans (superseding that day's pending orders);
         sessions since the last processed one run steps 1-3 each, in order
         (tracker LN-T7), before the one plan from the latest close.
+
+        ``replay``: ``as_of`` is a session a run missed (an outage), processed
+        now as that night's run would have: the plan skips the live-date data
+        checks (``cloud_paper_runner`` replays each missed session this way).
         """
         if not self.paper:
             raise RuntimeError("run_paper_session is paper-only")
@@ -948,7 +954,7 @@ class EngineExecutor:
                                    f"{dep.paper_start_date}: no plan")
             logger.info("EngineExecutor: %s", report["notes"][-1])
             return report
-        plan = self.plan(as_of=session, data=data)
+        plan = self.plan(as_of=session, data=data, replay=replay)
         report["plan"] = plan
         report["results"] = self.execute(plan)
         return report

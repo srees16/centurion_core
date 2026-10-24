@@ -247,21 +247,21 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
- >>> SAT 24 OCT, URGENT - Neon still suspended (NEO1/NEO2); your card
+ >>> SAT 24 OCT, URGENT - Neon still suspended (NEO1-NEO3); your card
      payment to Neon fails.  All of Fri's failure emails are this one cause.
-     1. Merge the /health fix (api/routers/health.py, still NOT on main at
-        4e4af60) and the heartbeat subject fix (tools/paper_heartbeat.py).
-        Without the first, any Neon project drains again in ~17 days.
-     2. No payment needed once 1 is merged: ~0.5 CU-hours a day against the
-        free plan's 100 a month.  Read the reset date off the Neon console
-        (Billing); about 1 Nov.  If the card goes through first, Launch
-        (a few $ a month at that use) unblocks everything at once.
-     3. Until the reset (Claude's recommendation: wait, no second database):
-        the books keep their state and catch up by themselves (stops and
-        pending fills only; no new decisions in the gap, so ~8-9 sessions
-        from 20 Oct do not count as paper sessions).  The sell test moves to
-        the first week after the reset.  The bridge (a second free Neon
-        project, paper workflows paused) only if the sell test must be 26 Oct.
+     1. DONE 24 Oct: the /health and heartbeat fixes merged (9b79886).
+     2. Merge NEO3 (missed sessions replayed in full): the first run after
+        Neon is back then replays every missed session of all 6 books, as
+        those nights' runs would have, so no paper results are lost (the
+        gilt and MCX books from their 21 Oct start).
+     3. No payment needed: ~0.5 CU-hours a day against the free plan's 100
+        a month.  The reset date is on the Neon console (Billing), about
+        1 Nov.  If the card goes through first, Launch works the same way.
+     4. Error emails until then: on your "yes", Claude disables Paper
+        Trading Cron, Paper Heartbeat, Kite login reminder and ETF order-book
+        snapshots.  At the reset Claude re-enables them, syncs 30 days of NSE
+        data (lookback variable) and starts the replay run.
+     5. The sell test waits for the reset (SELL TEST block).
  >>> TUE 20 / WED 21 OCT - YOUR ACTIONS (checked 20 Oct: merged; Kite
      Connect renewed, since Monday's dry run read Kite; Monday's login
      worked, since the ETF snapshots stored)
@@ -1007,6 +1007,26 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+24 Oct  NEO3 Missed sessions are replayed in full (your point: ~2 weeks of
+             paper results across 6 books).  cloud_paper_runner runs each
+             store session after the book's last processed one, in order, as
+             that night's run would have (stops, fills, plan, snapshot,
+             futures, gilt and MCX sleeves).  Then it runs tonight's session,
+             which alone emails and lists them ("REPLAYED n missed
+             session(s)").  A book that never ran (gilt, MCX: start 21 Oct)
+             starts at its paper_start_date; --new-book still starts tonight.
+             Before, a gap got stops and pending fills only, no plan between.
+             - executor: plan(replay=True) skips the live-date checks (a
+               replayed recent session read as "stale data": no orders);
+               shift-state verdicts of replayed sessions are dated that night.
+             - Verified on the local store (deployed config): a book run each
+               night 1-23 Oct equals one that missed 12-22 Oct and was
+               replayed (cash, lots, trades, pending orders, all 15 equity
+               snapshots identical).  The gap held real decisions (orders
+               planned 15 and 16 Oct, filled 16 and 19 Oct) that the old
+               catch-up dropped.  A never-run book (start 12 Oct) replayed in
+               one run equals nightly runs; --new-book replays nothing.  Fast
+               suite passes in a core-only env; temp scripts deleted.
 24 Oct  NEO2 Fri 23 Oct's failures (Paper Trading Cron x5, Paper Heartbeat,
              Kite login reminder, "paper book has not traded since None") are
              all NEO1: the project is still suspended for quota.  "since None"
@@ -1016,10 +1036,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                database cannot be read; the stale-book alert is unchanged.
              - The /health fix is still uncommitted (not on main), so the
                Space still checks Neon every 30 s.
-             - Catch-up after the gap: the share books replay each missed
-               session (stops, pending fills) and re-plan at the latest close;
-               the MCX sleeve replays from its start; the futures leg and the
-               gilt sleeve resume at the latest session.
+             - Catch-up after a gap: replaced the same day by NEO3.
 21 Oct  NEO1 Neon suspended: "Your account or project has exceeded the quota"
              (Sentry CENTURION-CORE-4B) from 20 Oct 13:35 UTC.  Every job that
              reads Neon failed: Paper Trading Cron (paper session FAILED,

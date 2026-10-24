@@ -441,7 +441,7 @@ def _load_engine_deployment():
     return dep
 
 
-def _run_engine_paper():
+def _run_engine_paper(new_book: bool = False):
     """NSE engine path (EOD, after the bhavcopy is in the store).
 
     Processes the latest store session — gap stops, pending orders filled at
@@ -449,6 +449,12 @@ def _run_engine_paper():
     close (distribution-shift multiplier applied) and queues the new orders
     as PENDING for the next open.  Stops and prices come from the NSE store,
     not yfinance, so paper and backtest see the same bars.
+
+    Sessions no run processed (Neon suspended from 20 Oct 2026; a lost night)
+    are replayed first, each in full and in order (stops, fills, plan,
+    snapshot, sleeves), as that night's run would have; only the latest
+    session emails, and its email lists them.  A book that never ran starts
+    at its paper_start_date the same way (``new_book``: tonight).
     """
     from kite_connect.trading.nse_engine_executor import EngineExecutor
 
@@ -456,13 +462,43 @@ def _run_engine_paper():
     pt = _open_paper_trader(dep.share_capital())
     previous_session = pt.engine_last_session()
     executor = EngineExecutor(kite=None, paper=True, paper_trader=pt, deployment=dep)
-    session = executor.run_paper_session()
+    replayed = []
+    for day in ([] if new_book else _missed_sessions(dep, previous_session)):
+        logger.warning("Replaying missed session %s", day)
+        replayed.append((day, _engine_session(pt, dep, executor, as_of=day)[1]))
+    return _engine_session(pt, dep, executor, previous_session=previous_session, replayed=replayed)
+
+
+def _missed_sessions(dep, last) -> list:
+    """Store sessions after the book's last processed one (none yet: from its paper_start_date), before the
+    latest: the nights no run processed."""
+    from nse_engine.data.store import sessions_after
+
+    if last is not None:
+        after = last
+    elif getattr(dep, "paper_start_date", None) is not None:
+        after = dep.paper_start_date - timedelta(days=1)
+    else:
+        return []
+    today = datetime.now(timezone(timedelta(hours=5, minutes=30))).date()
+    return sessions_after(dep.engine.data.store_dir, after, on_or_before=today)[:-1]
+
+
+def _engine_session(pt, dep, executor, as_of=None, previous_session=None, replayed=()) -> tuple:
+    """One session of the engine paper book: the latest (``as_of`` None; it emails) or a missed one, replayed."""
+    session = executor.run_paper_session(as_of=as_of, replay=as_of is not None)
     missed = max(len(session.get("caught_up") or []) - 1, 0)   # store sessions, weekends included (LN-T7)
     if missed:
         session.setdefault("notes", []).append(
             f"CAUGHT UP {missed} session(s) since {previous_session}: each one's stops and fills were applied "
             "in order; no plan was made for the sessions in between")
         logger.warning("Paper book caught up %d session(s) after %s", missed, previous_session)
+    if replayed:
+        problems = [f"{d}: {p}" for d, m in replayed for p in m.split(" | ") if "FAILED" in p or "deferred" in p]
+        session.setdefault("notes", []).append(
+            f"REPLAYED {len(replayed)} missed session(s), {replayed[0][0]} to {replayed[-1][0]}: each in full and "
+            "in order (stops, fills, plan, sleeves), as that night's run would have; no email was sent for them"
+            + (f". Problems: {'; '.join(problems)}" if problems else ""))
     plan = session.get("plan")
     entries = _engine_signal_entries(plan)
     n_traded = sum(1 for e in entries if e["was_traded"])
@@ -539,7 +575,8 @@ def _run_engine_paper():
             logger.exception("MCX sleeve failed: %s", exc)
             mcx = {"error": str(exc)[:300]}
             msg += f" | MCX SLEEVE FAILED: {str(exc)[:120]}"
-    _email_engine_session(pt, dep, session, snapshot, shift, gate, futures, bonds, mcx)
+    if as_of is None:
+        _email_engine_session(pt, dep, session, snapshot, shift, gate, futures, bonds, mcx)
     return "success", msg
 
 
@@ -1277,9 +1314,10 @@ def main(argv=None):
         # Weekday: run full daily pipeline (or the NSE engine when enabled)
         try:
             if use_engine:
-                if _parse_args(argv).new_book:
+                new_book = _parse_args(argv).new_book
+                if new_book:
                     _start_new_book()
-                status, message = _run_engine_paper()
+                status, message = _run_engine_paper(new_book=new_book)
             else:
                 status, message = _run_paper_pipeline()
             _update_run_status(status, message[:500])

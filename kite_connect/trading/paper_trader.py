@@ -1824,7 +1824,7 @@ class PaperTrader:
 
         # ── Distribution shift: live vs backtest (runs once ≥30 live returns) ──
         try:
-            shift = self._run_distribution_shift(conn=None)
+            shift = self._run_distribution_shift(conn=None, session_date=today)
             if shift:
                 snapshot["distribution_shift"] = {
                     k: shift.get(k) for k in (
@@ -1917,7 +1917,8 @@ class PaperTrader:
         equity = equity[~equity.index.duplicated(keep="last")]
         return equity.pct_change().dropna()
 
-    def _run_distribution_shift(self, conn=None, min_live_days: int = SHIFT_MIN_LIVE_DAYS) -> Optional[dict]:
+    def _run_distribution_shift(self, conn=None, min_live_days: int = SHIFT_MIN_LIVE_DAYS,
+                                session_date: Optional[str] = None) -> Optional[dict]:
         """Compare live daily returns with the backtest once ``min_live_days`` exist.
 
         The backtest reference is chosen by
@@ -1987,6 +1988,8 @@ class PaperTrader:
 
         multiplier = {"stable": 1.0, "drifting": 0.75, "regime_break": 0.5}.get(verdict)
         now = datetime.now(_IST).isoformat()
+        if session_date and session_date < now[:10]:      # a replayed session's verdict is dated that night, so
+            now = f"{session_date}T23:00:00+05:30"        # the next replayed session's plan still reads it
         try:
             (_DB_PATH.parent / "distribution_shift_latest.json").write_text(
                 json.dumps({**result, "updated_at": now}, default=str, indent=2))
