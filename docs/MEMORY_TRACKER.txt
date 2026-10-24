@@ -247,6 +247,21 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
+ >>> SAT 24 OCT, URGENT - Neon still suspended (NEO1/NEO2); your card
+     payment to Neon fails.  All of Fri's failure emails are this one cause.
+     1. Merge the /health fix (api/routers/health.py, still NOT on main at
+        4e4af60) and the heartbeat subject fix (tools/paper_heartbeat.py).
+        Without the first, any Neon project drains again in ~17 days.
+     2. No payment needed once 1 is merged: ~0.5 CU-hours a day against the
+        free plan's 100 a month.  Read the reset date off the Neon console
+        (Billing); about 1 Nov.  If the card goes through first, Launch
+        (a few $ a month at that use) unblocks everything at once.
+     3. Until the reset (Claude's recommendation: wait, no second database):
+        the books keep their state and catch up by themselves (stops and
+        pending fills only; no new decisions in the gap, so ~8-9 sessions
+        from 20 Oct do not count as paper sessions).  The sell test moves to
+        the first week after the reset.  The bridge (a second free Neon
+        project, paper workflows paused) only if the sell test must be 26 Oct.
  >>> TUE 20 / WED 21 OCT - YOUR ACTIONS (checked 20 Oct: merged; Kite
      Connect renewed, since Monday's dry run read Kite; Monday's login
      worked, since the ETF snapshots stored)
@@ -273,6 +288,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
  >>> SELL TEST, FRI 23 + MON 26 OCT (ST2 step 3; your call 20 Oct: rerun
      from step 1, since step 2, the GTT leg, failed on 14 Oct when every
      HDFCBANK share was sold by mistake)
+     24 Oct: ON HOLD - Fri's test could not be recorded (Neon down: the
+     Kite login and Record sell path need the database).  New dates after
+     the reset; the shares and the steps below stay as they are.
      Why one day per test: Record sell path reads both orders from Kite,
      whose API returns only that day's orders.  So the AMO SELL and the GTT
      SELL must both COMPLETE on the same day, on settled shares, and be
@@ -989,6 +1007,36 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+24 Oct  NEO2 Fri 23 Oct's failures (Paper Trading Cron x5, Paper Heartbeat,
+             Kite login reminder, "paper book has not traded since None") are
+             all NEO1: the project is still suspended for quota.  "since None"
+             meant the heartbeat could not read the book, not a stopped book.
+             - Fix: tools/paper_heartbeat.py now says "Centurion paper book
+               could not be read: Neon's compute quota is used up" when the
+               database cannot be read; the stale-book alert is unchanged.
+             - The /health fix is still uncommitted (not on main), so the
+               Space still checks Neon every 30 s.
+             - Catch-up after the gap: the share books replay each missed
+               session (stops, pending fills) and re-plan at the latest close;
+               the MCX sleeve replays from its start; the futures leg and the
+               gilt sleeve resume at the latest session.
+21 Oct  NEO1 Neon suspended: "Your account or project has exceeded the quota"
+             (Sentry CENTURION-CORE-4B) from 20 Oct 13:35 UTC.  Every job that
+             reads Neon failed: Paper Trading Cron (paper session FAILED,
+             live book not run), Kite login reminder, Paper Heartbeat, the
+             Space's /health, and so centurion-nightly (healthchecks) DOWN.
+             - Cause: the Space's Docker HEALTHCHECK calls /health every 30 s
+               (and the frontend's Vercel keep-alive pings it too), and
+               /health ran SELECT 1 on Neon each time.  Neon scales to zero
+               only after 5 idle minutes, so it never slept: 0.25 CU x 24 h
+               = 6 CU-hours a day against the free plan's 100 a month, used
+               up after ~17 days.
+             - Fix: api/routers/health.py checks the database at most every 6
+               hours (?deep=1 forces a check); the probes stay cheap and
+               Neon can sleep.  Estimated use after the fix: ~0.5 CU-hours a
+               day (the nightly jobs, snapshots, reminders, sign-ups).
+             - No data lost: Neon suspends, it does not delete.  It resumes on
+               upgrade or at the next billing period (about 1 Nov).
 20 Oct  CAN1 Canary "data differs" on every book (dab49d3c -> d72858ed, 2,606
              symbols) after your manual run 39376512292 with full_bootstrap and
              new_book ticked.  new_book was refused (29 open positions); the
