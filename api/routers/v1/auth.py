@@ -20,7 +20,8 @@ logger = logging.getLogger(__name__)
 
 #: Public requests per client per hour, and emails per address per hour.
 PER_CLIENT_HOUR, EMAILS_PER_ADDRESS_HOUR = 20, 3
-CHECK_INBOX = "If the details are right, an email is on its way: check your inbox (and spam folder)."
+CHECK_INBOX = "Check your inbox (and spam folder) for activation link."
+CHECK_INBOX_RESET = "Check your inbox (and spam folder) for the password reset link."
 
 
 class LoginRequest(BaseModel):
@@ -286,7 +287,7 @@ async def api_forgot_password(req: EmailRequest, request: Request):
                 await asyncio.to_thread(users.send_reset, user)
         except Exception as exc:                          # noqa: BLE001
             _unavailable(exc)
-    return {"ok": True, "message": CHECK_INBOX}
+    return {"ok": True, "message": CHECK_INBOX_RESET}
 
 
 @router.post("/auth/reset-password")

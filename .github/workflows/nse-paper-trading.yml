@@ -34,10 +34,6 @@ on:
         required: false
         type: boolean
         default: false
-      sync_lookback_days:
-        description: "NSE engine: days of NSE files to sync (after an outage, e.g. 30); blank = the usual 14"
-        required: false
-        default: ""
 
 permissions:
   contents: read
@@ -196,7 +192,7 @@ jobs:
       CENTURION_NSE_ENGINE: "true"
       CENTURION_NSE_DEPLOYMENT: ${{ vars.CENTURION_NSE_DEPLOYMENT || 'config/nse_engine_deployed.json' }}
       CENTURION_PAPER_INITIAL_CAPITAL: ${{ vars.CENTURION_PAPER_INITIAL_CAPITAL || '100000' }}
-      NSE_SYNC_LOOKBACK_DAYS: ${{ github.event.inputs.sync_lookback_days || vars.CENTURION_NSE_SYNC_LOOKBACK_DAYS || '14' }}
+      NSE_SYNC_LOOKBACK_DAYS: ${{ vars.CENTURION_NSE_SYNC_LOOKBACK_DAYS || '14' }}
       NSE_ARCHIVE_RPS: ${{ vars.CENTURION_NSE_ARCHIVE_RPS || '2' }}
       FULL_BOOTSTRAP: ${{ github.event.inputs.full_bootstrap || 'false' }}
       NEW_BOOK: ${{ github.event.inputs.new_book || 'false' }}
@@ -329,9 +325,6 @@ jobs:
 
       - name: Build NSE store (changed years only)
         id: store
-        env:
-          MODE: ${{ steps.window.outputs.mode }}
-          SYNC_START: ${{ steps.window.outputs.sync_start }}
         run: |
           # NIFTY 50 sessions before NSE's daily index files (Feb 2012): the frozen copy the research
           # store uses, so this store hashes as the registry's (tracker LN-T13)
@@ -339,22 +332,17 @@ jobs:
           [ -f "$ext" ] || install -D -m 644 config/external/nifty50_history.parquet "$ext"
           python - <<'EOF'
           import json, logging, os
-          from datetime import date
           from pathlib import Path
-          from nse_engine.data.store import archive_years, build_store
+          from nse_engine.data.store import build_store
           from nse_engine.deployment import load_deployment
 
           logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
           archive = os.environ["ARCHIVE_DIR"]
           store = Path(load_deployment(os.environ["CENTURION_NSE_DEPLOYMENT"]).engine.data.store_dir)
-          first = date.fromisoformat(os.environ["SYNC_START"]).year
-          if os.environ["MODE"] == "bootstrap":
-              years = None  # every archive year (unchanged years are skipped by fingerprint)
-          else:
-              # recently synced years, plus any year whose parquet is missing
-              years = [y for y in archive_years(archive)
-                       if y >= first or not (store / "equity" / f"{y}.parquet").exists()]
-          summary = build_store(archive, store, years=years)
+          # Every archive year, each skipped unless its file list changed (fingerprint; 17 s for all of them on
+          # 20 Oct).  Not only the recently synced years: a store fix to an old year must reach this cached store
+          # (CAN1's 2012 partial session stayed in it, and shifted the books' rebalance days, 20-25 Oct 2026).
+          summary = build_store(archive, store, years=None)
           print(json.dumps(summary, indent=2))
           for x in summary.get("suspect_missing_sessions", []):   # LN-T7: a session the archive lacks
               print(f"::error::a session seems missing from the store before {x['date']} "
