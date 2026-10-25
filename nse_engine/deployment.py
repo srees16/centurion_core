@@ -66,7 +66,7 @@ STATUSES = (STATUS_PLACEHOLDER, STATUS_APPROVED, STATUS_CANDIDATE)
 
 REQUIRED_KEYS = ("engine", "paper_start_date", "status")
 OPTIONAL_KEYS = ("source_run_id", "approved_at", "notes", "data_anchor_date", "risk_overlay", "description",
-                 "paper_capital_inr", "futures_overlay", "bond_sleeve", "mcx_sleeve")
+                 "paper_capital_inr", "futures_overlay", "bond_sleeve", "mcx_sleeve", "options_overlay")
 ALLOWED_KEYS = frozenset(REQUIRED_KEYS + OPTIONAL_KEYS)
 
 #: Years of archive history synced before paper_start_date on a fresh runner
@@ -110,6 +110,10 @@ class Deployment:
     #: A paper book with an MCX trend sleeve (tracker DL1): the ``mcx_sleeve`` block, read by
     #: ``kite_connect.trading.mcx_sleeve.SleeveConfig``.  Paper only (status candidate).
     mcx_sleeve: Optional[Dict[str, Any]] = None
+    #: A paper book with an options overlay (tracker A1P): the ``options_overlay`` block, read by
+    #: ``kite_connect.trading.options_overlay.OverlayConfig``.  Not funded from the book (its margin is pledged
+    #: from the holdings), so the share book keeps the whole capital.  Paper only (status candidate).
+    options_overlay: Optional[Dict[str, Any]] = None
 
     @property
     def is_placeholder(self) -> bool:
@@ -145,7 +149,7 @@ class Deployment:
 
     def share_capital(self) -> Optional[float]:
         """The share book's paper capital: ``paper_capital_inr``, less the futures reserve when levered, or less
-        the gilt or MCX sleeve's weight."""
+        the gilt or MCX sleeve's weight.  An options overlay is not funded from the book: the whole capital."""
         if self.paper_capital_inr is None:
             return None
         if self.futures_overlay:
@@ -300,11 +304,23 @@ def parse_deployment(raw: Any, path: str = "") -> Deployment:
             McxSleeveConfig.from_dict(mcx)
         except (TypeError, ValueError) as exc:
             raise DeploymentError(f"invalid mcx_sleeve{where}: {exc}") from exc
+    options = raw.get("options_overlay")
+    if options is not None:
+        if not isinstance(options, dict):
+            raise DeploymentError(f"options_overlay{where} must be an object")
+        if status != STATUS_CANDIDATE or capital is None or overlay is not None or sleeve is not None or mcx is not None:
+            raise DeploymentError(f"options_overlay{where} needs status 'candidate' (paper only), paper_capital_inr, "
+                                  "and no other lever (futures_overlay, bond_sleeve, mcx_sleeve)")
+        from kite_connect.trading.options_overlay import OverlayConfig as OptionsOverlayConfig
+        try:
+            OptionsOverlayConfig.from_dict(options)
+        except (TypeError, ValueError) as exc:
+            raise DeploymentError(f"invalid options_overlay{where}: {exc}") from exc
     return Deployment(engine=engine, paper_start_date=paper_start, status=status,
                       source_run_id=run_id, approved_at=approved_at, notes=notes, description=description,
                       path=path, data_anchor_date=anchor, drawdown_rule=rule,
                       paper_capital_inr=float(capital) if capital is not None else None, futures_overlay=overlay,
-                      bond_sleeve=sleeve, mcx_sleeve=mcx)
+                      bond_sleeve=sleeve, mcx_sleeve=mcx, options_overlay=options)
 
 
 def _parse_risk_overlay(raw: Any, where: str) -> Optional[DrawdownConfig]:

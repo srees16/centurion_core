@@ -1,6 +1,17 @@
 {
  "recorded": "2026-10-25",
  "registry": {
+  "a1": {
+   "cagr": 0.23131550754828512,
+   "config_hash": "679cbd0ceaf7c895",
+   "cost_model": 4,
+   "data_hash": "dab49d3cbd323c16",
+   "final_equity": 7472437.149566269,
+   "max_drawdown": -0.23886951422761948,
+   "n_trades": 6175,
+   "sharpe": 1.1633759354501787,
+   "trades_sha256": "79c99283e904c4c32570ba3b2cf5192ff3a22ed46872c2fae273b19c5c5c4045"
+  },
   "bonds": {
    "cagr": 0.23131550754828512,
    "config_hash": "679cbd0ceaf7c895",

@@ -788,6 +788,42 @@ class NotificationManager:
                 futures_html += table(f"Last monthly decision ({mcx.get('decision_date')})", ["Instrument", "Signal", "Volatility", "Lots"],
                                       [[s["instrument"], f"{s['signal']:+.2f}", f"{(s['vol'] or 0):.0%}", f"{s['lots']:+d}"]
                                        for s in mcx["signals"]])
+        opt = report.get("options") or {}
+        if opt and not opt.get("error"):                  # a book with an options overlay (tracker A1P)
+            m = opt.get("metrics") or {}
+            since = opt["nav"] / float(opt.get("initial") or opt["nav"]) - 1.0
+            pos, dec = opt.get("position"), opt.get("decided")
+            hit = f"{m['hit_rate']:.0%}" if m.get("hit_rate") is not None else "—"
+            sizing = opt.get("sizing") or f"{opt['weight']:g}x"     # A1C: "max loss ≤ 10% of the book"
+            orows = [
+                (f"Book (shares + {opt['candidate']}, {sizing})",
+                 f"<b>{inr(opt['nav'])}</b> <span style='color:#9ca3af;'>(start {inr(opt.get('initial'))}; "
+                 f"{since:+.2%} since; today {inr(opt['day_pnl'])})</span>"),
+                ("Overlay", f"{inr(opt['overlay'])} since start, {inr(opt['overlay_pnl'])} today; marked at the F&O "
+                            f"close of {opt['a1_asof'] or '—'}"),
+                ("Open spread", (f"NIFTY {pos['expiry']} {pos['short']:,.0f} / {pos['wing']:,.0f} CE, {pos['book_lots']} "
+                                 f"lots at {pos.get('weight', opt['weight']):.2f}x, credit {pos['credit']:.2f}; max loss "
+                                 f"{pos['max_loss_share']:.1%} of the book (the margin it pledges)") if pos else "none open"),
+            ]
+            if dec:
+                orows.append(("Decided tonight", f"sell NIFTY {dec['expiry']} {dec['short']:,.0f} / buy {dec['wing']:,.0f} CE "
+                                                 f"at the next session's close"))
+            orows.append(("Since start", f"{m.get('sessions', 0)} sessions, {m.get('cycles', 0)} cycles decided, "
+                                         f"{m.get('traded', 0)} traded, {m.get('closed', 0)} closed (hit rate {hit}), "
+                                         f"max drawdown {m.get('max_drawdown', 0):.1%}"
+                                         + (f", Sharpe {m['sharpe']:.2f}" if m.get("sharpe") == m.get("sharpe")
+                                            and m.get("sharpe") is not None else "")))
+            futures_html += (f"<h3 style='margin:22px 0 8px;color:#1a1a2e;font-size:15px;'>{opt['candidate']} options "
+                             "overlay (paper, A1P)</h3><table style='border-collapse:collapse;width:100%;font-size:14px;'>"
+                             + "".join(f"<tr><td style='{td}color:#666;width:38%;'>{k}</td><td style='{td}'>{v}</td></tr>"
+                                       for k, v in orows) + "</table>")
+            futures_html += table("Recent cycles (A1's own lots and P&L, on its Rs 7.5 lakh)",
+                                  ["Decision", "Expiry", "Action", "Short", "Wing", "Lots", "Exit", "P&L"],
+                                  [[c["decision_date"] or "", c["expiry"] or "", c["action"] or "",
+                                    f"{c['short']:,.0f}" if c.get("short") else "", f"{c['wing']:,.0f}" if c.get("wing") else "",
+                                    str(c["lots"] or ""), c["exit"] or "",
+                                    inr(c["pnl_inr"]) if c.get("pnl_inr") is not None else ""]
+                                   for c in opt.get("recent_cycles", [])])
         session = report.get("session", "")
         # paper (default) | live | live dry run - never let a live session read as paper
         mode = str(report.get("mode") or "paper")
@@ -833,6 +869,12 @@ class NotificationManager:
             subject = (f"Centurion {mode}{book} {session}{dd_tag}{alert_tag} — book {inr(mcx['nav'])[:-3]} "
                        f"({since:+.2%}) with {mcx['weight']:.0%} MCX trend — {len(filled)} filled, "
                        f"{len(mcx.get('fills', []))} MCX, {len(queued)} queued")
+        elif opt and not opt.get("error"):                # a book with an options overlay, named by its whole value
+            since = opt["nav"] / float(opt.get("initial") or opt["nav"]) - 1.0
+            sizing = opt.get("sizing") or f"{opt['weight']:g}x"
+            subject = (f"Centurion {mode}{book} {session}{dd_tag}{alert_tag} — book {inr(opt['nav'])[:-3]} "
+                       f"({since:+.2%}) with {opt['candidate']} ({sizing}) — {len(filled)} filled, "
+                       f"{len(stops)} stops, {len(queued)} queued" + (", spread open" if opt.get("position") else ""))
         elif bond and not bond.get("error"):              # a book with a gilt sleeve, named by its whole value
             since = bond["nav"] / float(bond.get("initial") or bond["nav"]) - 1.0
             subject = (f"Centurion {mode}{book} {session}{dd_tag}{alert_tag} — book {inr(bond['nav'])[:-3]} "
