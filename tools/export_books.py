@@ -10,7 +10,9 @@ schema to ``data/nse_engine/book_exports/<book>/<table>.csv.gz``, which the priv
 - Books: every ``config/nse_engine_*.json`` (the deployed book in the default schema), the live book, the US
   advisory journal and the ETF order-book snapshots (BD2).  A schema that does not exist yet is listed as such.
 - Tables: the seven paper tables, those present.  ``paper_cloud_state`` is copied key by key, except any key
-  naming a token, secret, password or API key (the stored Kite login is one).
+  naming a token, secret, password or API key (the stored Kite login is one), and the registry of users' Zerodha
+  accounts (``kite_accounts``, in the live book's state): a user who deletes their account (MU2) must not live on
+  in a backup.
 
     python -m tools.export_books            # needs CENTURION_DATABASE_URL (.env on this Mac)
 """
@@ -33,7 +35,7 @@ logger = logging.getLogger(__name__)
 OUT = Path("data/nse_engine/book_exports")
 TABLES = ("paper_positions", "paper_daily_snapshots", "paper_signal_log", "paper_weekly_checkpoints",
           "paper_fills", "paper_sessions", "paper_cloud_state")
-SECRET_KEY = re.compile(r"token|secret|passw|api_key", re.IGNORECASE)
+SECRET_KEY = re.compile(r"token|secret|passw|api_key|kite_accounts", re.IGNORECASE)   # accounts.REGISTRY_KEY
 #: Schemas that are not config books: the live book's default, the US advisory journal, BD2's snapshots.
 EXTRA = {"live": "live", "us_advisory": "us_advisory", "etf_depth": "etf_depth"}
 

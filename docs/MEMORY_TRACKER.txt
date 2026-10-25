@@ -247,23 +247,26 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
- >>> SAT 24 OCT, URGENT - Neon still suspended (NEO1-NEO3); your card
-     payment to Neon fails.  All of Fri's failure emails are this one cause.
-     1. DONE 24 Oct: the /health and heartbeat fixes merged (9b79886).
-     2. DONE 24 Oct: NEO3 merged (5f01dec).  The first run after Neon is
-        back replays every missed session of all 6 books, as those nights'
-        runs would have (the gilt and MCX books from their 21 Oct start).
-     2b. DONE 24 Oct: the four workflows below are disabled (NEO4).
-        MERGE neon-watch.yml BEFORE THU 29 OCT: it keeps the NSE data cache
-        alive (GitHub deletes it after 7 unused days, ~30 Oct 20:00 UTC)
-        and switches everything back on when Neon answers.
-     3. No payment needed: ~0.5 CU-hours a day against the free plan's 100
-        a month.  The reset date is on the Neon console (Billing), about
-        1 Nov.  If the card goes through first, Launch works the same way.
-     4. No Kite login needed until Neon is back (the token is stored in
-        Neon; the paper books never use Kite).  First morning after: log in
-        from the 09:00 reminder as usual.
-     5. The sell test waits for the reset (SELL TEST block).
+ >>> SUN 25 OCT - YOUR ACTIONS (Neon paid and back 21:22 IST; NEO5)
+     1. Mon 26 Oct 09:00: Kite login from the reminder email (dry run, ETF
+        snapshots, the sell test).
+     2. Sign-up test (MU2): after 21:45 IST, sign up again (the 20:40-20:43
+        failures used up the hourly allowance); tell Claude, who checks the
+        Space log for "Email sent (Gmail API)".
+     3. Sell test (ST2 step 3): give Claude new dates (SELL TEST block).
+     4. ON OR AFTER 1 NOV, not before: Neon back to the Free plan (Billing >
+        Change plan > Free; storage under 0.5 GB).  Launch bills every
+        CU-hour (~$1-2 a month now); Free never charges, it suspends.
+        Meanwhile: a spending notification (e.g. $5) on Billing.
+     5. Send Zerodha one ticket with three questions (Q4, the 09:00 check,
+        Q5 on LIQUIDCASE: ST2 block; text in Claude's 25 Oct reply), then
+        tell Claude the answers.
+     6. Say "do IC2" to start LN-T29 (brought forward, P1).
+     7. Commit (tonight): the store build checking every year (CAN1b) and
+        the workflow restored, neon-watch.yml deleted (NEO5), both in
+        nse-paper-trading.yml; runners/refresh_data.py (DR1b); the LN-T29d corrections (this file,
+        plan 5ag-5ai, research_protocol 5.1, golden_target_review,
+        metrics_journal).
  >>> TUE 20 / WED 21 OCT - YOUR ACTIONS (checked 20 Oct: merged; Kite
      Connect renewed, since Monday's dry run read Kite; Monday's login
      worked, since the ETF snapshots stored)
@@ -291,8 +294,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      from step 1, since step 2, the GTT leg, failed on 14 Oct when every
      HDFCBANK share was sold by mistake)
      24 Oct: ON HOLD - Fri's test could not be recorded (Neon down: the
-     Kite login and Record sell path need the database).  New dates after
-     the reset; the shares and the steps below stay as they are.
+     Kite login and Record sell path need the database).  25 Oct: Neon is
+     back; new dates from you.  The shares and the steps below stay as
+     they are.
      Why one day per test: Record sell path reads both orders from Kite,
      whose API returns only that day's orders.  So the AMO SELL and the GTT
      SELL must both COMPLETE on the same day, on settled shares, and be
@@ -362,7 +366,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              the Space with a copy kept off it); frontend in production
              (NX1 merge deployed 22:33 IST).  Left: sign up with a spare
              email: activation email, sign-in, Fly Kite, Settings > Delete
-             account.
+             account.  25 Oct: the Gmail API route is set up (MU2g); this
+             test waits for Neon (accounts live there).
 [!] P1  U23  Log in to Kite once every trading day: tap the link in the
              09:00 / 17:30 IST email (valid until 06:00 next day).  The first
              live dry run is Thu 1 Oct 19:00 IST (Fri 2 Oct is a holiday);
@@ -418,6 +423,15 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                     session later (about -0.7 pt CAGR a year);
                 (c) a second pass at ~09:20 after the sells fill (needs that
                     day's login before it).
+                25 Oct: one ticket to Zerodha with the two still open, plus
+                Q5 (LN-T29, your ask):
+                - Q4: a buy AMO rejected for funds at release: final, and
+                  with what message;
+                - the 09:00 check: is a buy AMO's margin checked at 09:00
+                  for pre-open stocks, before any sell matches;
+                - Q5: can buy AMOs use the proceeds of a LIQUIDCASE sell
+                  AMO at the same open, and when is an ETF AMO sent?
+                The answers set both LN-T11's buffer and LN-T29's timing.
              3. SUPERSEDED 20 Oct by the SELL TEST block at the top of
                 section 4 (tests Fri 23 and Mon 26 Oct, from step 1).
                 REDO PLAN (15 Oct), kept for the record.  Why: the record reads both orders from
@@ -835,6 +849,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              - After about 20 sessions (mid-Nov): `python -m
                nse_engine.etf_costs report`; recalibrate the bond cost
                model per ETF; re-read BD1's baseline (a diagnostic); decide.
+               Then stop etf-depth.yml: the snapshots are its only
+               open-ended Neon writer (~1.3 MB a month; 25 Oct review).
+               No snapshots 21-23 Oct (Neon down).
                                                  Prompt: do BD2 (mid-Nov)
 [~] P2  BD3  The gilt sleeve as the drawdown lever (your call 17 Oct; BD1's
              B3 failed gate 2 on CAGR only): your five steps, in order.
@@ -960,7 +977,21 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              run refresh-registry --dry-run.  Only after a source covering
              2006-09, delisted names included, is confirmed; keep the 35%
              threshold.  Detail: lean_review.md item 28.
-[ ] P3  LN-T29 After go-live: consider sweeping idle cash into a liquid ETF
+[ ] P1  LN-T29 BROUGHT FORWARD 25 Oct (your call), before live month 1, so
+             the paper books run it first; RF1's January re-baseline stays
+             separate.  Worth 1.3-1.6 pt pre-tax on the walk-forward book
+             (LN-T29d, section 8), not 0.3-0.4.  Order:
+             1. IC2 (next item).                          Prompt: do IC2
+             2. Zerodha's answers (ST2: Q4, the 09:00 check, Q5): they set
+                the timing rule (ETF sold a session ahead, or a buffer, or
+                a 09:20 second pass).
+             3. Pre-register cost model 5 (plan 5ak): LIQUIDCASE, 0.27%
+                expense ratio, BD2's spreads (else 3 bp), buffer and band,
+                the timing rule.
+             4. Build it in the backtest and as a paper sweep ledger (the
+                share books' decisions unchanged); re-baseline on Kaggle;
+                re-check DG1 / DG2.                    Prompt: do LN-T29
+             Was (P3): after go-live: consider sweeping idle cash into a liquid ETF
              with hysteresis (~+0.3 pt CAGR after tax; would be cost model
              5).  Medium.  PREREQUISITE: do IC2 first, before the first
              cost-model-5 run is recorded.  Detail: lean_review.md item 29.
@@ -974,7 +1005,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              GOLDBEES (about 15% volatility; the metals sleeve already holds
              gold when it trends).  It also removes the flat-equity case
              DD1 guards against.
-[ ] P3  IC2  Cost-model stamping, latent (IC1 review; none bites today):
+[ ] P1  IC2  (Now first step of LN-T29, brought forward 25 Oct.)
+             Cost-model stamping, latent (IC1 review; none bites today):
              walk-forward fold files, the stitched summary and holdout.lock
              carry no cost model; the books register's validation fallback
              can pair model-4 columns with an older run's PBO/DSR;
@@ -1009,7 +1041,127 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
-24 Oct  NEO4 Your call: no error emails while Neon is down.  Disabled (gh,
+25 Oct  MU2d Account deletion (your ask: warning, consent and confirmation; the
+             user's data cleared from all databases).  Settings > Delete
+             account already existed (password, typed DELETE, sessions ended,
+             a confirmation email).
+             - Added (frontend, components/auth/delete-account.tsx): the
+               warning as a list (what is erased; holdings and GTT stops stay
+               at Zerodha; signed out everywhere), and a required consent
+               box before the password and typed word.  Builds.
+             - Audit of every store a signed-up user reaches: their app.users
+               row, and for a connected Zerodha account its registry entry
+               (consent, encrypted keys) and its live_<id> schema (tokens,
+               ledger, dry runs) are all erased by users.delete /
+               accounts.erase.  analysis_runs carries no user id; nothing
+               writes user_watchlists or alert_configurations; the Space's
+               SQLite holds none; Sentry sends no personal data.
+             - Gap fixed: tools/export_books.py (JR2) would have copied the
+               registry (key kite_accounts, in the live book's state) into
+               the Kaggle backups; it is now excluded with the secrets.  No
+               export has run yet, so no backup holds one.
+             - Left by design: Neon's restore history (1 day on Launch, 6 h
+               on Free), and emails already sent.  The privacy page says so.
+25 Oct  CAN1b The replay run's canary said "data differs" again (dab49d3c ->
+             d72858ed): CAN1's fix never reached the runner.  CAN1 assumed the
+             next run rebuilds 2012; the nightly build rebuilt only the synced
+             years, so the cached 2012 kept Sun 11 Nov 2012.
+             - Effect: all 6 books count rebalances every 5 rows from the 2012
+               anchor (calendar_schedule off), so the runner shifted them a
+               session early: this week's rebalance was planned on 22 Oct
+               (filled 23 Oct's open) instead of 23 Oct (filling Mon's open).
+               15 Oct was right (the cache was clean before 20 Oct's bootstrap).
+             - Fix: the workflow's store build checks every year by fingerprint
+               (years=None; 20 Oct's full check took 17 s), so a fix to an old
+               year reaches the cache.  Uncommitted.
+             - Your call (25 Oct): both.  A full-bootstrap run tonight
+               (40212027310, 22:00 IST) and the workflow fix merged tonight.
+             - KNOWN DEVIATION in the paper record, all 6 books (judge the
+               paper period with it): the week's rebalance was planned on
+               Thu 22 Oct and filled at Fri 23 Oct's open, one session early,
+               on the runner's shifted calendar.  The correct one (planned
+               23 Oct) is re-planned tonight and fills at Mon 26 Oct's open.
+               So Fri 23 Oct held 22 Oct's picks, and the week carries one
+               extra small rebalance (its costs included).  The futures leg
+               follows the same plans.  Rebalances before 22 Oct were on
+               the right schedule.
+25 Oct  NEO5 Neon back: your payment went through (Launch plan).
+             - Neon watch, run by hand (40208991177): "Neon is back"; it
+               enabled Paper Trading Cron, Paper Heartbeat, Kite login
+               reminder and ETF order-book snapshots, started the replay
+               run and disabled itself.
+             - Replay run 40209014901, all green: NSE synced 25 Sep - 25 Oct;
+               every book replayed 21-22 Oct in full, then ran 23 Oct; no
+               problems.  deployed 2 fills; candidate 10; e4 3, a stop;
+               futures 19 fills, leg 3 contracts at 1.78x, no calls; gilts
+               (from 21 Oct) sleeve Rs 34.2 lakh, 25.4%; MCX (from 21 Oct)
+               sleeve Rs 34.3 lakh, flat.  Dead man's switch pinged.  Only
+               21-23 Oct were missed, and none is lost.
+             - Undone (outage-only): neon-watch.yml deleted; the
+               sync_lookback_days input removed (the workflow is as before
+               NEO4).  Kept, as fixes: /health's 6-hour database check (else
+               ~$15-20 a month on Launch, or the free quota drained again),
+               the full replay of missed sessions, the heartbeat's
+               "could not be read" subject.
+             - Your Neon settings: compute 0.25-1 CU, scale to zero on.
+               Launch bills every CU-hour: back to Free on or after 1 Nov.
+             - Storage review: Neon holds the books, ETF snapshots, dry runs,
+               tokens, accounts; logs are not in Neon.  Growth ~3-5 MB a
+               month against Free's 0.5 GB; only the ETF snapshots are
+               open-ended (stopped after BD2).
+             - The first sign-up after the fix was refused silently: the
+               20:40-20:43 failures used the hourly allowance (3 per email).
+25 Oct  MU2g The Space sends account emails through the Gmail API (HF blocks
+             SMTP).  You set up Google Cloud project centurion-mail: Gmail API
+             on; consent screen External, In production, no declared scopes;
+             a Desktop client; the token for the paper emails' Gmail account;
+             a test email arrived.  Secrets CENTURION_GMAIL_CLIENT_ID /
+             _CLIENT_SECRET / _REFRESH_TOKEN set 15:02-15:04 UTC; deploy run
+             40205239993 copied them to the Space.
+             - Google now publishes an External app only with a home page
+               and a privacy policy (the greyed-out Publish).  New public
+               page centurion-core-fe /privacy (frontend: app/privacy,
+               proxy.ts, a sign-in footer link), live and merged; Branding
+               points at it, authorized domain centurion-core-fe.vercel.app.
+             - The sign-up test (MU2) waits for Neon.
+25 Oct  LN-T29d Idle cash in a liquid ETF, re-priced (a diagnostic, not a
+             trial; your ask: liquid ETFs / Coin funds for idle cash), and
+             the corrections it forces (your OK).
+             - Method: BD1's simulator, mode liquid, on both 2008-25 books;
+               LIQUIDCASE at 0.27% (BD1 had 0.10%); statutory charges plus
+               1 / 3 / 5 bp instead of the equity impact model (12-20 bp a
+               trade); BD1's 2% buffer and 5% band; cash freed a session
+               before the buys.
+             - The sweep adds 1.3-1.6 pt pre-tax on the walk-forward book
+               (30% idle) and 0.8-1.0 on the backtest book (20% idle);
+               Sharpe +0.10-0.13 / +0.05-0.07; MaxDD ~3 pt shallower.  After
+               slab tax ~0.6-1.1 pt.  GT3's +0.3-0.4 was the 2013-25
+               deployed book (12.8% idle).
+             - Correction: the honest base credited a cost-free sweep.
+                                      walk-forward          backtest
+               as recorded            13.0% 0.60 -29.5%     15.5% 0.70 -28.6%
+               realistic sweep (3 bp) 12.4% 0.54 -29.9%     14.9% 0.66 -29.0%
+               no sweep (paper, live) 10.9% 0.43 -33.0%     14.0% 0.60 -32.4%
+               DG1 / DG2 verdicts compare on the same base: expected to
+               stand, re-checked on cost model 5 (LN-T29).
+             - Vehicles: LIQUIDCASE (growth, 0.27%).  Not LIQUIDBEES (0.69%,
+               daily dividends).  Not Coin funds: redemption reaches the
+               bank at the end of T+1; instant redemption (Zerodha
+               Overnight Fund only) is capped at Rs 50,000 a day.
+             - Recorded: research_protocol 5.1, plan 5ag / 5ah / 5ai,
+               golden_target_review (verdict table, route, gap and source
+               tables, 6.1), metrics_journal (LN-T29d).  LN-T29 and IC2 to
+               P1; Q5 added to ST2.
+25 Oct  DR1bThe weekly refresh (DR1) re-ran at every login and every 20:30,
+             3 hourly attempts with the Mac kept awake (your report: a Terminal
+             window at boot).  Cause: JR2's "books" step exits 2 without
+             CENTURION_DATABASE_URL in .env, so no refresh counted as clean
+             after 17 Oct.  Fix: runners/refresh_data.py OPTIONAL_STEPS =
+             ("books",), recorded but never failing the refresh.  25 Oct's
+             attempt (every other step 0; stores to 23 Oct; backup pushed) was
+             stamped by hand and its retry loop stopped; no caffeinate left.
+             Next refresh ~31 Oct.
+24 Oct  NEO4Your call: no error emails while Neon is down.  Disabled (gh,
              11:05 UTC): Paper Trading Cron, Paper Heartbeat, Kite login
              reminder, ETF order-book snapshots.  Nothing runs or records
              meanwhile; the paper sessions come back through NEO3's replay.
@@ -1023,6 +1175,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              - Fallback if it fails (its failure email says so): gh workflow
                enable for the four, then gh workflow run nse-paper-trading.yml
                -f sync_lookback_days=30.
+             - Merged (bccb3da); manual run 40090994852: cache restored (last
+               used now 24 Oct 11:42 UTC), "Neon not reachable yet: quota
+               exceeded", the four left disabled, the enable step skipped.
 24 Oct  NEO3 Missed sessions are replayed in full (your point: ~2 weeks of
              paper results across 6 books).  cloud_paper_runner runs each
              store session after the book's last processed one, in order, as

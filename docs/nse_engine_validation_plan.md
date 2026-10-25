@@ -3347,6 +3347,14 @@ compounding, with Sharpe over 6.5%.
     paper fills), not taken from the equity impact model. That also
     decides LN-T29 (the liquid sweep): under this model it loses 0.4
     point; with spread-only costs it gains about 1.
+  - **Correction, 25 Oct 2026 (LN-T29d, a diagnostic):** the baseline row
+    above prices a liquid ETF with the equity impact model (12–20 bp a
+    trade; the daily-bar bounds put liquid ETFs at 0.1–5 bp). Re-priced at
+    statutory charges plus 1–5 bp, LIQUIDCASE's 0.27% expense ratio, this
+    plan's hysteresis and cash freed a session ahead, the sweep adds 1.3–1.6
+    points on the walk-forward book and 0.8–1.0 on the backtest book, with
+    MaxDD about 3 points shallower. BD2's measured spreads replace the
+    1–5 bp range.
   - A low-churn rule for idle cash is the visible fix: park only cash
     that has stayed idle for N sessions, or band both sides. It would be a
     new round, and the family's budget is spent: your call.
@@ -3513,6 +3521,20 @@ from Feb 2012).
 The backtest book (15.5% / 0.70 / −28.6%) gives the same verdicts. A1's p
 there is 0.044, X2's 0.23, Y3's 0.13.
 
+**Correction, 25 Oct 2026 (LN-T29d).** "Idle cash at the liquid rate"
+credits every idle rupee with the 1D rate less 0.10%, every day, at no
+cost. A realistic LIQUIDCASE sweep earns less:
+
+| Live-like 2008–25 | Walk-forward book | Backtest book |
+|---|---|---|
+| As recorded (cost-free credit) | 13.0% / 0.60 / −29.5% | 15.5% / 0.70 / −28.6% |
+| Realistic sweep (3 bp; 1–5 bp gives ±0.1 point) | 12.4% / 0.54 / −29.9% | 14.9% / 0.66 / −29.0% |
+| No sweep (paper and live today) | 10.9% / 0.43 / −33.0% | 14.0% / 0.60 / −32.4% |
+
+The verdicts above compare the book with and without a stream on the same
+base, so they are expected to stand. They are re-checked on cost model 5
+(LN-T29), not re-run now.
+
 - **A1 is a real Sharpe lever with a drawdown cost.** Its gain is
   significant and holds in 2008–12. It fails only the MaxDD condition:
   short call spreads lose in sharp moves.
@@ -3604,6 +3626,10 @@ points shallower.
   `kite_connect/trading/mcx_sleeve.py`. The sleeve replays GT5-B's
   simulator nightly from its start, so paper follows the rules that
   passed.
+- **Correction, 25 Oct 2026 (LN-T29d):** both books above credit idle cash
+  at no cost; with a realistic sweep they read 12.4% / 0.54 / −29.9% and
+  14.9% / 0.66 / −29.0% (section 5ah's correction). The verdicts are
+  re-checked on cost model 5 (LN-T29).
 
 ## 5aj. A1G: A1 with a crash guard (India tracker A1G; pre-registered 20 Oct 2026, 10:42 IST)
 

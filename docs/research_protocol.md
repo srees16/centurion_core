@@ -161,6 +161,13 @@ words: minimising MaxDD matters as much as maximising Sharpe or CAGR.
     over-allocates a low-Sharpe stream and lowers the book's Sharpe.
 - **Idle cash and collateral** earn the liquid rate (the 1D rate less a
   0.10% expense ratio), never nothing.
+  - **Correction, 25 Oct 2026 (LN-T29d):** this credit is an upper bound. It
+    is cost-free, same-day and at a 0.10% expense ratio. A realistic sweep
+    (LIQUIDCASE at 0.27%, its trades at statutory charges plus 1–5 bp,
+    BD1's hysteresis, cash freed a session before the buys) earns about 0.6
+    point and 0.06 Sharpe less on the walk-forward book. Cost model 5
+    (LN-T29) replaces this rule; until then, read honest-base figures as
+    about that much high.
 - **A stream passes by either route, on both books:**
   - **Sharpe lever:** combined excess Sharpe above the book's, with
     one-sided p ≤ 0.10 in a paired stationary bootstrap (63-session mean
