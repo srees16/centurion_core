@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 #: Public requests per client per hour, and emails per address per hour.
 PER_CLIENT_HOUR, EMAILS_PER_ADDRESS_HOUR = 20, 3
-CHECK_INBOX = "Check your inbox (and spam folder) for activation link."
+CHECK_INBOX = "Activation Mail Sent. Please check your inbox (or spam folder)."   # the sign-up page adds the 24 hours
 CHECK_INBOX_RESET = "Check your inbox (and spam folder) for the password reset link."
 
 
