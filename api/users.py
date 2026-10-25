@@ -194,6 +194,19 @@ def get(email: str) -> Optional[Dict]:
     return {**user, **json.loads(_fernet().decrypt(row["profile_enc"].encode()))}
 
 
+def list_users() -> List[Dict]:
+    """Every signed-up user, newest first, their profile decrypted, without the password hash: the admin's
+    view (``GET /api/v1/admin/users``)."""
+    from sqlalchemy import text
+
+    _ensure()
+    with _db().get_session() as session:
+        rows = session.execute(text(f"SELECT * FROM {_TABLE} ORDER BY created_at DESC")).mappings().fetchall()
+    hidden = ("profile_enc", "password_hash", "email_hash")
+    return [{**{k: v for k, v in dict(r).items() if k not in hidden},
+             **json.loads(_fernet().decrypt(r["profile_enc"].encode()))} for r in rows]
+
+
 def _update(email: str, **values) -> None:
     from sqlalchemy import text
 
