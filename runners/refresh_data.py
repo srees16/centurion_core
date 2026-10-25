@@ -19,7 +19,8 @@ and diagnostics.  Steps:
    step is skipped while a GT1 run holds the archive.
 6. **Paper books** (``tools.export_books``, tracker JR2): every book's Neon record
    as CSV, so the backup carries it.  It needs ``CENTURION_DATABASE_URL`` in
-   ``.env``; without it the step fails and the rest still runs.
+   ``.env``; without it, or with Neon down, the step fails without failing the
+   refresh (``OPTIONAL_STEPS``: the books live in Neon, this is a second copy).
 7. **Backup** (``cloud.backup push``): every piece that changed goes to the
    private Kaggle backup datasets, so nothing lives only on this machine.
 
@@ -54,6 +55,9 @@ DATA = _ROOT / "data" / "nse_engine"
 STATUS = DATA / "refresh_status.json"
 LATE_FILES = timedelta(days=14)
 STEPS = ("nse", "equity_store", "fo_store", "mcx", "fundamentals", "books", "backup")
+#: Recorded but never failing the refresh: a failed refresh is re-run at every login and every evening, three
+#: attempts an hour apart with the Mac kept awake (24-25 Oct 2026: "books" without CENTURION_DATABASE_URL).
+OPTIONAL_STEPS = ("books",)
 
 
 def _last_session(calendar: Path, fallback: date) -> date:
@@ -133,7 +137,7 @@ def refresh(only: Optional[Sequence[str]] = None, today: Optional[date] = None) 
                 break  # a failed sync leaves the store as it was rather than building on a partial mirror
         steps[name] = max(codes)
     status = {"finished_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-              "ok": all(v == 0 or isinstance(v, str) for v in steps.values()),
+              "ok": all(v == 0 or isinstance(v, str) or k in OPTIONAL_STEPS for k, v in steps.items()),
               "steps": steps, "stores": store_status()}
     STATUS.write_text(json.dumps(status, indent=1, default=str))
     return status

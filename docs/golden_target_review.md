@@ -37,6 +37,7 @@ uses 2013–25 backtests and reads high.
 |---|---|---|---|---|
 | The book (LN-T28b) | 13.2% | 0.62 | −32.5% | 0.41 |
 | Live estimate (D2's haircut) | about 11% | 0.43 | −31.5% | 0.35 |
+| Live estimate + idle cash in LIQUIDCASE (LN-T29d, 25 Oct; realistic costs) | 12.4% | 0.54 | −29.9% | 0.41 |
 | + a 25% gilt sleeve (BD1's B3) | 11.7% | 0.61 | −22.9% | 0.51 |
 | 1.75× modelled leverage, the rule on | 19.4% | 0.71 | −44.6% | 0.43 |
 | 1.75× modelled + a 25% gilt sleeve (a look) | 16.6% | 0.71 | −32.6% | 0.51 |
@@ -80,8 +81,10 @@ uses 2013–25 backtests and reads high.
   1. Genuinely different return streams, built mostly from data Centurion
      does not have yet. Point-in-time fundamentals would open value and
      quality. MCX futures would open commodity trend.
-  2. A cash engine for idle cash, worth about 0.3–0.4 point of CAGR after
-     tax: the book is only 12.8% idle on average (GT3, section 6.1).
+  2. A cash engine for idle cash, worth about 0.6–1.1 points of CAGR after
+     tax on the 2008–25 books, which are 20–30% idle (LN-T29d, 25 Oct).
+     GT3's 0.3–0.4 point was the 2013–25 deployed book, 12.8% idle
+     (section 6.1).
   3. Futures leverage last. It is capital-gated: a NIFTY or stock-futures lot
      is about Rs 15 lakh of notional, so it is too coarse below about
      Rs 1 crore. It is also evidence-gated: it needs 12+ months of live
@@ -429,7 +432,7 @@ Value-add is the expected effect on the golden target: H high, M medium, L low.
 |---|---|---|---|---|---|
 | 1 | One return engine: three books at 0.96 correlation; the metal sleeve is the only diversifier | Architecture | H | Correlations; section 2.1 arithmetic | GT4–GT7 |
 | 2 | No fundamentals or earnings dates in the store, so value, quality and earnings drift cannot be tested | Data | H | Store contents; value correlates −0.4 to −0.6 with momentum | GT1 |
-| 3 | Bear and sideways regimes earn nothing, and idle cash earns 0% under cost model 4 | Regime / return | L–M (+0.3–0.4 pt CAGR after tax, measured) | Section 3.2; IC1; section 6.1 | GT3 → LN-T29 (after IC2) |
+| 3 | Bear and sideways regimes earn nothing, and idle cash earns 0% under cost model 4 | Regime / return | M (+0.6–1.1 pt CAGR after tax on the 2008–25 books, LN-T29d) | Section 3.2; IC1; section 6.1 | GT3 → LN-T29 (after IC2; brought forward 25 Oct) |
 | 4 | Leverage: MTF dropped (L11, your call 17 Oct); futures are cheaper but lumpy (lots about Rs 15 lakh) and cover only the book's weaker half (L7, 3 of 3 FAIL) | Leverage | H, capital-gated | Section 1.1; plans 5ae–5af | GT8, L9 |
 | 5 | No multi-asset diversifier beyond gold and silver ETFs; MCX commodity trend untested | Architecture | M | Section 2.1; Indian alpha memo | GT2, GT5 |
 | 6 | Price-signal saturation in the core | Signal | Avoids waste | Plan 6, item 5 | Not doing |
@@ -500,7 +503,7 @@ Ranked by expected value at Rs 6–30 lakh.
 
 | # | Source | Expected net Sharpe | Correlation with the core | Capital | Data | Verdict |
 |---|---|---|---|---|---|---|
-| 1 | Cash engine: idle cash in a growth-type liquid ETF on the exchange (section 6.1) | About rf; +0.3–0.4 pt CAGR after tax (12.8% average idle) | About 0 | Any | ETF prices in the store | **Do, after go-live (GT3 → LN-T29)** |
+| 1 | Cash engine: idle cash in a growth-type liquid ETF on the exchange (section 6.1) | About rf; +0.6–1.1 pt CAGR after tax on the 2008–25 books (20–30% idle, LN-T29d) | About 0 | Any | ETF prices in the store | **Do, before live (GT3 → LN-T29; your call 25 Oct)** |
 | 2 | Selective value / quality sleeve (point-in-time fundamentals), unhedged or beta-hedged with NIFTY futures | Must reach ≥ 0.8 on its own to help (section 1.1); value earns in the rebounds momentum misses | About 0.4–0.5 long-only; low or negative when hedged | Rs 3 lakh; about Rs 15 lakh more to hedge | **No:** NSE XBRL results to build (GT1) | **Test (GT4)**: the best equity-side diversifier. Factor-index ETFs fail (section 1.1) |
 | 3 | MCX commodity trend (silver micro, crude / natural gas mini, base-metal minis) | 0.3–0.5 | −0.2 to +0.1; earns in crises | Rs 15–20 lakh total | Partial: MCX bhavcopy, rolls to build (GT2) | **Test (GT5)** once capital allows |
 | 4 | Post-earnings drift overlay on the core ranking | +0.1–0.2 to the core | 0.4–0.6 | 0 | Needs results dates (GT1) | Test after GT1 (GT7); core family, so it uses the core budget |
@@ -613,6 +616,23 @@ specifies:
    night's buys. If it cannot, the sweep sits above LN-T11's cash buffer.
 
 No code changes now.
+
+**Update, 25 Oct 2026 (LN-T29d, a diagnostic; your call to bring LN-T29
+forward from January).**
+- **The 2008–25 books hold more idle cash than the deployed 2013–25 run:**
+  20% (backtest) and 30% (walk-forward) on average.
+- **Re-priced sweep:** statutory charges plus 1–5 bp, LIQUIDCASE's 0.27%
+  expense ratio, a 2% buffer and 5% band, cash freed a session before the
+  buys. It adds 1.3–1.6 points pre-tax on the walk-forward book and
+  0.8–1.0 on the backtest book, Sharpe +0.10–0.13 and +0.05–0.07, MaxDD
+  about 3 points shallower. After slab tax that is about 0.6–1.1 points.
+- **The honest base had credited a cost-free sweep:** 13.0% / 0.60 / −29.5%
+  reads 12.4% / 0.54 / −29.9% with a realistic one, and 10.9% / 0.43 /
+  −33.0% with none, which is how paper and live run today.
+- **LIQUIDCASE's sale cannot fund the same morning's buys if its AMO goes
+  out at 09:15 after the share AMOs' 09:00 margin check** (ST2's findings).
+  That is asked of Zerodha (ST2 Q5). The answer sets the timing rule of
+  cost model 5.
 
 ## 7. Robustness protocol for go-live (GT10)
 
