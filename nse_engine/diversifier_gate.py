@@ -13,7 +13,13 @@ The diversifier gate (research protocol 5.1, your decision 19 Oct 2026) and its 
 - Drawdown lever: MaxDD at least 3 points shallower, Sharpe no more than 0.02 lower.
 CAGR, alpha and the deflated Sharpe are reported, not gates.
 
+Amended 25 Oct 2026 (GT13, the owner's decision; protocol 5.1): MaxDD is no condition anywhere.  A stream
+passes as a Sharpe lever only, Sharpe up with p <= 0.10 on both books (``sharpe_gain``); the drawdown route is
+retired.  MaxDD and Calmar (full window and the median of rolling 3-year windows) are reported.  ``dg1`` and
+``dg2`` still reproduce their recorded 19 Oct verdicts; ``rt1`` re-judges DG1's streams under GT13 (plan 5ak).
+
     python -m nse_engine.diversifier_gate dg1 --mcx <mcx_results.json>    # plan 5ah
+    python -m nse_engine.diversifier_gate rt1 --mcx <mcx_results.json>    # plan 5ak
 """
 
 from __future__ import annotations
@@ -23,7 +29,7 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Dict, Optional, Sequence
+from typing import Dict, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -66,6 +72,22 @@ def excess_sharpe(x: pd.Series) -> float:
 def max_drawdown(x: pd.Series) -> float:
     eq = (1 + x).cumprod()
     return float((eq / eq.cummax() - 1).min())
+
+
+CALMAR_WINDOW, CALMAR_STEP = 756, 21                          # 3 years of sessions, a month apart
+
+
+def _calmar(x: pd.Series) -> float:
+    """CAGR (252-session years) over |MaxDD|; nan without a drawdown."""
+    growth, dd = float((1 + x).prod()), max_drawdown(x)
+    return float((growth ** (252 / len(x)) - 1) / -dd) if len(x) and growth > 0 and dd < 0 else float("nan")
+
+
+def rolling_calmar_median(x: pd.Series) -> float:
+    """GT13's Calmar: the median of rolling 3-year windows, a month apart (Calmar's own 36-month horizon)."""
+    vals = [_calmar(x.iloc[i:i + CALMAR_WINDOW]) for i in range(0, len(x) - CALMAR_WINDOW + 1, CALMAR_STEP)]
+    vals = [v for v in vals if np.isfinite(v)]
+    return float(np.median(vals)) if vals else float("nan")
 
 
 def equal_risk(book: pd.Series, stream: pd.Series, kind: str) -> pd.Series:
@@ -130,8 +152,11 @@ def _live_book(base: bs.Base, liquid: pd.Series, sessions: pd.DatetimeIndex) -> 
 
 def _card(x: pd.Series, tri: pd.Series) -> Dict:
     s = bs._summary(x, tri)
-    return {"cagr": s["cagr"], "excess_sharpe": excess_sharpe(x), "max_drawdown": max_drawdown(x),
-            "alpha_annual": s["alpha_annual"], "y2008": s["y2008"]}
+    dd = max_drawdown(x)
+    return {"cagr": s["cagr"], "excess_sharpe": excess_sharpe(x), "max_drawdown": dd,
+            "alpha_annual": s["alpha_annual"], "y2008": s["y2008"],
+            "calmar": float(s["cagr"] / -dd) if dd < 0 else float("nan"),
+            "calmar_3y_median": rolling_calmar_median(x)}
 
 
 def evaluate(name: str, kind: str, raw: pd.Series, base: bs.Base, tri: pd.Series, liquid: pd.Series,
@@ -150,13 +175,13 @@ def evaluate(name: str, kind: str, raw: pd.Series, base: bs.Base, tri: pd.Series
     tested = combine(book, stream, TESTED_WEIGHT, kind)
     b, c, t = _card(book, tri), _card(comb, tri), _card(tested, tri)
     p = bootstrap_p(book, comb)
-    sharpe_route = bool(c["excess_sharpe"] > b["excess_sharpe"] and p <= SHARPE_P
-                        and c["max_drawdown"] >= b["max_drawdown"] - SHARPE_DD_SLACK)
+    sharpe_gain = bool(c["excess_sharpe"] > b["excess_sharpe"] and p <= SHARPE_P)      # GT13's Sharpe lever
+    sharpe_route = bool(sharpe_gain and c["max_drawdown"] >= b["max_drawdown"] - SHARPE_DD_SLACK)   # 19 Oct
     dd_route = bool(c["max_drawdown"] >= b["max_drawdown"] + DD_GAIN
                     and c["excess_sharpe"] >= b["excess_sharpe"] - DD_SHARPE_SLACK)
     out = {"window": [str(sessions[0].date()), str(sessions[-1].date())], "book": b, "equal_risk": c,
            "tested_weight": t, "delta_sharpe": c["excess_sharpe"] - b["excess_sharpe"], "p": p,
-           "sharpe_route": sharpe_route, "drawdown_route": dd_route,
+           "sharpe_gain": sharpe_gain, "sharpe_route": sharpe_route, "drawdown_route": dd_route,
            "weight_mean": float(w.mean()), "weight_last": float(w.iloc[-1]),
            "cap_bound_share": float((w >= CAPS[kind] - 1e-9).mean()),
            "correlation": float(((1 + stream).resample("ME").prod() - 1).corr((1 + book).resample("ME").prod() - 1)),
@@ -197,6 +222,97 @@ def dg1(mcx_json: Optional[str] = None, runs_dir: str = "data/nse_engine") -> Di
         dd = all(v["drawdown_route"] for v in by_base.values())
         out["verdict"][name] = {"sharpe_lever": sharpe, "drawdown_lever": dd, "pass": sharpe or dd}
     return out
+
+
+def rt1(mcx_json: Optional[str] = None, runs_dir: str = "data/nse_engine") -> Dict:
+    """Plan 5ak: DG1's streams re-judged under GT13.  A Sharpe lever on both books, and a stream whose 2013-25 was
+    seen must hold its gain in 2008-12; no MaxDD condition.  Every pass is provisional (the rule changed after
+    DG1's results were seen); the 19 Oct verdict stays beside it."""
+    out = dg1(mcx_json, runs_dir)
+    out["verdict_19oct"] = out.pop("verdict")
+    out["verdict"] = {}
+    for name, by_base in out["streams"].items():
+        ok = all(v["sharpe_gain"] for v in by_base.values())
+        if name in OUT_OF_SAMPLE_2008_12:
+            ok = ok and all(v["oos_2008_12"]["holds"] for v in by_base.values())
+        out["verdict"][name] = {"sharpe_lever": ok, "pass": ok, "provisional": ok}
+    return out
+
+
+#: A1C (plan 5am): A1 with each cycle's maximum loss capped at a share of the book, the owner's sizing for live.
+A1_CAPITAL = 750_000.0
+
+
+def capped_weights(sessions: pd.DatetimeIndex, cap: float, cycles: pd.DataFrame, a1_equity: pd.Series
+                   ) -> Tuple[pd.Series, pd.DataFrame]:
+    """While a cycle is open (fill to exit), the overlay weight min(3, cap x A1's equity before the fill / the spread's
+    maximum loss), so it can lose at most ``cap`` of the book; 0 between cycles.  With each traded cycle's weight,
+    P&L and maximum loss as shares of the book."""
+    w = pd.Series(0.0, index=sessions)
+    rows = []
+    for c in cycles[cycles["action"] == "traded"].itertuples():
+        fill, exit_ = pd.Timestamp(c.fill_date), pd.Timestamp(c.exit_date) if pd.notna(c.exit_date) else sessions[-1]
+        before = a1_equity[a1_equity.index < fill]
+        base = float(before.iloc[-1]) if len(before) else A1_CAPITAL
+        wc = min(CAPS["overlay"], cap * base / float(c.max_loss_inr))
+        w[(w.index >= fill) & (w.index <= exit_)] = wc
+        pnl = float(c.pnl_inr) if pd.notna(getattr(c, "pnl_inr", float("nan"))) else float("nan")
+        rows.append({"fill": str(fill.date()), "weight": wc, "pnl_share": wc * pnl / base,
+                     "max_loss_share": wc * float(c.max_loss_inr) / base})
+    return w, pd.DataFrame(rows)
+
+
+def a1c(cap: float = 0.10, reported_caps: Sequence[float] = (0.15,), runs_dir: str = "data/nse_engine",
+        fo_store_dir: str = "data/nse_engine/fo_store") -> Dict:
+    """Plan 5am: A1 at A1C's capped weight on both books (the GT13 Sharpe lever, which must hold in 2008-12), and
+    its 2026 from the options family's opened holdout, reported."""
+    run = Path(runs_dir) / "runs_options" / OPTIONS["O2-A1"]
+    raw = _read(run / "returns.csv")
+    a1_eq = (1 + raw).cumprod() * A1_CAPITAL
+    cycles = pd.read_csv(run / "cycles.csv")
+    out: Dict = {"cap": cap, "books": {}, "reported": {}}
+    for base in (bs.backtest_base(), bs.walk_forward_base()):
+        tri = bs.nifty_tri(base.returns.index)
+        liquid = bs.bond_returns(base.returns.index, bs.BondConfig())["liquid"]
+        sessions = base.returns.index[base.returns.index >= raw.index[0]]
+        book = _live_book(base, liquid, sessions)
+        stream = carry_to(raw, sessions).reindex(sessions).fillna(0.0)
+        early = sessions[(sessions.year >= 2008) & (sessions.year <= 2012)]
+        for c in (cap, *reported_caps):
+            w, cyc = capped_weights(sessions, c, cycles, a1_eq)
+            comb = combine(book, stream, w, "overlay")
+            b, k = _card(book, tri), _card(comb, tri)
+            p = bootstrap_p(book, comb)
+            res = {"book": b, "capped": k, "delta_sharpe": k["excess_sharpe"] - b["excess_sharpe"], "p": p,
+                   "sharpe_gain": bool(k["excess_sharpe"] > b["excess_sharpe"] and p <= SHARPE_P),
+                   "holds_2008_12": bool(excess_sharpe(comb[early]) >= excess_sharpe(book[early])),
+                   "weight_open_mean": float(w[w > 0].mean()), "open_share": float((w > 0).mean()),
+                   "worst_cycle_share": float(cyc["pnl_share"].min()), "max_loss_share_max": float(cyc["max_loss_share"].max()),
+                   "years": {int(y): [round(float((1 + book[book.index.year == y]).prod() - 1), 4),
+                                      round(float((1 + comb[comb.index.year == y]).prod() - 1), 4)]
+                             for y in sorted(set(sessions.year))}}
+            (out["books"] if c == cap else out["reported"].setdefault(str(c), {}))[base.name] = res
+    out["pass"] = all(v["sharpe_gain"] and v["holds_2008_12"] for v in out["books"].values())
+    out["holdout_2026_reported"] = _a1c_2026(cap, runs_dir, fo_store_dir)
+    return out
+
+
+def _a1c_2026(cap: float, runs_dir: str, fo_store_dir: str) -> Dict:
+    """A1C on 1 Jan-11 Sep 2026 beside the deployed book's recorded holdout run.  The options family's holdout was
+    opened for A1 (plan 5al), so this is reported, not a fresh look."""
+    from dataclasses import replace
+
+    from kite_connect.options.backtest import HOLDOUT_BOOK_RUN, HOLDOUT_WINDOW, run_sleeve
+    from kite_connect.options.sleeves import CANDIDATES
+
+    book = _read(Path(runs_dir) / "runs" / HOLDOUT_BOOK_RUN / "returns.csv")[HOLDOUT_WINDOW[0]:HOLDOUT_WINDOW[1]]
+    res = run_sleeve(replace(CANDIDATES["A1"], start=HOLDOUT_WINDOW[0], end=HOLDOUT_WINDOW[1]), fo_store_dir)
+    a1 = res.returns.reindex(book.index).fillna(0.0)
+    w, cyc = capped_weights(book.index, cap, pd.DataFrame(res.cycles), res.equity)
+    comb = book + w * a1
+    card = lambda x: {"return": float((1 + x).prod() - 1), "excess_sharpe": excess_sharpe(x), "max_drawdown": max_drawdown(x)}
+    return {"book": card(book), "capped": card(comb), "weight_open_mean": float(w[w > 0].mean()) if (w > 0).any() else 0.0,
+            "cycles": cyc.to_dict("records")}
 
 
 #: DG2 (plan 5ai): drawdown levers at the sleeve weight fixed in their own pre-registrations (gilts 5ag, MCX 5y),
@@ -254,9 +370,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p = sub.add_parser("dg2", help="plan 5ai: drawdown levers (gilts, MCX) at their own 25%, alone and paired")
     p.add_argument("--mcx", required=True, help="mcx_results.json with the 2007-25 reported returns")
     p.add_argument("--out", help="also write the result here")
+    p = sub.add_parser("rt1", help="plan 5ak: DG1's streams re-judged under GT13 (no MaxDD condition)")
+    p.add_argument("--mcx", help="mcx_results.json from the Kaggle `mcx` task with --reported-start")
+    p.add_argument("--out", help="also write the result here")
+    p = sub.add_parser("a1c", help="plan 5am: A1 with each cycle's maximum loss capped at a share of the book")
+    p.add_argument("--cap", type=float, default=0.10)
+    p.add_argument("--out", help="also write the result here")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    out = dg1(args.mcx) if args.cmd == "dg1" else dg2(args.mcx)
+    out = a1c(args.cap) if args.cmd == "a1c" else {"dg1": dg1, "rt1": rt1}.get(args.cmd, dg2)(args.mcx)
     text = json.dumps(out, indent=1, default=str)
     if args.out:
         Path(args.out).write_text(text)

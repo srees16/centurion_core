@@ -589,9 +589,36 @@ def _engine_session(pt, dep, executor, as_of=None, previous_session=None, replay
             logger.exception("MCX sleeve failed: %s", exc)
             mcx = {"error": str(exc)[:300]}
             msg += f" | MCX SLEEVE FAILED: {str(exc)[:120]}"
+    options = None
+    if getattr(dep, "options_overlay", None):
+        try:
+            options = _options_overlay_session(pt, dep, session)
+            msg += (f" | {options['candidate']} overlay nav={options['nav']:.0f} as of {options['a1_asof']} "
+                    f"open={'yes' if options['position'] else 'no'}")
+        except Exception as exc:                      # the share book's session stands; the email says why
+            logger.exception("Options overlay failed: %s", exc)
+            options = {"error": str(exc)[:300]}
+            msg += f" | OPTIONS OVERLAY FAILED: {str(exc)[:120]}"
     if as_of is None:
-        _email_engine_session(pt, dep, session, snapshot, shift, gate, futures, bonds, mcx)
+        _email_engine_session(pt, dep, session, snapshot, shift, gate, futures, bonds, mcx, options)
     return "success", msg
+
+
+def _options_overlay_session(pt, dep, session: dict) -> dict:
+    """The options overlay of a paper book (tracker A1P, ``kite_connect.trading.options_overlay``), after the share
+    book has processed the session; reads the F&O store the workflow rebuilt tonight."""
+    import pandas as pd
+
+    from kite_connect.trading import options_overlay as oo
+
+    cfg = oo.OverlayConfig.from_dict(dep.options_overlay)
+    cloud = pt._get_cloud()
+    ledger = oo.load_ledger(cloud, start=dep.paper_start_date.isoformat())
+    summary = oo.run_session(ledger, cfg, pd.Timestamp(session["session"]),
+                             share_equity=float(pt.dashboard().current_capital), initial=float(dep.paper_capital_inr),
+                             fo_store_dir=os.environ.get("FO_STORE_DIR", "data/nse_engine/fo_store"))
+    oo.save_ledger(cloud, ledger)
+    return summary
 
 
 def _mcx_sleeve_session(pt, dep, session: dict) -> dict:
@@ -817,7 +844,7 @@ def _drift_check_line(pt, shift: dict, plan) -> str:
 
 def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict, gate: Optional[dict] = None,
                           futures: Optional[dict] = None, bonds: Optional[dict] = None,
-                          mcx: Optional[dict] = None) -> None:
+                          mcx: Optional[dict] = None, options: Optional[dict] = None) -> None:
     """Daily email for a newly processed session (best-effort).
 
     A re-run of a session already processed (a backup cron or a manual
@@ -876,6 +903,14 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict, g
         for note in (mcx or {}).get("alerts", []):    # stale MCX data, or a replay that moved
             alerts.append(f"MCX SLEEVE: {note}")
             alert(WARNING, f"mcx_sleeve_data:{book}", f"Centurion paper [{book}]: MCX sleeve data", [note], book=book)
+        if options and options.get("error"):
+            alerts.append(f"OPTIONS OVERLAY FAILED tonight (the share book ran): {options['error']}")
+            alert(WARNING, f"options_overlay_failed:{book}", f"Centurion paper [{book}]: options overlay failed",
+                  [alerts[-1]], book=book)
+        for note in (options or {}).get("alerts", []):  # stale F&O data, or a replay that moved
+            alerts.append(f"OPTIONS OVERLAY: {note}")
+            alert(WARNING, f"options_overlay_data:{book}", f"Centurion paper [{book}]: options overlay data", [note],
+                  book=book)
         sent = NotificationManager().email_engine_daily_report({
             "session": session.get("session"),
             "deployment": f"{dep.status} {dep.engine.config_hash()[:8]} · paper since {dep.paper_start_date}",
@@ -904,6 +939,7 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict, g
             "futures": None if deferred else futures,
             "bonds": bonds,
             "mcx": mcx,
+            "options": options,
         })
         if not sent:
             logger.warning("Daily email returned False — check CENTURION_EMAIL_USER / CENTURION_EMAIL_PASS / "
@@ -1034,6 +1070,52 @@ def _weekly_mcx_block(pt) -> tuple:
         return f"<p style='color:#dc2626;'>MCX trend sleeve: report failed ({exc}).</p>", ""
 
 
+def _weekly_options_block(pt) -> tuple:
+    """(html, subject tag) for a book with an options overlay: its week and the combined book's record since the
+    start (tracker A1P); ("", "") for the other books."""
+    dep = _load_engine_deployment()
+    if not getattr(dep, "options_overlay", None):
+        return "", ""
+    try:
+        import pandas as pd
+
+        from kite_connect.trading import options_overlay as oo
+
+        cfg = oo.OverlayConfig.from_dict(dep.options_overlay)
+        ledger = oo.load_ledger(pt._get_cloud(), "")
+        if not ledger.history:
+            return f"<p style='color:#6b7280;'>{cfg.candidate} options overlay: no session yet.</p>", ""
+        h = ledger.history
+        this_week = pd.Timestamp(h[-1]["date"]).isocalendar()[:2]
+        week = [r for r in h if pd.Timestamp(r["date"]).isocalendar()[:2] == this_week]
+        wk_ret = h[-1]["nav"] / (week[0]["nav"] - week[0]["day_pnl"]) - 1.0
+        initial = float(dep.paper_capital_inr)
+        m = oo.metrics(ledger, initial)
+        s = oo.summary(ledger, cfg, initial, alerts=[])
+        pos = s["position"]
+        spread = (f"short {pos['short']:,.0f} / wing {pos['wing']:,.0f} CE, expiry {pos['expiry']}, "
+                  f"{pos['book_lots']} lots at {cfg.weight:g}x, max loss {pos['max_loss_share']:.1%} of the book"
+                  if pos else "none open")
+        cell = "padding:6px 12px;border:1px solid #e5e7eb;"
+        hit = f"{m['hit_rate']:.0%}" if m.get("hit_rate") is not None else "—"
+        rows = [(f"Book (shares + {cfg.candidate} at {cfg.weight:g}x)",
+                 f"₹{initial:,.0f} → ₹{h[-1]['nav']:,.0f} ({h[-1]['nav'] / initial - 1:+.2%})"),
+                ("This week", f"{wk_ret:+.2%} over {len(week)} session(s)"),
+                ("Overlay P&L since start", f"₹{m.get('overlay_pnl', 0):,.0f}; marked at the F&O close of {h[-1]['a1_asof']}"),
+                ("Open spread", spread),
+                ("Cycles", f"{m.get('cycles', 0)} decided, {m.get('traded', 0)} traded, {m.get('closed', 0)} closed; "
+                           f"hit rate {hit}"),
+                ("Max drawdown", f"{m.get('max_drawdown', 0):.1%}" + (f"; Sharpe {m['sharpe']:.2f}" if "sharpe" in m else ""))]
+        html = (f"<h3 style='color:#1a1a2e;margin-top:24px;'>{cfg.candidate} options overlay (paper, A1P)</h3>"
+                "<table style='border-collapse:collapse;width:100%;font-size:14px;'>"
+                + "".join(f"<tr><td style='{cell}color:#666;'>{k}</td><td style='{cell}'>{v}</td></tr>" for k, v in rows)
+                + "</table>")
+        return html, f" | book {wk_ret * 100:+.1f}%"
+    except Exception as exc:                          # the weekly email still goes, without the block
+        logger.warning("Weekly options-overlay block failed: %s", exc)
+        return f"<p style='color:#dc2626;'>Options overlay: report failed ({exc}).</p>", ""
+
+
 
 def _weekly_gate_verdict(pt) -> tuple:
     """(verdict, colour, detail) for the weekly email from the stored paper gate (G4)."""
@@ -1095,6 +1177,8 @@ def _run_weekly_checkpoint(use_engine: bool = False):
         futures_html, futures_tag = _weekly_bond_block(pt)
     if use_engine and not futures_html:
         futures_html, futures_tag = _weekly_mcx_block(pt)
+    if use_engine and not futures_html:
+        futures_html, futures_tag = _weekly_options_block(pt)
     week_days = max(_week_session_count(pt, checkpoint), 1)
     pnl_color = "#15803d" if dash.total_pnl >= 0 else "#dc2626"
     wk_color = "#15803d" if checkpoint["week_return_pct"] >= 0 else "#dc2626"

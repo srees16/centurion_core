@@ -269,8 +269,20 @@ jobs:
             --root "$ARCHIVE_DIR" --rps "$NSE_ARCHIVE_RPS"
           # A book levered with stock futures (tracker L9) reads the F&O bhavcopy: its opens, settles, lots.
           # The book reads only the session's file, so the runner keeps 30 days (~1 MB a day), even after a bootstrap.
-          if grep -l '"futures_overlay"' config/nse_engine_*.json > /dev/null 2>&1; then
-            FO_START=$(python -c "from datetime import date, timedelta; print(max('$SYNC_START', str(date.fromisoformat('$TODAY') - timedelta(days=30))))")
+          # A book with an options overlay (tracker A1P) replays A1 from its paper start, which reads option quotes
+          # from 45 days before it: the files reach back that far while it runs.
+          if grep -l -E '"(futures_overlay|options_overlay)"' config/nse_engine_*.json > /dev/null 2>&1; then
+            FO_START=$(python - "$SYNC_START" "$TODAY" <<'EOF'
+          import glob, json, sys
+          from datetime import date, timedelta
+          start = max(sys.argv[1], str(date.fromisoformat(sys.argv[2]) - timedelta(days=30)))
+          for path in glob.glob("config/nse_engine_*.json"):
+              doc = json.load(open(path))
+              if doc.get("options_overlay"):
+                  start = min(start, str(date.fromisoformat(doc["paper_start_date"]) - timedelta(days=45)))
+          print(start)
+          EOF
+          )
             python -m nse_engine.data.archive --start "$FO_START" --end "$TODAY" \
               --root "$ARCHIVE_DIR" --rps "$NSE_ARCHIVE_RPS" --kinds fo --no-reference
             python - "$FO_START" <<'EOF'
@@ -354,6 +366,14 @@ jobs:
                   fh.write(f"suspect={suspect}\n")
           EOF
           du -sh data/nse_engine/store
+          # A book with an options overlay (tracker A1P) replays A1 on the F&O store: the index options, futures and
+          # NIFTY closes, from the F&O files kept above and this equity store.  A failed build warns; the overlay
+          # then reports the failure and the share books still run.
+          if grep -l '"options_overlay"' config/nse_engine_*.json > /dev/null 2>&1; then
+            python -m nse_engine.data.fo_store --archive "$ARCHIVE_DIR" --store data/nse_engine/fo_store \
+              --equity-store data/nse_engine/store --no-stocks ||
+              echo "::warning::F&O store build failed; the options overlay will report it"
+          fi
 
       # Tracker AL2: the store build holds no secrets, so its warning goes from a step of its own.
       - name: Tell me when the store seems to miss a session

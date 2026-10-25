@@ -274,7 +274,7 @@ def run_sleeve(cfg: SleeveConfig, store_dir: str, opt_cfg: OptionsConfig = Optio
     eq = pd.Series(equity).sort_index()
     rets = eq.pct_change().fillna(0.0)
     for cyc in cycles:
-        if cyc.get("action") == "traded":
+        if cyc.get("action") == "traded" and "debit" in cyc:   # a spread still open at ``end`` has no P&L yet
             cyc["pnl_inr"] = (cyc["credit"] - cyc["debit"]) * cyc["qty"] - cyc["charges"]
     return SleeveResult(cfg, rets, eq, cycles, _sleeve_metrics(rets, cycles), fo_store.data_hash(store_dir))
 
@@ -284,7 +284,7 @@ def _sleeve_metrics(rets: pd.Series, cycles: List[Dict[str, Any]]) -> Dict[str, 
 
     m = performance_summary(rets, rf_annual=0.0)
     traded = [c for c in cycles if c.get("action") == "traded"]
-    pnl = [c["pnl_inr"] for c in traded]
+    pnl = [c["pnl_inr"] for c in traded if "pnl_inr" in c]
     m.update(sharpe=m["excess_sharpe"], calmar=(m["cagr"] / abs(m["max_drawdown"]) if m["max_drawdown"] else None),
              cycles=len(cycles), traded=len(traded),
              skipped={k: sum(1 for c in cycles if c.get("action") == k) for k in
@@ -476,6 +476,57 @@ def _extended(reg, by_tag: pd.Series, selected_hash: Optional[str], options_runs
 
 # ---------------------------------------------------------------- CLI
 
+#: A1P (plan 5al): the options family's 2026 holdout, opened once: A1 as recorded, beside the deployed book's
+#: recorded holdout run, as an overlay at 3x (RT1's equal-risk weight at its last reset, its cap).
+HOLDOUT_LOCK = Path(OPTIONS_RUNS_DIR) / "holdout.lock"
+HOLDOUT_BOOK_RUN = "20260915T161516314162Z_679cbd0c"
+HOLDOUT_WINDOW = ("2026-01-01", "2026-09-11")
+A1_RECORDED_RUN = "20261010T122956596793Z_ae503fc4"
+A1_OVERLAY_WEIGHT = 3.0
+
+
+def holdout(fo_store_dir: str = "data/nse_engine/fo_store", lock_path: Path = HOLDOUT_LOCK,
+            options_runs: str = OPTIONS_RUNS_DIR, book_runs: str = BOOK_RUNS_DIR) -> Dict[str, Any]:
+    """A1P (plan 5al): A1 agrees out of sample if the book plus A1 at 3x has an excess Sharpe at least the book's
+    over 1 Jan-11 Sep 2026.  The lock entry is written before anything runs, so a crash still counts as the look."""
+    from nse_engine.diversifier_gate import _calmar, excess_sharpe, max_drawdown
+    from nse_engine.validation.holdout import HoldoutLockedError, _read_lock, _write_lock
+    from nse_engine.validation.trials import git_state, to_jsonable
+
+    window = {"start": HOLDOUT_WINDOW[0], "end": HOLDOUT_WINDOW[1]}
+    lock = _read_lock(Path(lock_path))
+    if any(e.get("window") == window for e in lock["evaluations"]):
+        raise HoldoutLockedError(f"the options family's 2026 holdout was already opened (lock {lock_path})")
+    recorded = SleeveConfig(**json.loads((Path(options_runs) / A1_RECORDED_RUN / "config.json").read_text()))
+    cfg = replace(recorded, start=window["start"], end=window["end"])
+    entry = {"window": window, "family": "options", "run": HOLDOUT_BOOK_RUN, "status": "started",
+             "configs": {"A1": recorded.config_hash()}, "weight": A1_OVERLAY_WEIGHT, **git_state(),
+             "created_at": datetime.now(timezone.utc).isoformat(), "metrics": {}}
+    lock["evaluations"].append(entry)
+    _write_lock(Path(lock_path), lock)
+
+    book = pd.read_csv(Path(book_runs) / HOLDOUT_BOOK_RUN / "returns.csv", index_col=0).squeeze("columns")
+    book = book.astype("float64")
+    book.index = pd.DatetimeIndex(book.index)
+    book = book[window["start"]:window["end"]]
+    res = run_sleeve(cfg, fo_store_dir)
+    a1 = res.returns.reindex(book.index).fillna(0.0)
+    comb = book + A1_OVERLAY_WEIGHT * a1
+
+    def card(x: pd.Series) -> Dict[str, Any]:
+        return {"return": float((1 + x).prod() - 1), "cagr": float((1 + x).prod() ** (252 / len(x)) - 1),
+                "excess_sharpe": excess_sharpe(x), "max_drawdown": max_drawdown(x), "calmar": _calmar(x)}
+
+    keep = ("expiry", "decision_date", "action", "short", "wing", "lots", "credit", "exit", "pnl_inr")
+    out = {"book": card(book), "combined": card(comb), "a1_alone": card(a1), "weight": A1_OVERLAY_WEIGHT,
+           "a1_cycles": [{k: c.get(k) for k in keep} for c in res.cycles]}
+    out["agrees"] = bool(out["combined"]["excess_sharpe"] >= out["book"]["excess_sharpe"])
+    entry.update({"status": "completed", "completed_at": datetime.now(timezone.utc).isoformat(),
+                  "metrics": to_jsonable(out)})
+    _write_lock(Path(lock_path), lock)
+    return out
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     from nse_engine.validation.trials import to_jsonable
 
@@ -493,9 +544,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     e.add_argument("--book-runs", default=BOOK_RUNS_DIR)
     e.add_argument("--no-record", action="store_true", help="do not record the combined run")
     e.add_argument("--out", default="data/nse_engine/o2_results.json")
+    h = sub.add_parser("holdout", help="A1P (plan 5al): A1 on the options family's 2026 holdout, opened once")
+    h.add_argument("--fo-store", default="data/nse_engine/fo_store")
+    h.add_argument("--out", default=None, help="JSON summary path")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    if args.cmd == "run":
+    if args.cmd == "holdout":
+        text = json.dumps(to_jsonable(holdout(args.fo_store)), indent=2)
+    elif args.cmd == "run":
         out = {}
         for key in args.candidates.split(","):
             cfg = CANDIDATES[key]
