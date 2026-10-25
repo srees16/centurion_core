@@ -343,3 +343,39 @@ async def api_delete_account(req: DeleteAccountRequest, request: Request):
     except Exception as exc:                              # noqa: BLE001 - the account is gone either way
         logger.warning("Deletion email failed: %s", exc)
     return {"ok": True}
+
+
+@router.get("/admin/users")
+async def api_admin_users(request: Request):
+    """The signed-up users, their details and a few counts (MU2): the admin's view only, never an analyst's or a
+    user's.  Each user's Zerodha connection is read from the accounts registry (``owner``)."""
+    from collections import Counter
+    from datetime import datetime, timedelta, timezone
+
+    from api import users
+    from api.auth import session_from_request
+    from kite_connect.auth import accounts
+
+    session = session_from_request(request) or {}
+    if session.get("r") != "admin":
+        raise HTTPException(status_code=403, detail="only an admin can see the users")
+    try:
+        rows = await asyncio.to_thread(users.list_users)
+        owners = {a.owner for a in (await asyncio.to_thread(accounts.load)).values() if a.owner}
+    except Exception as exc:                              # noqa: BLE001
+        _unavailable(exc)
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    for u in rows:
+        u["zerodha_connected"] = users.email_index(u["email"]) in owners
+    stats = {
+        "total": len(rows),
+        "active": sum(u["status"] == "active" for u in rows),
+        "pending": sum(u["status"] == "pending" for u in rows),
+        "new_last_7_days": sum(bool(u.get("created_at")) and u["created_at"] >= week_ago for u in rows),
+        "zerodha_connected": sum(u["zerodha_connected"] for u in rows),
+        "by_experience": dict(Counter(u.get("trading_experience") or "" for u in rows)),
+        "by_gender": dict(Counter(u.get("gender") or "" for u in rows)),
+        "by_country": dict(Counter(u.get("country") or "" for u in rows).most_common()),
+    }
+    logger.info("Admin %s listed %d signed-up users", session.get("u"), len(rows))
+    return {"stats": stats, "users": rows}
