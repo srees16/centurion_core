@@ -462,26 +462,40 @@ def _run_engine_paper(new_book: bool = False):
     pt = _open_paper_trader(dep.share_capital())
     previous_session = pt.engine_last_session()
     executor = EngineExecutor(kite=None, paper=True, paper_trader=pt, deployment=dep)
+    brand_new = pt.restored_from == "new" and not new_book
+    missed = [] if new_book else _missed_sessions(dep, previous_session, brand_new)
+    if brand_new and missed:
+        _date_book_start(pt, dep.paper_start_date)
     replayed = []
-    for day in ([] if new_book else _missed_sessions(dep, previous_session)):
+    for day in missed:
         logger.warning("Replaying missed session %s", day)
         replayed.append((day, _engine_session(pt, dep, executor, as_of=day)[1]))
     return _engine_session(pt, dep, executor, previous_session=previous_session, replayed=replayed)
 
 
-def _missed_sessions(dep, last) -> list:
-    """Store sessions after the book's last processed one (none yet: from its paper_start_date), before the
-    latest: the nights no run processed."""
+def _missed_sessions(dep, last, brand_new: bool = False) -> list:
+    """Store sessions after the book's last processed one (a brand-new book: from its paper_start_date), before
+    the latest: the nights no run processed."""
     from nse_engine.data.store import sessions_after
 
     if last is not None:
         after = last
-    elif getattr(dep, "paper_start_date", None) is not None:
+    elif brand_new and getattr(dep, "paper_start_date", None) is not None:
         after = dep.paper_start_date - timedelta(days=1)
     else:
         return []
     today = datetime.now(timezone(timedelta(hours=5, minutes=30))).date()
     return sessions_after(dep.engine.data.store_dir, after, on_or_before=today)[:-1]
+
+
+def _date_book_start(pt, paper_start) -> None:
+    """A brand-new book replayed from its paper_start_date starts on that date.  Its first write stamped tonight
+    as the epoch, and the restore, the trade monitor and the gate read only rows from a book's start on: every
+    replayed row would have been an older book's (the gilt and MCX books' 21-23 Oct, hidden on 25 Oct 2026)."""
+    cloud = pt._get_cloud()
+    if cloud and hasattr(cloud, "sync_state"):
+        start = f"{paper_start.isoformat()}T00:00:00+05:30"
+        cloud.sync_state({"epoch": start, "book_start": start})
 
 
 def _engine_session(pt, dep, executor, as_of=None, previous_session=None, replayed=()) -> tuple:
