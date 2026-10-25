@@ -117,7 +117,7 @@ Centurion is swing and positional only.
 |---|---|---|
 | **1, alone** | Deflated Sharpe ≥ 0.95 at the family's N, on excess returns over the family's risk-free convention (books 6.5%; options sleeves 0). | Every configuration |
 | **New signal** | t ≥ 3 for a newly discovered signal. t ≥ 2 for the replication of a published effect (GT13). | Signals and event studies |
-| **2, beside the live book** | Must raise CAGR, excess Sharpe **and** alpha against NIFTY 50 TRI, with MaxDD no more than 2 points worse. | Overlays: book + 0.25 × strategy. Sleeves funded from the core: 0.75 × book + 0.25 × sleeve. |
+| **2, beside the live book** | Must raise CAGR, excess Sharpe **and** alpha against NIFTY 50 TRI. MaxDD is reported, not a condition (GT13, 25 Oct 2026; it was "no more than 2 points worse"). | Overlays: book + 0.25 × strategy. Sleeves funded from the core: 0.75 × book + 0.25 × sleeve. |
 | **Out of sample** | Walk-forward 2017–25 for anything with fitted parameters. | Passers |
 
 **Also reported:**
@@ -135,11 +135,18 @@ A low-Sharpe uncorrelated sleeve can fail gate 1 at a large N even when it
 would help the book. Judging overlays on gate 2 plus a significance test is
 your decision, parked at OX6.
 
-### 5.1 The diversifier gate (your decision, 19 Oct 2026; settles OX6)
+### 5.1 The diversifier gate (your decision, 19 Oct 2026; settles OX6; amended 25 Oct 2026, GT13)
 
 For a stream added beside the book to diversify it, this gate replaces
-gate 2's "must raise CAGR" and gate 1's deflated Sharpe of 0.95. Your
-words: minimising MaxDD matters as much as maximising Sharpe or CAGR.
+gate 2's "must raise CAGR" and gate 1's deflated Sharpe of 0.95.
+
+**Amendment, 25 Oct 2026 (GT13, your decision).** MaxDD is no longer a
+condition anywhere in this gate. It is measured and reported for every
+stream. Your reason: sleeves were thrown out on a MaxDD breach. This
+replaces the 19 Oct words "minimising MaxDD matters as much as maximising
+Sharpe or CAGR". Calmar is a metric to improve and report, never a reason to
+reject. The drawdown route below is retired; it stays written out because
+DG2 judged gilts and MCX-B by it.
 - **Base:** the honest base, on two books where they exist, over 2008–25
   (or the stream's own span when its data starts later):
   1. the deployed rules' backtest with the drawdown rule;
@@ -155,10 +162,11 @@ words: minimising MaxDD matters as much as maximising Sharpe or CAGR.
       book + w × stream.
     - Caps: a sleeve at 50% of capital; an overlay at 3×.
     - The stream's tested weight (e.g. 25%) is reported beside it.
-  - **Drawdown levers: their own fixed sleeve weight** (your decision, 19
-    Oct 2026). The weight must be written in the stream's pre-registration
-    before any result: gilts 25% (5ag), MCX-B 25% (5y). Equal risk
-    over-allocates a low-Sharpe stream and lowers the book's Sharpe.
+  - **Drawdown levers (retired 25 Oct, GT13): their own fixed sleeve
+    weight** (your decision, 19 Oct 2026). The weight must be written in
+    the stream's pre-registration before any result: gilts 25% (5ag), MCX-B
+    25% (5y). Equal risk over-allocates a low-Sharpe stream and lowers the
+    book's Sharpe.
 - **Idle cash and collateral** earn the liquid rate (the 1D rate less a
   0.10% expense ratio), never nothing.
   - **Correction, 25 Oct 2026 (LN-T29d):** this credit is an upper bound. It
@@ -168,24 +176,36 @@ words: minimising MaxDD matters as much as maximising Sharpe or CAGR.
     point and 0.06 Sharpe less on the walk-forward book. Cost model 5
     (LN-T29) replaces this rule; until then, read honest-base figures as
     about that much high.
-- **A stream passes by either route, on both books:**
-  - **Sharpe lever:** combined excess Sharpe above the book's, with
-    one-sided p ≤ 0.10 in a paired stationary bootstrap (63-session mean
-    blocks, 2,000 resamples). MaxDD no more than 1 point worse.
+- **A stream passes on both books as a Sharpe lever:** combined excess
+  Sharpe above the book's, with one-sided p ≤ 0.10 in a paired stationary
+  bootstrap (63-session mean blocks, 2,000 resamples). (Until 25 Oct also
+  "MaxDD no more than 1 point worse".) A stream whose 2013–25 was seen must
+  also hold its gain in 2008–12.
+- **Reported for every stream, never a reason to reject:** MaxDD; Calmar
+  on the full window and as the median of rolling 3-year windows; CAGR;
+  alpha; the deflated Sharpe at the family's N; the year-by-year split;
+  and, where the stream trades, turnover, hit rate, win/loss ratio, profit
+  factor, average P&L per trade and costs.
+- **Retired 25 Oct (GT13), kept for DG2's record:**
   - **Drawdown lever:** at its own fixed weight, all three hold:
     1. MaxDD at least 3 points shallower;
     2. combined Sharpe no more than 0.02 below the book's;
     3. in the same paired bootstrap, MaxDD 3+ points shallower in at least
        80% of resamples. MaxDD is one path, so this checks it is not one
        lucky crash.
-- **Two or more drawdown levers** are tested together, at their own
-  weights, before they run together, and go to paper only as that tested
-  set.
+  - **Two or more drawdown levers** are tested together, at their own
+    weights, before they run together, and go to paper only as that tested
+    set.
+  - The gilt and MCX-B paper books passed by this route. They keep running
+    and are judged after their paper period on the focus metrics.
 - **A pass whose 2026 holdout was already seen is provisional.** Its 60
   paper sessions and 5 dry runs are the fresh evidence, and paper must agree
   with its shadow backtest before anything else follows.
 - **CAGR, alpha and the deflated Sharpe at the family's N** are reported,
   not gates.
+- **Risk controls are not metrics.** The drawdown rule (20/30/35) and the
+  kill switch keep guarding paper and live money; GT13 changes how
+  research is judged, not those controls.
 - **Overfitting control is your five steps** (section 6): 2008–25, a
   walk-forward for anything fitted, and the 2026 holdout opened once with a
   check written down before it is opened. Then paper and dry runs.

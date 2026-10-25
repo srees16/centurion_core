@@ -27,6 +27,30 @@ The legs fit together at Sharpe ≈ 1.4 and σ ≈ 23% only if drawdowns are hel
 to about 1.5σ. At this book's 1.8σ, the 35% drawdown cap limits σ to about
 19%, and 35% CAGR then needs Sharpe ≈ 1.55. Section 1.2 gives the arithmetic.
 
+**Decision (GT13, 25 Oct 2026, the owner's call): MaxDD leaves the target.**
+The golden target is now **Sharpe ≥ 1.4, CAGR ≥ 35%, Calmar ≥ 1, PBO ≤ 30%**,
+all pre-tax. The main target drops its soft MaxDD ≤ 30% the same way.
+- **Why:** sleeves were thrown out on a MaxDD breach. MaxDD is still
+  measured and reported everywhere; it is never a reason to reject.
+- **Calmar ≥ 1 is judged on the median of rolling 3-year windows** of the
+  walk-forward book, Calmar's own 36-month horizon. The full 2008–25 figure
+  is always shown beside it. That figure is the 2008 crash: its bootstrap
+  range is 0.21–1.08.
+- **Today, on the honest base with a realistic idle-cash sweep:**
+  - rolling 3-year Calmar median 0.88 (10th–90th percentile 0.37–1.92);
+  - 33% of windows at 1 or more;
+  - full 2008–25 Calmar 0.42.
+- **Focus metrics:** Sharpe, Calmar, CAGR, PBO, alpha, deflated Sharpe,
+  regime stability, cost model and slippage, turnover, hit rate, win/loss
+  ratio, profit factor, average P&L per trade, out-of-sample and
+  walk-forward results. The scorecard (SC1) computes all of them.
+- **What changes:** the 35% drawdown cap no longer limits σ, so the
+  Sharpe ≈ 1.55 arithmetic above is now an upper case.
+- The research protocol's 5.1 is amended to match: no MaxDD condition, and
+  the drawdown route is retired.
+- Sections 1–6 below were written under the earlier target and keep their
+  MaxDD figures as reported values.
+
 ## 0. Verdict
 
 **Update, 17 Oct 2026: the honest base (your rule).** It is 2008–25,
@@ -60,6 +84,12 @@ uses 2013–25 backtests and reads high.
     paper books.
 - **The diversifier gate (19 Oct) found no reliable Sharpe lever yet.** A1
   adds +0.16 of Sharpe but loses in crashes. X2 and Y3 are not significant.
+  **Update, 25 Oct (RT1, plan 5ak):** under GT13, with no MaxDD condition,
+  A1 passes provisionally.
+  - Walk-forward book: 13.0% / 0.60 → 15.5% / 0.76, p 0.026.
+  - Rolling 3-year Calmar 0.94 → 1.22.
+  - It holds in 2008–12. Its own deflated Sharpe is 0.14, so paper is the
+    test.
 - **The gap is Sharpe, as below, and larger than it read.** The honest
   base is about 0.6, not 1.16. Uncorrelated streams add in quadrature, so
   reaching 1.4 needs about 1.26 more: roughly 6–7 independent streams of

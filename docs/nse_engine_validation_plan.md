@@ -3689,6 +3689,289 @@ options family's 2026 holdout, still sealed.
     runs.
 - **If it fails:** recorded, not re-tuned. A1 and A1G close.
 
+## 5ak. RT1: streams rejected on drawdown, re-judged under GT13 (India tracker RT1; pre-registered 25 Oct 2026, 23:31 IST)
+
+**Why.** The owner's decision of 25 Oct 2026 (GT13): MaxDD is no longer a
+target or gate metric. It is measured and reported, never a reason to
+reject. Protocol 5.1 is amended to match. The owner asked to re-test the
+sleeves that were rejected on drawdown.
+
+**Audit, written before any run.** These verdicts had a MaxDD condition:
+- 5x, options O5–O9: failed on the deflated Sharpe (O9 0.00) and on
+  Sharpe. Not on drawdown.
+- 5y, GT5 MCX trend: failed on CAGR, Sharpe and alpha. Its MaxDD improved.
+- 5aa, GT7 and MV1: not run yet.
+- 5ab, CR1: failed on beating cash (rules 1 and 2).
+- 5af, L7-C: failed on CAGR (≥ 33.9%).
+- Stage F E1: failed on CAGR.
+- 5ah, DG1:
+  - **O2-A1 failed only on MaxDD:** +0.16 Sharpe, p 0.03 (backtest book
+    0.044), and its gain holds in 2008–12;
+  - O4-Y3 failed on p (0.15) and on MaxDD;
+  - O3-X2 failed on p (0.20) and in 2008–12;
+  - GT5-A and GT5-B failed on Sharpe at equal risk.
+
+So the one rejection that rested on drawdown is A1. DG1's five streams are
+re-judged together, so the set stays complete.
+
+**What runs.** DG1 exactly, the same inputs and settings:
+- the five streams: O2-A1, O3-X2 and O4-Y3 as overlays; GT5-A and GT5-B as
+  funded sleeves (`mcx_results_2007_25.json`);
+- both books: the 2008–25 walk-forward (the headline) and the backtest;
+- equal risk, the same base, the same paired bootstrap (seed 7).
+
+The base keeps DG1's idle-cash credit, so the comparison is like for like.
+Section 5ah's LN-T29d correction applies to both sides equally.
+
+**Rule: the amended 5.1.** A Sharpe lever only:
+- combined excess Sharpe above the book's;
+- one-sided p ≤ 0.10;
+- on both books;
+- A1 and X2, whose 2013–25 was seen, must also hold their gain in 2008–12.
+
+There is no MaxDD condition.
+
+**Reported, never gates:**
+- MaxDD;
+- Calmar, full window and the median of rolling 3-year windows, for the book
+  and the combination;
+- CAGR, alpha, the deflated Sharpe at the family's N, and the year-by-year
+  split;
+- the 19 Oct verdict beside the new one.
+
+**Expected, from DG1's recorded numbers:**
+- A1 passes;
+- X2 and Y3 fail on significance;
+- GT5-A and GT5-B fail on Sharpe.
+
+The run adds the Calmar figures and the formal record.
+
+**Status of a pass: provisional.** The rule changed after DG1's results were
+seen, and A1's 2013–25 was seen. So paper is the test:
+- a pass goes to an options-overlay paper book, if the owner decides to
+  build one;
+- that book runs 60 sessions, then 5 dry runs.
+
+A1G (5aj, A1 with a crash guard, not run) is no longer needed for the gate.
+It stays available as a possible Calmar improvement: the owner's call.
+
+**If something fails:** recorded, not re-tuned.
+
+**Result (25 Oct 2026): A1 PASSES, provisionally; X2, Y3, GT5-A and GT5-B
+fail, as expected.** `python -m nse_engine.diversifier_gate rt1`, results
+in `data/nse_engine/dg1/rt1_results.json`. DG1's 19 Oct verdicts reproduce
+exactly. Figures are CAGR / Sharpe over 6.5% / MaxDD; Calmar is shown full
+and as the rolling 3-year median.
+
+| Walk-forward book | Book | + stream at equal risk | ΔSharpe (p) | Calmar: full, 3-year | Verdict |
+|---|---|---|---|---|---|
+| O2-A1 call spread | 13.0% / 0.60 / −29.5% | 15.5% / 0.76 / −34.6% | +0.16 (0.026) | 0.44 → 0.45; 0.94 → 1.22 | **PASS, provisional** |
+| O3-X2 TRIN | same | 18.6% / 0.78 / −31.9% | +0.18 (0.195) | 0.58; 1.02 | FAIL: p, and not in 2008–12 |
+| O4-Y3 overnight (from 2012) | 16.4% / 0.86 / −20.9% | 24.0% / 1.08 / −27.1% | +0.22 (0.153) | 0.78 → 0.89; 0.94 → 1.25 | FAIL: p |
+| GT5-A MCX | 13.0% / 0.60 / −29.5% | 11.6% / 0.48 / −29.7% | −0.12 | 0.39; 0.90 | FAIL: Sharpe |
+| GT5-B MCX | same | 10.8% / 0.45 / −26.5% | −0.15 | 0.41; 0.99 | FAIL: Sharpe |
+
+- **A1 on the backtest book:** 15.5% / 0.70 / −28.6% → 17.9% / 0.83 /
+  −34.2%; ΔSharpe +0.13 (p 0.044); 3-year Calmar 1.09 → 1.35. Its gain
+  holds in 2008–12 on both books.
+- **What A1 costs:** about 5 points of MaxDD, mostly the 2008 crash (−7.8%).
+  The full-window Calmar is flat, and the rolling 3-year Calmar rises above
+  1.
+- **Read A1's pass with care:**
+  - its own deflated Sharpe at the options family's N (17) is 0.14, so
+    the stream alone is weak evidence; the gate's test is the book-level
+    gain, which is significant;
+  - the equal-risk weight averages about 2.7×, near the 3× overlay cap.
+    Margin pledged from the book must carry it, which the paper design
+    checks;
+  - at the tested 0.25× the gain is small: 13.2% / 0.61 / −30.0%.
+- **Next (the owner's call):** an options-overlay paper book for A1, which
+  runs 60 sessions, then 5 dry runs. Paper is the test, because the rule
+  changed after these results were seen.
+
+## 5al. A1P: A1's out-of-sample check and its options-overlay paper book (India tracker A1P; pre-registered 25 Oct 2026, 23:43 IST)
+
+**Why.** The owner's decision of 25 Oct: build an options-overlay paper
+book for A1 and promote A1 to paper if the conditions are met; enable A1G
+too if it does not hold A1 up.
+
+**The conditions are the owner's five steps:**
+1. **Backtest 2008–25:** done. RT1 (5ak) passed A1 as a Sharpe lever under
+   GT13, provisionally.
+2. **Walk-forward:** A1 fits no parameter beyond its pre-registered rule,
+   and the book's walk-forward is the gate's headline.
+3. **Out of sample:** the options family's 2026 holdout, still sealed.
+   This section's check.
+4. **60 paper sessions.**
+5. **5 dry runs.**
+
+**The check: one look at the options family's 2026 holdout.**
+- **A1, unchanged:** O2-A1 as recorded in run
+  `20261010T122956596793Z_ae503fc4`. It is simulated by `run_sleeve` on the
+  F&O store from 1 Jan 2026, its volatility look-back from the index.
+- **Beside it:** the deployed book's recorded holdout run
+  (`20260915T161516314162Z_679cbd0c`, 1 Jan–11 Sep 2026). That window is
+  the one 5aj fixed for A1G.
+- **As an overlay at 3×** (book + 3 × A1). That is the equal-risk weight
+  at its last reset in RT1, and the cap, where it sat in 81–86% of months.
+- **Agrees if** the combination's excess Sharpe over 6.5% in the window is
+  at least the book's.
+- **Reported:** the return, CAGR, MaxDD and Calmar of both, and A1's 2026
+  cycles (traded or skipped, strikes, P&L).
+- **The lock:** written before anything runs, so the look counts even if
+  the run fails.
+
+**If it agrees: A1 is promoted to paper.** Book `a1`:
+- the deployed rules at Rs 35 lakh, plus A1 as an overlay at 3× the book's
+  NAV;
+- the overlay's margin is pledged from the book; the email reports the
+  margin and the spread's maximum loss as a share of NAV;
+- each night A1's own simulator replays from the overlay's paper start to
+  the latest F&O session, so paper follows the rules that passed (as the
+  MCX sleeve does);
+- the workflow keeps the F&O files the replay needs;
+- the email shows the cycle (decision, strikes, lots at 3×, maximum loss),
+  the overlay's P&L and the combination;
+- paper runs at least 60 sessions, then 5 dry runs. The options order path
+  for dry runs is built at that point.
+
+**If it does not agree:** recorded; A1 is not promoted.
+
+**A1G** (5aj) runs separately on its own pre-registration, adjusted by
+GT13: no MaxDD condition. It does not hold A1 up. Its holdout check then
+reads a holdout that has been opened, so a pass is provisional and goes to
+its own paper book.
+
+**Not clean, stated:**
+- the 3× weight is RT1's last reset, not re-estimated in 2026;
+- the deployed book's 2026 was opened on 15 Sep for its own family, but
+  A1's 2026 option P&L has not been looked at.
+
+**Result (25 Oct 2026, 23:5x IST): A1 AGREES; promoted to paper.**
+`python -m kite_connect.options.backtest holdout`. The lock is
+`runs_options/holdout.lock`, so the options family's 2026 holdout is now
+opened. The results are in `runs_options/a1p_holdout.json`.
+- **First, a check on a seen window:** on 1 Jan–11 Sep 2025, against the
+  deployed backtest with a throwaway lock, all 8 of A1's cycles matched its
+  recorded run, in action and strikes.
+
+| 1 Jan–11 Sep 2026 | Return | Excess Sharpe | MaxDD | Calmar |
+|---|---|---|---|---|
+| Deployed book (recorded holdout run) | +18.0% | 1.04 | −13.0% | 2.11 |
+| Book + 3 × A1 | +22.7% | 1.35 | −12.3% | 2.84 |
+| A1 alone, on its own capital | +1.3% | (below rf on its own) | −0.1% | |
+
+- **A1's 2026 cycles:** 6 traded, all profitable; February and July
+  skipped (no eligible strike). The spreads were 700–850 points wide, 4–5
+  lots on A1's own Rs 7.5 lakh.
+- **Not the March crash risk:** 2026's fall was a decline, and a bear call
+  spread loses in sharp rallies, as in 2008, not in falls. Paper tests that
+  risk going forward.
+
+**The paper book, built 25 Oct 2026.**
+- `config/nse_engine_a1.json` (book `a1`): the deployed rules at Rs 35
+  lakh plus A1 at 3×; paper start Mon 26 Oct.
+- `kite_connect/trading/options_overlay.py`, with the runner, emails,
+  weekly block and deployment checks.
+- The workflow keeps F&O files from 45 days before the paper start and
+  builds the F&O store each night.
+- **Checked on the local store** (1 Sep–23 Oct 2026, night by night):
+  - the cycles equal a one-shot replay;
+  - the overlay earns 3× A1 (+1.63% of the book against A1's +0.55%);
+  - a re-run of a night appends nothing; no alerts;
+  - the email and the weekly block render;
+  - the code's A1 equals the recorded configuration (hash `ae503fc4`).
+
+**The tail at 3×, measured on A1's 2007–25 cycles.** This is the decision
+before dry runs:
+- 95% of 138 traded cycles won, averaging +0.22% of the book;
+- the worst were −17.2% (Jul 2008) and −9.2% (Mar 2009);
+- every cycle carried a maximum loss of about 100% of the book (median
+  102%): a rally through the wing before expiry loses it.
+
+So equal-risk sizing on A1's low realised volatility takes the overlay to
+its cap and hides a ruin-sized tail. The margin a spread needs is about its
+maximum loss, likely more than the holdings can pledge. Paper runs at 3×
+because that is what passed. Live needs a sizing rule set before the dry
+runs, for example a cap on maximum loss per cycle. A cap of 10–15% of NAV
+is about 0.3–0.45×; at 0.25× the gain was small (Sharpe 0.60 → 0.61).
+
+## 5am. A1C: A1 with each month's maximum loss capped at 10% of the book (India tracker A1C; pre-registered 26 Oct 2026, 00:07 IST)
+
+**Why.** The owner's decision of 26 Oct: take A1 live, but cap each month's
+maximum loss at 10–15% of the book, so a wrong month cannot wipe it out.
+His words: earning consistent profits, even small ones, is the best way
+forward, not betting big and getting wiped out. At 3× every A1 cycle
+carried a maximum loss of about 100% of the book (5al).
+
+**Configuration A1C.** A1's rules are unchanged: its strikes, timing,
+exits, and its own sizing on its own capital. Only the overlay's size
+changes:
+- for each cycle, the weight is min(3, 0.10 × A1's equity at the fill ÷
+  the spread's maximum loss on A1's capital);
+- so the spread can lose at most 10% of the book's NAV, and the 3× cap
+  still holds;
+- between cycles the overlay holds nothing.
+
+10% is the owner's range at its safer end. 15% is reported beside it, not
+judged. Family: options; N rises by one.
+
+**The test: the owner's five steps.**
+1. **Backtest 2008–25:** protocol 5.1's Sharpe lever (GT13) on both books,
+   at A1C's weight series instead of equal risk:
+   - one-sided bootstrap p ≤ 0.10, the same bootstrap (seed 7);
+   - the walk-forward book is the headline;
+   - the gain must hold in 2008–12, because A1's 2013–25 was seen.
+
+   Reported: MaxDD, Calmar (full and rolling 3-year), CAGR, alpha, the
+   weight while a spread is open, and the worst cycle and largest maximum
+   loss as shares of the book.
+2. **Walk-forward:** the book's, as in RT1.
+3. **Out of sample:** the options family's 2026 holdout was opened for A1
+   (5al). A1C's 2026 is reported from it, so a pass is provisional.
+4. **Paper:** book `a1` runs A1C's sizing from its first session (26 Oct),
+   for 60 sessions.
+5. **5 dry runs,** with the options order path built before them.
+
+**Expected, written before the run.** The weight while a spread is open
+should be about 0.3×, since A1's maximum loss is about 30–35% of its own
+capital. At a fixed 0.25×, RT1 had Sharpe 0.60 → 0.61, so the gain is
+likely small and may not be significant (p > 0.10).
+
+**If it fails significance:** recorded as a fail. The owner then decides
+whether a small, bounded, positive-expectancy overlay goes on to paper and
+dry runs. That decision is recorded as his, not as a pass.
+
+**Result (26 Oct 2026, 00:3x IST): FAIL on significance.**
+`python -m nse_engine.diversifier_gate a1c --cap 0.10`; results in
+`dg1/a1c_results.json`.
+
+| 2008–25 | CAGR | Excess Sharpe | MaxDD | Calmar (full / 3-year median) | ΔSharpe (p) |
+|---|---|---|---|---|---|
+| Walk-forward book | 13.0% | 0.600 | −29.5% | 0.44 / 0.94 | |
+| + A1C, 10% cap | 13.2% | 0.614 | −30.1% | 0.44 / 0.96 | +0.014 (0.117) |
+| + A1, 15% cap (reported) | 13.3% | 0.620 | −30.4% | 0.44 / 0.97 | +0.020 (0.134) |
+| Backtest book | 15.5% | 0.697 | −28.6% | 0.54 / 1.09 | |
+| + A1C, 10% cap | 15.7% | 0.709 | −29.2% | 0.54 / 1.09 | +0.012 (0.128) |
+
+- **Fails both conditions:** p > 0.10 on both books, and the gain does not
+  hold in 2008–12 (2008 −26.4% → −27.0%, 2009 +18.3% → +17.2%).
+- **The tail is gone:** the weight while a spread is open is 0.30× (open
+  32% of days); the worst cycle cost 1.6% of the book (2.5% at 15%); the
+  largest maximum loss is 10.0% of the book by construction.
+- **So is most of the gain:** about +0.2 points of CAGR, against +2.5 at 3×.
+- **2026, reported (opened in 5al):** +18.0% / 1.04 → +18.5% / 1.08; the
+  weight while open is 0.32×.
+
+**The owner's decision (26 Oct 2026):** take A1 on with the cap, for
+small, consistent profits rather than a ruin-sized tail. It is recorded as
+his decision, not as a pass. Book `a1` runs A1C's sizing from its first
+session: `options_overlay.max_loss_cap` 0.10 in `config/nse_engine_a1.json`.
+Paper then runs 60 sessions, then 5 dry runs, and only then live.
+- **Checked locally** (1 Sep–23 Oct 2026, night by night): October's open
+  spread is 7.8 book lots at 0.34× (max loss 10.0% of NAV), against 70.8
+  lots (89%) uncapped.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast
