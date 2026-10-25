@@ -1046,6 +1046,25 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+25 Oct  MU2a The admin's view of signed-up users (your ask), and dates as
+             DD-MM-YYYY in the trade center's Daily Detail.
+             - API: GET /api/v1/admin/users (admin only: 403 for analyst and
+               user roles; tested with fake data): every user's details,
+               decrypted, without the password hash, and their Zerodha
+               connection, plus counts (total, active, awaiting activation,
+               new in 7 days, Zerodha connected; by experience, gender,
+               country).  Each look is logged without personal data.
+             - Frontend: user menu > Users (admin only) opens /admin/users:
+               the counts, three breakdowns, a search box and the table.
+               The sign-up labels moved to lib/profile-options.ts, shared.
+               The privacy page says the operator sees account details.
+             - Daily Detail: the date buttons, "Session", "No session on",
+               "Day Snapshot" and "No activity" show DD-MM-YYYY
+               (lib/utils formatDayDMY); the API keeps ISO dates.
+             - The sign-up reply now reads "Activation Mail Sent. Please
+               check your inbox (or spam folder). The link is active for 24
+               hours." (your wording).
+             Both repos build and the fast suite passes; uncommitted.
 25 Oct  NEO6 The gilt and MCX books lost their replayed history from view.
              Tonight's rebuild run restored them with their cash (Rs 48,443)
              but 0 positions, 0 snapshots: they re-planned 23 Oct as empty
