@@ -248,6 +248,11 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
  >>> SUN 25 OCT - YOUR ACTIONS (Neon paid and back 21:22 IST; NEO5)
+     0. BEFORE MON 19:00 IST, in this order (NEO6): (a) merge
+        cloud_paper_runner.py and config/canary_expected.json; (b) Neon SQL
+        Editor: DROP SCHEMA IF EXISTS bonds CASCADE; DROP SCHEMA IF EXISTS
+        mcx CASCADE; (c) tell Claude, who starts a paper run and checks both
+        books rebuilt from 21 Oct.
      1. Mon 26 Oct 09:00: Kite login from the reminder email (dry run, ETF
         snapshots, the sell test).
      2. Sign-up test (MU2): after 21:45 IST, sign up again (the 20:40-20:43
@@ -1041,6 +1046,25 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+25 Oct  NEO6 The gilt and MCX books lost their replayed history from view.
+             Tonight's rebuild run restored them with their cash (Rs 48,443)
+             but 0 positions, 0 snapshots: they re-planned 23 Oct as empty
+             books (15 buys skipped for cash) and overwrote their 23 Oct
+             snapshot with that.
+             - Cause (my NEO3 bug): a book that never ran was replayed from
+               its paper_start_date, but its first write stamped tonight as
+               its epoch, and restore, the trade monitor and the gate read
+               only rows from a book's start: the 21-23 Oct rows were
+               treated as an older book's.  The rows are still in Neon.
+             - Fix (cloud_paper_runner, uncommitted): a brand-new book
+               (restored_from "new") replayed from its start gets epoch and
+               book_start = paper_start_date 00:00 IST; a book with state is
+               never back-filled.  Checked: the restore filters keep every
+               replayed row; fast suite passes.
+             - Repair, after the fix is merged: drop the two schemas (Neon
+               SQL Editor: DROP SCHEMA IF EXISTS bonds CASCADE; DROP SCHEMA
+               IF EXISTS mcx CASCADE;), then a paper run rebuilds both from
+               21 Oct on the right calendar, so they carry no deviation.
 25 Oct  MU2d Account deletion (your ask: warning, consent and confirmation; the
              user's data cleared from all databases).  Settings > Delete
              account already existed (password, typed DELETE, sessions ended,
@@ -1076,15 +1100,26 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                year reaches the cache.  Uncommitted.
              - Your call (25 Oct): both.  A full-bootstrap run tonight
                (40212027310, 22:00 IST) and the workflow fix merged tonight.
-             - KNOWN DEVIATION in the paper record, all 6 books (judge the
-               paper period with it): the week's rebalance was planned on
-               Thu 22 Oct and filled at Fri 23 Oct's open, one session early,
-               on the runner's shifted calendar.  The correct one (planned
-               23 Oct) is re-planned tonight and fills at Mon 26 Oct's open.
-               So Fri 23 Oct held 22 Oct's picks, and the week carries one
-               extra small rebalance (its costs included).  The futures leg
-               follows the same plans.  Rebalances before 22 Oct were on
-               the right schedule.
+             - KNOWN DEVIATION in the paper record of deployed, candidate,
+               e4 and futures (judge the paper period with it): the week's
+               rebalance was planned on Thu 22 Oct and filled at Fri 23 Oct's
+               open, one session early, on the runner's shifted calendar.
+               The correct one (planned 23 Oct) was re-planned and fills at
+               Mon 26 Oct's open: deployed 1 order, e4 2, candidate and
+               futures none (22 Oct had already moved them there).  So Fri
+               23 Oct held 22 Oct's picks.  The futures leg follows the same
+               plans.  Rebalances before 22 Oct were on the right schedule.
+               The gilt and MCX books are rebuilt clean instead (NEO6).
+             - Rebuild run 40212027310 (green): rebuilt 2012 only; data hash
+               back to dab49d3c.  The canary then said "drift": all 6,175 /
+               6,466 / 5,615 trades identical but 3 relabelled, ICICIPRULI ->
+               ICICILIFE (NSE's rename, in this week's data; 2019 trades).
+               Proven: with the old name every book's recorded hash returns
+               and final equity is identical.  Registry tier re-recorded
+               (config/canary_expected.json, now all 6 books; commit it);
+               the runner's tier re-records itself on its next run.  A
+               rename will do this again: hashing the name in force would
+               stop it (not done).
 25 Oct  NEO5 Neon back: your payment went through (Launch plan).
              - Neon watch, run by hand (40208991177): "Neon is back"; it
                enabled Paper Trading Cron, Paper Heartbeat, Kite login
