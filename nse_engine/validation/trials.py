@@ -41,6 +41,9 @@ MANIFEST_FIELDS = ("run_id", "tag", "config_hash", "git_commit", "git_dirty",
                    "data_hash", "start", "end", "created_at", "refresh_of", "cost_model")
 #: Runs recorded before the cost model was versioned (U25, 30 Sep 2026).
 LEGACY_COST_MODEL = 1
+#: Families with a cost model of their own (F&O, MCX): their runs are judged on it, not on the equity model their
+#: manifests carried before IC2 (a run's ``extra`` names it).
+FAMILY_COST_MODELS = ("fno_cost_model", "mcx_cost_model")
 #: Sidecar in a runs directory: the runtime of each run recorded before manifests carried one (LN-T26).
 RUNTIME_INDEX = "runtime_index.json"
 #: The (system, machine) every Kaggle session recorded in its provenance (kaggle_out fold and state files).
@@ -197,7 +200,8 @@ def record_result(result: Any, tag: str, runs_dir: Optional[Union[str, Path]] = 
         "created_at": created.isoformat(),
         "metrics": to_jsonable(getattr(result, "metrics", {}) or {}),
         "recorded_by": "nse_engine.validation.trials.record_result",
-        "cost_model": _cost_model_version(),
+        "cost_model": next((int(v) for k, v in dict(extra or {}).items() if k in FAMILY_COST_MODELS),
+                           _cost_model_version()),
         "runtime": runtime_stamp(),
     }
     for key, value in dict(extra or {}).items():
@@ -227,6 +231,15 @@ def _data_hash_version() -> int:
 def _cost_model_version() -> int:
     from nse_engine.costs import COST_MODEL_VERSION
     return int(COST_MODEL_VERSION)
+
+
+def run_cost_model(manifest: Mapping[str, Any]) -> int:
+    """The cost model a run was recorded under: its family's own for an options or MCX run (``FAMILY_COST_MODELS``),
+    else the equity one; ``LEGACY_COST_MODEL`` for a run from before the stamp (tracker IC2)."""
+    for key in FAMILY_COST_MODELS:
+        if manifest.get(key) is not None:
+            return int(manifest[key])
+    return int(manifest.get("cost_model") or LEGACY_COST_MODEL)
 
 
 class TrialRegistry:
@@ -270,6 +283,7 @@ class TrialRegistry:
         rows = []
         for man in self._manifests():
             row = {k: man.get(k) for k in MANIFEST_FIELDS}
+            row["cost_model"] = run_cost_model(man)
             for k, v in (man.get("metrics") or {}).items():
                 if isinstance(v, (int, float, bool, str)) or v is None:
                     row[k if k not in row else f"metric_{k}"] = v
@@ -373,17 +387,21 @@ PLAN_COLUMNS = ("run_id", "config_hash", "tag", "lag_days", "created_at", "run_d
 
 
 def refresh_plan(registry: "TrialRegistry", from_hash: str, window: tuple,
-                 skip_hash: Optional[str] = None) -> pd.DataFrame:
+                 skip_hash: Optional[str] = None, cost_model: Optional[int] = None) -> pd.DataFrame:
     """Configurations recorded on ``from_hash`` over ``window``, one row each.
 
     The row is the configuration's latest run (the one ``returns_matrix``
     keeps).  Configurations already recorded on ``skip_hash`` over the same
-    window are left out, so a refresh can be resumed.
+    window are left out, so a refresh can be resumed.  ``cost_model``: only
+    runs recorded under it count, on both sides (IC2: a refresh re-runs under
+    today's model, so an older model's run is neither its source nor done).
     """
     trials = registry.list_trials()
     empty = pd.DataFrame(columns=list(PLAN_COLUMNS))
     if trials.empty:
         return empty
+    if cost_model is not None:
+        trials = trials[trials["cost_model"] == int(cost_model)]
     lo, hi = (pd.Timestamp(w) for w in window)
     starts = pd.to_datetime(trials["start"], errors="coerce")
     ends = pd.to_datetime(trials["end"], errors="coerce")
@@ -446,8 +464,9 @@ def refresh_registry(registry: "TrialRegistry", data: Any, from_hash: str, windo
     reading ``config.json``.  ``dry_run`` only reports the plan.
     """
     to_hash = getattr(data, "data_hash", "") or data.compute_hash()
-    full_plan = refresh_plan(registry, from_hash, window)
-    plan = refresh_plan(registry, from_hash, window, skip_hash=to_hash)
+    model = _cost_model_version()
+    full_plan = refresh_plan(registry, from_hash, window, cost_model=model)
+    plan = refresh_plan(registry, from_hash, window, skip_hash=to_hash, cost_model=model)
     if limit:
         plan = plan.head(int(limit))
     report: Dict[str, Any] = {
@@ -484,7 +503,7 @@ def refresh_registry(registry: "TrialRegistry", data: Any, from_hash: str, windo
             verdict = ("identical" if cmp["identical"] else
                        f"DIFFERS: max {cmp['max_abs_diff']:.2e} on {cmp['n_differing']} days")
             log(f"[{i}/{len(plan)}] {rec.config_hash[:8]} {rec.tag[:44]:<44} {verdict} ({row['seconds']}s)")
-    on_new = registry.returns_matrix(data_hash=to_hash, window=window)
+    on_new = registry.returns_matrix(data_hash=to_hash, window=window, cost_model=model)
     report["n_on_new_hash"] = int(on_new.shape[1])
     report["all_identical"] = bool(report["rows"]) and all(r["identical"] for r in report["rows"])
     report["complete"] = report["n_on_new_hash"] >= report["n_configurations"]

@@ -1,8 +1,8 @@
 {
   "status": "candidate",
-  "description": "A1P / A1C: the deployed rules at Rs 35 lakh plus A1, a NIFTY bear call spread (2-SD short, 3-SD wing, 15 days out, early exit at the money), as an overlay sized so each spread can lose at most 10% of the book (at most 3x the book's NAV); margin pledged from the holdings. Paper only.",
+  "description": "A1P / A1C / A1G: the deployed rules at Rs 35 lakh plus A1G, a NIFTY bear call spread (2-SD short, 3-SD wing, 15 days out, early exit at the money) that opens no new spread while the book's drawdown rule is not normal or India VIX is at or above 22, sized so each spread can lose at most 10% of the book (at most 3x the book's NAV); margin pledged from the holdings. Paper only.",
   "paper_start_date": "2026-10-26",
-  "notes": "Paper book for A1 (tracker A1P, plan 5al; your call 25 Oct 2026). RT1 (5ak, GT13: MaxDD no longer a gate) passed A1 as a Sharpe lever: walk-forward 2008-25 book 13.0% / 0.60 -> 15.5% / 0.76 (p 0.026), rolling 3-year Calmar 0.94 -> 1.22; its own deflated Sharpe 0.14. The options family's 2026 holdout (opened once, 25 Oct) agreed: 1 Jan-11 Sep 2026 book +18.0% / Sharpe 1.04 -> +22.7% / 1.35 with A1 at 3x. Sizing (A1C, plan 5am; the owner's call 26 Oct 2026): each cycle's weight is min(3, 10% x A1's equity before the fill / the spread's maximum loss), so a wrong month costs at most 10% of the book; 0 between cycles. A1C failed its pre-registered significance test (walk-forward 13.0% / 0.600 -> 13.2% / 0.614, p 0.117; not held in 2008-12); the owner took it to paper and dry runs as his decision, not as a pass. Uncapped 3x carried a maximum loss near 100% of the book every cycle. Each night A1's own simulator replays from the paper start on the F&O store, so paper follows the rules that passed. Run at least 60 sessions, then 5 dry runs (the options order path is built then). A1's fills are the simulator's (no broker paper for options). Paper only: never places live orders.",
+  "notes": "Paper book for A1 (tracker A1P, plan 5al; your call 25 Oct 2026). RT1 (5ak, GT13: MaxDD no longer a gate) passed A1 as a Sharpe lever: walk-forward 2008-25 book 13.0% / 0.60 -> 15.5% / 0.76 (p 0.026), rolling 3-year Calmar 0.94 -> 1.22; its own deflated Sharpe 0.14. The options family's 2026 holdout (opened once, 25 Oct) agreed: 1 Jan-11 Sep 2026 book +18.0% / Sharpe 1.04 -> +22.7% / 1.35 with A1 at 3x. Sizing (A1C, plan 5am; the owner's call 26 Oct 2026): each cycle's weight is min(3, 10% x A1's equity before the fill / the spread's maximum loss), so a wrong month costs at most 10% of the book; 0 between cycles. A1C failed its pre-registered significance test (walk-forward 13.0% / 0.600 -> 13.2% / 0.614, p 0.117; not held in 2008-12); the owner took it to paper and dry runs as his decision, not as a pass. Uncapped 3x carried a maximum loss near 100% of the book every cycle. Each night A1's own simulator replays from the paper start on the F&O store, so paper follows the rules that passed. Run at least 60 sessions, then 5 dry runs (the options order path is built then). A1's fills are the simulator's (no broker paper for options). Paper only: never places live orders. Crash guard (A1G, plan 5aj amended 26 Oct 2026; your 'do A1G'): passed the same gate A1C failed (walk-forward Sharpe 0.600 -> 0.616, p 0.000; backtest 0.697 -> 0.710; holds in 2008-12) because it skipped A1's only two material losses (Jul 2008, Mar 2009) and 32 winners, net near zero; designed after seeing 2008, and idle in 2026, so the evidence is in sample. The guard reads this book's own rule state (paper_sessions) and India VIX (the store) each night; added before a1's first spread.",
   "data_anchor_date": "2012-01-02",
   "risk_overlay": {
     "drawdown_rule": {
@@ -17,7 +17,7 @@
   },
   "paper_capital_inr": 3500000,
   "options_overlay": {
-    "candidate": "A1",
+    "candidate": "A1G",
     "weight": 3.0,
     "max_loss_cap": 0.1
   },

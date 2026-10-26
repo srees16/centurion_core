@@ -251,6 +251,7 @@ def cmd_refresh_registry(args) -> None:
     the deflated Sharpe before and after."""
     from nse_engine.validation.dsr import deflated_sharpe
     from nse_engine.validation.pbo import cscv_pbo
+    from nse_engine.costs import COST_MODEL_VERSION
     from nse_engine.validation.trials import (TrialRegistry, refresh_plan, refresh_registry, registry_hash,
                                               to_jsonable)
 
@@ -268,8 +269,10 @@ def cmd_refresh_registry(args) -> None:
     if data.data_hash == from_hash:
         print("the fingerprint has not changed; the registry is continuous, nothing to refresh")
         return
-    print(f"configurations to refresh: {len(refresh_plan(registry, from_hash, window, skip_hash=data.data_hash))}"
-          f" of {len(refresh_plan(registry, from_hash, window))}")
+    print(f"configurations to refresh: "
+          f"{len(refresh_plan(registry, from_hash, window, skip_hash=data.data_hash, cost_model=COST_MODEL_VERSION))}"
+          f" of {len(refresh_plan(registry, from_hash, window, cost_model=COST_MODEL_VERSION))}"
+          f" (cost model {COST_MODEL_VERSION})")
     report = refresh_registry(registry, data, from_hash, window, dry_run=args.dry_run,
                               limit=args.limit, tolerance=args.tolerance, log=print)
     if args.dry_run:
@@ -278,10 +281,10 @@ def cmd_refresh_registry(args) -> None:
             print(f"  {row['config_hash'][:8]}  lag {row['lag_days']}  {row['tag']}  ({row['run_id']})")
         return
 
-    # PBO and DSR on both fingerprints: the refresh must not move them.
+    # PBO and DSR on both fingerprints, under today's cost model (IC2): the refresh must not move them.
     checks = {}
     for label, h in (("before", from_hash), ("after", data.data_hash)):
-        mat = registry.returns_matrix(data_hash=h, window=window)
+        mat = registry.returns_matrix(data_hash=h, window=window, cost_model=COST_MODEL_VERSION)
         out = {"n_configurations": int(mat.shape[1])}
         if mat.shape[1] >= 2:
             out["pbo"] = float(cscv_pbo(mat, n_splits=args.splits, rf_annual=cfg.risk_free_annual)["pbo"])

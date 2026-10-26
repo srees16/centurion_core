@@ -27,7 +27,7 @@ import math
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -166,7 +166,14 @@ def _choose_strikes(cfg: SleeveConfig, mkt: _Market, d: pd.Timestamp, expiry: pd
     return short, wing, ""
 
 
-def run_sleeve(cfg: SleeveConfig, store_dir: str, opt_cfg: OptionsConfig = OptionsConfig()) -> SleeveResult:
+def run_sleeve(cfg: SleeveConfig, store_dir: str, opt_cfg: OptionsConfig = OptionsConfig(),
+               skip_entry_dates: Optional[Iterable] = None) -> SleeveResult:
+    """``skip_entry_dates``: a guarded configuration's (``cfg.entry_guard``) decision days on which no new spread
+    opens, e.g. the book's crash state (A1G); a spread already open runs to its exit."""
+    if bool(cfg.entry_guard) != (skip_entry_dates is not None):
+        raise ValueError("skip_entry_dates goes with a configuration that names its entry_guard, and only with one")
+    skip = pd.DatetimeIndex(pd.to_datetime(list(skip_entry_dates))).normalize() if skip_entry_dates is not None \
+        else pd.DatetimeIndex([])
     mkt = _Market(store_dir, cfg)
     log_ret = np.log(mkt.index).diff()
     events = pd.DatetimeIndex(EVENT_DATES)
@@ -263,6 +270,9 @@ def run_sleeve(cfg: SleeveConfig, store_dir: str, opt_cfg: OptionsConfig = Optio
         if cfg.skip_events and ((events >= d) & (events <= nxt)).any():
             cyc["action"] = "skipped: event"
             continue
+        if d.normalize() in skip:
+            cyc["action"] = "skipped: guard"
+            continue
         sigma, mu = float(hist.std(ddof=1)), float(hist.mean())
         short, wing, why = _choose_strikes(cfg, mkt, d, nxt, spot, sigma, mu)
         cyc.update(sigma=sigma, mu=mu, short=short, wing=wing)
@@ -287,8 +297,9 @@ def _sleeve_metrics(rets: pd.Series, cycles: List[Dict[str, Any]]) -> Dict[str, 
     pnl = [c["pnl_inr"] for c in traded if "pnl_inr" in c]
     m.update(sharpe=m["excess_sharpe"], calmar=(m["cagr"] / abs(m["max_drawdown"]) if m["max_drawdown"] else None),
              cycles=len(cycles), traded=len(traded),
-             skipped={k: sum(1 for c in cycles if c.get("action") == k) for k in
-                      sorted({c.get("action") for c in cycles if c.get("action") != "traded"})},
+             # a cycle decided on the last session has no action yet: counted as decided, not sorted against text
+             skipped={k: sum(1 for c in cycles if (c.get("action") or "decided") == k) for k in
+                      sorted({c.get("action") or "decided" for c in cycles if c.get("action") != "traded"})},
              win_rate=(sum(p > 0 for p in pnl) / len(pnl)) if pnl else None,
              worst_cycle_inr=min(pnl) if pnl else None, best_cycle_inr=max(pnl) if pnl else None,
              charges_inr=sum(c["charges"] for c in traded),

@@ -259,11 +259,19 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
  >>> MON 26 OCT - YOUR ACTIONS
-     1. DS1 + PL1 are committed on feature/fine-tuning (b5eded8), not yet
-        on main.  DS2 (the one Saturday email) is uncommitted on top:
-        nse-paper-trading.yml, cloud_paper_runner.py, nse_engine/books.py,
-        tools/books_report.py, tests/conftest.py, this file.  Merge both to main: one email a
-        night and one on Saturday instead of eight each.
+     0. Merge IC2 + A1G (uncommitted, 17 files): cloud/kaggle_runner.py,
+        cloud/wf_stitch.py, cloud_paper_runner.py, config/nse_engine_a1.json,
+        kite_connect/options/{backtest,sleeves}.py, kite_connect/trading/
+        options_overlay.py, nse_engine/{books,config,diversifier_gate,
+        scorecard}.py, nse_engine/validation/{holdout,trials}.py,
+        runners/run_nse_engine.py and the docs (plan 5aj, this file,
+        metrics_journal).  Book a1 then runs A1G from its next decision
+        (about 9 Nov); no spread is open, so nothing else moves.
+     1. DONE 26 Oct 22:3x: DS1, DS2, PL1 and the test guard merged to main
+        (PR #288, #289; 54137eb).  First single nightly email: Tue 27 Oct
+        after the 19:00 run; first single Saturday email: Sat 31 Oct.
+        A late backup run tonight may send a 26 Oct summary whose book
+        sections say "no report kept" (each came on its own at 19:00).
      2. DONE 26 Oct 22:2x: .env's Neon URL works (all 7 book schemas read,
         tonight's snapshots intact).  The test suite then read the live
         books (config.py loads .env): tests/conftest.py now blanks the URL
@@ -279,14 +287,13 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
         Say "do A1G" for the crash-guard run (it does not touch a1).
      1. Mon 26 Oct 09:00: Kite login from the reminder email (dry run, ETF
         snapshots, the sell test).
-     2. Sign-up test (MU2): after 21:45 IST, sign up again (the 20:40-20:43
-        failures used up the hourly allowance); tell Claude, who checks the
-        Space log for "Email sent (Gmail API)".
-     3. Sell test (ST2 step 3): give Claude new dates (SELL TEST block).
+     2. DONE 26 Oct: sign-up test (MU2): the activation email arrived.
+     3. DONE 26 Oct: sell test re-dated by you to 28 Oct onwards: tests Thu
+        29 and Fri 30 Oct (SELL TEST block).
      4. ON OR AFTER 1 NOV, not before: Neon back to the Free plan (Billing >
         Change plan > Free; storage under 0.5 GB).  Launch bills every
         CU-hour (~$1-2 a month now); Free never charges, it suspends.
-        Meanwhile: a spending notification (e.g. $5) on Billing.
+        DONE 26 Oct: the spending notification is on, at $5 a month.
      5. Send Zerodha one ticket with three questions (Q4, the 09:00 check,
         Q5 on LIQUIDCASE: ST2 block; text in Claude's 25 Oct reply), then
         tell Claude the answers.
@@ -319,13 +326,21 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
         .env on this Mac (CENTURION_DATABASE_URL=..., the same value as the
         GitHub secret), then run python -m tools.export_books once.  A1G
         (A1 with a crash guard) is written up: say "do A1G" to run it.
- >>> SELL TEST, FRI 23 + MON 26 OCT (ST2 step 3; your call 20 Oct: rerun
+ >>> SELL TEST, THU 29 + FRI 30 OCT (ST2 step 3; your call 20 Oct: rerun
      from step 1, since step 2, the GTT leg, failed on 14 Oct when every
      HDFCBANK share was sold by mistake)
-     24 Oct: ON HOLD - Fri's test could not be recorded (Neon down: the
-     Kite login and Record sell path need the database).  25 Oct: Neon is
-     back; new dates from you.  The shares and the steps below stay as
-     they are.
+     26 Oct: re-dated by you to 28 Oct onwards (23 and 26 Oct could not be
+     recorded: Neon was down).  The 4 settled HDFCBANK shares stay as
+     they are; if Holdings shows fewer, tell Claude first.
+       Wed 28 Oct after 20:00: AMO SELL 1, LIMIT at Wednesday's close x
+         0.995 (round to Rs 0.05).
+       Thu 29 Oct, TEST 1: the TEST steps below; Record sell path that
+         evening; after 20:00 the AMO SELL 1 for Friday (Thursday's close
+         x 0.995).
+       Fri 30 Oct, TEST 2: the same steps, on the 2 remaining shares.
+       Fallback for a failed leg: Mon 2 or Tue 3 Nov (no holiday until
+         Tue 10 Nov).
+     The original plan, whose steps stand (only the dates moved):
      Why one day per test: Record sell path reads both orders from Kite,
      whose API returns only that day's orders.  So the AMO SELL and the GTT
      SELL must both COMPLETE on the same day, on settled shares, and be
@@ -393,10 +408,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 [!] P1  MU2  Self-service accounts: merged and live 8 Oct (sign-up on the
              login page; email secrets copied by the deploy; the data key on
              the Space with a copy kept off it); frontend in production
-             (NX1 merge deployed 22:33 IST).  Left: sign up with a spare
-             email: activation email, sign-in, Fly Kite, Settings > Delete
-             account.  25 Oct: the Gmail API route is set up (MU2g); this
-             test waits for Neon (accounts live there).
+             (NX1 merge deployed 22:33 IST).  25 Oct: the Gmail API route
+             is set up (MU2g).  26 Oct: sign-up with a spare email works,
+             the activation email arrived.  Left: activate (link valid
+             24 h), sign in, Fly Kite, Settings > Delete account.
 [!] P1  U23  Log in to Kite once every trading day: tap the link in the
              09:00 / 17:30 IST email (valid until 06:00 next day).  The first
              live dry run is Thu 1 Oct 19:00 IST (Fri 2 Oct is a holiday);
@@ -918,18 +933,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                Then 5 dry runs: Kite's commodity segment and an MCX order
                path, both to build.
                                    Prompt: do DL1 (after the paper period)
-[ ] P2  A1G  A1 with a crash guard (your ask 20 Oct; plan 5aj, pre-registered
-             10:42 IST).  O2-A1 opens no new spread when the book's drawdown
-             rule is not normal, or India VIX is at or above 22 (round 2's
-             fear level).  Options N 17 -> 18.  Kaggle, 2007-25, one series
-             per book (its own rule states).  Gate: protocol 5.1's Sharpe
-             lever, live-like, both books.  A pass opens the options
-             family's 2026 holdout once (check fixed in 5aj), then paper.
-             2008-12 is not clean for it (the guard was designed after A1's
-             2008 loss): 2026 is the clean check.  Code: a skip_entry_dates
-             input to options backtest.run_sleeve.  Medium.  Before it runs,
-             amend 5aj to size it at A1C's 10% cap (your call 26 Oct).
-                                                   Prompt: do A1G
+[x] P2  A1G  DONE 26 Oct: PASS, in sample; book a1 runs it (section 8).
 [ ] P2  L8   Forward walk (a shadow record), weekly in the Saturday books
              report and email.
              - Each paper book's 1.75x shadow, from its Neon daily snapshots,
@@ -1011,7 +1015,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              the paper books run it first; RF1's January re-baseline stays
              separate.  Worth 1.3-1.6 pt pre-tax on the walk-forward book
              (LN-T29d, section 8), not 0.3-0.4.  Order:
-             1. IC2 (next item).                          Prompt: do IC2
+             1. DONE 26 Oct: IC2 (section 8).
              2. Zerodha's answers (ST2: Q4, the 09:00 check, Q5): they set
                 the timing rule (ETF sold a session ahead, or a buffer, or
                 a 09:20 second pass).
@@ -1035,17 +1039,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              GOLDBEES (about 15% volatility; the metals sleeve already holds
              gold when it trends).  It also removes the flat-equity case
              DD1 guards against.
-[ ] P1  IC2  (Now first step of LN-T29, brought forward 25 Oct.)
-             Cost-model stamping, latent (IC1 review; none bites today):
-             walk-forward fold files, the stitched summary and holdout.lock
-             carry no cost model; the books register's validation fallback
-             can pair model-4 columns with an older run's PBO/DSR;
-             refresh-registry's before/after PBO and the Kaggle grid's
-             "already recorded" skip ignore the cost model; a non-0.06
-             cash_yield_annual would make a duplicate trial; options runs
-             are stamped with the equity cost model.  Fix together at the
-             next cost-model change: a prerequisite of whatever bumps
-             COST_MODEL_VERSION (LN-T29 likely; LN-T30 if it does).
+[x] P1  IC2  DONE 26 Oct: cost models stamped and respected (section 8).
 [ ] P3  U20  Refill exits: now tested through E4 / D5 in the queue (was a
              decision due ~24 Dec).  Drop it if E4 fails.
 [x] P3  E3   CLOSED 17 Oct: MTF dropped by your call (L11).  Was: MTF-levered
@@ -1071,6 +1065,51 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+26 Oct  A1G  A1 with a crash guard (your "do A1G"; plan 5aj, amended 22:57
+             IST before the run: A1C's 10% cap, A1C's gate, no MaxDD
+             condition per GT13).  PASS, in sample; 2026 agrees but adds
+             no evidence (the guard never triggered).
+                                   walk-forward 2008-25    dSharpe (p)   2008-12
+               book                13.04% 0.600 -29.5%
+               + A1G, 10% cap      13.23% 0.616 -29.5%     +0.015 (0.000) holds
+               + A1C, 10% cap      13.24% 0.614 -30.1%     +0.014 (0.117) not
+             Backtest +0.013 (p 0.000).  Why: A1's only material losses
+             (Jul 2008 -Rs 43.6k, Mar 2009 -Rs 22.3k on its 7.5 lakh) fell
+             in guarded months; the guard skipped 32 winners too, net
+             +Rs 2,093.  The guard was designed after 2008, so the p is in
+             sample.  Out of sample a rally from a calm market can still
+             cost a spread up to 10% of the book.
+             - Built: SleeveConfig.entry_guard (hash-neutral: A1 stays
+               ae503fc4; A1G 358e73d3) and run_sleeve(skip_entry_dates);
+               sleeves.guarded_sessions; diversifier_gate a1g (A1C's check
+               shared, its result unchanged); runs in runs_options (N 18).
+             - Paper: book a1 runs A1G from its next decision; the runner
+               reads a1's own rule state (paper_sessions) and India VIX
+               (the store).  Checked on 1 Sep-23 Oct: A1G trades as A1 does
+               when nothing is guarded, skips a guarded decision.
+             - Found and fixed: run_sleeve's metrics crashed when a cycle
+               decided on the last session sat beside a skipped one (A1
+               skips 31% for "no eligible strike"): the a1 paper book would
+               have failed on such a decision night.
+26 Oct  IC2  Cost-model stamping (latent since IC1; the step before LN-T29).
+             - Options and MCX runs are judged on their own cost model
+               (run_cost_model; new runs stamped so).  The options registry
+               had been split 24 runs on model 3 / 26 on 4 although every
+               one used F&O model 1: now all 50 read 1.  The 7,097 book runs
+               are unchanged.
+             - refresh-registry plans, skips and compares PBO / DSR within
+               today's cost model; the Kaggle grid skips only a run on the
+               same window and cost model (was: any run of that hash).
+             - Walk-forward fold files carry their cost model; a resume or
+               a stitch across two models is refused; the stitched summary
+               and the holdout lock record it.
+             - The books register takes a source run's PBO / DSR only on
+               the same cost model (E4's source run is on model 3).
+             - cash_yield_annual other than 0.06 is refused (unused since
+               model 4; it would record a duplicate trial).
+             Checked: registers, hashes, A1C and refresh-registry --dry-run
+             unchanged; each case above refused or applied as stated; fast
+             suite passes in myenv and core-only.
 26 Oct  DS1  One nightly email for every paper book (your asks 26 Oct: a
              daily executive summary, then no inbox flood).  After all books
              run, tools.books_report --daily sends one email: a table (book,

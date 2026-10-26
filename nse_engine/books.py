@@ -181,14 +181,28 @@ def run_scores(run: Dict[str, Any], runs_dir: Path) -> Dict[str, Any]:
 
 def static_row(book: Book, runs_dir: Path) -> Dict[str, Any]:
     """Backtest (2013-25 and its 2017-25 Sharpe), PBO and DSR of the book's configuration, from the registry."""
+    from nse_engine.validation.trials import run_cost_model
+
     row: Dict[str, Any] = {c: np.nan for c in STATIC_COLUMNS}
     run = latest_run(runs_dir, book.config_hash)
     if run is None:
         return row
     row.update(run_scores(run, runs_dir))
-    if _validation(Path(run["_dir"])) is None and book.deployment.source_run_id:
-        row.update(validation_scores(_validation(Path(runs_dir) / book.deployment.source_run_id)))
+    source = Path(runs_dir) / str(book.deployment.source_run_id or "")
+    if _validation(Path(run["_dir"])) is None and book.deployment.source_run_id and \
+            _manifest_cost_model(source) == run_cost_model(run):
+        # the source run's PBO / DSR only beside columns on its own cost model (IC2)
+        row.update(validation_scores(_validation(source)))
     return row
+
+
+def _manifest_cost_model(run_dir: Path) -> Optional[int]:
+    from nse_engine.validation.trials import run_cost_model
+
+    try:
+        return run_cost_model(json.loads((run_dir / "manifest.json").read_text()))
+    except (OSError, ValueError):
+        return None
 
 
 # ── paper data ───────────────────────────────────────────────────

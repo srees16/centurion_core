@@ -326,11 +326,21 @@ def canonical_job(job: Dict[str, Any]) -> str:
 
 
 def _check_signature(out_dir: Path, signature: Dict[str, Any], force: bool) -> None:
+    from nse_engine.costs import COST_MODEL_VERSION
+
     for path in sorted(out_dir.glob("fold_*.json")):
         try:
-            previous = json.loads(path.read_text()).get("job", {})
+            fold = json.loads(path.read_text())
         except (OSError, ValueError):
             continue
+        previous = fold.get("job", {})
+        if fold.get("cost_model") not in (None, COST_MODEL_VERSION):      # IC2: one cost model per walk-forward
+            message = (f"{path.name} was produced under cost model {fold['cost_model']}, now {COST_MODEL_VERSION}: "
+                       "use a fresh --out-dir, or --force to overwrite.")
+            if not force:
+                raise SystemExit(message)
+            logger.warning("%s", message)
+            return
         if not previous or canonical_job(previous) == canonical_job(signature):
             continue
         differing = {k: (previous.get(k), signature.get(k))
@@ -349,6 +359,7 @@ def run_walk_forward_folds(args) -> Dict[str, Any]:
     import numpy as np
     import pandas as pd
 
+    from nse_engine.costs import COST_MODEL_VERSION
     from nse_engine.validation.walk_forward import expand_grid, generate_folds
 
     from cloud.heartbeat import Heartbeat
@@ -427,6 +438,7 @@ def run_walk_forward_folds(args) -> Dict[str, Any]:
             "returns_file": returns_path.name,
             "seconds": round(time.time() - t0, 1),
             "config_hash": cfg.config_hash(),
+            "cost_model": COST_MODEL_VERSION,
             "job": signature,
             "provenance": provenance(),
         }
@@ -491,7 +503,7 @@ def run_grid(args) -> Dict[str, Any]:
     _DATA = load_data(cfg, args.data_start)
     rf = float(getattr(cfg, "risk_free_annual", 0.0))
 
-    known = _recorded_hashes(cfg.runs_dir)
+    known = _recorded_hashes(cfg.runs_dir, cfg.start, cfg.end)
     jobs, skipped = [], 0
     for params in grid:
         point_hash = cfg.replace(**params).config_hash()
@@ -716,14 +728,20 @@ def run_options(args) -> Dict[str, Any]:
     return state
 
 
-def _recorded_hashes(runs_dir: str) -> set:
-    """Config hashes already in the run registry, so a resumed sweep skips them."""
+def _recorded_hashes(runs_dir: str, start: str, end: str) -> set:
+    """Config hashes already in the run registry over this window under today's cost model, so a resumed sweep
+    skips them; one recorded under an older cost model or another window is run again (IC2)."""
+    from nse_engine.costs import COST_MODEL_VERSION
+    from nse_engine.validation.trials import run_cost_model
+
     out = set()
     for manifest in Path(runs_dir).glob("*/manifest.json"):
         try:
-            out.add(json.loads(manifest.read_text()).get("config_hash", ""))
+            m = json.loads(manifest.read_text())
         except (OSError, ValueError):
             continue
+        if (str(m.get("start")), str(m.get("end"))) == (str(start), str(end)) and run_cost_model(m) == COST_MODEL_VERSION:
+            out.add(m.get("config_hash", ""))
     return out
 
 
