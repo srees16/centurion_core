@@ -1442,6 +1442,9 @@ def main(argv=None) -> int:
                     help="verify the supervised sell test against Kite and record it (go-live check, LN-T2)")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    from kite_connect.trading.public_log import install_public_log_filter
+
+    install_public_log_filter()                           # the executor's per-symbol lines: counts only on Actions
     notes: List[str] = []
     acct, book, dry_run, capital = None, None, args.dry_run, args.capital
     if args.account:

@@ -13,6 +13,7 @@ from email.mime.text import MIMEText
 from typing import List, Optional, Tuple
 
 from config import Config
+from kite_connect.trading.public_log import book_detail
 from models import NewsItem
 
 logger = logging.getLogger(__name__)
@@ -500,10 +501,13 @@ class NotificationManager:
                     server.starttls()
                     server.login(smtp_user, smtp_pass)
                     server.sendmail(smtp_user, recipients, msg.as_string())
-            logger.info("Email sent%s: %s → %s", " (Gmail API)" if use_api else "", subject[:60], ", ".join(recipients))
+            via = " (Gmail API)" if use_api else ""
+            logger.info("Email sent%s: %s → %s", via, subject[:60], ", ".join(recipients),   # the subject has amounts
+                        extra=book_detail(f"Email sent{via} → {len(recipients)} recipient(s)"))
             return True
         except Exception as exc:
-            logger.error("Failed to send email '%s': %s", subject[:60], exc)
+            logger.error("Failed to send email '%s': %s", subject[:60], exc,
+                         extra=book_detail(f"Failed to send an email: {type(exc).__name__}"))
             return False
 
     # ── Daily Pipeline Report Email ──────────────────────────────────
@@ -623,7 +627,12 @@ class NotificationManager:
         return self._send_html_email(f"Centurion alert — {subject}", html)
 
     def email_engine_daily_report(self, report: dict) -> bool:
-        """Send the NSE engine's EOD paper session: book, fills, stops, queued orders.
+        """Send the NSE engine's EOD paper session (``render_engine_daily_report``)."""
+        return self._send_html_email(*self.render_engine_daily_report(report))
+
+    def render_engine_daily_report(self, report: dict) -> Tuple[str, str]:
+        """(subject, html) of the NSE engine's EOD paper session: book, fills, stops, queued orders.  A paper book's
+        report can be kept for the one nightly email (tracker DS1) instead of sent on its own.
 
         ``report`` keys: session, deployment, equity, initial_capital, cash,
         pnl, pnl_pct, max_drawdown_pct, open_positions, filled, cancelled,
@@ -883,7 +892,7 @@ class NotificationManager:
         else:
             subject = (f"Centurion {mode}{book} {session}{dd_tag}{alert_tag} — equity {inr(report.get('equity'))[:-3]} "
                        f"({pnl_pct:+.2f}%) — {len(filled)} filled, {len(stops)} stops, {len(queued)} queued")
-        return self._send_html_email(subject, html)
+        return subject, html
 
     # ── R22: Bull-Run Capital Infusion Alert ─────────────────────────
 

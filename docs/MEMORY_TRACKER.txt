@@ -258,15 +258,24 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
+ >>> MON 26 OCT - YOUR ACTIONS
+     1. DS1 + PL1 are committed on feature/fine-tuning (b5eded8), not yet
+        on main.  DS2 (the one Saturday email) is uncommitted on top:
+        nse-paper-trading.yml, cloud_paper_runner.py, nse_engine/books.py,
+        tools/books_report.py, tests/conftest.py, this file.  Merge both to main: one email a
+        night and one on Saturday instead of eight each.
+     2. DONE 26 Oct 22:2x: .env's Neon URL works (all 7 book schemas read,
+        tonight's snapshots intact).  The test suite then read the live
+        books (config.py loads .env): tests/conftest.py now blanks the URL
+        for the suite, as CI has none; checked that the two runs before
+        the guard wrote nothing (no row changed after the 19:00 run).
+        Uncommitted with DS2: tests/conftest.py.
  >>> SUN 25 OCT - YOUR ACTIONS (Neon paid and back 21:22 IST; NEO5)
      0. DONE 25 Oct (NEO6): fix merged, schemas dropped, both books rebuilt
         from 21 Oct and checked; all six books verified.
-     0b. A1P + A1C: book a1 is built with your 10% cap per cycle (A1C
-        failed significance; going on is recorded as your call).  Merge
-        it: config/nse_engine_a1.json, options_overlay.py, the runner,
-        manager.py, deployment.py, the workflow and the rest.  Merged
-        after Monday's 19:00 run, it replays from 26 Oct.  To drop A1
-        instead, leave config/nse_engine_a1.json out.
+     0b. DONE 26 Oct 00:2x (merged, PR #287): book a1 with your 10% cap
+        per cycle (A1C failed significance; going on is your call).  Its
+        first session is Mon 26 Oct's 19:00 run.
         Say "do A1G" for the crash-guard run (it does not touch a1).
      1. Mon 26 Oct 09:00: Kite login from the reminder email (dry run, ETF
         snapshots, the sell test).
@@ -282,7 +291,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
         Q5 on LIQUIDCASE: ST2 block; text in Claude's 25 Oct reply), then
         tell Claude the answers.
      6. Say "do IC2" to start LN-T29 (brought forward, P1).
-     7. Commit (tonight): the store build checking every year (CAN1b) and
+     7. DONE 26 Oct (merged, PR #287): the store build checking every year (CAN1b) and
         the workflow restored, neon-watch.yml deleted (NEO5), both in
         nse-paper-trading.yml; runners/refresh_data.py (DR1b); the LN-T29d corrections (this file,
         plan 5ag-5ai, research_protocol 5.1, golden_target_review,
@@ -1062,6 +1071,51 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+26 Oct  DS1  One nightly email for every paper book (your asks 26 Oct: a
+             daily executive summary, then no inbox flood).  After all books
+             run, tools.books_report --daily sends one email: a table (book,
+             started, initial capital, value, since start, NIFTY 50 over the
+             same sessions, drawdown paper vs backtest, G4, the day) and
+             findings (market, paper vs backtest, vs NIFTY, the day's fills,
+             alerts, late F&O legs, G4 milestones), then each book's own
+             report behind an index of links (email cannot hold tabs).  The
+             books keep their reports in Neon (state daily_email) instead
+             of mailing them (CENTURION_BOOK_EMAILS=combined in the
+             workflow; a report that cannot be kept is mailed on its own;
+             if the combined email cannot be built, each kept report goes
+             out on its own, once).
+             Once per session (state daily_summary_sent); a night with a
+             book not yet updated waits until 21:30 IST, then goes out
+             marked incomplete.  Alerts still email on their own.  The a1
+             book is now scored on its whole value (shares + overlay) here
+             and in the Saturday report.  Tested on tonight's numbers and a
+             stand-in database (Neon unreachable from this Mac: see section
+             4); fast suite passes in myenv and core-only.
+26 Oct  DS2  One Saturday email for every paper book (your ask 26 Oct): was
+             7 weekly checkpoints + the books report.  Executive summary
+             first, as crisp as the nightly one: a table (book, initial
+             capital, value, this week, since start, NIFTY 50 same period,
+             vs deployed with its t, G4, forward gate) and findings (the
+             market's week, paper vs backtest, vs NIFTY 50, vs the deployed
+             book, promotion, G4 milestones).  Then the V4 comparison and
+             forward gate (and any promotion review, READY FOR YOUR REVIEW
+             in the subject), then each book's weekly report behind an
+             index; the register still attached.  Weekly reports kept in
+             Neon (state weekly_email); once per Saturday (state
+             weekly_summary_sent); the step now runs even when a weekly
+             step failed.  Tested on a stand-in database: one email, a
+             rerun sends nothing, a builder failure sends the comparison
+             report and each kept report on their own.
+26 Oct  PL1  Counts only in the public Actions logs (your call 26 Oct).
+             kite_connect/trading/public_log.py: a log line with book
+             detail (symbols, quantities, prices, amounts) prints its counts
+             on Actions, or nothing; run locally, every line prints in full.
+             Paper trader, runner status lines, G4 line, weekly lines, the
+             executor's per-symbol weights (live too), the email-sent line
+             (its subject had amounts) and the Saturday report's printout.
+             Left as they were: the engine's research backtest lines
+             (2013-25 Sharpe and CAGR, as in the README) and the
+             same-period reference's summary.
 26 Oct  A1C  A1 with each cycle's maximum loss capped at 10% of the book
              (your call 26 Oct; plan 5am, pre-registered 00:07 IST).
              FAIL on significance; book a1 runs it as your decision.

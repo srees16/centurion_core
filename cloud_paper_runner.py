@@ -15,7 +15,9 @@ Optional:
     CENTURION_EMAIL_USER / CENTURION_EMAIL_PASS  — for daily reports
 """
 
+import json
 import os
+import re
 import sys
 import logging
 from datetime import datetime, date, timedelta, timezone
@@ -26,6 +28,8 @@ from typing import Optional
 _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
+
+from kite_connect.trading.public_log import book_detail, install_public_log_filter  # noqa: E402
 
 os.environ.setdefault("CENTURION_PAPER_TRADE", "true")
 
@@ -118,6 +122,25 @@ def _check_active() -> bool:
         return True
 
 
+def _counts_only(msg: str) -> str:
+    """A run's status line as the public Actions log prints it: the counts, the gate verdict, each sleeve's state
+    and any failed or deferred leg.  Amounts, symbols and the notes' text stay in the email and Neon."""
+    head, *parts = msg.split(" | ")
+    out, notes = [re.sub(r" cash=-?[\d.]+", "", head)], 0
+    for part in parts:
+        if part.startswith("gate ") or "deferred" in part:
+            out.append(part)
+        elif "FAILED" in part:
+            out.append(part.split(":")[0])
+        elif " nav=" in part:
+            out.append(part.split(" nav=")[0] + " ok")
+        else:
+            notes += 1
+    if notes:
+        out.append(f"{notes} note(s) or alert(s), in the email")
+    return " | ".join(out)
+
+
 def _book_label() -> str:
     """Name of a second paper book (``CENTURION_PAPER_BOOK_LABEL``, e.g. 'candidate'), '' for the deployed one."""
     return (os.environ.get("CENTURION_PAPER_BOOK_LABEL") or "").strip()
@@ -152,8 +175,11 @@ def _update_run_status(status: str, message: str):
     if os.environ.get("CENTURION_PAPER_SCHEMA"):
         # The switch row is shared: a second book (tracker D1) must not overwrite
         # the deployed book's run status on the Trade Center.
+        book = _book_label() or os.environ.get("CENTURION_PAPER_SCHEMA")
         logger.info("Run status not written for book '%s' (the switch row belongs to the deployed book): [%s] %s",
-                    _book_label() or os.environ.get("CENTURION_PAPER_SCHEMA"), status, message[:200])
+                    book, status, message[:200],
+                    extra=book_detail(f"Run status not written for book '{book}' (the switch row belongs to the "
+                                      f"deployed book): [{status}]"))
         return
     try:
         engine = _get_neon_engine()
@@ -189,9 +215,9 @@ def _open_paper_trader(capital: Optional[float] = None):
     pt = PaperTrader(kite=None, initial_capital=capital or _INITIAL_CAPITAL)
     if pt.restored_from == "cloud_restore_failed":
         raise RuntimeError("Paper book restore from Neon failed — aborting run to protect the track record")
-    logger.info("Paper book: source=%s cash=%.0f open=%d initial=%.0f",
-                pt.restored_from, pt.cash, sum(1 for p in pt._positions if p.is_open),
-                pt.initial_capital)
+    n_open = sum(1 for p in pt._positions if p.is_open)
+    logger.info("Paper book: source=%s cash=%.0f open=%d initial=%.0f", pt.restored_from, pt.cash, n_open,
+                pt.initial_capital, extra=book_detail(f"Paper book: source={pt.restored_from} open={n_open}"))
     return pt
 
 
@@ -549,7 +575,7 @@ def _engine_session(pt, dep, executor, as_of=None, previous_session=None, replay
         msg += f" | REALITY GAP: {'; '.join(shift['reality_gap_alerts'])}"
     for note in session.get("notes", []):
         msg += f" | {note}"
-    logger.info("NSE engine paper run: %s", msg)
+    logger.info("NSE engine paper run: %s", msg, extra=book_detail(f"NSE engine paper run: {_counts_only(msg)}"))
     _record_session_activity(pt, session, snapshot, plan, queued, fills)
     gate = _paper_gate(pt, dep.engine.config_hash())
     if gate:
@@ -711,7 +737,8 @@ def _paper_gate(pt, config_hash: Optional[str] = None) -> Optional[dict]:
         sessions = cloud.read_sessions() if cloud is not None and hasattr(cloud, "read_sessions") else None
         report = paper_gate.evaluate(pt.equity_history(), ref, fills=fills, reference_trades=trades,
                                      sessions=sessions)
-        logger.info("Paper gate (G4): %s", paper_gate.one_line(report))
+        logger.info("Paper gate (G4): %s", paper_gate.one_line(report),
+                    extra=book_detail(f"Paper gate (G4): {paper_gate.headline(report)}"))
         if cloud is not None and hasattr(cloud, "sync_state"):
             cloud.sync_state({paper_gate.STATE_KEY: paper_gate.summary_json(
                 report, updated_at=datetime.now(timezone.utc).isoformat(), config_hash=config_hash)})
@@ -842,6 +869,23 @@ def _drift_check_line(pt, shift: dict, plan) -> str:
             f"(runs from session {SHIFT_MIN_LIVE_DAYS + 1}) · size today ×{applied:.2f}")
 
 
+def _keep_for_combined_email(pt, key: str, kept_for: str, subject: str, html: str) -> bool:
+    """With ``CENTURION_BOOK_EMAILS=combined`` (the workflow), a book's daily or weekly report is kept in its Neon
+    state (``key``) for the one email of every book (``tools.books_report``, trackers DS1 / DS2) instead of sent
+    on its own.  False, so it is sent now, when it cannot be kept."""
+    if (os.environ.get("CENTURION_BOOK_EMAILS") or "").strip().lower() != "combined":
+        return False
+    try:
+        cloud = pt._get_cloud()
+        if cloud and cloud.sync_state({key: json.dumps({"session": kept_for, "subject": subject, "html": html})}):
+            logger.info("Report kept for the one email of every book (%s)", key)
+            return True
+        logger.warning("Report could not be kept for the one email of every book: sending it on its own")
+    except Exception as exc:                              # noqa: BLE001 - never lose a book's email
+        logger.warning("Report not kept for the one email of every book (%s): sending it on its own", exc)
+    return False
+
+
 def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict, gate: Optional[dict] = None,
                           futures: Optional[dict] = None, bonds: Optional[dict] = None,
                           mcx: Optional[dict] = None, options: Optional[dict] = None) -> None:
@@ -911,7 +955,7 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict, g
             alerts.append(f"OPTIONS OVERLAY: {note}")
             alert(WARNING, f"options_overlay_data:{book}", f"Centurion paper [{book}]: options overlay data", [note],
                   book=book)
-        sent = NotificationManager().email_engine_daily_report({
+        report = {
             "session": session.get("session"),
             "deployment": f"{dep.status} {dep.engine.config_hash()[:8]} · paper since {dep.paper_start_date}",
             "book_label": _book_tag(dep),
@@ -940,7 +984,14 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict, g
             "bonds": bonds,
             "mcx": mcx,
             "options": options,
-        })
+        }
+        from nse_engine.books import DAILY_EMAIL_KEY
+
+        manager = NotificationManager()
+        subject, html = manager.render_engine_daily_report(report)
+        if _keep_for_combined_email(pt, DAILY_EMAIL_KEY, str(report["session"]), subject, html):
+            return
+        sent = manager._send_html_email(subject, html)
         if not sent:
             logger.warning("Daily email returned False — check CENTURION_EMAIL_USER / CENTURION_EMAIL_PASS / "
                            "CENTURION_EMAIL_HOST / CENTURION_EMAIL_PORT secrets")
@@ -1167,7 +1218,7 @@ def _run_weekly_checkpoint(use_engine: bool = False):
     logger.info(
         "Weekly checkpoint W%d: return=%.1f%% sharpe=%.2f dd=%.1f%%",
         wk, checkpoint["week_return_pct"],
-        checkpoint["sharpe_ratio"], checkpoint["max_dd_pct"],
+        checkpoint["sharpe_ratio"], checkpoint["max_dd_pct"], extra=book_detail(f"Weekly checkpoint W{wk}"),
     )
 
     # ── Build weekly email HTML ───────────────────────────────────
@@ -1294,7 +1345,10 @@ def _run_weekly_checkpoint(use_engine: bool = False):
     subject = (f"[Centurion Paper] {label}Week {wk} | {checkpoint['week_return_pct']:+.1f}%{futures_tag} | "
                f"{checkpoint['trades_opened']} opened, {checkpoint['trades_closed']} closed | "
                f"gate {verdict.split(' — ')[0]}")
-    sent = NotificationManager._send_html_email(
+    from nse_engine.books import WEEKLY_EMAIL_KEY
+
+    kept_on = datetime.now(timezone(timedelta(hours=5, minutes=30))).date().isoformat()
+    sent = _keep_for_combined_email(pt, WEEKLY_EMAIL_KEY, kept_on, subject, html) or NotificationManager._send_html_email(
         subject=subject,
         html_body=html,
         recipients=["s.srees@live.com"],
@@ -1386,6 +1440,7 @@ def _engine_signal_entries(plan) -> list:
 
 
 def main(argv=None):
+    install_public_log_filter()                           # Actions logs are public: counts only there
     logger.info("=== Cloud Paper Trading Runner ===")
     use_engine = _engine_enabled(argv)
 
@@ -1403,7 +1458,8 @@ def main(argv=None):
         try:
             status, message = _run_weekly_checkpoint(use_engine)
             _update_run_status(status, message[:500])
-            logger.info("Weekly checkpoint complete: [%s] %s", status, message)
+            logger.info("Weekly checkpoint complete: [%s] %s", status, message,
+                        extra=book_detail(f"Weekly checkpoint complete: [{status}]"))
         except Exception as exc:
             _update_run_status("error", f"weekly: {str(exc)[:480]}")
             logger.exception("Weekly checkpoint failed: %s", exc)
@@ -1419,7 +1475,8 @@ def main(argv=None):
             else:
                 status, message = _run_paper_pipeline()
             _update_run_status(status, message[:500])
-            logger.info("Run complete: [%s] %s", status, message)
+            logger.info("Run complete: [%s] %s", status, message,
+                        extra=book_detail(f"Run complete: [{status}] {_counts_only(message)}"))
         except Exception as exc:
             _update_run_status("error", str(exc)[:500])
             logger.exception("Pipeline failed: %s", exc)

@@ -38,10 +38,12 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 
+from kite_connect.trading.public_log import book_detail
+
 logger = logging.getLogger(__name__)
 
 _IST = timezone(timedelta(hours=5, minutes=30))
-SHIFT_MIN_LIVE_DAYS = 30                       # live daily returns before the drift check runs
+SHIFT_MIN_LIVE_DAYS = 30                      # live daily returns before the drift check runs
 SHIFT_STATE_FILENAME = "distribution_shift_state.json"
 # CENTURION_PAPER_DB_PATH moves the local copy of the book (a second paper book,
 # tracker D1, runs in the same job and must not share the deployed book's file).
@@ -412,6 +414,7 @@ class PaperTrader:
         logger.info(
             "Paper trader loaded (%s): cash=%.2f, initial=%.0f, %d open positions",
             self.restored_from, self.cash, self.initial_capital, len(self._positions),
+            extra=book_detail(f"Paper trader loaded ({self.restored_from}): {len(self._positions)} open positions"),
         )
 
     def _restore_from_cloud(self) -> bool:
@@ -494,7 +497,9 @@ class PaperTrader:
         self._restore_shift_state(state.get("shift_state"))
         logger.info("Paper state restored from cloud: cash=%.2f, %d open positions, %d snapshots, "
                     "%d weekly checkpoints", self.cash, len(self._positions),
-                    len(state.get("snapshots", [])), len(state.get("weekly", [])))
+                    len(state.get("snapshots", [])), len(state.get("weekly", [])),
+                    extra=book_detail(f"Paper state restored from cloud: {len(self._positions)} open positions, "
+                                      f"{len(state.get('snapshots', []))} snapshots"))
         return True
 
     @staticmethod
@@ -712,7 +717,7 @@ class PaperTrader:
             logger.info(
                 "PAPER %s: %s × %d @ %.2f (slip=%.1fbps, cost=%.0f)",
                 plan.side, symbol, plan.quantity, fill_price,
-                self._slippage_bps, cost,
+                self._slippage_bps, cost, extra=book_detail(),
             )
             results.append({
                 "symbol": symbol,
@@ -877,7 +882,7 @@ class PaperTrader:
         logger.info(
             "PAPER CLOSE [%s]: %s @ %.2f → %.2f | P&L=%.2f (%.1f%%) costs=%.2f",
             reason, pos.symbol, pos.entry_price, exit_price, pos.pnl, pos.pnl_pct,
-            sell_cost + buy_cost,
+            sell_cost + buy_cost, extra=book_detail(),
         )
         return {
             "type": f"PAPER_{reason}",
@@ -993,7 +998,8 @@ class PaperTrader:
         self._positions.append(pos)
         self._save_position(pos)
         self._save_cash()
-        logger.info("PAPER BUY %s x %d @ %.2f (costs %.2f) %s", symbol, quantity, fill, charges, reason)
+        logger.info("PAPER BUY %s x %d @ %.2f (costs %.2f) %s", symbol, quantity, fill, charges, reason,
+                    extra=book_detail())
         return {"symbol": symbol, "side": "BUY", "success": True, "fill_price": fill,
                 "quantity": quantity, "costs": charges, "reason": reason}
 
@@ -1171,7 +1177,8 @@ class PaperTrader:
             conn.close()
         for r in rows:
             logger.info("PAPER PENDING %s %s x %d (target %d) decided %s ref=%.2f %s",
-                        r["side"], r["symbol"], r["quantity"], r["target_qty"], d, r["ref_price"], r["reason"])
+                        r["side"], r["symbol"], r["quantity"], r["target_qty"], d, r["ref_price"], r["reason"],
+                        extra=book_detail())
         self._sync_engine_state()
         return rows
 
@@ -1297,7 +1304,8 @@ class PaperTrader:
                                + (f", Rs {in_lieu:,.2f} cash in lieu" if in_lieu > 0 else ""),
                           occurred_at=f"{day}T09:15:00+05:30")
         self._mark_applied(key)
-        logger.info("PAPER corporate action %s factor %.4g: %d -> %d shares", symbol, share_factor, before, after)
+        logger.info("PAPER corporate action %s factor %.4g: %d -> %d shares", symbol, share_factor, before, after,
+                    extra=book_detail("PAPER corporate action applied"))
         return {"symbol": symbol, "factor": share_factor, "before": before, "after": after, "cash_in_lieu": in_lieu}
 
     def rename_symbol(self, old: str, new: str, key: str, session_date) -> int:
@@ -1338,7 +1346,7 @@ class PaperTrader:
                           status=FILLED, requested_qty=n, quantity=n, ref_price=0.0, fill_price=0.0, impact_bps=0.0,
                           costs_inr=0.0, pnl=0.0, note=f"{old} renamed to {new}", occurred_at=f"{day}T09:15:00+05:30")
         self._mark_applied(key)
-        logger.info("PAPER rename %s -> %s (%d lots)", old, new, n)
+        logger.info("PAPER rename %s -> %s (%d lots)", old, new, n, extra=book_detail("PAPER rename applied"))
         return n
 
     def credit_dividend(self, symbol: str, per_share: float, ex_date, key: str) -> Optional[dict]:
@@ -1357,7 +1365,8 @@ class PaperTrader:
                           requested_qty=qty, quantity=qty, ref_price=float(per_share), fill_price=float(per_share),
                           impact_bps=0.0, costs_inr=0.0, pnl=round(amount, 2),
                           note=f"dividend Rs {per_share:g} x {qty}", occurred_at=f"{day}T09:15:00+05:30")
-        logger.info("PAPER dividend %s Rs %.4g x %d = Rs %.2f", symbol, per_share, qty, amount)
+        logger.info("PAPER dividend %s Rs %.4g x %d = Rs %.2f", symbol, per_share, qty, amount,
+                    extra=book_detail("PAPER dividend credited"))
         return {"symbol": symbol, "per_share": per_share, "quantity": qty, "amount": amount}
 
     def _record_fill(self, **row) -> None:
@@ -1437,7 +1446,7 @@ class PaperTrader:
         self._save_position(pos)
         self._save_cash()
         logger.info("PAPER BUY (open fill) %s x %d @ %.2f (charges %.2f) %s", symbol, quantity, entry_price,
-                    charges, reason)
+                    charges, reason, extra=book_detail())
         return {"symbol": symbol, "side": "BUY", "success": True, "fill_price": pos.entry_price,
                 "quantity": int(quantity), "costs": charges, "reason": reason}
 
@@ -1732,7 +1741,7 @@ class PaperTrader:
         conn.close()
         self.cash = self.initial_capital
         self._positions.clear()
-        logger.info("Paper trader reset: capital=%.2f", self.initial_capital)
+        logger.info("Paper trader reset: capital=%.2f", self.initial_capital, extra=book_detail("Paper trader reset"))
 
     # ── Checkpoint methods for 4-week paper validation ─────────
 
@@ -1816,6 +1825,7 @@ class PaperTrader:
             today, snapshot["equity"], snapshot["cumulative_pnl"],
             snapshot["cumulative_pnl_pct"], snapshot["max_drawdown_pct"],
             snapshot["open_positions"], closed_today,
+            extra=book_detail(f"Daily snapshot: {today} open={snapshot['open_positions']} closed={closed_today}"),
         )
         # Cloud sync (best-effort)
         cloud = self._get_cloud()
@@ -1980,9 +1990,11 @@ class PaperTrader:
             logger.info("Reality gap (same period): tracking error=%s/yr mean daily gap=%s bp%s",
                         result.get("tracking_error_annual"),
                         None if result.get("mean_daily_gap") is None else round(result["mean_daily_gap"] * 1e4, 2),
-                        f" — ALERT: {'; '.join(gap_alerts)}" if gap_alerts else "")
+                        f" — ALERT: {'; '.join(gap_alerts)}" if gap_alerts else "",
+                        extra=book_detail("Reality gap (same period) checked" + (" — ALERT" if gap_alerts else "")))
         if gap_alerts:
-            logger.warning("REALITY GAP — %s", "; ".join(gap_alerts))
+            logger.warning("REALITY GAP — %s", "; ".join(gap_alerts),
+                           extra=book_detail(f"REALITY GAP — {len(gap_alerts)} alert(s), detail in the email"))
             verdict = more_severe(verdict, "drifting")
         result["position_verdict"] = verdict
 
@@ -2230,6 +2242,8 @@ class PaperTrader:
             start_equity, end_equity, week_return,
             trades_opened, trades_closed, win_rate * 100,
             sharpe, max_dd,
+            extra=book_detail(f"Weekly checkpoint W{current_week}: {week_start}→{week_end} "
+                              f"trades={trades_opened}/{trades_closed}"),
         )
         # Cloud sync (best-effort)
         cloud = self._get_cloud()
