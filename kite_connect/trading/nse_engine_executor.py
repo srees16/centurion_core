@@ -69,6 +69,8 @@ from typing import Callable, Dict, List, Mapping, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from kite_connect.trading.public_log import book_detail
+
 logger = logging.getLogger(__name__)
 
 _IST = timezone(timedelta(hours=5, minutes=30))
@@ -777,7 +779,7 @@ class EngineExecutor:
         plan.notes.append(msg)
         logger.warning("EngineExecutor: %s", msg)
         for sym, (w, nw) in sorted(scaled.items()):
-            logger.info("  %s target weight %.4f -> %.4f", sym, w, nw)
+            logger.info("  %s target weight %.4f -> %.4f", sym, w, nw, extra=book_detail())
         return weights
 
     @staticmethod

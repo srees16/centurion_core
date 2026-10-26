@@ -449,6 +449,7 @@ jobs:
           CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
           CENTURION_SHIFT_MAX_TRACKING_ERROR: ${{ vars.CENTURION_SHIFT_MAX_TRACKING_ERROR || '0.08' }}
           CENTURION_SHIFT_MAX_DAILY_GAP_BPS: ${{ vars.CENTURION_SHIFT_MAX_DAILY_GAP_BPS || '3' }}
+          CENTURION_DAILY_EMAIL: combined     # each book's report waits for the one nightly email (DS1)
         run: |
           EXTRA=""
           if [ "$NEW_BOOK" = "true" ]; then EXTRA="--new-book"; fi
@@ -570,6 +571,7 @@ jobs:
           CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
           CENTURION_SHIFT_MAX_TRACKING_ERROR: ${{ vars.CENTURION_SHIFT_MAX_TRACKING_ERROR || '0.08' }}
           CENTURION_SHIFT_MAX_DAILY_GAP_BPS: ${{ vars.CENTURION_SHIFT_MAX_DAILY_GAP_BPS || '3' }}
+          CENTURION_DAILY_EMAIL: combined     # each book's report waits for the one nightly email (DS1)
         run: |
           failed=""
           for CFG in config/nse_engine_*.json; do
@@ -596,6 +598,21 @@ jobs:
             echo "::endgroup::"
           done
           [ -z "$failed" ] || { echo "::error::paper book(s) failed:$failed"; exit 1; }
+
+      # Tracker DS1 (your asks 26 Oct 2026): one email a night for every book, after they all ran: the executive
+      # summary, then each book's own report (kept in Neon by the sessions above).  Once per session: the backup
+      # runs skip it; a night with a book not yet updated waits for the next run until 21:30 IST, then goes out
+      # marked incomplete.  Alerts still email on their own.  The log prints counts only.
+      - name: Paper books - one nightly email
+        if: always() && steps.window.outputs.today != ''
+        continue-on-error: true
+        env:
+          CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
+          CENTURION_EMAIL_USER: ${{ secrets.CENTURION_EMAIL_USER }}
+          CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
+          CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
+          CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+        run: python -m tools.books_report --daily
 
       - name: Tell me when a session fails
         if: failure()

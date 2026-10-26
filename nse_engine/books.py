@@ -56,6 +56,13 @@ PASS, FAIL, PENDING, NA = "PASS", "FAIL", "PENDING", "n/a"
 #: |t| of the mean daily return difference beyond which a paper gap is unlikely to be noise.
 T_SIGNIFICANT = 2.0
 
+#: Neon state keys of the ledgers that hold a book's whole value (shares + its sleeve or overlay).
+SLEEVE_LEDGERS = ("futures_ledger", "bond_ledger", "mcx_ledger", "options_overlay_ledger")
+#: The deployed book's Neon state key of the last session the daily summary went out for (once per session).
+DAILY_STATE_KEY = "daily_summary_sent"
+#: Each book's Neon state key of its own daily report ({session, subject, html}), kept for the one nightly email.
+DAILY_EMAIL_KEY = "daily_email"
+
 STATIC_COLUMNS = ["scored_run_id", "data_hash", "cost_model", "bt_cagr", "bt_sharpe", "bt_max_dd", "bt_calmar",
                   "bt_turnover", "bt_cost_drag", "bt_sharpe_2017_25", "pbo", "pbo_n", "dsr"]
 PAPER_COLUMNS = ["paper_sessions", "paper_return", "paper_alpha_nifty50", "paper_sharpe", "paper_max_dd", "paper_g4",
@@ -209,8 +216,9 @@ def paper_book_from_frames(name: str, snapshots: Optional[pd.DataFrame], session
         idx = pd.DatetimeIndex(pd.to_datetime(snapshots["date"].astype(str))).normalize()
         s = pd.Series(snapshots["equity"].astype(float).to_numpy(), index=idx)
         equity = s[~s.index.duplicated(keep="last")].sort_index().dropna()
-    # a book levered with futures (L9), or with a gilt (BD3) or MCX trend (DL1) sleeve, is scored on the whole book
-    ledger = next((state[k] for k in ("futures_ledger", "bond_ledger", "mcx_ledger") if (state or {}).get(k)), None)
+    # a book levered with futures (L9), with a gilt (BD3) or MCX trend (DL1) sleeve or an options overlay (A1P), is
+    # scored on the whole book
+    ledger = next((state[k] for k in SLEEVE_LEDGERS if (state or {}).get(k)), None)
     if ledger:
         rows = json.loads(ledger).get("history") or []
         if rows:
@@ -653,6 +661,240 @@ def build_report(books: Sequence[Book], paper: Dict[str, PaperBook], register: p
         (f"{len(judged)} trial(s) compared" if judged else "no comparison yet")
     return {"subject": subject, "html": "\n".join(html), "headline": headline, "gate_line": gate_line,
             "cleared": cleared, "comparisons": comparisons, "gates": gates, "reviews": reviews}
+
+
+# ── daily executive summary (tracker DS1) ────────────────────────
+
+@dataclass
+class DayBook:
+    """One book on one session, for the daily summary (``tools.books_report --daily`` reads it from Neon)."""
+
+    book: Book
+    paper: PaperBook
+    initial: float
+    activity: Optional[Dict[str, Any]] = None     # its ``paper_sessions`` row of the session
+    fills: Optional[pd.DataFrame] = None           # its FILLED execution events of the session
+    sleeve: Optional[Dict[str, Any]] = None        # its sleeve's or overlay's last ledger row, with ``kind``
+    email: Optional[Dict[str, str]] = None         # its own daily report of the session: session, subject, html
+
+
+DAILY_COLUMNS = ["Book", "Started", "Initial capital", "Value today", "Since start", "NIFTY 50, same period",
+                 "Drawdown: paper vs backtest", "G4", "Today"]
+
+
+def _dmy(d: Any) -> str:
+    return pd.Timestamp(d).strftime("%d-%m-%Y") if d not in (None, "") else NA
+
+
+def _inr_short(v: Any) -> str:
+    """Rupees in lakh or crore, e.g. '₹33.78 L', '₹1.95 Cr'."""
+    if not _finite(v):
+        return NA
+    return f"₹{v / 1e7:.2f} Cr" if abs(v) >= 1e7 else f"₹{v / 1e5:.2f} L"
+
+
+def _sleeve_late(d: DayBook, session: date) -> bool:
+    """The F&O leg (futures or options) not yet marked at ``session``'s close: NSE's file came late."""
+    s = d.sleeve or {}
+    if s.get("kind") == "futures_ledger":
+        return str(s.get("date") or "") < session.isoformat()
+    if s.get("kind") == "options_overlay_ledger":
+        return str(s.get("a1_asof") or "") < session.isoformat()
+    return False
+
+
+def _sleeve_text(d: DayBook, session: date) -> str:
+    s = d.sleeve or {}
+    kind, late = s.get("kind"), _sleeve_late(d, session)
+    if kind == "futures_ledger":
+        return (f"futures leg not marked since {_dmy(s.get('date'))} (F&O file late)" if late
+                else f"futures: {int(s.get('legs') or 0)} legs, exposure {float(s.get('exposure') or 0):.2f}x")
+    if kind == "bond_ledger":
+        return f"gilts {float(s.get('weight') or 0):.1%} of the book"
+    if kind == "mcx_ledger":
+        gross = float(s.get("gross") or 0)
+        asof = str(s.get("mcx_asof") or "")
+        return (("MCX sleeve flat" if gross == 0 else f"MCX sleeve gross {gross:.2f}x")
+                + (f" (MCX data to {_dmy(asof)})" if asof and asof < session.isoformat() else ""))
+    if kind == "options_overlay_ledger":
+        name = (d.book.deployment.options_overlay or {}).get("candidate", "options")
+        loss = float(s.get("max_loss_share") or 0)
+        return (f"{name}: " + (f"spread open, max loss {loss:.1%} of the book" if loss > 0 else "no spread open")
+                + (f" (F&O marked {_dmy(s.get('a1_asof'))})" if late and s.get("a1_asof")
+                   else " (F&O data not in yet)" if late else ""))
+    return ""
+
+
+def _today_text(d: DayBook, session: date) -> str:
+    """What the book did in ``session``: its fills by name, stops, the orders queued, its sleeve's state."""
+    a = d.activity or {}
+    if str(a.get("session_date") or "")[:10] != session.isoformat():
+        return "not updated for this session"
+    f = d.fills if d.fills is not None else pd.DataFrame()
+    names = [("sold " if str(r.get("side")).upper() == "SELL" else "bought ") + str(r.get("symbol"))
+             + (" (stop)" if r.get("source") == "stop" else "") for _, r in f.iterrows()]
+    parts = []
+    if names:
+        parts.append(", ".join(names[:3]) + (f" +{len(names) - 3} more" if len(names) > 3 else ""))
+    elif int(a.get("stops_triggered") or 0):
+        parts.append(f"{int(a['stops_triggered'])} stop(s) hit")
+    if int(a.get("queued") or 0):
+        parts.append(f"{int(a['queued'])} order(s) queued for the next open")
+    if not parts:
+        parts.append(str(a.get("outcome") or "no trades"))
+    sleeve = _sleeve_text(d, session)
+    return "; ".join(parts + ([sleeve] if sleeve else []))
+
+
+def daily_rows(days: Sequence[DayBook], nifty: Optional[pd.Series], session: date) -> List[Dict[str, Any]]:
+    """One row per book: capital, value, return since its start against NIFTY 50's, drawdown, G4, the day."""
+    from nse_engine import paper_gate
+
+    def close(day: pd.Timestamp) -> float:
+        n = nifty[nifty.index <= day] if nifty is not None else pd.Series(dtype="float64")
+        return float(n.iloc[-1]) if len(n) else np.nan
+
+    rows = []
+    for d in days:
+        e, gate = d.paper.equity, d.paper.gate or {}
+        row: Dict[str, Any] = {"book": d.book.name, "initial": d.initial, "sessions": int(len(e)), "value": np.nan,
+                               "asof": None, "return": np.nan, "nifty": np.nan, "alpha": np.nan,
+                               "started": e.index[0].date() if len(e) else d.book.deployment.paper_start_date}
+        if not len(e):
+            row.update(dd=NA, g4="not started", today=f"starts {_dmy(d.book.deployment.paper_start_date)}")
+            rows.append(row)
+            continue
+        row.update(value=float(e.iloc[-1]), asof=e.index[-1].date())
+        row["return"] = row["value"] / d.initial - 1.0 if d.initial > 0 else np.nan
+        b0, b1 = close(e.index[0]), close(e.index[-1])
+        if _finite(b0) and _finite(b1) and b0 > 0:
+            row["nifty"] = b1 / b0 - 1.0
+            row["alpha"] = row["return"] - row["nifty"]
+        check = next((c for c in gate.get("checks") or [] if c.get("name") == "drawdown"), None)
+        row["dd"] = check["display"] if check else f"{abs(float((e / e.cummax() - 1.0).min())):.1%} (no backtest yet)"
+        row["g4"] = paper_gate.headline(gate) if gate else "no report yet"
+        row["today"] = _today_text(d, session)
+        rows.append(row)
+    return rows
+
+
+def daily_findings(days: Sequence[DayBook], rows: Sequence[Dict[str, Any]], nifty: Optional[pd.Series],
+                   session: date) -> List[str]:
+    """The summary's bullets: the market, paper against its backtest, against NIFTY 50, the day, alerts, what's next."""
+    from nse_engine import paper_gate
+
+    out: List[str] = []
+    n = nifty[nifty.index <= pd.Timestamp(session)] if nifty is not None else pd.Series(dtype="float64")
+    if len(n) >= 2:
+        peak = float(n.max())
+        out.append(f"Market: NIFTY 50 closed at {n.iloc[-1]:,.0f} ({n.iloc[-1] / n.iloc[-2] - 1:+.2%} on the day), "
+                   f"{1 - n.iloc[-1] / peak:.1%} below its peak of {peak:,.0f} ({_dmy(n.idxmax())}).")
+    checks = [(d.book.name, c) for d in days for c in (d.paper.gate or {}).get("checks") or []]
+    flagged = [f"{b} {c['name']} {c['status']} ({c['display']})" for b, c in checks
+               if c.get("status") in (paper_gate.WATCH, paper_gate.FAIL)]
+    te = [c["value"] for _, c in checks if c.get("name") == "tracking error" and _finite(c.get("value"))]
+    costs = [c["value"] for _, c in checks if c.get("name") == "costs" and _finite(c.get("value"))]
+    if flagged:
+        out.append("Paper against its own backtest, to look at: " + "; ".join(flagged) + ".")
+    elif te:
+        out.append(f"Paper tracks its own backtest in every book with a G4 report: tracking error {min(te):.1%} to "
+                   f"{max(te):.1%} a year" + (f", costs {min(costs):.2f} to {max(costs):.2f}x the model" if costs else "")
+                   + ". The results are the strategy's, not the execution's.")
+    judged = [r for r in rows if _finite(r["alpha"]) and r["sessions"] >= 2]
+    if judged:
+        behind = [r for r in judged if r["alpha"] < 0]
+        worst, best = min(judged, key=lambda r: r["alpha"]), max(judged, key=lambda r: r["alpha"])
+        out.append(f"Against NIFTY 50 over each book's own period: {len(behind)} of {len(judged)} behind; widest gap "
+                   f"{worst['book']} {worst['alpha'] * 100:+.1f} pts since {_dmy(worst['started'])}"
+                   + (f"; best {best['book']} {best['alpha'] * 100:+.1f} pts" if best is not worst else "")
+                   + ". Weeks of paper are too few to judge an edge.")
+    today = [d for d in days if str((d.activity or {}).get("session_date") or "")[:10] == session.isoformat()]
+    fills = sum(len(d.fills) for d in today if d.fills is not None)
+    stops = sum(int((d.activity or {}).get("stops_triggered") or 0) for d in today)
+    queued = sum(int((d.activity or {}).get("queued") or 0) for d in today)
+    out.append(f"Today across the books: {fills} fill(s), {stops} stop(s) hit, {queued} order(s) queued for the next open.")
+    alerts: Dict[str, List[str]] = {}
+    for d in today:
+        for note in str((d.activity or {}).get("notes") or "").split("; "):
+            if note.startswith("ALERT "):
+                alerts.setdefault(note[len("ALERT "):], []).append(d.book.name)
+    out += [f"Alert ({', '.join(names)}): {text}." for text, names in alerts.items()]
+    late = [d.book.name for d in days if d.paper.started and _sleeve_late(d, session)]
+    if late:
+        out.append(f"NSE's F&O file for {_dmy(session)} was not out when the books ran: {', '.join(late)} "
+                   "marked at an earlier close; a later run catches up.")
+    stale = [r["book"] for r in rows if r.get("today") == "not updated for this session"]
+    if stale:
+        out.append(f"Not updated for {_dmy(session)}: {', '.join(stale)} (a failed book's alert says why; a later run catches up).")
+    pending = sorted(((d.paper.gate or {}).get("min_sessions", paper_gate.MIN_SESSIONS)
+                      - (d.paper.gate or {}).get("sessions", 0), d.book.name)
+                     for d in days if (d.paper.gate or {}).get("verdict") == paper_gate.NOT_ENOUGH)
+    if pending:
+        out.append("G4's first verdict: " + ", ".join(f"{name} in {k} session(s)" for k, name in pending) + ".")
+    return out
+
+
+def _book_sections(days: Sequence[DayBook], session: date) -> str:
+    """Each book's own daily report under the summary, behind an index of links (an email cannot hold tabs: mail
+    apps strip the scripts and most of the CSS they need; where in-message links are not followed, it scrolls)."""
+    import re
+
+    chip = "display:inline-block;margin:0 6px 6px 0;padding:4px 10px;border-radius:12px;background:#eef2ff;" \
+           "color:#1a1a2e;font-size:12px;text-decoration:none;"
+    index = ("<p style='margin:18px 0 6px;font-size:13px;color:#444;'>Each book's own report, below:</p><p>"
+             + "".join(f"<a href='#book-{d.book.name}' style='{chip}'>{d.book.name}</a>" for d in days) + "</p>")
+    parts = [index]
+    for d in days:
+        e = d.email or {}
+        if e.get("session") == session.isoformat() and e.get("html"):
+            m = re.search(r"<body[^>]*>(.*)</body>", e["html"], re.S | re.I)
+            body = m.group(1) if m else e["html"]
+            note = f"<p style='margin:2px 0 8px;font-size:12px;color:#666;'>{e.get('subject', '')}</p>"
+        else:
+            body = (f"<p style='font-size:13px;color:#666;'>No report kept for {_dmy(session)}: the book did not run "
+                    "this session, or its report went out on its own.</p>")
+            note = ""
+        parts.append(f"<div id='book-{d.book.name}' style='border-top:3px solid #1a1a2e;margin-top:26px;padding-top:8px;'>"
+                     f"<a name='book-{d.book.name}'></a><h2 style='margin:0;color:#1a1a2e;font-size:17px;'>"
+                     f"{d.book.name}</h2>{note}{body}<p style='font-size:12px;margin:8px 0 0;'>"
+                     "<a href='#summary' style='color:#4f46e5;'>&uarr; back to the summary</a></p></div>")
+    return "".join(parts)
+
+
+def build_daily(days: Sequence[DayBook], nifty: Optional[pd.Series], session: date) -> Dict[str, Any]:
+    """The nightly email: one table of every book and the findings, then each book's own report (tracker DS1)."""
+    rows = daily_rows(days, nifty, session)
+    findings = daily_findings(days, rows, nifty, session)
+    table = [[r["book"], _dmy(r["started"]), _inr_short(r["initial"]),
+              _inr_short(r["value"]) + (f" ({_dmy(r['asof'])})" if r["asof"] and r["asof"] < session else ""),
+              _pct(r["return"]), _pct(r["nifty"]), r["dd"], r["g4"], r["today"]] for r in rows]
+    stale = [r["book"] for r in rows if r.get("today") == "not updated for this session"]
+    behind = sum(1 for r in rows if _finite(r["alpha"]) and r["sessions"] >= 2 and r["alpha"] < 0)
+    n_alerts = sum(1 for f in findings if f.startswith("Alert ("))
+    drawdown = [d.book.name for d in days if "[drawdown" in (d.email or {}).get("subject", "")]
+    subject = (f"[Centurion Paper] Daily summary {_dmy(session)}: {len(rows)} books, {behind} behind NIFTY 50"
+               + (f", {n_alerts} alert(s)" if n_alerts else "")
+               + (f", drawdown rule active in {', '.join(drawdown)}" if drawdown else "")
+               + (" (incomplete)" if stale else ""))
+    footer = ("Since start: the book's value against its initial capital (a book with a sleeve or overlay, its whole "
+              "value). NIFTY 50: the index over the same sessions. Drawdown: G4's, the paper book against its "
+              "same-period backtest. Each book's own report, with its positions and orders, follows.")
+    html = ("<html><body style='font-family:Segoe UI,Arial,sans-serif;background:#f9fafb;padding:20px;'>"
+            "<a name='summary'></a><div id='summary' style='max-width:1000px;margin:0 auto;background:#fff;"
+            "border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.08);overflow:hidden;'>"
+            "<div style='background:#1a1a2e;padding:16px 24px;'><h2 style='margin:0;color:#fff;font-size:18px;'>"
+            f"Centurion &mdash; Paper books, {_dmy(session)}</h2>"
+            f"<p style='margin:4px 0 0;color:#9ca3af;font-size:13px;'>{len(rows)} books, daily executive summary</p>"
+            "</div><div style='padding:20px 24px;'>"
+            + _html_table(DAILY_COLUMNS, table)
+            + "<h3 style='color:#1a1a2e;margin:18px 0 6px;'>Findings</h3><ul style='font-size:13px;color:#333;'>"
+            + "".join(f"<li>{f}</li>" for f in findings) + "</ul>"
+            + f"<p style='font-size:12px;color:#666;margin-top:18px;'>{footer}</p>"
+            + _book_sections(days, session) + "</div>"
+            "<div style='padding:12px 24px;background:#f3f4f6;font-size:11px;color:#999;text-align:center;'>"
+            "Centurion paper books &bull; tracker DS1 &bull; auto-generated</div></div></body></html>")
+    text = _md_table(DAILY_COLUMNS, table) + "\n\n" + "\n".join(f"- {f}" for f in findings)
+    return {"subject": subject, "html": html, "text": text, "rows": rows, "findings": findings, "stale": stale}
 
 
 # ── CLI ──────────────────────────────────────────────────────────
