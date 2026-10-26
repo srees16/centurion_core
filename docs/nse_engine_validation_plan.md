@@ -3689,6 +3689,76 @@ options family's 2026 holdout, still sealed.
     runs.
 - **If it fails:** recorded, not re-tuned. A1 and A1G close.
 
+**Amended 26 Oct 2026, 22:57 IST, before the run** (your calls: GT13 on 25 Oct,
+A1C's sizing on 26 Oct; your "do A1G" on 26 Oct):
+- **Sizing: A1C's, not equal risk.** Each cycle's weight is min(3, 0.10 ×
+  A1G's equity before the fill ÷ the spread's maximum loss), 0 between
+  cycles (5am). 15% is reported beside it, not judged.
+- **Gate: A1C's, so the two compare.** On both books, the walk-forward the
+  headline:
+  - combined excess Sharpe higher, one-sided bootstrap p ≤ 0.10 (seed 7);
+  - the gain holds in 2008–12.
+  - **No MaxDD condition (GT13).** MaxDD, Calmar (full and rolling 3-year),
+    CAGR and alpha are reported.
+  - 2008–12 is not clean for A1G (stated above).
+- **Also reported:**
+  - A1C on the same book (A1 unguarded at 10%);
+  - the cycles the guard skipped and what A1 made or lost in them;
+  - the worst cycle and the largest maximum loss, as shares of the book.
+- **Runs:** locally, on the same F&O store as A1's recorded run, if A1
+  reproduces on it first; otherwise Kaggle. A1G's hash is `358e73d3`
+  (`entry_guard` in its configuration; A1 keeps `ae503fc4`). One run per
+  book, so N rises by one.
+- **The 2026 holdout was opened for A1 (5al).** A1G's 2026 is reported:
+  - beside the recorded holdout run;
+  - the book's rule replayed on that run's equity, plus India VIX;
+  - it agrees if the combination's Sharpe is at least the book's.
+- **If it passes and 2026 agrees:** book `a1` adds the guard from its next
+  decision. It has opened no spread yet, so no paper record is lost. It
+  is recorded as a pass.
+- **If it fails:** recorded, not re-tuned. A1G closes. Book `a1` goes on
+  as your 26 Oct decision (5am).
+
+**Result (26 Oct 2026, 23:0x IST): A1G PASSES, and 2026 agrees, though
+2026 adds no evidence.** `python -m nse_engine.diversifier_gate a1g`;
+results in `dg1/a1g_results.json`. Runs `20261026T173036332821Z_358e73d3`
+(beside the backtest book) and `…173041043859Z_358e73d3` (beside the
+walk-forward book), in `runs_options`. Options N is now 18.
+- **Checked first:** A1 reproduces exactly on today's local F&O store (all
+  4,706 sessions; the same 228 cycles), so the runs are local.
+
+| 2008–25, 10% cap | CAGR | Excess Sharpe | MaxDD | 3-year Calmar | ΔSharpe (p) | Holds 2008–12 |
+|---|---|---|---|---|---|---|
+| Walk-forward book | 13.04% | 0.600 | −29.5% | 0.94 | | |
+| + A1G | 13.23% | 0.616 | −29.5% | 0.95 | +0.015 (0.000) | yes |
+| + A1C (5am) | 13.24% | 0.614 | −30.1% | 0.96 | +0.014 (0.117) | no |
+| Backtest book | 15.48% | 0.697 | −28.6% | 1.09 | | |
+| + A1G | 15.66% | 0.710 | −28.6% | 1.10 | +0.013 (0.000) | yes |
+
+- **Why it passes where A1C failed:** A1's 2007–25 had two material
+  losses, Jul 2008 (−₹43.6k on its ₹7.5 lakh) and Mar 2009 (−₹22.3k); its
+  other five losing cycles lost ₹3–16, charges. The guard skipped both, so
+  A1G's overlay has no material loss in sample and the bootstrap finds the
+  gain in nearly every resample.
+- **What the guard cost:** it skipped 57 decisions (walk-forward book).
+  A1 traded 34 of them: 32 won, 2 lost, net +₹2,093. So it gave up about
+  as much premium as it saved.
+- **Sizing:** 0.30× while a spread is open (24% of days); the largest
+  maximum loss is 10.0% of the book. 15% is reported: p 0.000, also holds.
+- **2026, reported:** +18.0% / 1.04 → +18.5% / 1.08, the same as A1C. The
+  guard never triggered: India VIX stayed under 22 and the rule was
+  normal. So 2026 says nothing about the guard.
+- **What the pass does not show:**
+  - the guard was designed after A1's 2008 loss, and 2008–12 is not
+    clean (stated before the run);
+  - the significance rests on two cycles the guard was built to avoid;
+  - out of sample, a sharp rally from a calm market (VIX under 22, book
+    normal) can still cost a spread up to 10% of the book.
+- **Then, as pre-registered:** book `a1` runs A1G from its next decision
+  (`options_overlay.candidate` A1G). The guard reads its own rule state
+  each session (`paper_sessions`) and India VIX from the store. a1 has
+  opened no spread, so no paper record changes.
+
 ## 5ak. RT1: streams rejected on drawdown, re-judged under GT13 (India tracker RT1; pre-registered 25 Oct 2026, 23:31 IST)
 
 **Why.** The owner's decision of 25 Oct 2026 (GT13): MaxDD is no longer a
