@@ -151,3 +151,12 @@ what are three ways to handle the funding?
 ST2, LN-T2
 
 ~~~~~~~
+feat: Implement A1G crash guard and associated logic
+
+- Added A1G configuration to manage decision days when the book's drawdown rule is not normal or India VIX is above 22.
+- Enhanced `run_sleeve` function to accept `skip_entry_dates` for guarded configurations.
+- Updated `SleeveConfig` to include `entry_guard` for crash guard rules.
+- Modified `options_overlay.py` to handle sessions where no new spread opens due to the crash guard.
+- Introduced `guard_dates` and `guarded_sessions` functions to determine guarded sessions based on VIX and drawdown rules.
+- Updated validation and scoring logic to incorporate the new A1G configuration and its performance metrics.
+- Adjusted cost model handling in various modules to ensure compatibility with the new configurations.
