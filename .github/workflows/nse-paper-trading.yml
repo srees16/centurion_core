@@ -86,6 +86,8 @@ jobs:
           CENTURION_PAPER_INITIAL_CAPITAL: ${{ vars.CENTURION_PAPER_INITIAL_CAPITAL || '100000' }}
           # NSE engine path is opt-in until validated (repository variable)
           CENTURION_NSE_ENGINE: ${{ vars.CENTURION_NSE_ENGINE || 'false' }}
+          # each book's weekly report waits for the one Saturday email (DS2); engine path only
+          CENTURION_BOOK_EMAILS: ${{ vars.CENTURION_NSE_ENGINE == 'true' && 'combined' || '' }}
         run: |
           if [ "$CENTURION_NSE_ENGINE" = "true" ]; then
             python cloud_paper_runner.py --engine
@@ -106,6 +108,7 @@ jobs:
           CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
           CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
           CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+          CENTURION_BOOK_EMAILS: combined     # each book's weekly report waits for the one Saturday email (DS2)
         run: |
           failed=""
           for CFG in config/nse_engine_*.json; do
@@ -119,10 +122,13 @@ jobs:
           done
           [ -z "$failed" ] || { echo "::error::weekly checkpoint failed for:$failed"; exit 1; }
 
-      # Tracker V4: every book against the deployed one, the forward gate per
-      # trial, the register attached; a cleared trial gets its promotion review.
-      - name: Paper books - comparison report
-        if: vars.CENTURION_NSE_ENGINE == 'true'
+      # Trackers V4, DS2: the one Saturday email: the executive summary of every
+      # book, the comparison with the deployed one and the forward gate per trial
+      # (a cleared trial gets its promotion review), then each book's weekly
+      # report (kept in Neon by the steps above); the register attached.  It
+      # runs even when a step above failed, so no kept report is stranded.
+      - name: Paper books - one Saturday email
+        if: always() && vars.CENTURION_NSE_ENGINE == 'true'
         continue-on-error: true
         env:
           CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
@@ -449,7 +455,7 @@ jobs:
           CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
           CENTURION_SHIFT_MAX_TRACKING_ERROR: ${{ vars.CENTURION_SHIFT_MAX_TRACKING_ERROR || '0.08' }}
           CENTURION_SHIFT_MAX_DAILY_GAP_BPS: ${{ vars.CENTURION_SHIFT_MAX_DAILY_GAP_BPS || '3' }}
-          CENTURION_DAILY_EMAIL: combined     # each book's report waits for the one nightly email (DS1)
+          CENTURION_BOOK_EMAILS: combined     # each book's report waits for the one nightly email (DS1)
         run: |
           EXTRA=""
           if [ "$NEW_BOOK" = "true" ]; then EXTRA="--new-book"; fi
@@ -571,7 +577,7 @@ jobs:
           CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
           CENTURION_SHIFT_MAX_TRACKING_ERROR: ${{ vars.CENTURION_SHIFT_MAX_TRACKING_ERROR || '0.08' }}
           CENTURION_SHIFT_MAX_DAILY_GAP_BPS: ${{ vars.CENTURION_SHIFT_MAX_DAILY_GAP_BPS || '3' }}
-          CENTURION_DAILY_EMAIL: combined     # each book's report waits for the one nightly email (DS1)
+          CENTURION_BOOK_EMAILS: combined     # each book's report waits for the one nightly email (DS1)
         run: |
           failed=""
           for CFG in config/nse_engine_*.json; do

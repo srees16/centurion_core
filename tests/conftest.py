@@ -5,12 +5,17 @@ The real parquet store (250 MB, gitignored) is only needed by tests marked
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
+
+# The suite never touches Neon, as in CI: config.py loads .env, whose URL is the live paper books, so a test that
+# builds a PaperTrader would restore them, and one that forgot its fake store could write to them.
+os.environ["CENTURION_DATABASE_URL"] = ""
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:

@@ -869,24 +869,20 @@ def _drift_check_line(pt, shift: dict, plan) -> str:
             f"(runs from session {SHIFT_MIN_LIVE_DAYS + 1}) · size today ×{applied:.2f}")
 
 
-def _keep_for_nightly_email(pt, manager, report: dict) -> bool:
-    """With ``CENTURION_DAILY_EMAIL=combined`` (the nightly workflow), the book's report is kept in its Neon state for
-    the one nightly email (``tools.books_report --daily``, tracker DS1) instead of sent on its own.  False, so it
-    is sent now, when it cannot be kept."""
-    if (os.environ.get("CENTURION_DAILY_EMAIL") or "").strip().lower() != "combined":
+def _keep_for_combined_email(pt, key: str, kept_for: str, subject: str, html: str) -> bool:
+    """With ``CENTURION_BOOK_EMAILS=combined`` (the workflow), a book's daily or weekly report is kept in its Neon
+    state (``key``) for the one email of every book (``tools.books_report``, trackers DS1 / DS2) instead of sent
+    on its own.  False, so it is sent now, when it cannot be kept."""
+    if (os.environ.get("CENTURION_BOOK_EMAILS") or "").strip().lower() != "combined":
         return False
     try:
-        from nse_engine.books import DAILY_EMAIL_KEY
-
-        subject, html = manager.render_engine_daily_report(report)
         cloud = pt._get_cloud()
-        if cloud and cloud.sync_state({DAILY_EMAIL_KEY: json.dumps({"session": report["session"], "subject": subject,
-                                                                    "html": html})}):
-            logger.info("Daily email kept for the nightly email of every book")
+        if cloud and cloud.sync_state({key: json.dumps({"session": kept_for, "subject": subject, "html": html})}):
+            logger.info("Report kept for the one email of every book (%s)", key)
             return True
-        logger.warning("Daily email could not be kept for the nightly email: sending it on its own")
+        logger.warning("Report could not be kept for the one email of every book: sending it on its own")
     except Exception as exc:                              # noqa: BLE001 - never lose a book's email
-        logger.warning("Daily email not kept for the nightly email (%s): sending it on its own", exc)
+        logger.warning("Report not kept for the one email of every book (%s): sending it on its own", exc)
     return False
 
 
@@ -989,10 +985,13 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict, g
             "mcx": mcx,
             "options": options,
         }
+        from nse_engine.books import DAILY_EMAIL_KEY
+
         manager = NotificationManager()
-        if _keep_for_nightly_email(pt, manager, report):
+        subject, html = manager.render_engine_daily_report(report)
+        if _keep_for_combined_email(pt, DAILY_EMAIL_KEY, str(report["session"]), subject, html):
             return
-        sent = manager.email_engine_daily_report(report)
+        sent = manager._send_html_email(subject, html)
         if not sent:
             logger.warning("Daily email returned False — check CENTURION_EMAIL_USER / CENTURION_EMAIL_PASS / "
                            "CENTURION_EMAIL_HOST / CENTURION_EMAIL_PORT secrets")
@@ -1346,7 +1345,10 @@ def _run_weekly_checkpoint(use_engine: bool = False):
     subject = (f"[Centurion Paper] {label}Week {wk} | {checkpoint['week_return_pct']:+.1f}%{futures_tag} | "
                f"{checkpoint['trades_opened']} opened, {checkpoint['trades_closed']} closed | "
                f"gate {verdict.split(' — ')[0]}")
-    sent = NotificationManager._send_html_email(
+    from nse_engine.books import WEEKLY_EMAIL_KEY
+
+    kept_on = datetime.now(timezone(timedelta(hours=5, minutes=30))).date().isoformat()
+    sent = _keep_for_combined_email(pt, WEEKLY_EMAIL_KEY, kept_on, subject, html) or NotificationManager._send_html_email(
         subject=subject,
         html_body=html,
         recipients=["s.srees@live.com"],
