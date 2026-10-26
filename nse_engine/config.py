@@ -268,6 +268,10 @@ class CostConfig:
     commission_cap: float = 0.0
 
 
+#: ``EngineConfig.cash_yield_annual``'s only value: unused since cost model 4, kept so hashes stand (IC1, IC2).
+LEGACY_CASH_YIELD = 0.06
+
+
 @dataclass(frozen=True)
 class EngineConfig:
     start: str = "2013-01-01"
@@ -275,7 +279,7 @@ class EngineConfig:
     initial_capital: float = 500_000.0
     # Ignored since cost model 4 (idle cash earns costs.IDLE_CASH_YIELD_ANNUAL: nothing, as
     # in a Kite account); kept at its legacy value so every recorded config hash stands.
-    cash_yield_annual: float = 0.06
+    cash_yield_annual: float = LEGACY_CASH_YIELD
     risk_free_annual: float = 0.065
     runs_dir: str = "data/nse_engine/runs"
     data: DataConfig = field(default_factory=DataConfig)
@@ -287,6 +291,14 @@ class EngineConfig:
     allocator: AllocatorConfig = field(default_factory=AllocatorConfig)
     costs: CostConfig = field(default_factory=CostConfig)
     drawdown: DrawdownConfig = field(default_factory=DrawdownConfig)
+
+    def __post_init__(self) -> None:
+        # IC2: ignored since cost model 4, yet hashed: another value would record a duplicate trial (the same
+        # returns under a new hash), which inflates N for PBO and the deflated Sharpe.
+        if self.cash_yield_annual != LEGACY_CASH_YIELD:
+            raise ValueError(f"cash_yield_annual is ignored since cost model 4 (idle cash earns nothing, IC1) and "
+                             f"stays {LEGACY_CASH_YIELD} so config hashes stand: another value would record a "
+                             f"duplicate trial")
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

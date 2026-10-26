@@ -23,7 +23,7 @@ from typing import Any, Callable, Dict, Optional, Union
 import pandas as pd
 
 from .dsr import performance_summary
-from .trials import git_state, record_result, to_jsonable
+from .trials import _cost_model_version, git_state, record_result, to_jsonable
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +98,7 @@ def run_holdout(data: Any, config: Any, start: Any, end: Any,
         "config_hash": cfg.config_hash(),
         **git_state(),
         "data_hash": getattr(data, "data_hash", ""),
+        "cost_model": _cost_model_version(),              # IC2: the evaluation's cost model, with its data
         "created_at": datetime.now(timezone.utc).isoformat(),
         "status": "started",
         "forced": bool(previous and force),

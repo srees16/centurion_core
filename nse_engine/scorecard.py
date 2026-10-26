@@ -507,10 +507,10 @@ def overfitting(registry, run_id: str, manifest: Dict[str, Any], rf: float, spli
     """DSR of the run and PBO of its registry window (the same matrix ``validate`` uses; the PBO is a
     property of the whole set of trials, so it is computed once and shared across the books)."""
     from nse_engine.validation.pbo import cscv_pbo
-    from nse_engine.validation.trials import LEGACY_COST_MODEL
+    from nse_engine.validation.trials import run_cost_model
 
     window = (manifest.get("start"), manifest.get("end"))
-    cost_model = int(manifest.get("cost_model") or LEGACY_COST_MODEL)
+    cost_model = run_cost_model(manifest)
     key = f"{manifest.get('data_hash')}|{window}|{cost_model}|{rf}"
     cache = cache if cache is not None else {}
     if key not in cache:
@@ -539,12 +539,11 @@ def overfitting(registry, run_id: str, manifest: Dict[str, Any], rf: float, spli
 def parameter_sensitivity(registry, run: Dict[str, Any], manifest: Dict[str, Any]) -> Dict[str, Any]:
     """The registry's recorded configurations that differ from this one in exactly one setting."""
     from cloud.kaggle_runner import flatten_config
-    from nse_engine.validation.trials import LEGACY_COST_MODEL
+    from nse_engine.validation.trials import run_cost_model
 
     trials = registry.list_trials()
     same = trials[(trials["data_hash"] == manifest.get("data_hash")) & (trials["start"] == manifest.get("start"))
-                  & (trials["end"] == manifest.get("end"))
-                  & (trials["cost_model"] == int(manifest.get("cost_model") or LEGACY_COST_MODEL))]
+                  & (trials["end"] == manifest.get("end")) & (trials["cost_model"] == run_cost_model(manifest))]
     same = same.sort_values("created_at").groupby("config_hash").tail(1)
     base = flatten_config(run["config"].to_dict())
     base_sharpe, base_cagr = _f(manifest["metrics"].get("sharpe")), _f(manifest["metrics"].get("cagr"))

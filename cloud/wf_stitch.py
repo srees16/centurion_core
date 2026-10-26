@@ -65,6 +65,7 @@ def stitch(dirs: List[str], rf_annual: Optional[float] = None,
     # two directories holding the same fold from different platforms must be
     # caught, not silently resolved by whichever was written last.
     _require_one_job(every)
+    cost_model = _require_one_cost_model(every)
     environments = _check_provenance(every, allow_mixed_env)
     folds = latest_per_fold(every)
     rf = rf_annual if rf_annual is not None else float(getattr(EngineConfig(), "risk_free_annual", 0.0))
@@ -99,6 +100,7 @@ def stitch(dirs: List[str], rf_annual: Optional[float] = None,
         "negative_oos_years": int((oos_vals <= 0).sum()),
         "missing_folds": gaps,
         "environments": environments,
+        "cost_model": cost_model,
         "oos_performance": performance_summary(stitched, rf),
     }
     rows = [{k: v for k, v in r.items() if not k.startswith("_")} for r in folds]
@@ -121,6 +123,17 @@ def _require_one_job(folds: List[Dict[str, Any]]) -> None:
             which = [r["fold"] for r in folds if canonical_job(r.get("job", {})) == spec]
             lines.append(f"  folds {which}: {spec}")
         raise SystemExit("fold files come from different jobs:\n" + "\n".join(lines))
+
+
+def _require_one_cost_model(folds: List[Dict[str, Any]]) -> Optional[int]:
+    """Refuse to stitch folds run under different cost models (tracker IC2): one walk-forward, one model.  None
+    when the folds predate the stamp."""
+    models = {r.get("cost_model") for r in folds}
+    if len(models) > 1:
+        which = {m: [r["fold"] for r in folds if r.get("cost_model") == m] for m in models}
+        raise SystemExit("fold files come from different cost models: "
+                         + "; ".join(f"{m if m is not None else 'not recorded'}: folds {f}" for m, f in which.items()))
+    return next(iter(models))
 
 
 def _check_provenance(folds: List[Dict[str, Any]], allow_mixed: bool) -> List[str]:

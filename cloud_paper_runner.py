@@ -640,11 +640,26 @@ def _options_overlay_session(pt, dep, session: dict) -> dict:
     cfg = oo.OverlayConfig.from_dict(dep.options_overlay)
     cloud = pt._get_cloud()
     ledger = oo.load_ledger(cloud, start=dep.paper_start_date.isoformat())
+    guarded = _crash_guard(cloud, dep) if oo.sleeve_config(cfg, ledger.start, ledger.start).entry_guard else None
     summary = oo.run_session(ledger, cfg, pd.Timestamp(session["session"]),
                              share_equity=float(pt.dashboard().current_capital), initial=float(dep.paper_capital_inr),
-                             fo_store_dir=os.environ.get("FO_STORE_DIR", "data/nse_engine/fo_store"))
+                             fo_store_dir=os.environ.get("FO_STORE_DIR", "data/nse_engine/fo_store"), guarded=guarded)
     oo.save_ledger(cloud, ledger)
     return summary
+
+
+def _crash_guard(cloud, dep):
+    """A1G's guarded sessions for this book (plan 5aj): its own drawdown rule's state at each session's decision (the
+    ``paper_sessions`` rows) and India VIX from the store the workflow built tonight."""
+    import pandas as pd
+
+    from kite_connect.options.sleeves import guarded_sessions
+    from nse_engine.crash_recovery import store_index
+
+    rows = cloud.read_sessions(strict=True)
+    states = (pd.Series(rows["drawdown_state"].to_numpy(), index=pd.to_datetime(rows["session_date"].astype(str)))
+              if rows is not None and not rows.empty else pd.Series(dtype="object"))
+    return guarded_sessions(states, store_index("INDIAVIX", str(dep.engine.data.store_dir)))
 
 
 def _mcx_sleeve_session(pt, dep, session: dict) -> dict:

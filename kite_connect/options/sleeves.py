@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Dict, Tuple
 
 from kite_connect.options.fno_costs import FNO_COST_MODEL_VERSION
@@ -49,6 +49,9 @@ class SleeveConfig:
     fill_lag: int = 1
     start: str = "2013-01-01"
     end: str = "2025-12-31"
+    #: A crash guard (A1G, plan 5aj): the rule that names the decision days on which no new spread opens.  The
+    #: days themselves are an input (``run_sleeve(skip_entry_dates=)``): they depend on the book beside it.
+    entry_guard: str = ""
 
     def __post_init__(self):
         if self.rule not in ("sd", "max_pain"):
@@ -63,6 +66,8 @@ class SleeveConfig:
     def config_hash(self) -> str:
         """Behaviour only: name and dates are left out (a window is part of a run), the cost model is in."""
         payload = {k: v for k, v in self.to_dict().items() if k not in ("name", "start", "end")}
+        if not payload["entry_guard"]:
+            payload.pop("entry_guard")                     # no guard: the hash every recorded sleeve carries
         payload["fno_cost_model"] = FNO_COST_MODEL_VERSION
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
 
@@ -72,6 +77,22 @@ CANDIDATES: Dict[str, SleeveConfig] = {
     "A2": SleeveConfig("O2-A2 SD call spread, 4 days", "sd", 4, short_sd=1.0, wing_sd=2.0),
     "B": SleeveConfig("O2-B max-pain call spread", "max_pain", 15, early_exit_atm=False),
 }
+#: A1G (plan 5aj, run 27 Oct 2026): A1, with no new spread on a decision day when the book's drawdown rule is not
+#: normal or India VIX closes at 22 or above.
+GUARD_VIX = 22.0
+CANDIDATES["A1G"] = replace(CANDIDATES["A1"], name="O2-A1G SD call spread, 15 days, crash guard",
+                            entry_guard=f"book drawdown rule not normal, or India VIX >= {GUARD_VIX:g}")
+
+
+def guarded_sessions(states, vix):
+    """A1G's guard: the sessions on which the book's drawdown rule is not normal at the close (``states``, a Series
+    of rule states by date) or India VIX closes at ``GUARD_VIX`` or above (``vix``).  A day without a value is not
+    guarded, as in the research run."""
+    import pandas as pd
+
+    s, v = pd.Series(states, dtype="object"), pd.Series(vix, dtype="float64")
+    days = set(pd.DatetimeIndex(s.index[s.notna() & (s != "normal")])) | set(pd.DatetimeIndex(v.index[v >= GUARD_VIX]))
+    return pd.DatetimeIndex(sorted(days)).normalize()
 
 #: Overlay weight on the book: 25% of capital to option writing (M5 ch. 18).
 SLEEVE_WEIGHT = 0.25

@@ -42,8 +42,9 @@ STATE_KEY = "options_overlay_ledger"
 DRIFT_ALERT = 0.001
 STALE_DAYS = 4
 MAX_WEIGHT = 3.0                                          # protocol 5.1's overlay cap
-#: Each candidate's recorded run, whose config.json is the configuration paper replays.
-RECORDED_RUNS = {"A1": "20261010T122956596793Z_ae503fc4"}
+#: Each candidate's recorded run, whose config.json is the configuration paper replays (A1G: beside the
+#: walk-forward book, plan 5aj).
+RECORDED_RUNS = {"A1": "20261010T122956596793Z_ae503fc4", "A1G": "20261026T173041043859Z_358e73d3"}
 CYCLE_KEYS = ("expiry", "decision_date", "action", "short", "wing", "lots", "credit", "max_loss_inr", "fill_date",
               "exit", "exit_date", "pnl_inr")
 
@@ -141,15 +142,18 @@ def cycle_weights(cfg: OverlayConfig, cycles: List[Dict], eq: pd.Series) -> pd.S
 
 
 def run_session(ledger: Ledger, cfg: OverlayConfig, day: pd.Timestamp, share_equity: float, initial: float,
-                fo_store_dir: str) -> Dict:
-    """One night of the overlay; idempotent (a session already done returns its summary)."""
+                fo_store_dir: str, guarded: Optional[pd.DatetimeIndex] = None) -> Dict:
+    """One night of the overlay; idempotent (a session already done returns its summary).  ``guarded``: for a
+    candidate with a crash guard (A1G), the sessions on which it opens no spread (``sleeves.guarded_sessions``)."""
     from kite_connect.options.backtest import run_sleeve
 
     key = day.date().isoformat()
     if ledger.last_session == key and ledger.history:
         return summary(ledger, cfg, initial, alerts=[])
     scfg = sleeve_config(cfg, ledger.start, key)
-    res = run_sleeve(scfg, fo_store_dir)
+    if scfg.entry_guard and guarded is None:
+        raise ValueError(f"{cfg.candidate} has a crash guard: the guarded sessions are needed")
+    res = run_sleeve(scfg, fo_store_dir, skip_entry_dates=guarded if scfg.entry_guard else None)
     eq = res.equity
     capital = float(scfg.initial_capital)
     asof = eq.index[-1] if len(eq) else pd.Timestamp(ledger.start)

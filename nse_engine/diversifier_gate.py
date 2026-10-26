@@ -55,7 +55,7 @@ OPTIONS = {"O2-A1": "20261010T122956596793Z_ae503fc4",       # 15-day 2/3-SD bea
            "O3-X2": "20261009T143542327966Z_ac5d03e7",       # TRIN bands, near-month NIFTY future, 2007-25
            "O4-Y3": "20261009T163304480870Z_9a12cbab"}       # NIFTYBEES overnight on sentiment, from 2012
 OUT_OF_SAMPLE_2008_12 = ("O2-A1", "O3-X2")                   # their 2013-25 was seen (19 Oct look)
-FAMILY_N = {"options": 17, "commodity": 2}
+FAMILY_N = {"options": 18, "commodity": 2}                   # options: A1G is the 18th (26 Oct 2026)
 
 
 def _read(path: Path) -> pd.Series:
@@ -272,47 +272,137 @@ def a1c(cap: float = 0.10, reported_caps: Sequence[float] = (0.15,), runs_dir: s
     cycles = pd.read_csv(run / "cycles.csv")
     out: Dict = {"cap": cap, "books": {}, "reported": {}}
     for base in (bs.backtest_base(), bs.walk_forward_base()):
-        tri = bs.nifty_tri(base.returns.index)
-        liquid = bs.bond_returns(base.returns.index, bs.BondConfig())["liquid"]
-        sessions = base.returns.index[base.returns.index >= raw.index[0]]
-        book = _live_book(base, liquid, sessions)
-        stream = carry_to(raw, sessions).reindex(sessions).fillna(0.0)
-        early = sessions[(sessions.year >= 2008) & (sessions.year <= 2012)]
         for c in (cap, *reported_caps):
-            w, cyc = capped_weights(sessions, c, cycles, a1_eq)
-            comb = combine(book, stream, w, "overlay")
-            b, k = _card(book, tri), _card(comb, tri)
-            p = bootstrap_p(book, comb)
-            res = {"book": b, "capped": k, "delta_sharpe": k["excess_sharpe"] - b["excess_sharpe"], "p": p,
-                   "sharpe_gain": bool(k["excess_sharpe"] > b["excess_sharpe"] and p <= SHARPE_P),
-                   "holds_2008_12": bool(excess_sharpe(comb[early]) >= excess_sharpe(book[early])),
-                   "weight_open_mean": float(w[w > 0].mean()), "open_share": float((w > 0).mean()),
-                   "worst_cycle_share": float(cyc["pnl_share"].min()), "max_loss_share_max": float(cyc["max_loss_share"].max()),
-                   "years": {int(y): [round(float((1 + book[book.index.year == y]).prod() - 1), 4),
-                                      round(float((1 + comb[comb.index.year == y]).prod() - 1), 4)]
-                             for y in sorted(set(sessions.year))}}
+            res = _capped_eval(base, raw, cycles, a1_eq, c)
             (out["books"] if c == cap else out["reported"].setdefault(str(c), {}))[base.name] = res
     out["pass"] = all(v["sharpe_gain"] and v["holds_2008_12"] for v in out["books"].values())
     out["holdout_2026_reported"] = _a1c_2026(cap, runs_dir, fo_store_dir)
     return out
 
 
-def _a1c_2026(cap: float, runs_dir: str, fo_store_dir: str) -> Dict:
-    """A1C on 1 Jan-11 Sep 2026 beside the deployed book's recorded holdout run.  The options family's holdout was
-    opened for A1 (plan 5al), so this is reported, not a fresh look."""
+def _capped_eval(base: bs.Base, raw: pd.Series, cycles: pd.DataFrame, equity: pd.Series, cap: float) -> Dict:
+    """One book with an options stream at A1C's capped weight (plan 5am): both cards, the bootstrap p, the GT13
+    Sharpe lever (which must hold in 2008-12), the sizing, and the years (book, combined)."""
+    tri = bs.nifty_tri(base.returns.index)
+    liquid = bs.bond_returns(base.returns.index, bs.BondConfig())["liquid"]
+    sessions = base.returns.index[base.returns.index >= raw.index[0]]
+    book = _live_book(base, liquid, sessions)
+    stream = carry_to(raw, sessions).reindex(sessions).fillna(0.0)
+    early = sessions[(sessions.year >= 2008) & (sessions.year <= 2012)]
+    w, cyc = capped_weights(sessions, cap, cycles, equity)
+    comb = combine(book, stream, w, "overlay")
+    b, k = _card(book, tri), _card(comb, tri)
+    p = bootstrap_p(book, comb)
+    return {"book": b, "capped": k, "delta_sharpe": k["excess_sharpe"] - b["excess_sharpe"], "p": p,
+            "sharpe_gain": bool(k["excess_sharpe"] > b["excess_sharpe"] and p <= SHARPE_P),
+            "holds_2008_12": bool(excess_sharpe(comb[early]) >= excess_sharpe(book[early])),
+            "weight_open_mean": float(w[w > 0].mean()), "open_share": float((w > 0).mean()),
+            "worst_cycle_share": float(cyc["pnl_share"].min()), "max_loss_share_max": float(cyc["max_loss_share"].max()),
+            "years": {int(y): [round(float((1 + book[book.index.year == y]).prod() - 1), 4),
+                               round(float((1 + comb[comb.index.year == y]).prod() - 1), 4)]
+                      for y in sorted(set(sessions.year))}}
+
+
+def _a1c_2026(cap: float, runs_dir: str, fo_store_dir: str, vix: Optional[pd.Series] = None) -> Dict:
+    """A1C on 1 Jan-11 Sep 2026 beside the deployed book's recorded holdout run (with ``vix``: A1G, guarded by the
+    book's rule replayed on that run's equity and India VIX).  The options family's holdout was opened for A1
+    (plan 5al), so this is reported, not a fresh look."""
     from dataclasses import replace
 
     from kite_connect.options.backtest import HOLDOUT_BOOK_RUN, HOLDOUT_WINDOW, run_sleeve
     from kite_connect.options.sleeves import CANDIDATES
 
     book = _read(Path(runs_dir) / "runs" / HOLDOUT_BOOK_RUN / "returns.csv")[HOLDOUT_WINDOW[0]:HOLDOUT_WINDOW[1]]
-    res = run_sleeve(replace(CANDIDATES["A1"], start=HOLDOUT_WINDOW[0], end=HOLDOUT_WINDOW[1]), fo_store_dir)
+    name, skip = ("A1", None) if vix is None else ("A1G", guard_dates(book, vix))
+    res = run_sleeve(replace(CANDIDATES[name], start=HOLDOUT_WINDOW[0], end=HOLDOUT_WINDOW[1]), fo_store_dir,
+                     skip_entry_dates=skip)
     a1 = res.returns.reindex(book.index).fillna(0.0)
     w, cyc = capped_weights(book.index, cap, pd.DataFrame(res.cycles), res.equity)
     comb = book + w * a1
     card = lambda x: {"return": float((1 + x).prod() - 1), "excess_sharpe": excess_sharpe(x), "max_drawdown": max_drawdown(x)}
-    return {"book": card(book), "capped": card(comb), "weight_open_mean": float(w[w > 0].mean()) if (w > 0).any() else 0.0,
-            "cycles": cyc.to_dict("records")}
+    out = {"book": card(book), "capped": card(comb), "weight_open_mean": float(w[w > 0].mean()) if (w > 0).any() else 0.0,
+           "cycles": cyc.to_dict("records")}
+    if vix is not None:
+        out["agrees"] = bool(out["capped"]["excess_sharpe"] >= out["book"]["excess_sharpe"])
+        out["guard_skipped"] = [str(pd.Timestamp(c["decision_date"]).date()) for c in res.cycles
+                                if c.get("action") == "skipped: guard"]
+    return out
+
+
+# ── A1G (plan 5aj, amended 26 Oct 2026): A1 with a crash guard ──────────────────
+#: The walk-forward book's guard replays the deployed book's drawdown rule (20/30/35, half 0.5, re-arm 60).
+GUARD_RULE = dict(enabled=True, halt_dd=0.20, half_dd=0.30, risk_off_dd=0.35, half_scale=0.5, rearm_sessions=60)
+
+
+def guard_vix(store_dir: str = "data/nse_engine/store",
+              cache: str = "data/nse_engine/store_ext2006/external/yf_indiavix.parquet") -> pd.Series:
+    """India VIX closes: the store's (NSE, from May 2014), Yahoo's cached series before it (from Mar 2008), as the
+    engine's panel back-fills it."""
+    from nse_engine.crash_recovery import store_index
+
+    nse = store_index("INDIAVIX", store_dir)
+    yf = pd.read_parquet(cache)["close"].astype("float64")
+    yf.index = pd.DatetimeIndex(yf.index)
+    return nse.combine_first(yf).sort_index()
+
+
+def guard_dates(book: pd.Series, vix: pd.Series, states: Optional[pd.Series] = None) -> pd.DatetimeIndex:
+    """A1G's guarded sessions beside a book (daily returns): its drawdown rule not normal at the close (``states``
+    as recorded, else the rule replayed on the book's equity), or India VIX at or above 22."""
+    from kite_connect.options.sleeves import guarded_sessions
+    from nse_engine.config import DrawdownConfig
+    from nse_engine.drawdown import replay
+
+    if states is None:
+        states = replay((1 + book).cumprod(), DrawdownConfig(**GUARD_RULE))["state"]
+    return guarded_sessions(states, vix)
+
+
+def a1g(cap: float = 0.10, reported_caps: Sequence[float] = (0.15,), runs_dir: str = "data/nse_engine",
+        fo_store_dir: str = "data/nse_engine/fo_store", store_dir: str = "data/nse_engine/store",
+        record_runs: bool = True) -> Dict:
+    """Plan 5aj as amended: A1G, one run per book (its own guard), at A1C's capped weight and judged by A1C's gate
+    (the GT13 Sharpe lever, holding in 2008-12), beside A1C on the same book; its 2026 reported."""
+    from dataclasses import replace
+
+    from kite_connect.options.backtest import record, run_sleeve
+    from kite_connect.options.sleeves import CANDIDATES
+
+    a1_run = Path(runs_dir) / "runs_options" / OPTIONS["O2-A1"]
+    a1_raw = _read(a1_run / "returns.csv")
+    a1_cycles = pd.read_csv(a1_run / "cycles.csv")
+    a1_eq = (1 + a1_raw).cumprod() * A1_CAPITAL
+    window = (str(a1_raw.index[0].date()), str(a1_raw.index[-1].date()))
+    vix = guard_vix(store_dir)
+    recorded_states = pd.read_csv(Path(bs.BOOK_RUNS) / bs.BACKTEST_RUN / "drawdown.csv", index_col=0)["state"]
+    recorded_states.index = pd.DatetimeIndex(recorded_states.index)
+    out: Dict = {"cap": cap, "config_hash": CANDIDATES["A1G"].config_hash(), "books": {}, "reported": {}, "a1c": {},
+                 "runs": {}, "skipped": {}}
+    for base in (bs.backtest_base(), bs.walk_forward_base()):
+        states = recorded_states if base.name == "backtest" else None
+        skip = guard_dates(base.returns, vix, states)
+        cfg = replace(CANDIDATES["A1G"], start=window[0], end=window[1],
+                      name=f"{CANDIDATES['A1G'].name}, beside the {base.name} book")
+        res = run_sleeve(cfg, fo_store_dir, skip_entry_dates=skip)
+        if record_runs:
+            out["runs"][base.name] = Path(record(res, str(Path(runs_dir) / "runs_options"))).name
+        cycles = pd.DataFrame(res.cycles)
+        for c in (cap, *reported_caps):
+            r = _capped_eval(base, res.returns, cycles, res.equity, c)
+            (out["books"] if c == cap else out["reported"].setdefault(str(c), {}))[base.name] = r
+        a1c_same = _capped_eval(base, a1_raw, a1_cycles, a1_eq, cap)
+        out["a1c"][base.name] = {k: a1c_same[k] for k in ("capped", "delta_sharpe", "p", "sharpe_gain", "holds_2008_12",
+                                                          "worst_cycle_share")}
+        a1_by_expiry = a1_cycles.assign(expiry=pd.to_datetime(a1_cycles["expiry"]).dt.date.astype(str)).set_index("expiry")
+        out["skipped"][base.name] = [
+            {"decision": str(pd.Timestamp(c["decision_date"]).date()), "expiry": str(pd.Timestamp(c["expiry"]).date()),
+             "a1_action": a1_by_expiry["action"].get(str(pd.Timestamp(c["expiry"]).date())),
+             "a1_pnl_inr": (lambda v: None if pd.isna(v) else float(v))(
+                 a1_by_expiry["pnl_inr"].get(str(pd.Timestamp(c["expiry"]).date()), np.nan))}
+            for c in res.cycles if c.get("action") == "skipped: guard"]
+    out["pass"] = all(v["sharpe_gain"] and v["holds_2008_12"] for v in out["books"].values())
+    out["holdout_2026_reported"] = _a1c_2026(cap, runs_dir, fo_store_dir, vix=vix)
+    return out
 
 
 #: DG2 (plan 5ai): drawdown levers at the sleeve weight fixed in their own pre-registrations (gilts 5ag, MCX 5y),
@@ -376,9 +466,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p = sub.add_parser("a1c", help="plan 5am: A1 with each cycle's maximum loss capped at a share of the book")
     p.add_argument("--cap", type=float, default=0.10)
     p.add_argument("--out", help="also write the result here")
+    p = sub.add_parser("a1g", help="plan 5aj (amended 26 Oct): A1 with the crash guard, at A1C's capped weight")
+    p.add_argument("--cap", type=float, default=0.10)
+    p.add_argument("--out", help="also write the result here")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    out = a1c(args.cap) if args.cmd == "a1c" else {"dg1": dg1, "rt1": rt1}.get(args.cmd, dg2)(args.mcx)
+    if args.cmd in ("a1c", "a1g"):
+        out = (a1c if args.cmd == "a1c" else a1g)(args.cap)
+    else:
+        out = {"dg1": dg1, "rt1": rt1}.get(args.cmd, dg2)(args.mcx)
     text = json.dumps(out, indent=1, default=str)
     if args.out:
         Path(args.out).write_text(text)
