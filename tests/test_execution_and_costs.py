@@ -5,11 +5,57 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from kite_connect.trading.gtt_stops import round_to_tick
+from kite_connect.trading.nse_engine_executor import TICK, _tick
+from kite_connect.trading.nse_instruments import SLABS, on_tick, round_price
 from nse_engine.config import CostConfig
 from nse_engine.costs import impact_bps, statutory_cost
 
 
 DAY = "2025-06-02"
+TICKS = tuple(t for _, t in SLABS)
+#: NSE's slab edges (circular 33/2025) with a paisa and a tick either side, and the smallest prices, where float
+#: division is least forgiving.
+EDGES = sorted({round(b + d, 2) for b, _ in SLABS[:-1] for d in (-0.05, -0.01, 0.0, 0.01, 0.05)}
+               | {0.01, 0.05, 0.10, 0.15, 0.30, 0.35})
+
+
+def _prices(n: int = 4000, seed: int = 5) -> list:
+    """Seeded prices from Rs 0.05 to 1.5 lakh at 0-3 decimals (on and off every grid), plus ``EDGES``."""
+    rng = np.random.default_rng(seed)
+    raw = np.exp(rng.uniform(np.log(0.05), np.log(150_000), n))
+    return [round(float(p), int(d)) for p, d in zip(raw, rng.integers(0, 4, n))] + EDGES
+
+
+@pytest.mark.parametrize("rounder", [round_price, round_to_tick], ids=["round_price", "round_to_tick"])
+def test_tick_rounding_lands_on_the_grid_in_the_asked_direction(rounder):
+    """Kite rejects a price off the tick (LN-T1): every order and GTT price lands on it, ``down`` never rises,
+    ``up`` never falls, and nothing moves a tick or more (half a tick for ``nearest``)."""
+    for p in _prices():
+        for tick in TICKS:
+            if p < tick:
+                continue
+            for mode, most in (("nearest", tick / 2), ("down", tick), ("up", tick)):
+                r = rounder(p, tick, mode)
+                assert on_tick(r, tick), (p, tick, mode, r)
+                assert abs(r - p) <= most + 1e-9, (p, tick, mode, r)
+                assert (mode != "down" or r <= p + 1e-9) and (mode != "up" or r >= p - 1e-9), (p, tick, mode, r)
+
+
+def test_the_planned_limit_rounding_keeps_the_band_side():
+    """``_tick`` (the plan's 0.05 grid): a sell limit rounds down, a buy limit up, by less than a tick."""
+    for p in _prices():
+        if p < TICK:
+            continue
+        down, up = _tick(p, "down"), _tick(p, "up")
+        assert on_tick(down, TICK) and on_tick(up, TICK), p
+        assert p - TICK - 1e-9 < down <= p + 1e-9 and p - 1e-9 <= up < p + TICK + 1e-9, (p, down, up)
+
+
+def test_each_slab_tick_divides_the_next():
+    """The coarser-slab fallback (``safe_tick``) is valid whichever neighbouring slab NSE assigned only because
+    each tick is a whole multiple of the one below it."""
+    assert all(on_tick(coarse, fine) for fine, coarse in zip(TICKS, TICKS[1:]))
 
 
 def test_statutory_costs_are_charged_on_both_sides():

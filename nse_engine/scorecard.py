@@ -53,6 +53,7 @@ from scipy import stats as sp_stats
 from nse_engine.config import EngineConfig
 from nse_engine.costs import cap_quantity, impact_bps, median_traded_value
 from nse_engine.metrics import TRADING_DAYS, compute_metrics, drawdown_periods, round_trips
+from nse_engine.validation import significance
 from nse_engine.validation.diagnostics import alpha_beta, newey_west_cov
 from nse_engine.validation.dsr import (daily_rf, deflated_sharpe, min_track_record_length, probabilistic_sharpe,
                                        sharpe_estimator_variance)
@@ -467,15 +468,15 @@ def capacity(fills: pd.DataFrame, equity: pd.Series, cfg: EngineConfig, gross_ed
 
 def sharpe_precision(returns: pd.Series, rf: float) -> Dict[str, Any]:
     """How much of the annual Sharpe is noise (tracker LN-T24), reported beside the pass rules and never one:
-    its standard error (with the sample's skew and kurtosis), the probabilistic Sharpe against the rules'
-    target, and the minimum track record for 95% confidence the true Sharpe beats 0."""
+    its standard error (with the sample's skew and kurtosis, widened for autocorrelation: AC1), the probabilistic
+    Sharpe against the rules' target, and the minimum track record for 95% confidence the true Sharpe beats 0."""
     d = deflated_sharpe(returns, n_trials=1, rf_annual=rf)                # the moments, no deflation
-    sr, n, skew, kurt = d["sr_daily"], d["T"], d["skew"], d["kurtosis"]
+    sr, n, skew, kurt, kappa = d["sr_daily"], d["T"], d["skew"], d["kurtosis"], d["autocorr_factor"]
     ann = math.sqrt(TRADING_DAYS)
-    min_trl = min_track_record_length(sr, 0.0, skew, kurt)
-    return {"sharpe_se": math.sqrt(sharpe_estimator_variance(sr, n, skew, kurt)) * ann,
-            "psr_target": SHARPE_TARGET, "psr": probabilistic_sharpe(sr, SHARPE_TARGET / ann, n, skew, kurt),
-            "min_trl_sessions": min_trl, "min_trl_years": min_trl / TRADING_DAYS}
+    min_trl = min_track_record_length(sr, 0.0, skew, kurt, autocorr_factor=kappa)
+    return {"sharpe_se": math.sqrt(sharpe_estimator_variance(sr, n, skew, kurt, kappa)) * ann,
+            "psr_target": SHARPE_TARGET, "psr": probabilistic_sharpe(sr, SHARPE_TARGET / ann, n, skew, kurt, kappa),
+            "min_trl_sessions": min_trl, "min_trl_years": min_trl / TRADING_DAYS, "autocorr_factor": kappa}
 
 
 def walk_forward_oos(path: str, rf: float) -> Dict[str, Any]:
@@ -488,7 +489,7 @@ def walk_forward_oos(path: str, rf: float) -> Dict[str, Any]:
     m = compute_metrics(r, eq, rf_annual=rf, initial_capital=1.0)
     out = {k: m[k] for k in ("sharpe", "cagr", "max_drawdown", "calmar", "ann_vol", "sortino")}
     out.update({"start": str(r.index[0].date()), "end": str(r.index[-1].date()), "source": path,
-                "sharpe_precision": sharpe_precision(r, rf)})
+                "sharpe_precision": sharpe_precision(r, rf), "significance": significance.report(r, rf)})
     stitched = p.with_name(p.name.replace("wf_oos_returns", "wf_stitched").replace(".csv", ".json"))
     if stitched.exists():
         doc = json.loads(stitched.read_text())
@@ -527,10 +528,13 @@ def overfitting(registry, run_id: str, manifest: Dict[str, Any], rf: float, spli
                            "cost_model": cost_model}
     trials = matrix if matrix.shape[1] > 1 else None
     d = deflated_sharpe(matrix[run_id], trials_matrix=trials, rf_annual=rf)
-    out["dsr"] = {k: d.get(k) for k in ("dsr", "sr_annual", "sr0_annual", "n_trials_eff", "passed")}
+    out["dsr"] = {k: d.get(k) for k in ("dsr", "sr_annual", "sr0_annual", "n_trials_eff", "passed", "dsr_iid",
+                                        "autocorr_factor")}
     dc = deflated_sharpe(matrix[run_id], trials_matrix=trials, rf_annual=rf, trial_count="clustered")
     out["dsr_clustered"] = {"dsr": dc.get("dsr"), "n_trials_eff": dc.get("n_trials_eff")}
     out["sharpe_precision"] = sharpe_precision(matrix[run_id], rf)
+    out["significance"] = significance.report(matrix[run_id], rf, n_trials=int(matrix.shape[1]),
+                                              cost_drag_annual=(manifest.get("metrics") or {}).get("cost_drag"))
     if pbo is not None:
         out["pbo"] = pbo
     return out
@@ -943,14 +947,22 @@ def render_markdown(r: Dict[str, Any]) -> str:
                  f"Calmar {_num(wf['calmar'])}; mean IS {_num(wf.get('mean_is_sharpe'))} vs OOS {_num(wf.get('mean_oos_sharpe'))} per fold "
                  f"(OOS/IS {_num(wf.get('oos_is_ratio'))}), {wf.get('negative_oos_years')} negative OOS years; "
                  f"{_precision(wf.get('sharpe_precision') or {})}.")
+        if wf.get("significance"):
+            L.append("")
+            L.append(f"**Hypothesis test, walk-forward OOS** (HT1): {significance.one_line(wf['significance'])}.")
     if "error" not in ov:
         d, pb = ov.get("dsr", {}), ov.get("pbo", {})
         L.append("")
         L.append(f"**Overfitting** over {ov['n_configurations']} recorded configurations (data {ov['data_hash']}, cost model {ov['cost_model']}): "
-                 f"deflated Sharpe {_num(d.get('dsr'), 3)} (annual Sharpe {_num(d.get('sr_annual'))} vs the expected best of "
+                 f"deflated Sharpe {_num(d.get('dsr'), 3)} (widened for autocorrelation, kappa {_num(d.get('autocorr_factor'))}; "
+                 f"i.i.d. {_num(d.get('dsr_iid'), 3)}; annual Sharpe {_num(d.get('sr_annual'))} vs the expected best of "
                  f"{_num(d.get('sr0_annual'))} from {_num(d.get('n_trials_eff'), 0)} trials; clustered {_num(ov.get('dsr_clustered', {}).get('dsr'), 3)}), "
                  f"PBO {_pct(pb.get('pbo'))}, probability of an OOS loss {_pct(pb.get('prob_oos_loss'))}; "
                  f"{_precision(ov.get('sharpe_precision') or {})}.")
+        if ov.get("significance"):
+            L.append("")
+            L.append(f"**Hypothesis test, backtest** (HT1): {significance.one_line(ov['significance'])}. "
+                     "A p-value is not the chance the strategy works; it assumes the past repeats.")
     L.append("")
     L.append(f"**Parameter sensitivity**: {ps.get('n_neighbours')} recorded one-setting neighbours "
              f"(Sharpe change {_num(ps.get('delta_sharpe_min'))} to {_num(ps.get('delta_sharpe_max'))}); "

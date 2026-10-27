@@ -112,8 +112,8 @@ class _Market:
         """(reference price, lot size): close if traded, else settlement; NaN when neither.
 
         On the contract's own settlement session an untraded call is worth its intrinsic value against
-        the exact index close, never the settle column, which has held the index level that day since
-        2020 (tracker LN-T20).
+        the final settlement (``settlement``), never the option's settle column, which has held the index
+        level that day since 2020 (tracker LN-T20).
         """
         ch = self.chain(d, expiry)
         if strike not in ch.index:
@@ -122,7 +122,7 @@ class _Market:
         if row["contracts"] > 0 and row["close"] > 0:
             return float(row["close"]), float(row["lot_size"])
         if d == expiry:
-            s = float(self.exact.get(d, math.nan))
+            s = self.settlement(expiry)
             return (intrinsic_value(CALL, s, strike) if np.isfinite(s) else math.nan), float(row["lot_size"])
         return (float(row["settle"]) if row["settle"] > 0 else math.nan), float(row["lot_size"])
 
@@ -130,9 +130,12 @@ class _Market:
         return float(self.index.get(d, math.nan))
 
     def settlement(self, expiry: pd.Timestamp) -> float:
-        """The index close (only an exact one, never the pre-2007 proxy), else the expiring future's settlement."""
-        s = float(self.exact.get(expiry, math.nan))
-        return s if np.isfinite(s) else float(self.future_settle.get((expiry, expiry), math.nan))
+        """The final settlement price: the expiring future's settlement that session, else the exact index close
+        (never the pre-2007 proxy).  The two were equal at every NIFTY and BANKNIFTY expiry 2007-Sep 2026; from
+        7 Dec 2026 (SEBI's closing auction, tracker CAS1) the close comes from the 15:30-15:40 auction while
+        settlement stays the last 30 minutes' VWAP, so the future's figure leads."""
+        s = float(self.future_settle.get((expiry, expiry), math.nan))
+        return s if np.isfinite(s) else float(self.exact.get(expiry, math.nan))
 
 
 def _choose_strikes(cfg: SleeveConfig, mkt: _Market, d: pd.Timestamp, expiry: pd.Timestamp,

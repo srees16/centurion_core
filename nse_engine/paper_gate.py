@@ -222,6 +222,39 @@ def headline(report: Dict[str, Any]) -> str:
     return f"{v} ({n} of {m} sessions)" if v == NOT_ENOUGH else f"{v} ({n} sessions)"
 
 
+#: RA1 (plan 5ao, pre-registered 27 Oct 2026): the deployed book's acceptance as a real-time strategy, from G4 and
+#: HT1's test against the backtest's edge, at 60 sessions (once more at 90 after a WATCH).
+ACCEPT_SESSIONS, FINAL_SESSIONS, SHORT_P = 60, 90, 0.05
+ACCEPT, REJECT, PENDING = "ACCEPT", "REJECT", "PENDING"
+
+
+def realtime_verdict(report: Optional[Dict[str, Any]], short_p: Optional[float]) -> Dict[str, Any]:
+    """RA1's verdict from a G4 report and HT1's one-sided p of falling short of the backtest's edge (None when not
+    yet computed): REJECT on a G4 FAIL or a shortfall (p < 0.05); ACCEPT on a G4 PASS without one; WATCH (decided
+    again at 90 sessions, then ACCEPT or REJECT); PENDING before 60 sessions, or while either test is missing (a
+    G4 FAIL rejects alone)."""
+    if not report or not report.get("verdict"):
+        return {"verdict": PENDING, "why": "no G4 report yet: no verdict from incomplete evidence", "sessions": 0}
+    n, g4 = int(report.get("sessions", 0)), report["verdict"]
+    short = short_p is not None and short_p < SHORT_P
+    if n < ACCEPT_SESSIONS:
+        return {"verdict": PENDING, "sessions": n, "why": f"{n} of {ACCEPT_SESSIONS} sessions; today G4 {g4}, "
+                + ("short of the backtest's edge" if short else "not short of the backtest's edge")
+                + (f" (p {short_p:.2f})" if short_p is not None else "")}
+    if short_p is None and g4 != FAIL:                     # a FAIL decides alone; anything else needs both tests
+        return {"verdict": PENDING, "sessions": n,
+                "why": "the edge test could not be computed: no verdict from incomplete evidence"}
+    if g4 == FAIL or short:
+        why = " and ".join(([f"G4 {FAIL}"] if g4 == FAIL else []) + ([f"short of the backtest's edge (p {short_p:.3f})"]
+                                                                    if short else []))
+        return {"verdict": REJECT, "sessions": n, "why": why}
+    if g4 == PASS:
+        return {"verdict": ACCEPT, "sessions": n, "why": "G4 PASS and not short of the backtest's edge"}
+    if n < FINAL_SESSIONS:
+        return {"verdict": WATCH, "sessions": n, "why": f"G4 {g4}: decided once more at {FINAL_SESSIONS} sessions"}
+    return {"verdict": REJECT, "sessions": n, "why": f"G4 still {g4} at {FINAL_SESSIONS} sessions"}
+
+
 def one_line(report: Dict[str, Any]) -> str:
     """Verdict plus every check on one line, for the daily email."""
     parts = [headline(report)]

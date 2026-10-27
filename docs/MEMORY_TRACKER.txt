@@ -258,8 +258,35 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
+ >>> MON 14 DEC 2026 - RA1 VERDICT DAY (plan 5ao, fixed 27 Oct 21:34 IST)
+     The deployed book's 60th G4 session: the nightly email shows ACCEPT,
+     REJECT or WATCH (WATCH: decided again at 90 sessions, about 25 Jan
+     2027).  ACCEPT: live may start at Rs 6 lakh after 5 clean dry runs, on
+     your go-ahead.  REJECT: no live capital; 679cbd0c is not re-tuned.
+ >>> TUE 27 OCT - YOUR ACTIONS
+     0. DONE 27 Oct, your decision (AC1): the deployed book stays as is,
+        approved under the old rule (DSR 0.964 i.i.d.; 0.939 widened).  It
+        is accepted or rejected as a real-time strategy on how close its
+        paper and live performance comes to the actual Indian market: G4
+        (paper against its same-period backtest on NSE's own prices), the
+        HT1 test against the backtest's edge, NIFTY 50 beside it.
+        Candidate and E4: still under 0.95 on gate 1.
+     1. Merge HT1 + DH1 + AC1 + RA1 + IVS1 + EM1 + IVX1 + CAS1 + MC1 + RB1 (uncommitted): nse_engine/data/store.py,
+        tests/{test_survivorship,test_execution_and_costs}.py, nse_engine/validation/
+        significance.py (new), nse_engine/validation/dsr.py,
+        nse_engine/paper_gate.py, kite_connect/options/iv_history.py,
+        nse_engine/option_signals.py (new), kite_connect/options/{backtest,structures}.py,
+        nse_engine/mc_bands.py (new), config/mc_bands.json (new),
+        nse_engine/scorecard.py, nse_engine/books.py, tools/books_report.py,
+        kite_connect/options/theory.py, docs (plan 5an, research_protocol,
+        this file, metrics_journal).
+        Saturday's email then carries each book's paper t (p) and the
+        statistics line.
+     2. Checked 27 Oct (run 40512562288, the first on DS1/PL1/IC2/A1G): 7
+        book reports kept, one nightly email sent, no trade detail in the
+        public log.
  >>> MON 26 OCT - YOUR ACTIONS
-     0. Merge IC2 + A1G (uncommitted, 17 files): cloud/kaggle_runner.py,
+     0. DONE 26 Oct (merged, PR #290, #291; 6412002): IC2 + A1G, 17 files: cloud/kaggle_runner.py,
         cloud/wf_stitch.py, cloud_paper_runner.py, config/nse_engine_a1.json,
         kite_connect/options/{backtest,sleeves}.py, kite_connect/trading/
         options_overlay.py, nse_engine/{books,config,diversifier_gate,
@@ -295,9 +322,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
         CU-hour (~$1-2 a month now); Free never charges, it suspends.
         DONE 26 Oct: the spending notification is on, at $5 a month.
      5. Send Zerodha one ticket with three questions (Q4, the 09:00 check,
-        Q5 on LIQUIDCASE: ST2 block; text in Claude's 25 Oct reply), then
+        Q5 on LIQUIDCASE, Q6 on the closing auction: ST2 block), then
         tell Claude the answers.
-     6. Say "do IC2" to start LN-T29 (brought forward, P1).
+     6. DONE 26 Oct: IC2 (LN-T29's first step).  LN-T29 next waits for
+        Zerodha's answers (item 5), then say "do LN-T29".
      7. DONE 26 Oct (merged, PR #287): the store build checking every year (CAN1b) and
         the workflow restored, neon-watch.yml deleted (NEO5), both in
         nse-paper-trading.yml; runners/refresh_data.py (DR1b); the LN-T29d corrections (this file,
@@ -405,13 +433,11 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      2. NOT DONE: the GTT leg (all HDFCBANK sold by mistake) - redo, see
         Thursday.
      3. NOT RUN: "Record sell path" - after the GTT leg.
-[!] P1  MU2  Self-service accounts: merged and live 8 Oct (sign-up on the
-             login page; email secrets copied by the deploy; the data key on
-             the Space with a copy kept off it); frontend in production
-             (NX1 merge deployed 22:33 IST).  25 Oct: the Gmail API route
-             is set up (MU2g).  26 Oct: sign-up with a spare email works,
-             the activation email arrived.  Left: activate (link valid
-             24 h), sign in, Fly Kite, Settings > Delete account.
+[x] P1  MU2  DONE 26 Oct: self-service accounts tested end to end by you
+             (sign-up, activation email, sign-in, Kite connect, Settings >
+             Delete account).  Checked in Neon: only your user remains in
+             app.users; no connected Kite account or per-account schema is
+             left.
 [!] P1  U23  Log in to Kite once every trading day: tap the link in the
              09:00 / 17:30 IST email (valid until 06:00 next day).  The first
              live dry run is Thu 1 Oct 19:00 IST (Fri 2 Oct is a holiday);
@@ -475,6 +501,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                   for pre-open stocks, before any sell matches;
                 - Q5: can buy AMOs use the proceeds of a LIQUIDCASE sell
                   AMO at the same open, and when is an ETF AMO sent?
+                - Q6 (CAS1, added 27 Oct): from 8 Feb 2027, does an unfilled
+                  DAY limit AMO carry into the 15:30-15:40 closing auction,
+                  and can an AMO be placed with IOC validity?
                 The answers set both LN-T11's buffer and LN-T29's timing.
              3. SUPERSEDED 20 Oct by the SELL TEST block at the top of
                 section 4 (tests Fri 23 and Mon 26 Oct, from step 1).
@@ -517,13 +546,24 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                 evening, Actions > Record sell path with your DDPI date and
                 both IDs.  The first real session refuses to start until
                 this passes.
-[!] P3  LN-T13 Optional, before live month 1: GitHub > srees16/centurion_core
-             > Settings > Secrets and variables > Actions > Variables > New
-             repository variable: CENTURION_CANARY_DRIFT_ACTION = dry-run.
-             Then a night the canary reports drift (a book's backtest moved
-             with its code and data hashes unchanged) runs the live session
-             as a dry run instead of sending orders.  Without it, drift is
-             only emailed.
+[ ] P3  RP1  Make the repository private (your ask 27 Oct; deferred by you,
+             not a priority).  Checked 27 Oct: on GitHub Free a private repo
+             gets 2,000 Actions minutes a month; the last 30 days used about
+             2,270 billed (the nightly workflow 1,348: 4.3 full 11-minute runs
+             a trading day; Tests 487 on every push to every branch; Pages
+             184).  Over the limit, Actions stops for the month.  Also lost:
+             secret scanning and push protection; GitHub Pages goes offline
+             (nothing uses it).  The HF scheduler's fine-grained dispatch
+             token keeps working.  Before switching: backup runs exit in
+             about a minute when the night is done, Tests on PRs and main
+             only (about 1,000 minutes a month), then Settings > General >
+             Change visibility; optionally a $5 Actions budget.
+                                                   Prompt: do RP1
+[x] P3  LN-T13 DONE 26 Oct: you set the repository variable
+             CENTURION_CANARY_DRIFT_ACTION = dry-run (checked with gh).  A night
+             the canary reports drift (a book's backtest moved with its code
+             and data hashes unchanged) runs the live session as a dry run.
+             No effect while CENTURION_LIVE_MODE is dry_run.
 --------------------------------------------------------------------------------
  5. IN PROGRESS [~]
 --------------------------------------------------------------------------------
@@ -933,6 +973,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                Then 5 dry runs: Kite's commodity segment and an MCX order
                path, both to build.
                                    Prompt: do DL1 (after the paper period)
+[x] P2  IVX1 DONE 27 Oct: both signals FAIL; family closed (section 8).
 [x] P2  A1G  DONE 26 Oct: PASS, in sample; book a1 runs it (section 8).
 [ ] P2  L8   Forward walk (a shadow record), weekly in the Saturday books
              report and email.
@@ -1065,6 +1106,170 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+27 Oct  RB1  Robustness audit against X-DataInitiative/tick (BSD-3; ideas
+             only, no code copied; your ask).  tick is a statistics library
+             (Hawkes, survival, GLM solvers), so it has no execution, risk or
+             trading-time patterns; its useful ones are validation at the
+             boundary (safe_array, check_parameters_coherence), refusing
+             unknown attributes (BaseMeta.__setattr__), raising on NaN in
+             numerics (solver/scpg.py) and seeding every simulator.  Centurion
+             already has nearly all of them, plus the trading ones (idempotent
+             tags, order-book dedup, retries, kill switch, GTT reconcile, cash
+             budget, stale-data and calendar checks, causal and PIT tests,
+             config and data hashes, Neon audit tables).  One gap, closed:
+             the store build accepted any printed bar, and a low of 0 reads as
+             a stop hit (exit_reason) and a close of 0 as a -100% day.
+             store.invalid_bars now refuses rows with a price that is missing
+             (close) or not a positive finite number, a high below the low, or
+             a negative volume, before the de-duplication; logged as an error
+             and counted in the year's manifest (invalid_equity_rows).  Open
+             and close are not held to [low, high] (the closing auction from
+             7 Dec, CAS1).  Output change: none (0 of 8.36M EQ/BE rows
+             2006-2026 refused; 2025 and 2026 rebuilt from the archive equal
+             the store; no STORE_VERSION bump).  Indices are left alone: the
+             NIFTY 50 dividend-points index is legitimately 0 (210 rows).
+             Property tests (seeded numpy, no new dependency; your choice
+             28 Oct): invalid_bars over 20k float32 bars and every one-field
+             break (test_survivorship.py); round_price, round_to_tick and
+             _tick on the grid, in the asked direction, within a tick, over
+             4k prices plus NSE's slab edges, and each slab tick dividing the
+             next (test_execution_and_costs.py).  All mutants tried were
+             caught.  Checked, nothing to change: the tick rounders, the IV
+             solver (raises on NaN), NaN weights and
+             stops (explicit fallbacks), deployment keys (refused), unseeded
+             random draws (none), naive clocks (only off the Actions paths).
+27 Oct  MC1  Monte Carlo band in the Saturday email (your ask).  Each book's
+             return and drawdown since its start, as percentiles among 5,000
+             paths of its own live-like walk-forward history over the same
+             sessions (stationary block bootstrap, mean block 20, seed 7):
+             deployed / candidate the deployed family's WF book; E4 its
+             family's WF (R12b4); futures L7-A; bonds and MCX 0.75 x book +
+             0.25 x their sleeve; a1 the book + A1G at 10%.  A "MC band:
+             return / drawdown" column and a findings line naming books
+             outside the 5th-95th band, with G4's word on whether the
+             same-period backtest fell as far.  nse_engine/mc_bands.py;
+             config/mc_bands.json (percentiles only, 33 KB; rebuild with
+             python -m nse_engine.mc_bands build after a re-baseline).
+             First reading: deployed drawdown 8.3% at the 4th percentile, E4
+             8.2% below the 1st, both with their same-period backtests as
+             deep (G4: the market, not the execution).
+27 Oct  CAS1 SEBI's closing auction (circular of 15 Oct 2026; your ask).
+             From Mon 7 Dec 2026: equities close in a 15:30-15:40 auction;
+             derivatives settle on the last 30 minutes' VWAP, as before;
+             index derivatives trade to 15:45 on normal days (expiring ones
+             stop at 15:30); post-close 15:50-16:00.  From 8 Feb 2027,
+             unexecuted limit orders carry into the auction.  Impact:
+             - Options settlement (fixed): A1G (paper, run_sleeve) and the
+               structure rounds settled at NIFTY's close.  From 7 Dec that
+               close comes from the auction while settlement stays the
+               VWAP, so both now settle on the expiring future's final
+               settlement, the index close only as a fallback.  The two were
+               identical at all 228 NIFTY and 176 BANKNIFTY expiries
+               2007-Sep 2026; A1 and A1G reproduce exactly.  fo_anomalies
+               (closed study) left as is.
+             - Equity closes from 7 Dec are the auction's: signals, stops
+               and the same-period backtest read the same bhavcopy, so G4
+               stays like for like.  No change.
+             - Cost model: none (STT and charges unchanged; fills at the
+               open's pre-open auction unchanged).
+             - Stock options' physical delivery: not traded by any book.
+             - Data timing: later trading may delay the bhavcopies a
+               little; the 19:00 run and its backups already absorb a late
+               F&O file.
+             - Live orders (open): entry AMOs are DAY limit orders; one
+               unfilled at the open can fill later, and from 8 Feb 2027 in
+               the closing auction, unlike the backtest's open-or-nothing.
+               Q6 added to the Zerodha ticket; decide before Feb 2027.
+27 Oct  IVX1 Stock selection from option prices (plan 5ap): both FAIL, the
+             family closes.  NSE F&O stocks 2013-25, 155 months, about 165
+             stocks a month.  S1 call-put IV spread: gross +0.36%/month
+             (t +1.48), net -0.36% (t -1.47); S2 put skew: gross +0.30%
+             (t +1.41), net -0.44% (t -2.10).  Both point the published
+             way gross but are not significant even before costs; turnover
+             ~2.9 a month at 25 bp a side costs ~0.73%/month.
+             nse_engine/option_signals.py; runs in runs_ivx1.
+27 Oct  EM1  Expected move in the nightly email (IVS1's suggestion 3, your
+             call): India VIX as NIFTY's one-SD move over the next 30 days
+             (VIX x sqrt(30/365), in % and points), and in rupees for each
+             book with 20+ paper sessions, scaled by its paper beta to NIFTY.
+             Today: VIX 16.9 -> NIFTY +/-4.8% (+/-1,100 points); deployed
+             +/-Rs 0.88 L (beta 0.53).  nse_engine/books.py
+             expected_move_line; tools/books_report.py reads INDIAVIX from
+             the store.
+27 Oct  IVS1 Implied volatility surface (your ask: the IV transcript).  In
+             kite_connect/options/iv_history.py: session_surface (an IV for
+             every traded contract, strike x expiry), skew (per expiry: the
+             5% OTM put, ATM and 5% OTM call IVs) and iv_surface (a stored
+             session).  The rest was already built: the solver
+             (theory.implied_volatility, Brent), 30-day IV history, rank,
+             percentile, IV level and the premium record (OD1), India VIX in
+             the regime gate and A1G's guard.  Checked: the transcript's $12
+             call -> 24.11%; NIFTY 23 Oct 2026: OTM puts +3 to +5 vol points
+             over ATM (11-39 days), OTM calls -1 to -2.  Findings: NIFTY IV30
+             19.2% vs next-30-day realised 17.0% (2008-25; IV higher on 75%
+             of sessions); at A1's short strikes the market's IV is 1.22x the
+             historical vol A1 uses (2.6 SD out on HV, 2.14 SD on IV); IV/HV
+             at entry did not flag A1's two material losses (1.30, 0.80); 46%
+             of the deployed book's trades are in stocks with listed options.
+27 Oct  RA1  The deployed book's real-time accept / reject rule, fixed before
+             any verdict was possible (your decision; plan 5ao, 21:34 IST).
+             At G4's 60th session (about Mon 14 Dec 2026): REJECT on a G4
+             FAIL or if the paper mean is short of the backtest's edge
+             (HT1, one-sided p < 0.05, against Sharpe 1.16); ACCEPT on G4
+             PASS and not short; WATCH -> decided once more at 90 sessions
+             (about 25 Jan 2027).  No verdict from missing evidence (a G4
+             FAIL still rejects).  G4's thresholds frozen as of 27 Oct.  The
+             same rule at 60 live sessions decides whether live continues.
+             Built: paper_gate.realtime_verdict; a line in the nightly and
+             Saturday emails (today: PENDING, 26 of 60, not short, p 0.25).
+             Checked: the full decision table (16 cases); fast suite passes
+             in myenv and core-only.
+27 Oct  AC1  The deflated and probabilistic Sharpe widened for
+             autocorrelation (your decision; plan 5an, written before any
+             number was recomputed; research_protocol gate 1 amended).
+             nse_engine/validation/dsr.py: autocorrelation_factor (kappa =
+             Newey-West long-run variance / variance, floored at 1); the
+             PSR, DSR, MinTRL and Sharpe variance take it; deflated_sharpe
+             applies it by default and reports dsr_iid, kappa, lag-1, T_eff;
+             scorecard shows both.  Result: deployed 0.939, candidate 0.941,
+             E4 0.928 (were 0.964 / 0.963 / 0.957): under 0.95 at N 61.
+             Checked: no-edge AR(1) strategies passing PSR >= 0.95: 12.2%
+             i.i.d. -> 5.5% (nominal 5%); independent returns: kappa median
+             1.000, 95th pct 1.09.  Fast suite passes in myenv and core-only.
+27 Oct  DH1  Delta hedging (your ask: the market-maker transcript), in
+             kite_connect/options/theory.py: delta_neutral_units (minus the
+             position's net delta) and delta_hedge_simulation (sell a call,
+             hold delta shares, rebalance N times, self-financed; hedged vs
+             unhedged P&L over GBM paths).  Reproduces the transcript at
+             r 5%, vol 20%, 1 year: call 10.45, delta 0.64; daily for a year,
+             2,000 paths: hedged sd 0.435-0.451 vs unhedged 14.9-15.8 (video
+             0.44 / 15.39).  Also checked: a $1 move (hedged -0.009 vs
+             -0.646), weekly rebalancing 2.1x daily's error, realised vol 30%
+             vs 20% priced costs the seller 3.97 a call.  Not used by any book
+             (the books write NIFTY spreads; no hedge planned).
+27 Oct  HT1  Hypothesis tests of returns (your ask: the hypothesis-testing
+             transcript).  nse_engine/validation/significance.py: the mean
+             daily excess return's t (Newey-West; i.i.d. beside it), p (two-
+             and one-sided), 90/95/99% intervals, t ~ Sharpe x sqrt(years),
+             years for t = 2, expected false passes and Bonferroni p over N
+             configurations, halves compared, t before and after costs; for
+             paper, the mean against the backtest's edge.  CLI --run /
+             --returns / --book.  Scorecards (backtest, walk-forward) and
+             the Saturday email (Paper t (p) column, a statistics line).
+             Checked by simulation: the transcript's example (Sharpe 0.67, 5
+             years: t 1.50, p 13.4%, 95% interval -0.013% to +0.097% a day);
+             no-edge strategies pass 4.4% at 5%; 95% intervals cover 94.9%;
+             a real Sharpe of 1 over 5 years reaches p < 5% in 61% of runs;
+             autocorrelated no-edge returns pass 15.7% with the i.i.d. t,
+             7.3% with Newey-West; edge cases (n < 3, zero variance, losses,
+             gaps, no backtest Sharpe).  Fast suite passes in myenv and
+             core-only; temporary checks deleted.
+             Results: deployed 2013-25 t +3.58 (p 0.000; Bonferroni over 61:
+             0.011; 95% +7.0% to +24.1% a year); walk-forward 2008-25 t +2.27
+             (p 0.023; +0.9% to +12.6%; halves +1.9% vs +11.6% a year, p
+             0.06); paper: no book differs from zero yet (t -0.5 to -0.3),
+             none short of its backtest's edge; t = 2 needs ~3 years of
+             paper at Sharpe 1.16.
 26 Oct  A1G  A1 with a crash guard (your "do A1G"; plan 5aj, amended 22:57
              IST before the run: A1C's 10% cap, A1C's gate, no MaxDD
              condition per GT13).  PASS, in sample; 2026 agrees but adds
