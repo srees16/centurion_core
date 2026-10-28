@@ -264,16 +264,16 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      2027).  ACCEPT: live may start at Rs 6 lakh after 5 clean dry runs, on
      your go-ahead.  REJECT: no live capital; 679cbd0c is not re-tuned.
  >>> WED 28 OCT - YOUR ACTIONS
-     1. Add to PR #292 (feature/fine-tuning, committed f6a16c7): .gitignore
-        and config/mc_bands.json.  *.json is ignored, so the bands file
-        missed the commit and Saturday's MC band column would be empty on
-        Actions (percentiles only: no holdings or amounts).  Also RB2, RB3,
-        RB4 and TH1 (uncommitted): database/paper_cloud.py,
-        cloud_paper_runner.py, nse_engine/{books,paper_gate,scorecard}.py,
-        nse_engine/validation/{dsr,significance}.py,
-        tests/{test_paper_book,test_metrics}.py, this file.  Then merge #292 to main
-        before Sat 31 Oct 07:30 IST (the Saturday email).
+     1. COMMITTED by you (cbc48ed, PR #292): .gitignore, config/mc_bands.json,
+        RB2, RB3, RB4 and TH1.  Merge #292 to main before Sat 31 Oct 07:30
+        IST (the Saturday email).
      2. After 20:00 tonight: the sell test's first AMO (SELL TEST block).
+     3. Sign-up page, first and last name (SU1, uncommitted, two repos):
+        centurion_core api/users.py, api/routers/v1/auth.py, this file;
+        centurion_core-fe (branch c.core/ui-improvements)
+        app/signup/page.tsx, lib/signup-validation.ts (new).  Either side
+        may deploy first: the page also sends full_name, and the API still
+        takes full_name alone.
  >>> TUE 27 OCT - YOUR ACTIONS
      0. DONE 27 Oct, your decision (AC1): the deployed book stays as is,
         approved under the old rule (DSR 0.964 i.i.d.; 0.939 widened).  It
@@ -1118,6 +1118,21 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+28 Oct  SU1  Sign-up page (MU2; your ask): first name (required) and last
+             name (optional: one-name users) replace "Full name"; full_name
+             is stored as the two joined, so emails, sessions and the admin
+             list are unchanged; emails now greet by first name.  Checks, the
+             same in the page (lib/signup-validation.ts) and the API
+             (api/users.py, which has the last word; 72 cases agree):
+             names and places in any script (letters and marks, so Hindi
+             works; NFC-normalised; no digits or symbols); email as RFC
+             dot-atom with real domain labels and a 2+ letter TLD; mobile
+             stored as +country code (in India +91 optional, leading 0
+             dropped, 10 digits from 6-9).  The page shows each field's
+             problem once it is left, a "Did you mean gmail.com?" hint, the
+             number as it will be saved, and the Create button no longer sits
+             disabled without a reason.  Existing users keep their profiles;
+             a request with only full_name (the old page) still works.
 28 Oct  TH1  Sun Shuo's PhD thesis, "Reinforcement Learning for Financial
              Trading" (NTU 2024; research_inbox/, your ask).  Mostly RL
              (DeepScalper ch. 4, AlphaMix+ ch. 6, TradeMaster ch. 8) and
