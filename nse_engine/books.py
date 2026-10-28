@@ -847,10 +847,70 @@ def _g4_line(days: Sequence[DayBook]) -> Optional[str]:
     return ("G4's first verdict: " + ", ".join(f"{name} in {k} session(s)" for k, name in pending) + ".") if pending else None
 
 
+#: The expected move's horizon (calendar days, India VIX's own) and the paper sessions a book's beta needs.
+MOVE_DAYS, MIN_BETA_SESSIONS = 30, 20
+#: How NIFTY's next-30-day move compared with that one-SD move, measured by ``move_coverage`` on the store's India
+#: VIX history (14 May 2014 - 23 Sep 2026, 3,051 sessions): 74% stayed inside, 9.5% fell further, 16.4% rose
+#: further.  Implied volatility runs above realised (IVS1), so it is not the normal curve's two in three (RB3).
+#: Re-measure after the store gains years: tests/test_metrics.py checks these against the store.
+MOVE_INSIDE, MOVE_FELL = 0.74, 0.095
+
+
+def move_coverage(nifty: pd.Series, vix: pd.Series, days: int = MOVE_DAYS) -> Dict[str, float]:
+    """How often NIFTY's move to its first close ``days`` calendar days later stayed inside, fell below or rose
+    above the expected move VIX x sqrt(days/365) (shares of sessions, and the sessions counted).  Sessions missing
+    either series are left out, never filled; raises on a level that is not positive or when no session has a
+    close ``days`` later."""
+    n, v = nifty.dropna().sort_index(), vix.dropna().sort_index()
+    if (n <= 0).any() or (v <= 0).any():
+        raise ValueError("NIFTY and India VIX must be positive")
+    start = n.index.intersection(v.index)
+    later = n.index.searchsorted(start + pd.Timedelta(days=days))
+    keep = later < len(n)
+    if not keep.any():
+        raise ValueError(f"no session has a NIFTY close {days} days later")
+    start, later = start[keep], later[keep]
+    move = v.loc[start].to_numpy() / 100.0 * math.sqrt(days / 365.0)
+    real = n.iloc[later].to_numpy() / n.loc[start].to_numpy() - 1.0
+    return {"inside": float((np.abs(real) <= move).mean()), "fell": float((real < -move).mean()),
+            "rose": float((real > move).mean()), "sessions": int(len(move))}
+
+
+def expected_move_line(days: Sequence[DayBook], nifty: Optional[pd.Series], vix: Optional[pd.Series],
+                       session: date) -> Optional[str]:
+    """The market's own forecast of the swing ahead (IVS1's suggestion 3): India VIX, the 30-day implied volatility
+    of NIFTY options, as NIFTY's one-SD move over the next 30 days (VIX x sqrt(30/365)), and in rupees for each book
+    with at least 20 paper sessions, scaled by its beta to NIFTY over its own record."""
+    v = vix[vix.index <= pd.Timestamp(session)].dropna() if vix is not None else pd.Series(dtype="float64")
+    if not len(v):
+        return None
+    level, asof = float(v.iloc[-1]), v.index[-1].date()
+    move = level / 100.0 * math.sqrt(MOVE_DAYS / 365.0)
+    n = nifty[nifty.index <= pd.Timestamp(session)] if nifty is not None else pd.Series(dtype="float64")
+    s = (f"Expected move (India VIX {level:.1f}" + (f" on {_dmy(asof)}" if asof < session else "") + "): NIFTY "
+         f"±{move:.1%}" + (f" (±{float(n.iloc[-1]) * move:,.0f} points)" if len(n) else "")
+         + f" over the next 30 days, one SD (since 2014, {MOVE_INSIDE:.0%} of such moves stayed inside and "
+         f"{MOVE_FELL:.0%} fell further)")
+    books = []
+    for d in days:
+        r = d.paper.equity.pct_change().dropna()
+        m = n.pct_change().reindex(r.index) if len(n) else pd.Series(dtype="float64")
+        pair = pd.concat({"r": r, "m": m}, axis=1).dropna()
+        if len(pair) < MIN_BETA_SESSIONS or pair["m"].var() <= 0:
+            continue
+        beta = float(pair["r"].cov(pair["m"]) / pair["m"].var())
+        books.append(f"{d.book.name} ±{_inr_short(float(d.paper.equity.iloc[-1]) * move * abs(beta))} (beta {beta:.2f})")
+    if books:
+        s += "; by book, from its paper beta: " + ", ".join(books)
+    return s + "."
+
+
 def daily_findings(days: Sequence[DayBook], rows: Sequence[Dict[str, Any]], nifty: Optional[pd.Series],
-                   session: date) -> List[str]:
-    """The summary's bullets: the market, paper against its backtest, against NIFTY 50, the day, alerts, what's next."""
-    out = [_market_line(nifty, session), _tracking_line(days), _nifty_line(rows)]
+                   session: date, vix: Optional[pd.Series] = None) -> List[str]:
+    """The summary's bullets: the market, the expected move, paper against its backtest, against NIFTY 50, the day,
+    alerts, what's next."""
+    out = [_market_line(nifty, session), expected_move_line(days, nifty, vix, session), _tracking_line(days),
+           _nifty_line(rows)]
     today = [d for d in days if str((d.activity or {}).get("session_date") or "")[:10] == session.isoformat()]
     fills = sum(len(d.fills) for d in today if d.fills is not None)
     stops = sum(int((d.activity or {}).get("stops_triggered") or 0) for d in today)
@@ -926,10 +986,14 @@ _FOOTER = ("Since start: the book's value against its initial capital (a book wi
            "value). NIFTY 50: the index over the same sessions.")
 
 
-def build_daily(days: Sequence[DayBook], nifty: Optional[pd.Series], session: date) -> Dict[str, Any]:
+def build_daily(days: Sequence[DayBook], nifty: Optional[pd.Series], session: date,
+                expected_sharpe: Optional[Dict[str, float]] = None, vix: Optional[pd.Series] = None) -> Dict[str, Any]:
     """The nightly email: one table of every book and the findings, then each book's own report (tracker DS1)."""
     rows = daily_rows(days, nifty, session)
-    findings = daily_findings(days, rows, nifty, session)
+    findings = daily_findings(days, rows, nifty, session, vix)
+    ra1 = acceptance_line(days, expected_sharpe)
+    if ra1:
+        findings.append(ra1)
     table = [[r["book"], _dmy(r["started"]), _inr_short(r["initial"]),
               _inr_short(r["value"]) + (f" ({_dmy(r['asof'])})" if r["asof"] and r["asof"] < session else ""),
               _pct(r["return"]), _pct(r["nifty"]), r["dd"], r["g4"], r["today"]] for r in rows]
@@ -950,7 +1014,62 @@ def build_daily(days: Sequence[DayBook], nifty: Optional[pd.Series], session: da
 
 
 WEEKLY_COLUMNS = ["Book", "Initial capital", "Value", "This week", "Since start", "NIFTY 50, same period",
-                  "vs deployed", "G4", "Forward gate"]
+                  "vs deployed", "Paper t (p)", "MC band: return / drawdown", "G4", "Forward gate"]
+#: Fewer sessions than this and the Monte Carlo band (MC1) is not shown.
+MIN_MC_SESSIONS = 5
+#: Fewer paper sessions than this and the hypothesis test (HT1) is not shown: its t would be noise on noise.
+MIN_TEST_SESSIONS = 10
+
+
+def paper_significance(days: Sequence[DayBook], expected_sharpe: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
+    """HT1 on each book's paper record since its start: the mean daily excess return against zero, and against the
+    edge its backtest claims (``expected_sharpe``: the register's 2013-25 Sharpe)."""
+    from nse_engine.validation import significance
+
+    out: Dict[str, Any] = {}
+    for d in days:
+        r = d.paper.equity.pct_change().dropna()
+        if len(r) < MIN_TEST_SESSIONS:
+            continue
+        exp = (expected_sharpe or {}).get(d.book.name)
+        try:
+            out[d.book.name] = significance.report(r, RF, expected_sharpe=exp if _finite(exp) else None)
+        except ValueError as exc:                         # RB4: unusable paper numbers are not tested (the run fails)
+            out[d.book.name] = {"test": {"n": int(len(r)), "error": str(exc)}}
+    return out
+
+
+def _significance_line(sig: Dict[str, Any]) -> Optional[str]:
+    tests = {n: r["test"] for n, r in sig.items() if "t" in r.get("test", {})}
+    if not tests:
+        return None
+    ts = [t["t"] for t in tests.values()]
+    real = [n for n, t in tests.items() if t["significant"]["95%"]]
+    short = [n for n, r in sig.items() if (r.get("vs_backtest") or {}).get("p_below", 1.0) < ALPHA_SHORT]
+    need = [r["vs_backtest"]["years_for_t2_at_backtest"] for r in sig.values()
+            if "years_for_t2_at_backtest" in (r.get("vs_backtest") or {})]
+    return ("Statistics (HT1, mean daily excess return since each book's start): "
+            + (f"{', '.join(real)} differ from zero at 95%" if real else "no book's paper mean differs from zero yet")
+            + f" (t {min(ts):+.1f} to {max(ts):+.1f}). "
+            + (f"Short of its backtest's edge beyond chance (one-sided p < {ALPHA_SHORT:.0%}): {', '.join(short)}. "
+               if short else "None is short of its backtest's edge beyond chance. ")
+            + (f"Even at its backtest's Sharpe, a book needs about {min(need):.1f} years of paper for t = 2: paper "
+               "shows behaviour, not the edge." if need else "Paper shows behaviour, not the edge."))
+
+
+ALPHA_SHORT = 0.05
+
+
+def acceptance_line(days: Sequence[DayBook], expected_sharpe: Optional[Dict[str, float]] = None) -> Optional[str]:
+    """RA1 (plan 5ao): the deployed book's verdict as a real-time strategy, every night until it is decided."""
+    from nse_engine import paper_gate
+
+    d = next((x for x in days if x.book.is_deployed), None)
+    if d is None:
+        return None
+    sig = paper_significance([d], expected_sharpe).get(d.book.name) or {}
+    v = paper_gate.realtime_verdict(d.paper.gate, (sig.get("vs_backtest") or {}).get("p_below"))
+    return f"Real-time acceptance of the deployed book (RA1, rule fixed 27 Oct): {v['verdict']}: {v['why']}."
 
 
 def _week_return(e: pd.Series, initial: float, session: date) -> float:
@@ -1003,17 +1122,97 @@ def weekly_findings(days: Sequence[DayBook], rows: Sequence[Dict[str, Any]], nif
     return [x for x in out if x]
 
 
+def mc_positions(days: Sequence[DayBook], doc: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """MC1: each book's return and drawdown since its start, as percentiles among its Monte Carlo paths over the
+    same number of sessions (``config/mc_bands.json``, ``nse_engine.mc_bands``)."""
+    from nse_engine import mc_bands
+
+    out: Dict[str, Dict[str, Any]] = {}
+    for d in days if doc else ():
+        e = d.paper.equity.dropna()
+        n = len(e) - 1
+        if n < MIN_MC_SESSIONS:
+            continue
+        ret, dd = float(e.iloc[-1] / e.iloc[0] - 1.0), float((e / e.cummax() - 1.0).min())
+        rp = mc_bands.percentile(doc, d.book.name, "return", n, ret)
+        dp = mc_bands.percentile(doc, d.book.name, "drawdown", n, dd)
+        if rp is not None and dp is not None:
+            out[d.book.name] = {"sessions": n, "return": ret, "drawdown": dd, "return_pct": rp, "drawdown_pct": dp}
+    return out
+
+
+def _pct_label(p: float) -> str:
+    return "<1" if p < 1 else ">99" if p > 99 else f"{p:.0f}"
+
+
+def _pct_words(p: float) -> str:
+    """'at the 4th percentile', 'below the 1st percentile'."""
+    if p < 1:
+        return "below the 1st percentile"
+    if p > 99:
+        return "above the 99th percentile"
+    n = int(round(p))
+    suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"at the {n}{suffix} percentile"
+
+
+def _mc_line(pos: Dict[str, Dict[str, Any]], days: Sequence[DayBook] = ()) -> Optional[str]:
+    """The band in a sentence: the books outside the 5th-95th percentiles, with G4's word on whether the book's own
+    same-period backtest fell as far (then the market did it, not the execution)."""
+    if not pos:
+        return None
+    gates = {d.book.name: d.paper.gate or {} for d in days}
+
+    def outside(v: Dict[str, Any]) -> Optional[str]:
+        if v["return_pct"] < 5 or v["return_pct"] > 95:
+            return f"return {v['return']:+.1%} {_pct_words(v['return_pct'])}"
+        if v["drawdown_pct"] < 5:
+            return f"drawdown {abs(v['drawdown']):.1%} {_pct_words(v['drawdown_pct'])}"
+        return None
+
+    flags = []
+    for n, v in pos.items():
+        why = outside(v)
+        if why:
+            dd = next((c for c in gates.get(n, {}).get("checks") or [] if c.get("name") == "drawdown"), None)
+            same = f" (its same-period backtest fell as far: {dd['display']}, so the market, not the execution)" \
+                if dd and dd.get("status") == "PASS" else ""
+            flags.append(f"{n} {why}{same}")
+    head = "Monte Carlo band (MC1; 5,000 paths of each book's walk-forward history over the same sessions): "
+    if flags:
+        return head + "outside the usual range: " + "; ".join(flags) + "."
+    worst = min(pos.items(), key=lambda kv: min(kv[1]["return_pct"], kv[1]["drawdown_pct"]))
+    return head + (f"every book is inside the 5th-95th band; the lowest is {worst[0]} (return "
+                   f"{_pct_words(worst[1]['return_pct'])}, drawdown {_pct_words(worst[1]['drawdown_pct'])}).")
+
+
 def build_weekly(days: Sequence[DayBook], nifty: Optional[pd.Series], session: date, report: Dict[str, Any],
-                 kept_on: date) -> Dict[str, Any]:
+                 kept_on: date, expected_sharpe: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
     """The Saturday email (tracker DS2): one table of every book and the findings, then the comparison with the
     deployed book and the forward gate (``build_report``), then each book's own weekly report (kept ``kept_on``)."""
     rows = daily_rows(days, nifty, session)
     by_name = {d.book.name: d for d in days}
+    sig = paper_significance(days, expected_sharpe)
+    from nse_engine import mc_bands
+
+    mc = mc_positions(days, mc_bands.load())
     findings = weekly_findings(days, rows, nifty, session, report)
+    mc_line = _mc_line(mc, days)
+    if mc_line:
+        findings.insert(min(4, len(findings)), mc_line)
+    line = _significance_line(sig)
+    if line:
+        findings.insert(min(3, len(findings)), line)
+    ra1 = acceptance_line(days, expected_sharpe)
+    if ra1:
+        findings.append(ra1)
     table = [[r["book"], _inr_short(r["initial"]),
               _inr_short(r["value"]) + (f" ({_dmy(r['asof'])})" if r["asof"] and r["asof"] < session else ""),
               _pct(_week_return(by_name[r["book"]].paper.equity, r["initial"], session)),
               f"{_pct(r['return'])} since {_dmy(r['started'])}", _pct(r["nifty"]), _versus_cell(r["book"], report),
+              (lambda t: f"{t['t']:+.2f} ({t['p_two_sided']:.2f})" if "t" in t else NA)(
+                  (sig.get(r["book"]) or {}).get("test") or {}),
+              (lambda m: f"{_pct_label(m['return_pct'])} / {_pct_label(m['drawdown_pct'])}" if m else NA)(mc.get(r["book"])),
               r["g4"], _gate_cell(r["book"], report)] for r in rows]
     cleared = report.get("cleared") or []
     behind = sum(1 for r in rows if _finite(r["alpha"]) and r["sessions"] >= 2 and r["alpha"] < 0)
@@ -1021,8 +1220,12 @@ def build_weekly(days: Sequence[DayBook], nifty: Optional[pd.Series], session: d
                + f"[Centurion Paper] Week ending {_dmy(session)}: {len(rows)} books, {behind} behind NIFTY 50, "
                f"{len(cleared)} cleared for promotion")
     footer = _FOOTER + (" vs deployed: the trial's return minus the deployed book's over their common sessions, with "
-                        "its t (|t| >= 2 is unlikely to be noise). Forward gate: 60 sessions beside the deployed book, "
-                        "its own G4 PASS, 2017-25 Sharpe within 0.05.")
+                        "its t (|t| >= 2 is unlikely to be noise). Paper t (p): the paper mean daily excess return "
+                        f"against zero (Newey-West; shown from {MIN_TEST_SESSIONS} sessions); a p-value is not the "
+                        "chance the book works. MC band: percentiles of the book's return and drawdown since its start "
+                        "among 5,000 Monte Carlo paths of its own walk-forward history over the same sessions (50 is "
+                        "typical; low is a worse return or a deeper drawdown; under 5 is unusual). Forward gate: 60 "
+                        "sessions beside the deployed book, its own G4 PASS, 2017-25 Sharpe within 0.05.")
     detail = ("<div style='border-top:3px solid #1a1a2e;margin-top:26px;padding-top:8px;'>"
               "<h2 style='margin:0 0 8px;color:#1a1a2e;font-size:17px;'>Every book against the deployed book</h2>"
               + report.get("body", "") + "</div>")

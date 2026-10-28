@@ -36,6 +36,17 @@ The cross-trial variance ``V`` of daily Sharpe ratios comes from the
 ``trials_matrix`` when given (variance over all trials, ``ddof=1``);
 otherwise from the Sharpe estimator variance
 ``(1 - g3*SR + (g4 - 1)/4 * SR^2) / (T - 1)``.
+
+Autocorrelation (tracker AC1, plan 5an, 27 Oct 2026)
+-----------------------------------------------------
+Daily returns are not independent (the books' lag-1 autocorrelation is
+about +0.14), so ``T`` days hold fewer independent observations.  The
+Sharpe's estimator variance is multiplied by ``kappa``, the Newey-West
+long-run variance over the variance (``autocorrelation_factor``), floored at
+1 so the gate never loosens: ``T`` becomes ``T / kappa`` in the PSR, the DSR
+and the minimum track record.  The cross-trial variance from a
+``trials_matrix`` is measured, so it is unchanged.  ``deflated_sharpe``
+applies it by default and reports the i.i.d. figure as ``dsr_iid``.
 """
 
 from __future__ import annotations
@@ -140,12 +151,31 @@ def performance_summary(returns: pd.Series, rf_annual: float = 0.0,
 # DSR building blocks
 # ----------------------------------------------------------------------------
 
+def autocorrelation_factor(excess: Union[pd.Series, np.ndarray], lags: Optional[int] = None) -> float:
+    """``kappa``: the Newey-West (Bartlett) long-run variance of a daily series over its variance, floored at 1
+    (AC1): how many times wider serial correlation makes the Sharpe's sampling variance.  Lags default to
+    floor(4 (T/100)^(2/9)), as the HAC t of the alpha and of HT1."""
+    x = np.asarray(excess, dtype="float64")
+    x = x[np.isfinite(x)]
+    n = x.size
+    if n < 3:
+        return 1.0
+    u = x - x.mean()
+    g0 = float(u @ u) / n
+    if g0 <= 0:
+        return 1.0
+    n_lags = int(math.floor(4 * (n / 100.0) ** (2.0 / 9.0))) if lags is None else int(lags)
+    long_run = g0 + 2.0 * sum((1.0 - k / (n_lags + 1.0)) * float(u[k:] @ u[:-k]) / n
+                              for k in range(1, min(n_lags, n - 1) + 1))
+    return max(1.0, long_run / g0)
+
+
 def sharpe_estimator_variance(sr: float, n_obs: int, skew: float = 0.0,
-                              kurtosis: float = 3.0) -> float:
-    """Variance of the per-period Sharpe estimator (Mertens / Lo, non-normal)."""
+                              kurtosis: float = 3.0, autocorr_factor: float = 1.0) -> float:
+    """Variance of the per-period Sharpe estimator (Mertens / Lo, non-normal), times ``autocorr_factor`` (AC1)."""
     if n_obs <= 1:
         return float("nan")
-    return float((1.0 - skew * sr + (kurtosis - 1.0) / 4.0 * sr ** 2) / (n_obs - 1))
+    return float(autocorr_factor * (1.0 - skew * sr + (kurtosis - 1.0) / 4.0 * sr ** 2) / (n_obs - 1))
 
 
 def expected_max_sharpe(n_trials: float, sr_variance: float) -> float:
@@ -163,23 +193,24 @@ def expected_max_sharpe(n_trials: float, sr_variance: float) -> float:
 
 
 def probabilistic_sharpe(sr: float, sr_benchmark: float, n_obs: int,
-                         skew: float = 0.0, kurtosis: float = 3.0) -> float:
-    """PSR = Phi((SR - SR*) sqrt(T-1) / sqrt(1 - g3 SR + (g4-1)/4 SR^2)), per-period SR."""
+                         skew: float = 0.0, kurtosis: float = 3.0, autocorr_factor: float = 1.0) -> float:
+    """PSR = Phi((SR - SR*) sqrt((T-1)/kappa) / sqrt(1 - g3 SR + (g4-1)/4 SR^2)), per-period SR; kappa
+    (``autocorr_factor``, AC1) is 1 for independent returns."""
     if n_obs <= 2 or not np.isfinite(sr):
         return float("nan")
     denom_sq = 1.0 - skew * sr + (kurtosis - 1.0) / 4.0 * sr ** 2
     if denom_sq <= 0:
         return float("nan")
-    z = (sr - sr_benchmark) * math.sqrt(n_obs - 1) / math.sqrt(denom_sq)
+    z = (sr - sr_benchmark) * math.sqrt((n_obs - 1) / autocorr_factor) / math.sqrt(denom_sq)
     return float(sp_stats.norm.cdf(z))
 
 
 def min_track_record_length(sr_daily: float, sr_benchmark_daily: float = 0.0,
                             skew: float = 0.0, kurtosis: float = 3.0,
-                            confidence: float = 0.95) -> float:
+                            confidence: float = 0.95, autocorr_factor: float = 1.0) -> float:
     """Minimum number of DAILY observations for PSR(SR*) >= ``confidence``.
 
-    ``MinTRL = 1 + (1 - g3 SR + (g4-1)/4 SR^2) * (z_alpha / (SR - SR*))^2``.
+    ``MinTRL = 1 + kappa (1 - g3 SR + (g4-1)/4 SR^2) (z_alpha / (SR - SR*))^2`` (kappa: AC1).
     Returns ``inf`` when ``SR <= SR*``.
     """
     diff = float(sr_daily) - float(sr_benchmark_daily)
@@ -187,7 +218,7 @@ def min_track_record_length(sr_daily: float, sr_benchmark_daily: float = 0.0,
         return float("inf")
     z = sp_stats.norm.ppf(confidence)
     bracket = 1.0 - skew * sr_daily + (kurtosis - 1.0) / 4.0 * sr_daily ** 2
-    return float(1.0 + bracket * (z / diff) ** 2)
+    return float(1.0 + autocorr_factor * bracket * (z / diff) ** 2)
 
 
 # ----------------------------------------------------------------------------
@@ -306,7 +337,7 @@ def deflated_sharpe(returns: pd.Series, trials_matrix: Optional[pd.DataFrame] = 
                     n_trials: Optional[float] = None, rf_annual: float = 0.0,
                     periods_per_year: int = PERIODS_PER_YEAR, threshold: float = 0.95,
                     min_intra_corr: float = 0.5, sr_variance: Optional[float] = None,
-                    trial_count: str = "raw",
+                    trial_count: str = "raw", autocorrelation: bool = True,
                     ) -> Dict[str, object]:
     """Deflated Sharpe ratio of ``returns`` (daily simple returns).
 
@@ -326,14 +357,19 @@ def deflated_sharpe(returns: pd.Series, trials_matrix: Optional[pd.DataFrame] = 
         always reported as ``n_trials_clustered``.
     rf_annual : annual risk-free rate subtracted (geometrically) per day.
     sr_variance : explicit daily-Sharpe variance V (overrides both sources).
+    autocorrelation : widen the Sharpe's variance by ``autocorrelation_factor``
+        (AC1, the gate's rule since 27 Oct 2026); False gives the i.i.d. figure.
 
     Returns
     -------
     dict with dsr, sr_daily, sr_annual, sr0_daily, sr0_annual, n_trials_eff,
     n_trials_raw, T, skew, kurtosis (non-excess), sr_variance,
-    variance_source, n_trials_source, psr_zero, min_trl_days, passed.
+    variance_source, n_trials_source, psr_zero, min_trl_days, passed,
+    autocorr_factor, lag1_autocorr, t_eff and dsr_iid (the same without AC1).
     """
     r = pd.Series(returns, dtype="float64").dropna()
+    if np.isinf(r.to_numpy()).any():                     # RB4: the Sharpe dropped it, the moments did not
+        raise ValueError(f"returns hold {int(np.isinf(r.to_numpy()).sum())} infinite value(s): no DSR from them")
     ex = (r - daily_rf(rf_annual, periods_per_year)).to_numpy()
     t_obs = int(ex.size)
     if t_obs < 3:
@@ -379,11 +415,15 @@ def deflated_sharpe(returns: pd.Series, trials_matrix: Optional[pd.DataFrame] = 
     if n_source == "none":
         logger.warning("deflated_sharpe: no trials_matrix or n_trials given; N=1 "
                        "(no multiple-testing deflation, DSR == PSR vs 0)")
-    if sr_variance is None:
-        sr_variance = sharpe_estimator_variance(sr, t_obs, skew, kurt)
+    kappa = autocorrelation_factor(ex) if autocorrelation else 1.0
+    var_iid = sr_variance
+    if sr_variance is None:                               # the estimator's variance widens with kappa; a measured one does not
+        var_iid = sharpe_estimator_variance(sr, t_obs, skew, kurt)
+        sr_variance = var_iid * kappa
 
     sr0 = expected_max_sharpe(n_eff, sr_variance)
-    dsr = probabilistic_sharpe(sr, sr0, t_obs, skew, kurt)
+    dsr = probabilistic_sharpe(sr, sr0, t_obs, skew, kurt, kappa)
+    dsr_iid = probabilistic_sharpe(sr, expected_max_sharpe(n_eff, var_iid), t_obs, skew, kurt)
     ann = math.sqrt(periods_per_year)
     return {
         "dsr": dsr,
@@ -400,21 +440,26 @@ def deflated_sharpe(returns: pd.Series, trials_matrix: Optional[pd.DataFrame] = 
         "kurtosis": kurt,
         "sr_variance": float(sr_variance),
         "variance_source": var_source,
-        "psr_zero": probabilistic_sharpe(sr, 0.0, t_obs, skew, kurt),
-        "min_trl_days": min_track_record_length(sr, sr0, skew, kurt, threshold),
+        "psr_zero": probabilistic_sharpe(sr, 0.0, t_obs, skew, kurt, kappa),
+        "min_trl_days": min_track_record_length(sr, sr0, skew, kurt, threshold, kappa),
         "passed": bool(np.isfinite(dsr) and dsr >= threshold),
+        "autocorr_factor": kappa,
+        "lag1_autocorr": float(pd.Series(ex).autocorr(1)) if t_obs > 2 else float("nan"),
+        "t_eff": t_obs / kappa,
+        "dsr_iid": dsr_iid,
     }
 
 
 def deflated_sharpe_from_stats(sr_daily: float, n_obs: int, n_trials: float,
                                skew: float = 0.0, kurtosis: float = 3.0,
                                sr_variance: Optional[float] = None,
-                               threshold: float = 0.95) -> Dict[str, object]:
-    """DSR from summary statistics (daily Sharpe, daily T, non-excess kurtosis)."""
+                               threshold: float = 0.95, autocorr_factor: float = 1.0) -> Dict[str, object]:
+    """DSR from summary statistics (daily Sharpe, daily T, non-excess kurtosis; ``autocorr_factor``: AC1's
+    kappa when the returns are known, else 1)."""
     var = sr_variance if sr_variance is not None else sharpe_estimator_variance(
-        sr_daily, n_obs, skew, kurtosis)
+        sr_daily, n_obs, skew, kurtosis, autocorr_factor)
     sr0 = expected_max_sharpe(n_trials, var)
-    dsr = probabilistic_sharpe(sr_daily, sr0, n_obs, skew, kurtosis)
+    dsr = probabilistic_sharpe(sr_daily, sr0, n_obs, skew, kurtosis, autocorr_factor)
     return {"dsr": dsr, "sr_daily": sr_daily, "sr_annual": sr_daily * math.sqrt(PERIODS_PER_YEAR),
             "sr0_daily": sr0, "sr0_annual": sr0 * math.sqrt(PERIODS_PER_YEAR),
             "n_trials_eff": float(n_trials), "T": n_obs, "skew": skew, "kurtosis": kurtosis,

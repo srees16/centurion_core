@@ -115,7 +115,7 @@ Centurion is swing and positional only.
 
 | Gate | Test | Applies to |
 |---|---|---|
-| **1, alone** | Deflated Sharpe ≥ 0.95 at the family's N, on excess returns over the family's risk-free convention (books 6.5%; options sleeves 0). | Every configuration |
+| **1, alone** | Deflated Sharpe ≥ 0.95 at the family's N, on excess returns over the family's risk-free convention (books 6.5%; options sleeves 0). Its Sharpe variance is widened for autocorrelation by κ = Newey-West long-run variance ÷ variance, floored at 1 (AC1, 27 Oct 2026, your decision; plan 5an). | Every configuration |
 | **New signal** | t ≥ 3 for a newly discovered signal. t ≥ 2 for the replication of a published effect (GT13). | Signals and event studies |
 | **2, beside the live book** | Must raise CAGR, excess Sharpe **and** alpha against NIFTY 50 TRI. MaxDD is reported, not a condition (GT13, 25 Oct 2026; it was "no more than 2 points worse"). | Overlays: book + 0.25 × strategy. Sleeves funded from the core: 0.75 × book + 0.25 × sleeve. |
 | **Out of sample** | Walk-forward 2017–25 for anything with fitted parameters. | Passers |

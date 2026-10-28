@@ -14,8 +14,9 @@ Layout under ``store_dir``::
     reference/*.csv          copies of the archive reference lists
     manifest.json            per-year source fingerprints (idempotent rebuilds)
 
-Only series in ``KEEP_SERIES`` are stored (ETFs trade in EQ).  Delivery comes
-from MTO files (all years) or, failing that, ``sec_bhavdata_full``.
+Only series in ``KEEP_SERIES`` are stored (ETFs trade in EQ), and never a bar
+``invalid_bars`` refuses.  Delivery comes from MTO files (all years) or,
+failing that, ``sec_bhavdata_full``.
 
 CLI::
 
@@ -101,6 +102,25 @@ def _finish_equity(df: pd.DataFrame) -> pd.DataFrame:
         df[col] = _num(df[col])
     df["date"] = pd.to_datetime(df["date"]).astype("datetime64[ns]")
     return df
+
+
+def invalid_bars(df: pd.DataFrame) -> pd.Series:
+    """Equity rows no traded share can print: a close that is missing or not a positive finite number, an open,
+    high or low that is printed but not positive and finite, a high below the low, or a negative volume.
+
+    The build refuses them rather than repairing them (tracker RB1): a low of 0 would read as a stop hit and a
+    close of 0 as a -100% day.  Open and close are not held to [low, high]: from 7 Dec 2026 the close is the
+    closing-auction price (CAS1).
+    """
+    def positive(col: str, optional: bool) -> pd.Series:
+        v = df[col]
+        ok = np.isfinite(v) & (v > 0)
+        return (ok | v.isna()) if optional else ok
+
+    ok = positive("close", False) & positive("open", True) & positive("high", True) & positive("low", True)
+    ok &= df["high"].isna() | df["low"].isna() | (df["high"] >= df["low"])
+    ok &= df["volume"].isna() | (df["volume"] >= 0)
+    return ~ok
 
 
 # ------------------------------------------------------------- parsers
@@ -323,6 +343,15 @@ def build_year_frames(sources: Dict[str, List[Path]], keep_series: Sequence[str]
         if missing.any():
             stats["equity_from_full_rows"] = int(missing.sum())
             equity = pd.concat([equity, full[missing]], ignore_index=True)
+
+    bad = invalid_bars(equity)
+    if bad.any():                                         # before the de-duplication, so a valid twin is kept
+        stats["invalid_equity_rows"] = int(bad.sum())
+        logger.error("%d equity rows refused (a price not positive, a high below the low or a negative volume); "
+                     "the stock has no bar that session. First: %s", int(bad.sum()),
+                     equity.loc[bad, ["date", "symbol", "series", "open", "high", "low", "close", "volume"]]
+                     .head(5).to_dict("records"))
+        equity = equity[~bad]
 
     key = ["date", "symbol", "series"]
     equity = equity.drop_duplicates(key, keep="first")
