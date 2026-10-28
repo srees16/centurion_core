@@ -46,14 +46,16 @@ logger = logging.getLogger("books_report")
 
 
 def nifty50(paper: Dict[str, bk.PaperBook]) -> Optional[pd.Series]:
-    """NIFTY 50 closes over the books' span, for the alpha column; None when Yahoo is unreachable."""
+    """NIFTY 50 closes over five years and the books' span (the alpha column, the market line); None when Yahoo is
+    unreachable."""
     from nse_engine.data.external import _yahoo_close
 
     starts = [p.equity.index[0] for p in paper.values() if p.started]
     if not starts:
         return None
     try:
-        return _yahoo_close("^NSEI", (min(starts) - timedelta(days=7)).date().isoformat(),
+        lo = min(min(starts) - timedelta(days=7), pd.Timestamp(datetime.now(bk.IST).date()) - timedelta(days=5 * 365))
+        return _yahoo_close("^NSEI", lo.date().isoformat(),           # five years: the market line's peak
                             (datetime.now(bk.IST) + timedelta(days=1)).date().isoformat())
     except Exception as exc:                              # noqa: BLE001 - alpha is reported, never required
         logger.warning("NIFTY 50 unavailable, alpha left blank: %s", exc)
@@ -97,14 +99,15 @@ def send_one_by_one(days: Sequence[bk.DayBook], kept_on: date) -> int:
     return sent
 
 
-def store_nifty(books: Sequence[bk.Book]) -> Optional[pd.Series]:
-    """NIFTY 50 closes from the store the nightly run built (through tonight); None when it has none."""
+def store_nifty(books: Sequence[bk.Book], name: str = "NIFTY50") -> Optional[pd.Series]:
+    """An index's closes (NIFTY 50; INDIAVIX for the expected move) from the store the nightly run built, through
+    tonight; None when it has none."""
     from nse_engine.crash_recovery import store_index
 
     try:
-        return store_index("NIFTY50", str(books[0].deployment.engine.data.store_dir))
+        return store_index(name, str(books[0].deployment.engine.data.store_dir))
     except Exception as exc:                              # noqa: BLE001 - the column is reported, never required
-        logger.warning("NIFTY 50 not in the store: %s", exc)
+        logger.warning("%s not in the store: %s", name, exc)
         return None
 
 
@@ -140,8 +143,9 @@ def daily(args: argparse.Namespace, books: Sequence[bk.Book]) -> int:
     if nifty is None or nifty.index[-1].date() < session:              # a local store lags: Yahoo's then
         fresh = nifty50({n: d.paper for n, d in days.items()})
         nifty = fresh if fresh is not None else nifty
+    expected = {n: float(v) for n, v in bk.read_register().set_index("book")["bt_sharpe"].items() if pd.notna(v)}
     try:
-        report = bk.build_daily(started, nifty, session)
+        report = bk.build_daily(started, nifty, session, expected_sharpe=expected, vix=store_nifty(books, "INDIAVIX"))
     except Exception:                                     # noqa: BLE001 - never lose the books' reports
         logger.exception("daily summary for %s could not be built", session)
         if args.dry_run:
@@ -185,7 +189,8 @@ def weekly(args: argparse.Namespace, books: Sequence[bk.Book]) -> int:
     lasts = [d.paper.last for d in days.values() if d.paper.started]
     session = max(lasts).date() if lasts else today
     try:
-        email = bk.build_weekly(list(days.values()), benchmark, session, report, kept_on=today)
+        expected = {n: float(v) for n, v in register.set_index("book")["bt_sharpe"].items() if pd.notna(v)}
+        email = bk.build_weekly(list(days.values()), benchmark, session, report, kept_on=today, expected_sharpe=expected)
     except Exception:                                     # noqa: BLE001 - never lose the books' reports
         logger.exception("Saturday summary could not be built: the comparison report and each book's on their own")
         email = None

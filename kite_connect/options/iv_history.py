@@ -121,6 +121,58 @@ def session_iv(day: pd.DataFrame, session: pd.Timestamp, spot: float, rate: floa
             "far_dte": far_dte, "spot": spot}
 
 
+# ── the surface ──────────────────────────────────────────────────────────
+
+SURFACE_COLUMNS = ["expiry", "dte", "strike", "moneyness", "option_type", "close", "iv"]
+
+
+def session_surface(day: pd.DataFrame, session: pd.Timestamp, spot: float, rate: float) -> pd.DataFrame:
+    """The implied volatility surface of one session: an IV for every traded contract (each strike and expiry its
+    own), solved backwards through Black-Scholes from its close.  A contract whose price lies outside what the
+    formula can reach (below intrinsic value, a stale print) gives no IV and is left out."""
+    rows = []
+    for _, c in day.iterrows():
+        dte = (pd.Timestamp(c["expiry"]) - session).days
+        iv = implied_volatility(c["option_type"], float(c["close"]), spot, float(c["strike"]), dte, rate)
+        if iv:
+            rows.append({"expiry": pd.Timestamp(c["expiry"]), "dte": dte, "strike": float(c["strike"]),
+                         "moneyness": float(c["strike"]) / spot, "option_type": c["option_type"],
+                         "close": float(c["close"]), "iv": iv})
+    return pd.DataFrame(rows, columns=SURFACE_COLUMNS).sort_values(["dte", "strike", "option_type"]).reset_index(drop=True)
+
+
+def skew(surface: pd.DataFrame, wing: float = 0.05) -> pd.DataFrame:
+    """Per expiry: the IV of the out-of-the-money put ``wing`` below spot, at the money (the call and put nearest
+    spot, averaged), and of the out-of-the-money call ``wing`` above; each from the contract nearest that
+    moneyness.  ``put_minus_atm`` > 0 is the premium for protection against a fall."""
+    out = []
+    for (expiry, dte), g in surface.groupby(["expiry", "dte"]):
+        def nearest(option_type: str, m: float) -> Optional[float]:
+            side = g[g["option_type"] == option_type]
+            return float(side.loc[(side["moneyness"] - m).abs().idxmin(), "iv"]) if len(side) else None
+        atm = [v for v in (nearest(CALL, 1.0), nearest(PUT, 1.0)) if v]
+        put, call = nearest(PUT, 1.0 - wing), nearest(CALL, 1.0 + wing)
+        if not atm:
+            continue
+        a = float(np.mean(atm))
+        out.append({"expiry": expiry, "dte": dte, "put_iv": put, "atm_iv": a, "call_iv": call,
+                    "put_minus_atm": None if put is None else put - a, "call_minus_atm": None if call is None else call - a})
+    return pd.DataFrame(out)
+
+
+def iv_surface(symbol: str, session: str, cfg: OptionsConfig, spot: Optional[float] = None) -> pd.DataFrame:
+    """The stored session's surface for ``symbol`` (traded contracts within ``iv_strike_band`` of spot)."""
+    symbol, day_ts = symbol.upper(), pd.Timestamp(session)
+    load = fo_store.load_options if _is_index(symbol) else fo_store.load_stock_options
+    day = load(cfg.data.fo_store, str(day_ts.date()), str(day_ts.date()), symbol)
+    day = day[(day["contracts"] > 0) & (day["close"] > 0)]
+    if spot is None:
+        printed = underlying_prices(symbol, cfg, start=str((day_ts - pd.Timedelta(days=10)).date()))[0]
+        spot = float(printed[:day_ts].iloc[-1])
+    day = day[(day["strike"] / spot - 1).abs() <= cfg.data.iv_strike_band]
+    return session_surface(day, day_ts, spot, cfg.market.risk_free_rate)
+
+
 # ── history ──────────────────────────────────────────────────────────────
 
 def _is_index(symbol: str) -> bool:

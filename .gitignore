@@ -60,6 +60,7 @@ mywinenv/
 !data/shift_reference_returns.csv
 !config/nse_engine_*.json
 !config/canary_expected.json
+!config/mc_bands.json
 !docs/books_register.csv
 !docs/metrics_journal.csv
 # NSE engine archives, parquet store and run directories (large, regenerable)

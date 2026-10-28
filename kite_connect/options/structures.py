@@ -74,6 +74,7 @@ class _Quotes:
         futs = rekey_to_settlement(fo_store.load_futures(store_dir, lo, end, symbol))
         futs = futs.assign(price=np.where((futs["contracts"] > 0) & (futs["close"] > 0), futs["close"], futs["settle"]))
         self.futures = {(r.date, r.expiry): float(r.price) for r in futs.itertuples() if r.price > 0}
+        self.final_settle = {r.expiry: float(r.settle) for r in futs.itertuples() if r.date == r.expiry and r.settle > 0}
         self.future_expiries = futs.groupby("date")["expiry"].apply(lambda s: sorted(set(s))).to_dict()
         self.index = fo_store.load_underlying(store_dir, symbol)
         self.exact = fo_store.load_underlying(store_dir, symbol, exact_only=True)
@@ -104,25 +105,27 @@ class _Quotes:
             return pd.DataFrame()
 
     def price(self, d: pd.Timestamp, expiry: pd.Timestamp, option_type: str, strike: float) -> Tuple[float, bool]:
-        """(price, traded): close when traded, intrinsic against the exact close on its own settlement
+        """(price, traded): close when traded, intrinsic against the final settlement on its own settlement
         session (never the settle column, LN-T20), else the settlement price; NaN when none."""
         ch = self.chain(d, expiry, option_type)
         if strike not in ch.index:
             if d == expiry:
-                s = float(self.exact.get(d, math.nan))
+                s = self.settlement(expiry)
                 return (intrinsic_value(option_type, s, strike) if np.isfinite(s) else math.nan), False
             return math.nan, False
         row = ch.loc[strike]
         if row["contracts"] > 0 and row["close"] > 0:
             return float(row["close"]), True
         if d == expiry:
-            s = float(self.exact.get(d, math.nan))
+            s = self.settlement(expiry)
             return (intrinsic_value(option_type, s, strike) if np.isfinite(s) else math.nan), False
         return (float(row["settle"]) if row["settle"] > 0 else math.nan), False
 
     def settlement(self, expiry: pd.Timestamp) -> float:
-        s = float(self.exact.get(expiry, math.nan))
-        return s if np.isfinite(s) else float(self.futures.get((expiry, expiry), math.nan))
+        """The final settlement: the expiring future's settlement, else the exact index close (equal 2007-Sep
+        2026; from 7 Dec 2026 the close is the closing auction's, settlement the 30-minute VWAP: CAS1)."""
+        s = float(self.final_settle.get(expiry, math.nan))
+        return s if np.isfinite(s) else float(self.exact.get(expiry, math.nan))
 
     def lot_size(self, d: pd.Timestamp, expiry: pd.Timestamp) -> float:
         for t in (CALL, PUT):

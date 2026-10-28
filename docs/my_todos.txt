@@ -1,7 +1,9 @@
-Golden target: Sharpe >= 1.4, CAGR >=30%, MaxDD <= 40%, Calmar >= 1%, PBO <= 30% (post-tax)
+Golden target: Sharpe >= 1.4, CAGR >=30%, Calmar >= 1%, PBO <= 30% (post-tax)
 
 Realistically achievable target: Sharpe >= 1.2, CAGR >=35%, MaxDD<=35%, Calmar >= 1%, PBO <= 30%
 Goal is to have the best possible alpha, Sharpe and CAGR, lowest possible maxDD
+
+Robustness still comes from what you already have: walk-forward, holdout, PBO, deflated Sharpe and the paper gate.
 
 *success criterion should be highest Sharpe + lowest max DD, not a CAGR number. A config with 45%+ CAGR and 0.90 Sharpe is far better than 60% CAGR and 0.50 Sharpe, because the former will survive in live trading while the latter will blow up.*
 
@@ -151,3 +153,84 @@ what are three ways to handle the funding?
 ST2, LN-T2
 
 ~~~~~~~
+
+You are implementing logic described in a video transcript.
+
+"<TRANSCRIPT HERE>"
+
+TASK: implement as code or review my code against it or build checks/validation or extract the algorithm as is relevant to the above transcript
+
+Do this:
+1. Extract the actionable content: methodology, requirements, steps, rules, formulas, edge cases, and any code shown or spoken. Ignore intros, filler, sponsor segments, and "like and subscribe."
+2. List what you extracted as numbered requirements, and quote the transcript line each one comes from.
+3. Flag gaps, ambiguities, or likely transcription errors (misheard function names, numbers, or library names). State the assumption you're making for each one.
+4. Implement it: write clean, runnable, idiomatic code that follows the target's conventions. Use no placeholder logic or "TODO: implement."
+5. Add tests or checks that cover each requirement and edge case.
+6. If I gave you existing code, report mismatches as: Requirement → Status (met / missing / wrong) → Fix.
+7. Shout out any assumptions made or any topics that need honest recommendation / suggestion.
+8. MORE IMPORTANTLY, validate if the idea discussed in the transcript adds value to the Centurion workflow, backtest, statistical edge, performance metrics, out of sample test, forward walk and stock selection.
+
+Rules:
+- Don't invent features the video didn't describe. If you add something, mark it as a suggestion.
+- If the video's approach is outdated, insecure, or buggy, say so and give the corrected version.
+- Keep explanations short. Code first.
+- Highlight any useful new findings from the transcript which was not implemented earlier
+
+~~~~~~~~
+
+Study the reference GitHub repo and apply its ideas to make Centurion more robust. BEFORE APPLYING THE IDEAS, VALIDATE IF CENTURION ACTUALLY NEEDS IT AND ONLY THEN APPLY THE IDEAS!
+
+REFERENCE REPO: <repo url>
+
+Do this:
+1. Analyze the reference repo. List the robustness patterns it uses, each with the file/function where it lives. Check especially for:
+   - Numerics: Decimal vs float for money, rounding modes, float comparison tolerances, NaN/inf handling, overflow
+   - Data integrity: schema validation, missing/stale/duplicate bars, outlier checks, corporate actions (splits, dividends), currency and units
+   - Time: timezone-aware timestamps, market calendars/holidays, trading sessions, DST, as-of joins
+   - Backtest correctness: look-ahead bias, survivorship bias, point-in-time data, slippage/fees, backtest-live parity
+   - Execution safety: idempotent orders, duplicate-order prevention, position reconciliation, retries with backoff, kill switch
+   - Risk controls: position/exposure/loss limits, pre-trade checks, sanity bounds on prices and sizes
+   - Reproducibility: seeded randomness, versioned data/configs, deterministic runs
+   - Auditability: structured logs of every decision, order, and fill
+2. Audit my app against that list: Pattern → Present? (yes / partial / no) → Where → Risk if missing (high/med/low, with the concrete failure, e.g. "float rounding drifts P&L").
+3. Fix the gaps in priority order, highest financial risk first. Adapt the ideas to my code's style and libraries. Don't copy code verbatim; respect the repo's license.
+4. Add tests for every change: property-based tests for numerics, known-answer tests for calculations, edge cases (empty data, gaps, halts, zero/negative prices, extreme values), and a regression test per closed gap.
+5. Summarize: changes, files touched, any change to numerical outputs (old vs new on a sample), and patterns skipped with reasons.
+
+Rules:
+- Never silently change calculation results. Flag every output difference and explain why the new one is correct.
+- Fail loudly on bad data rather than filling or guessing, unless I specify a fill policy.
+- No placeholders or "TODO: implement." Code must be runnable.
+- Don't break public APIs or existing behavior without calling it out.
+- Keep explanations short. Code and tests first.
+- Highlight any useful new findings from the transcript which was not implemented earlier.
+
+
+~~~~~~~~~~~~
+
+Implement ideas from a PhD thesis to make centurion application more robust.
+
+THESIS: ProjectX/centurion_core/research_inbox/Sun_Shuo_PhD_Thesis.pdf
+GOAL: implement the methods or replicate a result or audit my code against it or add checks/validation as applicable and relevant to centurion_core
+
+Do this:
+1. Extract the core contribution: the method, model, or algorithm; its equations and pseudocode; and the claimed results. Cite section/equation numbers. Summarize in your own words.
+2. List every assumption (distributional, stationarity, data frequency, market structure, costs, liquidity) and every condition from its theorems/proofs. Mark which ones hold for my app's data and markets, and which don't.
+3. Turn the theory into checks: convert theorem conditions and model constraints into runtime assertions and input validation (e.g. positive-definite covariance, bounded parameters, convergence criteria).
+4. Audit my app: Idea → Present? (yes / partial / wrong / no) → Where → Risk if missing (high/med/low, with the concrete failure).
+5. Implement in priority order, in my code's style and libraries. Make all parameters configurable, use Decimal for money, use timezone-aware timestamps, and add explicit numerical tolerances and convergence handling.
+6. Validate:
+   - Replication test: reproduce a key table/figure from the thesis on its data or a synthetic equivalent, with stated tolerance
+   - Known-answer and property-based tests for invariants
+   - Out-of-sample and walk-forward checks; don't trust in-sample results alone
+   - Robustness: parameter sensitivity, different periods/regimes, transaction costs added
+   - Overfitting checks: multiple-testing adjustment, deflated Sharpe, data-snooping awareness
+7. Summarize: what was implemented, files touched, replication results (thesis vs mine), output changes (old vs new on a sample), and ideas skipped with reasons.
+
+Rules:
+- Academic results often don't survive real-world costs, liquidity, or regime changes. Say plainly where this method is likely to fail in production.
+- If an equation looks mistranscribed or notation is ambiguous, flag it and state your assumption.
+- If the thesis has published code, note it, but reimplement in my codebase and respect its license.
+- Never silently change calculation results. Fail loudly on bad data. No placeholders or "TODO: implement."
+- Keep explanations short. Code and tests first.
+- Highlight any useful new findings from the transcript which was not implemented earlier.

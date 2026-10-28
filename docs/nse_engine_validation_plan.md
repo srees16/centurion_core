@@ -4042,6 +4042,229 @@ Paper then runs 60 sessions, then 5 dry runs, and only then live.
   spread is 7.8 book lots at 0.34× (max loss 10.0% of NAV), against 70.8
   lots (89%) uncapped.
 
+## 5an. AC1: the deflated and probabilistic Sharpe widened for autocorrelation (India tracker AC1; your decision 27 Oct 2026, written 21:20 IST before any number was recomputed)
+
+**Why.** HT1 (27 Oct) measured the 61 book configurations: lag-1
+autocorrelation of daily returns +0.14 (median), so the Newey-West t is
+0.86 of the i.i.d. one (range 0.83–0.93). The deflated Sharpe, the
+probabilistic Sharpe and the minimum track record all count every day as
+an independent observation (Bailey & López de Prado; Mertens' variance with
+skew and kurtosis, no serial correlation). So each is too confident. Your
+call: make the promotion gate stricter and more honest.
+
+**The change.** The per-period Sharpe's estimator variance is multiplied by
+κ, the long-run variance over the variance of the daily excess returns:
+- Newey-West with Bartlett weights and floor(4 (T/100)^(2/9)) lags, as HT1
+  and the alpha t use;
+- κ is floored at 1, so the gate never loosens. Negative autocorrelation
+  is left unrewarded.
+
+Equivalently, T becomes T / κ in the PSR's sqrt(T − 1), and in the
+minimum track record. The cross-trial variance of Sharpe ratios behind
+SR₀ is measured across the trials, so it is unchanged. The annualised
+Sharpe itself is not rescaled (Lo's 2002 annualisation is not adopted
+here).
+
+**Where it applies:**
+- every deflated Sharpe: gate 1 in every family, `validate`, the
+  scorecards, the books register;
+- the scorecard's probabilistic Sharpe and minimum track record.
+
+The i.i.d. figure stays reported beside it as `dsr_iid`.
+
+**Books already promoted or on paper keep their status.** Their adjusted
+figures are recomputed and reported. Gate 1 at 0.95 uses the adjusted
+figure from now on, for promotions and new configurations. Whether a book
+that falls below 0.95 stays deployed is your decision, not automatic.
+
+**Result (27 Oct 2026, 21:4x IST): all three book configurations fall
+just below 0.95.** Registry window 2013–25, cost model 4, N = 61:
+
+| Configuration | κ | Lag-1 | T_eff of 3,215 | DSR i.i.d. → AC1 | MinTRL vs 0, years |
+|---|---|---|---|---|---|
+| deployed `679cbd0c` | 1.35 | +0.15 | 2,381 | 0.964 → **0.939** | 2.1 → 2.9 |
+| candidate `2d64ba4c` | 1.30 | +0.14 | 2,486 | 0.963 → **0.941** | 2.2 → 2.8 |
+| E4 `93cf6c4d` | 1.37 | +0.14 | 2,356 | 0.957 → **0.928** | 2.3 → 3.1 |
+
+- **Clustered N:** the DSR stays 1.000 for all three. The bar binds only at
+  the raw count of 61 near-identical parameter variants.
+- **Walk-forward 2008–25:** the PSR against 0 is 0.994 → 0.986 (κ 1.31).
+  The out-of-sample edge stays clear.
+- **Checked by simulation:**
+  - on AR(1) 0.3 returns with no edge, a PSR ≥ 0.95 came in 12.2% of the
+    time i.i.d. and 5.5% widened (nominal 5%);
+  - on independent returns, κ's median is 1.000 and its 95th percentile
+    1.09, so the floor costs at most about 4% of the z;
+  - with the adjustment switched off, the old figure comes back exactly.
+- **What it changes:**
+  - the candidate and E4 cannot be promoted on gate 1 as they stand;
+  - every new configuration faces the widened bar;
+  - the deployed book stays deployed until you decide;
+  - paper, dry runs and the live gates do not read the DSR.
+- **The books register keeps the approval-time (i.i.d.) DSR** until each
+  run is validated again; scorecards show both.
+
+**Your decision (27 Oct 2026, after the result):**
+- **The deployed book stays as is,** approved under the old rule.
+- **Its acceptance as a real-time strategy** rests on how close its paper
+  and then live performance comes to the actual Indian market, not on
+  gate 1 again. That means:
+  - the paper gate G4 (paper against its same-period backtest on NSE's
+    prices: tracking error, daily gap, costs, drawdown, regime breaks);
+  - HT1's test against the backtest's edge;
+  - NIFTY 50 reported beside it.
+- **For the candidate and E4,** gate 1 stands at the widened figure.
+
+## 5ao. RA1: accept or reject the deployed book as a real-time strategy (India tracker RA1; your decision 27 Oct 2026, pre-registered 21:34 IST, before any verdict was possible)
+
+**Why.** You kept the deployed book as approved under the old gate (5an).
+It is to be accepted or rejected as a real-time strategy on how close its
+performance comes to the actual Indian market. The rule is fixed now,
+while the paper book has 26 of the 60 sessions it needs.
+
+**The evidence, both measured on NSE's own prices each night:**
+- **G4, the paper gate** (`nse_engine.paper_gate`): the paper book against
+  its same-period backtest. Its thresholds are frozen for this verdict as
+  they stand on 27 Oct 2026:
+  - tracking error: PASS ≤ 8% a year, FAIL > 12%;
+  - daily gap: PASS ≥ −3 bp a day, FAIL below that with t ≤ −2;
+  - costs: PASS ≤ 1.5× the model, FAIL > 2×, from 20 fills;
+  - drawdown: PASS ≤ the larger of 1.5× the backtest's and its +2 points,
+    FAIL > the larger of 2× and +4 points;
+  - regime break: none in the last 20 sessions.
+- **HT1, short of the edge** (`significance.vs_expected`): is the paper mean
+  daily excess return below the deployed configuration's 2013–25 backtest
+  Sharpe (1.16, the register's) beyond chance? One-sided p, Newey-West.
+  - The walk-forward's 0.60 is reported beside it.
+  - At 60 sessions this flags only a collapse (a realised Sharpe below
+    about −2.5). G4 does the real work.
+- **NIFTY 50:** reported beside, never a condition. Weeks of returns cannot
+  tell an edge from luck.
+
+**The verdict**, on the first night G4 has 60 sessions (about 14 Dec 2026):
+
+| G4 | Short of the edge (p < 0.05) | Verdict |
+|---|---|---|
+| FAIL | either | **REJECT** |
+| either | yes | **REJECT** |
+| PASS | no | **ACCEPT** |
+| WATCH | no | **WATCH**: decided once more at 90 sessions (about 25 Jan 2027): ACCEPT only if G4 then passes and it is not short; otherwise REJECT |
+
+- **No G4 report, or no HT1 p** (a tooling fault): no verdict until it is
+  fixed. A G4 FAIL still rejects on its own. The verdict is never taken
+  from incomplete evidence. (Clarified at 21:4x, before any verdict was
+  possible.)
+- **ACCEPT:** live may start at the first rung (₹6 lakh) after its 5 clean
+  dry runs, on your go-ahead (the existing go-live path).
+- **REJECT:** no live capital. The book stays on paper; `679cbd0c` is not
+  re-tuned; you decide what follows.
+- **WATCH:** paper continues; live waits.
+- **Once live:** the same rule, on the live book's own G4 at 60 live
+  sessions, decides whether live continues (ACCEPT) or stops and returns to
+  paper (REJECT).
+- **The verdict is computed automatically** (`paper_gate.realtime_verdict`)
+  and shown in the nightly and Saturday emails from now on, so it cannot
+  be re-read later.
+
+## 5ap. IVX1: stock selection from option prices (India tracker IVX1; your decision 27 Oct 2026, pre-registered 22:00 IST, before any data was read)
+
+**Why.** IVS1 (27 Oct) found that 46% of the deployed book's trades (47% of
+traded value) are in stocks with listed options. Two published effects
+say option prices predict a stock's next-month return. If either holds on
+NSE, it could filter about half the book's picks.
+
+**The signals.** Each is taken at the last session of each month, from that
+session's closes:
+- **S1, the call–put IV spread** (Cremers & Weinbaum, 2010): the IV of the
+  at-the-money call minus the put at the same strike and expiry. Published
+  direction: a higher spread earns more.
+- **S2, the put skew** (Xing, Zhang & Zhao, 2010): the IV of the put
+  nearest 0.95 × spot minus the at-the-money call IV, same expiry.
+  Published direction: a steeper skew earns less.
+
+**How the IVs are taken:**
+- `theory.implied_volatility` (Black-Scholes) with `OptionsConfig`'s rate
+  (5.52%) and no dividend;
+- the near-month expiry, the next one when fewer than 7 days remain;
+- the strike nearest spot with both its call and put traded that day
+  (contracts > 0) for S1;
+- for S2, a put that traded, within 0.93–0.97 of spot.
+
+A stock without these contracts that month is left out of that signal.
+
+**Universe and window.** The F&O stocks in the store (`stock_options`,
+about 199 a year), January 2013 to December 2025: about 155 month-ends.
+
+**Portfolios.**
+- Quintiles each month, equal weight.
+- Bought at the next session's open, held to the open after the next
+  month-end; returns on the engine's dividend-adjusted prices.
+- Long–short: S1 is Q5 − Q1 (highest spread minus lowest); S2 is Q1 − Q5
+  (flattest skew minus steepest).
+- **Costs:** 25 bp a side on each month's turnover in both legs. That is
+  above the 16–18 bp the paper books pay a fill (G4), to allow for impact.
+
+**Gate (protocol 5: a published effect's replication), per signal:**
+- the monthly long–short return net of costs, in the published direction,
+  with a Newey-West t (3 lags) of at least **2.24**. That is t ≥ 2,
+  corrected for testing two signals (Bonferroni, two-sided p ≤ 0.025);
+- the same sign in both halves, 2013–19 and 2020–25.
+
+**Reported, not judged:** the gross and net means, Sharpe, hit rate, the
+five quintiles' means (monotone or not), turnover, alpha against NIFTY 50
+(Newey-West), and how many stocks each month had a signal.
+
+**Family:** new, "option-implied stock signals", N = 2. Its own registry
+(`data/nse_engine/runs_ivx1/`) and results file (`ivx1_results.json`).
+
+**2026 holdout, for a passing signal only:** opened once, January to
+September 2026 (9 months). It agrees if the long–short mean is above zero.
+The sample is tiny, so it is reported more than relied on.
+
+**Then:**
+- **A pass:** a stage 2, pre-registered separately before it runs: the
+  signal as a filter on the deployed rules' buys (skip the worst quintile),
+  on the walk-forward book, under the diversifier gate's Sharpe route
+  (GT13).
+- **A fail:** recorded and not re-tuned. No other quantiles, horizons,
+  wings or windows; the family closes.
+
+**Not clean, stated:**
+- the papers used US data from 1996–2005, and the effects have been public
+  since 2010, so they may have faded;
+- Indian stock options trade thinly away from the money, so S2 will be
+  noisy and cover fewer stocks;
+- dividends bias S2 (different strikes) more than S1 (same strike);
+- the universe is the large caps, about half the book's names.
+
+**Runs:** local, about 199 stocks × 155 month-ends of IV solves.
+Prompt: do IVX1.
+
+**Result (27 Oct 2026, 22:4x IST): both FAIL; the family closes.**
+`python -m nse_engine.option_signals run`. Results in
+`ivx1/ivx1_results.json`, runs in `runs_ivx1/`. 25,998 stock-months;
+155 months.
+- **Kept to the window:** equity prices were read only to 31 Dec 2025, so
+  the last period (formed in November 2025) ends at that day's close, not
+  at the first open of 2026.
+
+| Signal | Stocks a month | Gross a month (t) | Cost a month | Net a month (t) | Halves, net | Quintiles Q1→Q5, gross |
+|---|---|---|---|---|---|---|
+| S1 IV spread (`3a608a55`) | 171 | +0.36% (+1.48) | 0.73% | −0.36% (−1.47) | −0.84% / +0.21% | 0.96, 1.23, 1.37, 1.32, 1.33% |
+| S2 put skew (`dd3542f6`) | 159 | +0.30% (+1.41) | 0.74% | −0.44% (**−2.10**) | −0.72% / −0.12% | 1.29, 1.47, 1.43, 1.13, 0.99% |
+
+- **Direction:** both point the published way before costs, but neither
+  is significant even gross (t 1.48 and 1.41, against 2.24).
+- **Costs:** turnover is about 2.9 a month (both legs nearly replaced
+  every month), so 25 bp a side costs about 0.73% a month, which is more
+  than either edge.
+- **Monotonicity:** neither is monotone across quintiles. S1's lift sits
+  in Q1 alone.
+- **Alpha against NIFTY 50:** S1 −5.2% a year (t −1.68); S2 −6.1% a year
+  (t −2.36).
+- **Not re-tuned, as pre-registered:** no other quantiles, horizons or
+  costs. The 2026 holdout stays sealed for this family.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast

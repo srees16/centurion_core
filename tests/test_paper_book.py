@@ -4,6 +4,7 @@ Regression tests for three fixes that were each found in production:
   U10  fills stamped at the session open predate a book started later that day
   G5   execution costs must outlive the runner's local SQLite
   G7   only one runner may write the book
+and one found by audit (RB2): a book write that fails must fail the run, not leave it half-written in silence.
 """
 from __future__ import annotations
 
@@ -364,3 +365,170 @@ class TestPartialClose:
         assert held == 8, f"holding period should be 8 days, got {held}"
         parent = next(p for p in pt._positions if p.is_open)
         assert parent.quantity == 60 and parent.opened_at == entry
+
+
+def _neon_down(*_args, **_kwargs):
+    from sqlalchemy.exc import OperationalError
+
+    raise OperationalError("INSERT INTO paper_positions ...", {"symbol": "RELIANCE", "quantity": 7},
+                           Exception("server closed the connection unexpectedly"))
+
+
+def _unreachable_book():
+    obj = pc.PaperCloudSync.__new__(pc.PaperCloudSync)
+    obj.schema, obj._factory, obj._session = None, None, _neon_down
+    return obj
+
+
+class TestFailedWrites:
+    """RB2: each write to the book commits on its own, so a failed one leaves a position without its cash or
+    fills without their snapshot.  The run must end as failed (the session-failed email), as a live session does
+    (LN-T10), instead of reporting success and letting the next session build on a half-written book."""
+
+    @pytest.fixture(autouse=True)
+    def _fresh(self, monkeypatch):
+        monkeypatch.setattr(pc, "_failed_writes", [])
+
+    def test_every_write_method_records_its_failure(self):
+        book = _unreachable_book()
+        calls = {"position": lambda: book.sync_position(_row("AAA", "2026-10-28T09:15:00+05:30")),
+                 "snapshot": lambda: book.sync_snapshot({"date": "2026-10-28", "equity": 1.0}),
+                 "signals": lambda: book.sync_signals("2026-10-28", [{"symbol": "AAA"}]),
+                 "session": lambda: book.sync_session({"session": "2026-10-28"}),
+                 "fills": lambda: book.sync_fills([{"symbol": "AAA"}]),
+                 "weekly": lambda: book.sync_weekly({"week_number": 1}),
+                 "SL update": lambda: book.sync_stop_loss("AAA", "2026-10-28T09:15:00+05:30", 90.0),
+                 "state": lambda: book.sync_state({"cash": 1.0})}
+        for what, call in calls.items():
+            assert call() is False, what
+        assert pc.failed_writes() == [f"{w} (OperationalError)" for w in calls]
+
+    def test_a_failed_write_fails_the_run(self, monkeypatch):
+        import cloud_paper_runner as runner
+
+        statuses = []
+        def session():
+            _unreachable_book().sync_fills([{"symbol": "AAA"}])   # the rest of the session went through
+            return "ok", "1 fill"
+        monkeypatch.setattr(runner, "install_public_log_filter", lambda: False)
+        monkeypatch.setattr(runner, "_check_active", lambda: True)
+        monkeypatch.setattr(runner, "_engine_enabled", lambda argv=None: True)
+        monkeypatch.setattr(runner, "_parse_args", lambda argv=None: type("A", (), {"new_book": False})())
+        monkeypatch.setattr(runner, "_run_engine_paper", lambda new_book=False: session())
+        monkeypatch.setattr(runner, "_run_weekly_checkpoint", lambda use_engine=False: session())   # on a Saturday
+        monkeypatch.setattr(runner, "_update_run_status", lambda status, message: statuses.append((status, message)))
+        with pytest.raises(SystemExit) as exit_:
+            runner.main([])
+        assert exit_.value.code == 1
+        assert statuses[-1][0] == "error" and "1 write(s) to the book in Neon failed: fills (OperationalError)" \
+            in statuses[-1][1]
+
+    def test_a_clean_run_still_reports_its_own_status(self, monkeypatch):
+        import cloud_paper_runner as runner
+
+        statuses = []
+        for name, value in {"install_public_log_filter": lambda: False, "_check_active": lambda: True,
+                            "_engine_enabled": lambda argv=None: True,
+                            "_parse_args": lambda argv=None: type("A", (), {"new_book": False})(),
+                            "_run_engine_paper": lambda new_book=False: ("ok", "done"),
+                            "_run_weekly_checkpoint": lambda use_engine=False: ("ok", "done"),
+                            "_update_run_status": lambda status, message: statuses.append((status, message))}.items():
+            monkeypatch.setattr(runner, name, value)
+        runner.main([])
+        assert statuses == [("ok", "done")]
+
+    def test_on_actions_the_log_names_only_the_error_class(self):
+        """PL1: the driver's error text quotes the row (symbol, quantity); the public log must not."""
+        import logging
+
+        from kite_connect.trading.public_log import PublicLogFilter
+
+        class Keep(logging.Handler):
+            def __init__(self):
+                super().__init__()
+                self.lines = []
+            def emit(self, record):
+                self.lines.append(record.getMessage())
+
+        def logged(on_actions: bool) -> list:
+            handler = Keep()
+            if on_actions:
+                handler.addFilter(PublicLogFilter())
+            pc.logger.addHandler(handler)
+            try:
+                _unreachable_book().sync_position(_row("RELIANCE", "2026-10-28T09:15:00+05:30"))
+            finally:
+                pc.logger.removeHandler(handler)
+            return handler.lines
+
+        assert logged(on_actions=True) == ["Cloud sync position failed (OperationalError)"]
+        assert "RELIANCE" in logged(on_actions=False)[0], "run locally, the full error still prints"
+
+
+class TestUnusableNumbers:
+    """RB4: G4 (RA1's input) never judges a book on equity that is missing, infinite or not positive, or on an
+    infinite reference return; before, one infinite day still produced a WATCH.  The refusal fails the run."""
+
+    DAYS = pd.bdate_range("2026-08-03", periods=60)
+
+    def _equity(self, bad=None):
+        import numpy as np
+
+        eq = pd.Series(1_000_000.0 * np.cumprod(1 + np.random.default_rng(4).normal(0.0005, 0.008, len(self.DAYS))),
+                       index=self.DAYS)
+        if bad is not None:
+            eq.iloc[30] = bad
+        return eq
+
+    def _ref(self):
+        return self._equity().pct_change().fillna(0.0)
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), 0.0, -5.0])
+    def test_unusable_equity_is_refused_by_date_not_amount(self, bad):
+        from nse_engine import paper_gate
+
+        with pytest.raises(paper_gate.UnusableInput) as err:
+            paper_gate.evaluate(self._equity(bad), self._ref())
+        assert str(err.value) == "paper equity missing, infinite or not positive on 1 date(s), first 2026-09-14"
+
+    @pytest.mark.parametrize("bad", [float("inf"), -1.0, -1.5])
+    def test_an_impossible_reference_return_is_refused(self, bad):
+        from nse_engine import paper_gate
+
+        ref = self._ref()
+        ref.iloc[10] = bad
+        with pytest.raises(paper_gate.UnusableInput):
+            paper_gate.evaluate(self._equity(), ref)
+
+    def test_clean_numbers_are_judged_as_before(self):
+        from nse_engine import paper_gate
+
+        ref = self._ref()
+        ref.iloc[5] = float("nan")                        # a missing reference day is still just left out
+        rep = paper_gate.evaluate(self._equity(), ref)
+        assert rep["verdict"] in (paper_gate.PASS, paper_gate.WATCH, paper_gate.FAIL) and rep["sessions"] == 58
+        assert paper_gate.evaluate(pd.Series(dtype="float64"), ref)["verdict"] == paper_gate.NOT_ENOUGH
+
+    def test_a_refusal_fails_the_run(self, tmp_path, monkeypatch):
+        import cloud_paper_runner as runner
+
+        csv = tmp_path / "ref.csv"
+        self._ref().rename("return").rename_axis("date").to_csv(csv)
+        monkeypatch.setenv("CENTURION_SHIFT_REFERENCE_CSV", str(csv))
+        monkeypatch.setattr(runner, "_refusals", [])
+        monkeypatch.setattr(pc, "_failed_writes", [])
+        broken = self._equity(0.0)
+        pt = type("PT", (), {"_get_cloud": lambda self: None, "equity_history": lambda self: broken})()
+        assert runner._paper_gate(pt) is None
+        with pytest.raises(RuntimeError, match="paper gate: paper equity missing, infinite or not positive"):
+            runner._raise_on_failed_writes()
+
+    def test_the_nightly_statistics_skip_a_book_they_cannot_test(self):
+        from types import SimpleNamespace
+
+        from nse_engine import books as bk
+
+        day = lambda name, eq: SimpleNamespace(book=SimpleNamespace(name=name), paper=SimpleNamespace(equity=eq))
+        sig = bk.paper_significance([day("good", self._equity()), day("bad", self._equity(0.0))])
+        assert "t" in sig["good"]["test"] and "error" in sig["bad"]["test"]
+        assert "bad" not in (bk._significance_line(sig) or "")
