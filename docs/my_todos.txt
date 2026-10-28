@@ -178,9 +178,9 @@ Rules:
 
 ~~~~~~~~
 
-Study a reference GitHub repo and apply its ideas to make Centurion more robust. BEFORE APPLYING THE IDEAS, VALIDATE IF CENTURION ACTUALLY NEEDS IT AND ONLY THEN APPLY THE IDEAS!
+Study the reference GitHub repo and apply its ideas to make Centurion more robust. BEFORE APPLYING THE IDEAS, VALIDATE IF CENTURION ACTUALLY NEEDS IT AND ONLY THEN APPLY THE IDEAS!
 
-REFERENCE REPO: <repo>
+REFERENCE REPO: <repo url>
 
 Do this:
 1. Analyze the reference repo. List the robustness patterns it uses, each with the file/function where it lives. Check especially for:
@@ -202,5 +202,35 @@ Rules:
 - Fail loudly on bad data rather than filling or guessing, unless I specify a fill policy.
 - No placeholders or "TODO: implement." Code must be runnable.
 - Don't break public APIs or existing behavior without calling it out.
+- Keep explanations short. Code and tests first.
+- Highlight any useful new findings from the transcript which was not implemented earlier.
+
+
+~~~~~~~~~~~~
+
+Implement ideas from a PhD thesis to make centurion application more robust.
+
+THESIS: ProjectX/centurion_core/research_inbox/Sun_Shuo_PhD_Thesis.pdf
+GOAL: implement the methods or replicate a result or audit my code against it or add checks/validation as applicable and relevant to centurion_core
+
+Do this:
+1. Extract the core contribution: the method, model, or algorithm; its equations and pseudocode; and the claimed results. Cite section/equation numbers. Summarize in your own words.
+2. List every assumption (distributional, stationarity, data frequency, market structure, costs, liquidity) and every condition from its theorems/proofs. Mark which ones hold for my app's data and markets, and which don't.
+3. Turn the theory into checks: convert theorem conditions and model constraints into runtime assertions and input validation (e.g. positive-definite covariance, bounded parameters, convergence criteria).
+4. Audit my app: Idea → Present? (yes / partial / wrong / no) → Where → Risk if missing (high/med/low, with the concrete failure).
+5. Implement in priority order, in my code's style and libraries. Make all parameters configurable, use Decimal for money, use timezone-aware timestamps, and add explicit numerical tolerances and convergence handling.
+6. Validate:
+   - Replication test: reproduce a key table/figure from the thesis on its data or a synthetic equivalent, with stated tolerance
+   - Known-answer and property-based tests for invariants
+   - Out-of-sample and walk-forward checks; don't trust in-sample results alone
+   - Robustness: parameter sensitivity, different periods/regimes, transaction costs added
+   - Overfitting checks: multiple-testing adjustment, deflated Sharpe, data-snooping awareness
+7. Summarize: what was implemented, files touched, replication results (thesis vs mine), output changes (old vs new on a sample), and ideas skipped with reasons.
+
+Rules:
+- Academic results often don't survive real-world costs, liquidity, or regime changes. Say plainly where this method is likely to fail in production.
+- If an equation looks mistranscribed or notation is ambiguous, flag it and state your assumption.
+- If the thesis has published code, note it, but reimplement in my codebase and respect its license.
+- Never silently change calculation results. Fail loudly on bad data. No placeholders or "TODO: implement."
 - Keep explanations short. Code and tests first.
 - Highlight any useful new findings from the transcript which was not implemented earlier.

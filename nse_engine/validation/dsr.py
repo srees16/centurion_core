@@ -368,6 +368,8 @@ def deflated_sharpe(returns: pd.Series, trials_matrix: Optional[pd.DataFrame] = 
     autocorr_factor, lag1_autocorr, t_eff and dsr_iid (the same without AC1).
     """
     r = pd.Series(returns, dtype="float64").dropna()
+    if np.isinf(r.to_numpy()).any():                     # RB4: the Sharpe dropped it, the moments did not
+        raise ValueError(f"returns hold {int(np.isinf(r.to_numpy()).sum())} infinite value(s): no DSR from them")
     ex = (r - daily_rf(rf_annual, periods_per_year)).to_numpy()
     t_obs = int(ex.size)
     if t_obs < 3:

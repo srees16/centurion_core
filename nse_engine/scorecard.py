@@ -84,6 +84,12 @@ PASS_RULES = (("net Sharpe", "sharpe", ">", SHARPE_TARGET), ("max drawdown", "ma
               ("walk-forward OOS Sharpe", "oos_sharpe", ">=", SHARPE_TARGET))
 #: How many of the deepest drawdowns are listed, the book's own and NIFTY 50 TRI's (tracker LN-T25).
 TOP_DRAWDOWNS = 5
+#: A NIFTY 50 fall of at least this share from a closing high to its lowest close before the high is regained is
+#: a crash episode for ``crash_windows`` (tracker TH1: the "extreme market" measure of Sun's PRUDEX-Compass,
+#: thesis sec. 7.3.7, found from the index rather than from hand-picked dates).
+CRASH_MIN_FALL = 0.15
+#: A fall within this of the threshold counts (125 -> 112.5 is -0.09999999999999998 in floating point).
+CRASH_FALL_TOL = 1e-12
 
 
 def _f(x: Any) -> float:
@@ -167,6 +173,35 @@ def benchmark_returns(data, window: Tuple[pd.Timestamp, pd.Timestamp]) -> pd.Ser
     name = BENCHMARK if BENCHMARK in ic.columns else "NIFTY50"
     s = ic[name].astype("float64").ffill().pct_change()
     return s.loc[(s.index >= window[0]) & (s.index <= window[1])].dropna().rename(name)
+
+
+def universe_average(data, mask: pd.DataFrame) -> pd.Series:
+    """The "market average" of Sun's PRUDEX-Compass (thesis sec. 7.2.4, tracker TH1): every member of the book's
+    own point-in-time universe in equal weight, members as known at the previous close, rebalanced daily, before
+    costs (generous to the benchmark).  Prices as the engine's (adjusted for splits, bonuses and dividends) and
+    marked at the last close, as the engine marks equity.  Raises on an infinite day."""
+    close = data.close.astype("float64").ffill()
+    ret = close.pct_change(fill_method=None)
+    members = mask.reindex(index=ret.index, columns=ret.columns, fill_value=False).astype(bool).shift(1, fill_value=False)
+    avg = ret.where(members).mean(axis=1, skipna=True).dropna()
+    if np.isinf(avg.to_numpy()).any():
+        raise ValueError("the universe average holds an infinite return")
+    return avg.rename("market_average")
+
+
+def market_average(returns: pd.Series, average: pd.Series, bench: pd.Series, rf: float) -> Dict[str, Any]:
+    """The book's walk-forward record beside the equal-weight universe and NIFTY 50 TRI over their common sessions:
+    can the book beat holding everything it could have picked?"""
+    al = pd.concat({"book": returns, "market_average": average, "nifty": bench}, axis=1, join="inner").dropna()
+    if len(al) < 60:
+        return {"error": f"{len(al)} common sessions (60 needed)"}
+    out: Dict[str, Any] = {"window": [str(al.index[0].date()), str(al.index[-1].date())], "sessions": int(len(al))}
+    for k in al.columns:
+        m = compute_metrics(al[k], (1 + al[k]).cumprod(), rf_annual=rf, initial_capital=1.0)
+        out[k] = {"cagr": m["cagr"], "sharpe": m["sharpe"], "max_drawdown": m["max_drawdown"]}
+    by = (1 + al).groupby(al.index.year).prod() - 1
+    out["by_year"] = {str(y): {k: float(v) for k, v in row.items()} for y, row in by.iterrows()}
+    return out
 
 
 def _month_end() -> str:
@@ -479,12 +514,20 @@ def sharpe_precision(returns: pd.Series, rf: float) -> Dict[str, Any]:
             "min_trl_sessions": min_trl, "min_trl_years": min_trl / TRADING_DAYS, "autocorr_factor": kappa}
 
 
-def walk_forward_oos(path: str, rf: float) -> Dict[str, Any]:
+def _wf_returns(path: str) -> Optional[pd.Series]:
+    """The stitched walk-forward OOS daily returns at ``path``; None when the file is missing."""
     p = Path(path)
     if not p.exists():
-        return {"error": f"{path} missing"}
+        return None
     df = pd.read_csv(p)
-    r = pd.Series(df.iloc[:, -1].to_numpy(dtype="float64"), index=pd.DatetimeIndex(pd.to_datetime(df.iloc[:, 0])))
+    return pd.Series(df.iloc[:, -1].to_numpy(dtype="float64"), index=pd.DatetimeIndex(pd.to_datetime(df.iloc[:, 0])))
+
+
+def walk_forward_oos(path: str, rf: float) -> Dict[str, Any]:
+    p = Path(path)
+    r = _wf_returns(path)
+    if r is None:
+        return {"error": f"{path} missing"}
     eq = (1 + r).cumprod()
     m = compute_metrics(r, eq, rf_annual=rf, initial_capital=1.0)
     out = {k: m[k] for k in ("sharpe", "cagr", "max_drawdown", "calmar", "ann_vol", "sortino")}
@@ -608,6 +651,54 @@ def regime_stability(returns: pd.Series, index_close: pd.DataFrame, cfg: EngineC
     return out
 
 
+def crash_episodes(index_close: pd.Series, min_fall: float = CRASH_MIN_FALL) -> List[Dict[str, Any]]:
+    """Every fall of the index of at least ``min_fall`` from a closing high to the lowest close before that high
+    is regained (``open`` when it has not been by the series' end).  Missing closes are left out, never filled;
+    raises on a close that is not positive and finite."""
+    if not 0.0 < min_fall < 1.0:
+        raise ValueError(f"min_fall must be a share between 0 and 1, got {min_fall}")
+    s = pd.Series(index_close, dtype="float64").dropna().sort_index()
+    v = s.to_numpy()
+    if not (np.isfinite(v) & (v > 0)).all():
+        raise ValueError("index closes must be positive and finite")
+    out: List[Dict[str, Any]] = []
+    i, n = 0, len(v)
+    while i < n:                                          # i is always the highest close so far
+        j = i + 1
+        while j < n and v[j] < v[i]:
+            j += 1
+        if j > i + 1:
+            k = i + 1 + int(np.argmin(v[i + 1:j]))
+            if v[k] / v[i] - 1.0 <= -min_fall + CRASH_FALL_TOL:
+                out.append({"peak": s.index[i].date().isoformat(), "trough": s.index[k].date().isoformat(),
+                            "fall": float(v[k] / v[i] - 1.0), "open": bool(j >= n)})
+        i = j
+    return out
+
+
+def crash_windows(returns: pd.Series, index_close: pd.Series, min_fall: float = CRASH_MIN_FALL) -> Dict[str, Any]:
+    """The book through each NIFTY crash episode its record spans: its return from the index's peak close to the
+    trough close and its deepest drawdown on the way, beside the index's fall.  Episodes outside the record are
+    counted, not judged.  Raises on an infinite return (RB4)."""
+    r = pd.Series(returns, dtype="float64").dropna()
+    if np.isinf(r.to_numpy()).any():
+        raise ValueError("returns hold an infinite value: no crash table from them")
+    r.index = pd.DatetimeIndex(pd.to_datetime(r.index)).normalize()
+    r = r.sort_index()
+    episodes = crash_episodes(index_close, min_fall)
+    judged = []
+    for ep in episodes:
+        peak, trough = pd.Timestamp(ep["peak"]), pd.Timestamp(ep["trough"])
+        if not len(r) or r.index[0] > peak or r.index[-1] < trough:
+            continue
+        seg = r[(r.index > peak) & (r.index <= trough)].to_numpy()
+        eq = np.cumprod(1.0 + seg)
+        judged.append({**ep, "sessions": int(len(seg)), "book_return": float(eq[-1] - 1.0) if len(seg) else 0.0,
+                       "book_max_drawdown": float((eq / np.maximum.accumulate(np.maximum(eq, 1.0)) - 1.0).min())
+                       if len(seg) else 0.0})
+    return {"min_fall": float(min_fall), "episodes": judged, "outside_record": len(episodes) - len(judged)}
+
+
 def correlations(returns: pd.Series, others: Dict[str, pd.Series]) -> Dict[str, Any]:
     out = {}
     for name, s in others.items():
@@ -719,6 +810,11 @@ def build(book: str, run_id: Optional[str] = None, paper_schema: Optional[str] =
     report["overfitting"] = overfitting(registry, run_id, man, rf, cache=shared.setdefault("overfitting", {}))
     report["parameter_sensitivity"] = parameter_sensitivity(registry, run, man)
     report["regime_stability"] = regime_stability(returns, data.index_close, cfg, rf)
+    wf = _wf_returns(WALK_FORWARD_OOS[book])            # live-like: the walk-forward record, not the in-sample run
+    report["crash_windows"] = (crash_windows(wf, data.index_close[cfg.regime.index_symbol]) if wf is not None
+                               else {"error": f"{WALK_FORWARD_OOS[book]} missing"})
+    report["market_average"] = (market_average(wf, universe_average(data, mask), bench, rf) if wf is not None
+                                else {"error": f"{WALK_FORWARD_OOS[book]} missing"})
     report["correlations"] = correlations(returns, _other_series(registry, book, man, data))
     report["paper"] = paper_section(dep, paper_schema, rf)
     report["pass_rules"] = pass_rules(report)
@@ -982,6 +1078,32 @@ def render_markdown(r: Dict[str, Any]) -> str:
             L.append("|---|---|---|---|---|---|")
             for name, v in rg[kind].items():
                 L.append(f"| {name} | {_pct(v['share_of_days'], 0)} | {_pct(v['annual_return'])} | {_num(v['sharpe'])} | {_pct(v['hit_rate_days'], 0)} | {_pct(v['worst_day'])} |")
+    ma = r.get("market_average") or {}
+    if ma.get("by_year"):
+        L.append("")
+        L.append(f"**Against the market average** (every member of the book's universe in equal weight, before costs; "
+                 f"the walk-forward record, {ma['window'][0]} to {ma['window'][1]})")
+        L.append("")
+        L.append("| | CAGR | Sharpe | Max drawdown |")
+        L.append("|---|---|---|---|")
+        for k, label in (("book", "Book"), ("market_average", "Market average"), ("nifty", "NIFTY 50 TRI")):
+            L.append(f"| {label} | {_pct(ma[k]['cagr'])} | {_num(ma[k]['sharpe'])} | {_pct(ma[k]['max_drawdown'])} |")
+        L.append("")
+        L.append("| Year | Book | Market average | NIFTY 50 TRI |")
+        L.append("|---|---|---|---|")
+        for y, v in ma["by_year"].items():
+            L.append(f"| {y} | {_pct(v['book'])} | {_pct(v['market_average'])} | {_pct(v['nifty'])} |")
+    cw = r.get("crash_windows") or {}
+    if cw.get("episodes"):
+        L.append("")
+        L.append(f"**Through NIFTY 50's crashes** (falls of {_pct(cw['min_fall'], 0)} or more, peak close to trough "
+                 "close; the walk-forward record)")
+        L.append("")
+        L.append("| Peak | Trough | NIFTY 50 | Book | Book's deepest drawdown |")
+        L.append("|---|---|---|---|---|")
+        for e in cw["episodes"]:
+            L.append(f"| {e['peak']} | {e['trough']}{' (open)' if e['open'] else ''} | {_pct(e['fall'])} | "
+                     f"{_pct(e['book_return'])} | {_pct(e['book_max_drawdown'])} |")
     L.append("")
     L.append("## Correlation of daily returns")
     L.append("")

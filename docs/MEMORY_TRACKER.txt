@@ -263,6 +263,17 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      REJECT or WATCH (WATCH: decided again at 90 sessions, about 25 Jan
      2027).  ACCEPT: live may start at Rs 6 lakh after 5 clean dry runs, on
      your go-ahead.  REJECT: no live capital; 679cbd0c is not re-tuned.
+ >>> WED 28 OCT - YOUR ACTIONS
+     1. Add to PR #292 (feature/fine-tuning, committed f6a16c7): .gitignore
+        and config/mc_bands.json.  *.json is ignored, so the bands file
+        missed the commit and Saturday's MC band column would be empty on
+        Actions (percentiles only: no holdings or amounts).  Also RB2, RB3,
+        RB4 and TH1 (uncommitted): database/paper_cloud.py,
+        cloud_paper_runner.py, nse_engine/{books,paper_gate,scorecard}.py,
+        nse_engine/validation/{dsr,significance}.py,
+        tests/{test_paper_book,test_metrics}.py, this file.  Then merge #292 to main
+        before Sat 31 Oct 07:30 IST (the Saturday email).
+     2. After 20:00 tonight: the sell test's first AMO (SELL TEST block).
  >>> TUE 27 OCT - YOUR ACTIONS
      0. DONE 27 Oct, your decision (AC1): the deployed book stays as is,
         approved under the old rule (DSR 0.964 i.i.d.; 0.939 widened).  It
@@ -271,7 +282,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
         (paper against its same-period backtest on NSE's own prices), the
         HT1 test against the backtest's edge, NIFTY 50 beside it.
         Candidate and E4: still under 0.95 on gate 1.
-     1. Merge HT1 + DH1 + AC1 + RA1 + IVS1 + EM1 + IVX1 + CAS1 + MC1 + RB1 (uncommitted): nse_engine/data/store.py,
+     1. COMMITTED 28 Oct (f6a16c7, PR #292; merge open, see 28 Oct item 1):
+        HT1 + DH1 + AC1 + RA1 + IVS1 + EM1 + IVX1 + CAS1 + MC1 + RB1: nse_engine/data/store.py,
         tests/{test_survivorship,test_execution_and_costs}.py, nse_engine/validation/
         significance.py (new), nse_engine/validation/dsr.py,
         nse_engine/paper_gate.py, kite_connect/options/iv_history.py,
@@ -1106,6 +1118,108 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+28 Oct  TH1  Sun Shuo's PhD thesis, "Reinforcement Learning for Financial
+             Trading" (NTU 2024; research_inbox/, your ask).  Mostly RL
+             (DeepScalper ch. 4, AlphaMix+ ch. 6, TradeMaster ch. 8) and
+             intraday (ch. 4): out, by your decisions (no RL in the core, 11
+             Oct; no intraday).  Ch. 5's AlphaMix (deep-learning experts) is
+             not taken up: one test year per market, no costs on daily top-k
+             rebalancing, a large grid with greedy selection on validation
+             profit and no deflation.  Used: ch. 7's PRUDEX-Compass
+             evaluation practices.  Added to the scorecard (descriptive, no
+             gate; the README section is unchanged): (1) crash episodes found
+             from NIFTY itself (falls of 15%+, peak to trough;
+             scorecard.crash_episodes / crash_windows), the book's return and
+             drawdown through each on the walk-forward record - deployed:
+             COVID -10.9% vs NIFTY -38.4%, 2021-22 -5.9% vs -17.2%, 2024-25
+             -7.9% vs -15.8%; (2) the thesis's "market average": the book's
+             own point-in-time universe in equal weight
+             (scorecard.universe_average / market_average) - 2017-25 book
+             CAGR 23.1% / Sharpe 1.24 vs market average 16.6% / 0.57 vs
+             NIFTY TRI 15.2% / 0.56.  Findings: the book's edge over NIFTY is
+             all 2021-25 (2017-20: 15.4% vs 15.8%; over the market average it
+             leads both halves, 15.4 vs 9.7 and 29.6 vs 22.6); the book lagged
+             the market average in 2022 and 2023 (-5.8 vs +0.9, 29.4 vs
+             46.7); the levered futures book (L7-A) fell more than NIFTY in
+             IL&FS 2018 (-21.2 vs -14.2) and Sep 2024 - Mar 2025 (-20.7 vs
+             -14.9).  Checked, not added: ENT / ENB diversity (ENT ~ the
+             position count, already capped; PCA ENB ~1.4-1.8 for every
+             long-only book, the market factor); metric definitions (ours are
+             the standard ones; the thesis's Calmar and downside deviation
+             differ, a test pins ours).  Thesis errata flagged: entropy and
+             ENB printed as -exp(sum w log w) (should be exp(-sum ...));
+             Algorithm 2 accepts a member when profit falls (best = +inf, <);
+             VOL called a variance but used as an SD.
+28 Oct  RB4  Robustness audit against bashtage/arch (NCSA-style licence;
+             ideas only; your ask).  Volatility models, bootstraps, HAC
+             covariances: its robustness patterns are refusing non-finite
+             input, data-driven HAC bandwidth (covariance/kernel.py
+             opt_bandwidth, Newey-West 1994), data-driven block length
+             (bootstrap/base.py optimal_block_length, Politis-White) and
+             convergence / data-scale warnings (utility/exceptions.py).  One
+             gap, closed: the gate statistics took impossible numbers.  One
+             +inf return gave DSR 0.24 instead of ~0.91 (sharpe_daily
+             dropped it, the skew and kurtosis did not) and t = nan; an
+             infinite or zero equity day still got a G4 verdict (RA1's
+             input).  Now deflated_sharpe and mean_test refuse infinite
+             returns, G4 refuses equity that is missing, infinite or not
+             positive and reference returns that are infinite or -100% or
+             worse (paper_gate.UnusableInput, naming dates, not amounts),
+             the paper run ends as failed on that refusal, and the nightly
+             HT1 line leaves such a book out instead of printing "t nan".
+             Outputs unchanged: 0 NaN/inf in 7,201 run return files; all 7
+             books' snapshot equity finite, positive, one per date; a NaN
+             day is still dropped exactly as before.  Findings, not applied
+             (pre-registered rules): the NW94 automatic bandwidth moves AC1's
+             kappa by -4% to +5% (deployed 1.298 -> 1.362, DSR ~0.934 vs
+             0.939; E4 1.176 -> 1.127, ~0.936 vs 0.928): no gate crossing.
+             Politis-White suggests MC blocks of 5-8 sessions vs 20; 20 keeps
+             more clustering and the bands passed RB3's out-of-sample check.
+             No optimiser in the engine, so convergence warnings do not apply.
+28 Oct  RB3  Robustness audit against scikit-learn-contrib/MAPIE (BSD-3; ideas
+             only; your ask).  Conformal prediction: its robustness is about
+             honest intervals - refuse a quantile with too few samples
+             (utils._check_alpha_and_n_samples), a finite-sample quantile
+             correction (_compute_regression_quantile), ill-sorted bounds
+             (_check_lower_upper_bounds) and measuring coverage (metrics).
+             One gap, closed: the daily email's expected move claimed "one
+             SD: about 2 months in 3 stay inside", never measured.  On the
+             store (14 May 2014 - 23 Sep 2026, 3,051 sessions) 74% stayed
+             inside, 9.5% fell further, 16.4% rose further (IV above realised,
+             IVS1), steady across 2013-19 / 2020-25.  The number (VIX x
+             sqrt(30/365)) is unchanged; the text now states the measured
+             shares (books.move_coverage, MOVE_INSIDE / MOVE_FELL; a slow
+             test re-measures them on the store).  Checked, nothing to
+             change: every quantile has enough samples (PBO's 5% on 70+);
+             MC1's bands hold out of sample (bands from 2008-16, 2017-25
+             windows mostly at or under 5% per tail, some noisy 125-session
+             cells); tied drawdown percentiles at 5-10 sessions only touch the
+             table column, never the flag.
+28 Oct  RB2  Robustness audit against astroautomata/PySR (Apache-2.0; ideas
+             only; your ask).  A symbolic-regression library: its useful
+             patterns are atomic checkpoints (sr.py _checkpoint: .tmp then
+             os.replace), rolling back state when a fit fails
+             (_rollback_failed_warm_start), refusing bad input and impossible
+             settings before a run (_check_assertions,
+             _validate_and_modify_params, sklearn validate_data) and
+             determinism guards (deterministic needs serial + a seed).  One
+             gap, closed: the paper books' Neon writes (position, fills,
+             snapshot, state...) each commit on their own and a failure only
+             logged a warning, so a half-written book (a position without its
+             cash) reported success and the next session built on it - and
+             RA1's verdict reads these books.  The live session already
+             refuses (LN-T10).  paper_cloud now records every failed write
+             (failed_writes) and the runner ends the run as failed (exit 1,
+             the session-failed email) naming them; on Actions the log shows
+             only the error's class, since a driver error quotes the row
+             (PL1).  Checked first: 0 failed writes in the last 40 runs (19-28
+             Oct), and all 7 books' cash and open positions agree with their
+             last snapshot, so no book needs repair; outputs unchanged.
+             Checked, nothing to change: store writes are already atomic;
+             runs record their manifest before returns.csv, but 0 of 7,201
+             runs are truncated; the canary pins each book's config hash
+             nightly (a units typo is caught); no ticker is a pandas NA token
+             (0 symbols lost); no persisted model is loaded live.
 27 Oct  RB1  Robustness audit against X-DataInitiative/tick (BSD-3; ideas
              only, no code copied; your ask).  tick is a statistics library
              (Hawkes, survival, GLM solvers), so it has no execution, risk or

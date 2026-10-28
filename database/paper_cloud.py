@@ -26,6 +26,26 @@ from sqlalchemy.exc import SQLAlchemyError
 logger = logging.getLogger(__name__)
 
 _cloud: Optional["PaperCloudSync"] = None
+#: Book writes that failed in this process (tracker RB2).  Each write commits on its own, so one that failed leaves
+#: the book half-written (a position without its cash, fills without their snapshot): the paper runner ends the run
+#: as failed when any did, as the live session does (LN-T10), instead of letting the next session build on it.
+_failed_writes: List[str] = []
+
+
+def failed_writes() -> List[str]:
+    """What failed to reach Neon in this process, oldest first (e.g. ``fills (OperationalError)``)."""
+    return list(_failed_writes)
+
+
+def _write_failed(what: str, exc: Exception) -> bool:
+    """Log a failed book write and remember it; False, as the write methods return.  On Actions only the error's
+    class is printed: its text can quote the row (PL1)."""
+    from kite_connect.trading.public_log import book_detail
+
+    _failed_writes.append(f"{what} ({type(exc).__name__})")
+    logger.warning("Cloud sync %s failed: %s", what, exc,
+                   extra=book_detail(f"Cloud sync {what} failed ({type(exc).__name__})"))
+    return False
 
 
 def _to_utc(value):
@@ -349,8 +369,7 @@ class PaperCloudSync:
                 session.commit()
             return True
         except Exception as exc:
-            logger.warning("Cloud sync position failed: %s", exc)
-            return False
+            return _write_failed("position", exc)
 
     def sync_snapshot(self, snap: dict) -> bool:
         """Upsert a daily snapshot row."""
@@ -369,8 +388,7 @@ class PaperCloudSync:
                 session.commit()
             return True
         except Exception as exc:
-            logger.warning("Cloud sync snapshot failed: %s", exc)
-            return False
+            return _write_failed("snapshot", exc)
 
     def sync_signals(self, date_str: str, signals: List[dict]) -> bool:
         """Batch-insert signal log rows (delete-then-insert for the date)."""
@@ -397,8 +415,7 @@ class PaperCloudSync:
                 session.commit()
             return True
         except Exception as exc:
-            logger.warning("Cloud sync signals failed: %s", exc)
-            return False
+            return _write_failed("signals", exc)
 
     def sync_session(self, row: dict) -> bool:
         """Upsert one session's activity record (keyed by session date)."""
@@ -417,8 +434,7 @@ class PaperCloudSync:
                 session.commit()
             return True
         except Exception as exc:                          # noqa: BLE001 - never block a run
-            logger.warning("Cloud sync session failed: %s", exc)
-            return False
+            return _write_failed("session", exc)
 
     def read_sessions(self, since_epoch: bool = True, strict: bool = False) -> pd.DataFrame:
         """Session activity of the current book (``strict``: raise on a DB error)."""
@@ -449,8 +465,7 @@ class PaperCloudSync:
                 session.commit()
             return True
         except Exception as exc:                          # noqa: BLE001 - never block a run
-            logger.warning("Cloud sync fills failed: %s", exc)
-            return False
+            return _write_failed("fills", exc)
 
     def read_fills(self, since_epoch: bool = True, strict: bool = False) -> pd.DataFrame:
         """Execution events of the current book (all books with ``since_epoch=False``; ``strict``: raise)."""
@@ -474,8 +489,7 @@ class PaperCloudSync:
                 session.commit()
             return True
         except Exception as exc:
-            logger.warning("Cloud sync weekly failed: %s", exc)
-            return False
+            return _write_failed("weekly", exc)
 
     def sync_stop_loss(self, symbol: str, opened_at: str, new_sl: float) -> bool:
         """Update trailing stop-loss on an open position."""
@@ -490,8 +504,7 @@ class PaperCloudSync:
                     session.commit()
             return True
         except Exception as exc:
-            logger.warning("Cloud sync SL update failed: %s", exc)
-            return False
+            return _write_failed("SL update", exc)
 
     # ── Key/value state (cash, initial capital) ────────────────
 
@@ -530,8 +543,7 @@ class PaperCloudSync:
                 session.commit()
             return True
         except Exception as exc:
-            logger.warning("Cloud sync state failed: %s", exc)
-            return False
+            return _write_failed("state", exc)
 
     def read_state(self) -> Dict[str, str]:
         """Key/value book state.  RAISES on DB errors (unlike ``_read``) so a

@@ -737,10 +737,12 @@ def _paper_gate(pt, config_hash: Optional[str] = None) -> Optional[dict]:
     job wrote before the session (CENTURION_SHIFT_REFERENCE_CSV, else
     data/shift_reference_returns.csv, with its _trades.csv) and its fills in
     Neon.  The report is kept in the book's Neon state for the weekly email,
-    with the configuration it judged (go-live reads it, tracker V5).
+    with the configuration it judged (go-live reads it, tracker V5).  A refusal of the book's numbers (RB4) is
+    not best-effort: the run ends as failed, and the last report stays as it was.
     """
+    from nse_engine import paper_gate
+
     try:
-        from nse_engine import paper_gate
         from services.research.distribution_shift import DEFAULT_REFERENCE_CSV
         ref_csv = Path(os.environ.get("CENTURION_SHIFT_REFERENCE_CSV") or DEFAULT_REFERENCE_CSV)
         if not ref_csv.exists():
@@ -758,6 +760,10 @@ def _paper_gate(pt, config_hash: Optional[str] = None) -> Optional[dict]:
             cloud.sync_state({paper_gate.STATE_KEY: paper_gate.summary_json(
                 report, updated_at=datetime.now(timezone.utc).isoformat(), config_hash=config_hash)})
         return report
+    except paper_gate.UnusableInput as exc:
+        logger.error("Paper gate refused the book's numbers: %s", exc)
+        _refusals.append(f"paper gate: {exc}")
+        return None
     except Exception as exc:                              # noqa: BLE001 - never block a session
         logger.warning("Paper gate failed: %s", exc)
         return None
@@ -1454,6 +1460,23 @@ def _engine_signal_entries(plan) -> list:
     return entries
 
 
+#: What the run refused to judge (RB4: G4 on unusable numbers); the run then ends as failed.
+_refusals: list = []
+
+
+def _raise_on_failed_writes() -> None:
+    """RB2: a book write that failed left the book half-written, so the run ends as failed (the session-failed
+    email) rather than reporting success, as the live session does (LN-T10).  RB4: so does a G4 refusal."""
+    from database.paper_cloud import failed_writes
+
+    failed = failed_writes()
+    if failed:
+        raise RuntimeError(f"{len(failed)} write(s) to the book in Neon failed: {', '.join(failed)}. "
+                           "The book may be half-written: check it before the next session")
+    if _refusals:
+        raise RuntimeError("; ".join(_refusals) + ". Check the book's snapshots before the next session")
+
+
 def main(argv=None):
     install_public_log_filter()                           # Actions logs are public: counts only there
     logger.info("=== Cloud Paper Trading Runner ===")
@@ -1472,6 +1495,7 @@ def main(argv=None):
         logger.info("Saturday detected — running weekly checkpoint...")
         try:
             status, message = _run_weekly_checkpoint(use_engine)
+            _raise_on_failed_writes()
             _update_run_status(status, message[:500])
             logger.info("Weekly checkpoint complete: [%s] %s", status, message,
                         extra=book_detail(f"Weekly checkpoint complete: [{status}]"))
@@ -1489,6 +1513,7 @@ def main(argv=None):
                 status, message = _run_engine_paper(new_book=new_book)
             else:
                 status, message = _run_paper_pipeline()
+            _raise_on_failed_writes()
             _update_run_status(status, message[:500])
             logger.info("Run complete: [%s] %s", status, message,
                         extra=book_detail(f"Run complete: [{status}] {_counts_only(message)}"))

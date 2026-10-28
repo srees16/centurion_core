@@ -76,6 +76,26 @@ def read_reference(returns_csv: Union[str, Path]) -> tuple:
     return r, trades
 
 
+class UnusableInput(ValueError):
+    """G4 refused numbers no book can have (tracker RB4)."""
+
+
+def _refuse_unusable(live_equity: pd.Series, reference_returns: pd.Series) -> None:
+    """G4 never judges a book on equity that is missing, infinite or not positive, or on a reference return that
+    is infinite or a loss of 100% or more (RB4): before, one infinite day still produced a verdict.  Names the dates
+    only (the amounts are book detail)."""
+    eq = pd.Series(live_equity, dtype="float64")
+    bad = eq[~(np.isfinite(eq.to_numpy()) & (eq.to_numpy() > 0))]
+    if len(bad):
+        raise UnusableInput(f"paper equity missing, infinite or not positive on {len(bad)} date(s), first "
+                            f"{pd.Timestamp(bad.index[0]).date()}")
+    ref = pd.Series(reference_returns, dtype="float64").dropna()
+    bad = ref[~(np.isfinite(ref.to_numpy()) & (ref.to_numpy() > -1.0))]
+    if len(bad):
+        raise UnusableInput(f"reference return infinite or -100% or worse on {len(bad)} date(s), first "
+                            f"{pd.Timestamp(bad.index[0]).date()}")
+
+
 def _dated(s: pd.Series) -> pd.Series:
     s = pd.Series(s, dtype="float64").dropna()
     s.index = pd.DatetimeIndex(pd.to_datetime(s.index)).normalize()
@@ -128,8 +148,10 @@ def evaluate(live_equity: pd.Series, reference_returns: pd.Series, *,
     ``paper_fills`` rows; ``reference_trades``: the backtest's trades
     (``date``, ``value_inr``, ``cost_inr``); ``sessions``: the book's
     ``paper_sessions`` rows (``session_date``, ``shift_multiplier``).  Days are matched on dates both
-    series have; a reference that ends early shortens the window.
+    series have; a reference that ends early shortens the window.  Raises ``UnusableInput`` on equity or reference
+    numbers no book can have (RB4).
     """
+    _refuse_unusable(live_equity, reference_returns)
     eq = _dated(live_equity)
     live = eq.pct_change().dropna()
     ref = _dated(reference_returns)

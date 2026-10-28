@@ -849,6 +849,31 @@ def _g4_line(days: Sequence[DayBook]) -> Optional[str]:
 
 #: The expected move's horizon (calendar days, India VIX's own) and the paper sessions a book's beta needs.
 MOVE_DAYS, MIN_BETA_SESSIONS = 30, 20
+#: How NIFTY's next-30-day move compared with that one-SD move, measured by ``move_coverage`` on the store's India
+#: VIX history (14 May 2014 - 23 Sep 2026, 3,051 sessions): 74% stayed inside, 9.5% fell further, 16.4% rose
+#: further.  Implied volatility runs above realised (IVS1), so it is not the normal curve's two in three (RB3).
+#: Re-measure after the store gains years: tests/test_metrics.py checks these against the store.
+MOVE_INSIDE, MOVE_FELL = 0.74, 0.095
+
+
+def move_coverage(nifty: pd.Series, vix: pd.Series, days: int = MOVE_DAYS) -> Dict[str, float]:
+    """How often NIFTY's move to its first close ``days`` calendar days later stayed inside, fell below or rose
+    above the expected move VIX x sqrt(days/365) (shares of sessions, and the sessions counted).  Sessions missing
+    either series are left out, never filled; raises on a level that is not positive or when no session has a
+    close ``days`` later."""
+    n, v = nifty.dropna().sort_index(), vix.dropna().sort_index()
+    if (n <= 0).any() or (v <= 0).any():
+        raise ValueError("NIFTY and India VIX must be positive")
+    start = n.index.intersection(v.index)
+    later = n.index.searchsorted(start + pd.Timedelta(days=days))
+    keep = later < len(n)
+    if not keep.any():
+        raise ValueError(f"no session has a NIFTY close {days} days later")
+    start, later = start[keep], later[keep]
+    move = v.loc[start].to_numpy() / 100.0 * math.sqrt(days / 365.0)
+    real = n.iloc[later].to_numpy() / n.loc[start].to_numpy() - 1.0
+    return {"inside": float((np.abs(real) <= move).mean()), "fell": float((real < -move).mean()),
+            "rose": float((real > move).mean()), "sessions": int(len(move))}
 
 
 def expected_move_line(days: Sequence[DayBook], nifty: Optional[pd.Series], vix: Optional[pd.Series],
@@ -864,7 +889,8 @@ def expected_move_line(days: Sequence[DayBook], nifty: Optional[pd.Series], vix:
     n = nifty[nifty.index <= pd.Timestamp(session)] if nifty is not None else pd.Series(dtype="float64")
     s = (f"Expected move (India VIX {level:.1f}" + (f" on {_dmy(asof)}" if asof < session else "") + "): NIFTY "
          f"±{move:.1%}" + (f" (±{float(n.iloc[-1]) * move:,.0f} points)" if len(n) else "")
-         + " over the next 30 days, one SD: about 2 months in 3 stay inside")
+         + f" over the next 30 days, one SD (since 2014, {MOVE_INSIDE:.0%} of such moves stayed inside and "
+         f"{MOVE_FELL:.0%} fell further)")
     books = []
     for d in days:
         r = d.paper.equity.pct_change().dropna()
@@ -1006,7 +1032,10 @@ def paper_significance(days: Sequence[DayBook], expected_sharpe: Optional[Dict[s
         if len(r) < MIN_TEST_SESSIONS:
             continue
         exp = (expected_sharpe or {}).get(d.book.name)
-        out[d.book.name] = significance.report(r, RF, expected_sharpe=exp if _finite(exp) else None)
+        try:
+            out[d.book.name] = significance.report(r, RF, expected_sharpe=exp if _finite(exp) else None)
+        except ValueError as exc:                         # RB4: unusable paper numbers are not tested (the run fails)
+            out[d.book.name] = {"test": {"n": int(len(r)), "error": str(exc)}}
     return out
 
 

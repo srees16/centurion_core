@@ -60,6 +60,8 @@ def mean_test(returns: pd.Series, rf_annual: float = 0.0, null_daily: float = 0.
               levels: Sequence[float] = LEVELS, hac_lags: Optional[int] = None, periods: int = PERIODS) -> Dict[str, Any]:
     """The hypothesis test of the mean daily excess return against ``null_daily`` (0: no edge)."""
     r = pd.Series(returns, dtype="float64").dropna()
+    if np.isinf(r.to_numpy()).any():                     # RB4: a t of nan would read as "no answer", not bad data
+        raise ValueError(f"returns hold {int(np.isinf(r.to_numpy()).sum())} infinite value(s): no t-test on them")
     x = r.to_numpy() - rf_annual / periods
     n = len(x)
     if n < 3:
