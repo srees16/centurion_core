@@ -94,7 +94,7 @@ def send_one_by_one(days: Sequence[bk.DayBook], kept_on: date) -> int:
     for d in days:
         e = d.email or {}
         if e.get("session") == kept_on.isoformat() and e.get("html"):
-            sent += bool(NotificationManager._send_html_email(e["subject"], e["html"]))
+            sent += bool(NotificationManager._send_html_email(e["subject"], bk.readable(e["html"])))
     logger.warning("combined email failed: %d book report(s) sent on their own", sent)
     return sent
 
@@ -160,7 +160,7 @@ def daily(args: argparse.Namespace, books: Sequence[bk.Book]) -> int:
         return 0
     from services.notifications.manager import NotificationManager
 
-    sent = NotificationManager._send_html_email(report["subject"], report["html"])
+    sent = NotificationManager._send_html_email(report["subject"], bk.readable(report["html"]))
     if sent:
         deployed.sync_state({bk.DAILY_STATE_KEY: session.isoformat()})
     logger.info("daily summary for %s: %d books, %s", session, len(started),
@@ -209,7 +209,7 @@ def weekly(args: argparse.Namespace, books: Sequence[bk.Book]) -> int:
 
     from services.notifications.manager import NotificationManager
     sent = NotificationManager._send_html_email(email["subject"] if email else report["subject"],
-                                                email["html"] if email else report["html"],
+                                                bk.readable(email["html"] if email else report["html"]),
                                                 attachments=[("books_register.csv", csv_bytes)])
     if email is None:
         send_one_by_one(list(days.values()), today)

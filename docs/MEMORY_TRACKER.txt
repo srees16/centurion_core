@@ -263,6 +263,11 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      REJECT or WATCH (WATCH: decided again at 90 sessions, about 25 Jan
      2027).  ACCEPT: live may start at Rs 6 lakh after 5 clean dry runs, on
      your go-ahead.  REJECT: no live capital; 679cbd0c is not re-tuned.
+ >>> THU 29 OCT - YOUR ACTIONS
+     1. Commit and merge EM2 (email presentation, uncommitted):
+        nse_engine/books.py, tools/books_report.py,
+        tests/test_paper_book.py, this file.  Tonight's nightly email is
+        the first in the new look.
  >>> WED 28 OCT - YOUR ACTIONS
      1. COMMITTED by you (cbc48ed, PR #292): .gitignore, config/mc_bands.json,
         RB2, RB3, RB4 and TH1.  Merge #292 to main before Sat 31 Oct 07:30
@@ -1195,6 +1200,17 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+29 Oct  EM2  Daily and Saturday emails in Calibri, easier to read, the words
+             unchanged (your ask).  books.readable() runs on every summary
+             email as sent (and the one-by-one fallback): each font becomes
+             Calibri, Carlito, Segoe UI, Arial (monospace kept); each size
+             grows 12% (Calibri sets small), never below 12 px; line spacing
+             1.5 and list spacing; table cells with more padding, shaded
+             alternate rows, a stronger header, and amounts and dates kept on
+             one line.  Checked on tonight's real daily email and Saturday's:
+             the visible text is identical before and after.  Calibri shows
+             where installed (Windows, Outlook, Office); Apple Mail and iOS
+             without Office fall back to Arial.
 28 Oct  MR1  Macro-regime study (your go-ahead), as pre-registered: MOSPI's
              API for CPI (All India Combined General, base 2012) and IIP
              (General, base 2011-12), 2013-25, each value used only once its
