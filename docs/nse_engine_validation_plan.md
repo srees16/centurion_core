@@ -4241,7 +4241,8 @@ The sample is tiny, so it is reported more than relied on.
 Prompt: do IVX1.
 
 **Result (27 Oct 2026, 22:4x IST): both FAIL; the family closes.**
-`python -m nse_engine.option_signals run`. Results in
+Run with `nse_engine/option_signals.py`, removed on 28 Oct 2026 once the
+family closed (in git history at f6a16c7, to reproduce it). Results in
 `ivx1/ivx1_results.json`, runs in `runs_ivx1/`. 25,998 stock-months;
 155 months.
 - **Kept to the window:** equity prices were read only to 31 Dec 2025, so
