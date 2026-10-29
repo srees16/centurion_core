@@ -293,3 +293,104 @@ def test_m5_23_case_studies():
     assert (203 + 176) - (191 + 178) == 10                                                     # M5.23.2
     assert (48 + 47) - (55 + 20) == 20                                                         # M5.23.3
     assert 41.5 - 18.9 == approx(22.6) and (41.5 - 18.9) / 18.9 * 100 == approx(119.6, abs=0.05)
+
+
+# ---- the Greeks transcript (tracker GK1): Part 33's call, S = K = 100, one year, r = 5%, sigma = 20%
+PART33 = (100.0, 100.0, 365, 0.05, 0.20)
+
+
+def test_gk1_part33_greeks_as_the_video_quotes_them():
+    """'A $1 rise lifts delta from 0.64 to about 0.66.  One day costs the call about 1.8 cents, and one
+    volatility point adds about 38 cents.'  Calendar-day theta: per trading day (252) it would be 2.5 cents."""
+    g = t.black_scholes(CALL, *PART33)
+    up = t.black_scholes(CALL, PART33[0] + 1, *PART33[1:])
+    assert g.price == approx(10.4506, abs=1e-4) and g.delta == approx(0.6368, abs=1e-4)
+    assert round(g.delta, 2) == 0.64 and round(up.delta, 2) == 0.66
+    assert g.gamma == approx(0.01876, abs=1e-5)                    # delta moves ~0.019 per $1
+    assert round(-g.theta, 3) == 0.018                              # 1.757 cents a calendar day
+    assert round(g.vega, 2) == 0.38                                 # 37.5 cents a volatility point
+    assert g.rho == approx(0.5323, abs=1e-4)                        # not quoted in the video: 53 cents a rate point
+
+
+def _reprice(option_type, s, k, days, r, v, q):
+    """Each Greek by central differences of the price alone ('pricing it again with Black-Scholes')."""
+    p = lambda **c: t.black_scholes(option_type, c.get("s", s), k, c.get("days", days), c.get("r", r),
+                                    c.get("v", v), q).price
+    hs, hd, hv, hr = s * 1e-4, 0.01, 1e-5, 1e-5
+    return {"delta": (p(s=s + hs) - p(s=s - hs)) / (2 * hs),
+            "gamma": (p(s=s + 10 * hs) - 2 * p() + p(s=s - 10 * hs)) / (10 * hs) ** 2,   # 0.1% of spot
+            "theta": (p(days=days - hd) - p(days=days + hd)) / (2 * hd),               # per calendar day
+            "vega": (p(v=v + hv) - p(v=v - hv)) / (2 * hv) / 100,                       # per volatility point
+            "rho": (p(r=r + hr) - p(r=r - hr)) / (2 * hr) / 100}                        # per rate point
+
+
+def test_gk1_every_greek_is_confirmed_by_repricing():
+    """Seeded grid of calls and puts (spot 70-130% of the strike, 5 days to 2 years, rates 0-10%, volatility
+    8-80%, dividend yields 0-3%): each analytic Greek equals the repriced one."""
+    rng = np.random.default_rng(33)
+    for _ in range(300):
+        option_type = CALL if rng.random() < 0.5 else PUT
+        k = 100.0
+        s, days = k * rng.uniform(0.7, 1.3), int(rng.integers(5, 731))
+        r, v, q = rng.uniform(0.0, 0.10), rng.uniform(0.08, 0.80), rng.uniform(0.0, 0.03)
+        g, fd = t.black_scholes(option_type, s, k, days, r, v, q), _reprice(option_type, s, k, days, r, v, q)
+        for name, value in fd.items():
+            assert getattr(g, name) == approx(value, rel=2e-3, abs=2e-6), (name, option_type, s, days, r, v, q)
+
+
+def test_gk1_signs_the_video_states_and_where_they_stop_holding():
+    """Vega is positive for calls and puts; a call's rho is positive ('the strike you pay later is worth less
+    today') and a put's negative; theta is a daily loss for a call without dividends, but a deep in-the-money
+    European put can gain with time (the video speaks of calls).  Gamma is the same for both."""
+    for s in (80.0, 100.0, 120.0):
+        c, p = t.black_scholes(CALL, s, 100, 90, 0.065, 0.2), t.black_scholes(PUT, s, 100, 90, 0.065, 0.2)
+        assert c.vega > 0 and p.vega > 0 and c.rho > 0 and p.rho < 0 and c.theta < 0
+        assert c.gamma == approx(p.gamma) and c.vega == approx(p.vega)
+    assert t.black_scholes(PUT, 50, 100, 365, 0.10, 0.15).theta > 0
+
+
+def test_gk1_large_gamma_means_the_delta_hedge_ages_fast():
+    """'A large gamma means a delta hedge goes out of date quickly': the delta drift over a small move is
+    gamma x the move, and near expiry at the money gamma (so the drift) is many times larger."""
+    for days in (90, 5):
+        g = t.black_scholes(CALL, 100, 100, days, 0.065, 0.2)
+        moved = t.black_scholes(CALL, 100.5, 100, days, 0.065, 0.2)
+        assert moved.delta - g.delta == approx(g.gamma * 0.5, rel=0.02)
+    assert t.black_scholes(CALL, 100, 100, 5, 0.065, 0.2).gamma > 4 * t.black_scholes(CALL, 100, 100, 90, 0.065, 0.2).gamma
+
+
+def test_gk1_zero_volatility_with_time_left_is_the_discounted_forward():
+    """With no volatility the outcome is certain: Part 33's call is worth S - K e^-rT = 4.88 (before GK1's fix,
+    the intrinsic at spot: 0), with delta 1, theta -r K e^-rT a year and rho K T e^-rT; its put is worth 0."""
+    s, k, days, r, _ = PART33
+    c, p = t.black_scholes(CALL, s, k, days, r, 0.0), t.black_scholes(PUT, s, k, days, r, 0.0)
+    disc = k * np.exp(-r)
+    assert c.price == approx(s - disc) and c.price == approx(4.8771, abs=1e-4)
+    assert (c.delta, c.gamma, c.vega) == (1.0, 0.0, 0.0)
+    assert c.theta == approx(-r * disc / 365) and c.rho == approx(disc / 100)
+    assert p == Greeks()
+    deep_put = t.black_scholes(PUT, 80, 100, 365, 0.05, 0.0, dividend=0.02)
+    assert deep_put.price == approx(100 * np.exp(-0.05) - 80 * np.exp(-0.02)) and deep_put.theta > 0
+    assert t.black_scholes(CALL, 100, 100, 365, 0.0, 0.0) == Greeks()               # exactly at the money forward
+    assert t.probability_itm(CALL, s, k, days, r, 0.0)["n_d2"] == 1.0              # the forward, 105.13, is above
+    assert t.probability_itm(PUT, s, k, days, r, 0.0)["n_d2"] == 0.0
+    assert t.black_scholes(CALL, 8100, 8000, 0, 0.06, 0.0).price == 100              # at expiry: still spot
+
+
+def test_gk1_zero_volatility_is_the_formulas_limit():
+    """Seeded: away from the money forward, the zero-volatility branch equals the analytic formulas at a
+    vanishing volatility, for calls and puts, with rates and dividends."""
+    rng = np.random.default_rng(34)
+    checked = 0
+    for _ in range(400):
+        option_type = CALL if rng.random() < 0.5 else PUT
+        s, days = 100 * rng.uniform(0.6, 1.4), int(rng.integers(1, 731))
+        r, q = rng.uniform(0.0, 0.10), rng.uniform(0.0, 0.04)
+        forward_gap = np.log(s / 100) + (r - q) * days / 365
+        if abs(forward_gap) < 1e-3:
+            continue
+        zero, tiny = t.black_scholes(option_type, s, 100, days, r, 0.0, q), t.black_scholes(option_type, s, 100, days, r, 1e-7, q)
+        for name in ("price", "delta", "gamma", "theta", "vega", "rho"):
+            assert getattr(zero, name) == approx(getattr(tiny, name), abs=1e-9), (name, option_type, s, days, r, q)
+        checked += 1
+    assert checked > 350

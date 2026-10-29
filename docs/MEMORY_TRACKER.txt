@@ -264,16 +264,93 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      2027).  ACCEPT: live may start at Rs 6 lakh after 5 clean dry runs, on
      your go-ahead.  REJECT: no live capital; 679cbd0c is not re-tuned.
  >>> WED 28 OCT - YOUR ACTIONS
-     1. Add to PR #292 (feature/fine-tuning, committed f6a16c7): .gitignore
-        and config/mc_bands.json.  *.json is ignored, so the bands file
-        missed the commit and Saturday's MC band column would be empty on
-        Actions (percentiles only: no holdings or amounts).  Also RB2, RB3,
-        RB4 and TH1 (uncommitted): database/paper_cloud.py,
-        cloud_paper_runner.py, nse_engine/{books,paper_gate,scorecard}.py,
-        nse_engine/validation/{dsr,significance}.py,
-        tests/{test_paper_book,test_metrics}.py, this file.  Then merge #292 to main
-        before Sat 31 Oct 07:30 IST (the Saturday email).
+     1. COMMITTED by you (cbc48ed, PR #292): .gitignore, config/mc_bands.json,
+        RB2, RB3, RB4 and TH1.  Merge #292 to main before Sat 31 Oct 07:30
+        IST (the Saturday email).
      2. After 20:00 tonight: the sell test's first AMO (SELL TEST block).
+     3. Sign-up page, first and last name (SU1, uncommitted, two repos):
+        centurion_core api/users.py, api/routers/v1/auth.py, this file;
+        centurion_core-fe (branch c.core/ui-improvements)
+        app/signup/page.tsx, lib/signup-validation.ts (new).  Either side
+        may deploy first: the page also sends full_name, and the API still
+        takes full_name alone.
+     4. Greeks transcript (GK1, uncommitted): kite_connect/options/theory.py,
+        tests/test_options_theory.py, this file.
+     6. Order-flow transcript (OF1): this file only.  The code written to
+        test it was removed once it failed (your call: nothing unused is
+        merged).  PRE-REGISTERED 28 Oct, before any result (fixed
+        parameters, no search; diagnostics of the video's claims, 2008-2025
+        only, the 2026 holdout untouched):
+        (a) NIFTY gamma: each session, NIFTY options 1-60 days to expiry
+            with open interest, one IV (the session's near-expiry ATM IV,
+            fo_store/iv), rate 6.5%, the video's dealer signs (calls +,
+            puts -).  Claim: next-session |return| is larger when the
+            exposure is negative.  Pass: Newey-West t >= 2 on the
+            difference AND it survives the IV level as a control (the
+            regime gate already reads India VIX).
+        (b) The same with spot below vs above zero gamma.
+        (c) Value area (stocks): deployed universe members at each month-end
+            2010-2025, 60-session daily-bar profile, 50 bins, 70% value
+            area.  Claim: outside the value area trends, inside ranges.
+            Outcome: next 20 sessions' efficiency |net move| / sum of
+            |daily moves|.  Pass: outside minus inside, averaged per month,
+            t >= 2 over months.
+        RESULTS (OF1 entry in section 8): (a) and (b) pass as written, (c)
+        fails; a post-hoc check removes (a) and (b) entirely.
+     7. Book-level volatility targeting (VT1).  PRE-REGISTERED 28 Oct,
+        before any result; one trial in the deployed family; 2008-2025
+        only, holdout sealed.  On the deployed family's live-like
+        walk-forward book (mc_bands' reference: liquid-rate cash, D2
+        haircut): exposure for session t+1 = clip(target / vol, 0.3, 1.0)
+        (no leverage, the engine's max_gross 1 and min scale 0.3), vol =
+        sqrt(252) x the sd of the book's last 20 daily returns, target =
+        the median of that vol over the trailing 756 sessions (from 252;
+        exposure 1 before), the rest in the liquid fund, 15 bp per unit of
+        exposure changed.  Pass (all three): Sharpe up by 0.10 or more;
+        up in both 2008-16 and 2017-25; a stationary block bootstrap
+        (5,000, block 20, seed 7) of the Sharpe difference gives one-sided
+        p < 0.05.  A pass goes on to a real engine walk-forward
+        (allocator.target_vol_annual); a fail closes it.
+        RESULT: FAIL on all three (VT1 entry in section 8); closed.
+     8. Macro-regime study (MR1, your go-ahead 28 Oct).  PRE-REGISTERED
+        28 Oct, before any regime was compared with any return; three
+        trials in the deployed family; holdout sealed (data to Dec 2025).
+        Data, point in time (each value used only once its FINAL figure
+        was out, so revisions cannot leak):
+        - CPI: MOSPI API, All India Combined General (base 2012), YoY;
+          month m usable from the 13th of m+2 (provisional ~12th of m+1,
+          final with the next release).  From 2014.
+        - IIP: MOSPI API, General index (base 2011-12), YoY growth; month
+          m usable from the 13th of m+4 (quick estimate ~m+2, revised m+3,
+          final m+4).  From 2013.
+        - Rates: the bond store's overnight-rate index (2007+), annualised
+          from its 20-session growth; a market series, never revised.
+        - Not correctable: CPI 2012 and IIP 2011-12 bases were introduced
+          in Feb 2015 / May 2017 and back-cast before that.
+        Regimes at each session (latest usable values only): inflation
+        rising = CPI YoY above its level 3 releases earlier; growth rising
+        = IIP YoY 3-month average above the previous 3 months';
+        tightening = overnight rate up 0.25 pp or more over 126 sessions.
+        Trials (each an overlay on the deployed live-like WF book, as VT1:
+        exposure 0.5 while flagged, rest in the liquid fund, 15 bp per
+        unit changed):
+          T1 tightening, 2008-2025;
+          T2 stagflation (growth falling AND inflation rising), 2014-2025;
+          T3 inflation rising, 2014-2025.
+        Pass (each): Sharpe up by 0.10 or more; up in both halves
+        (2008-16 / 2017-25; 2014-19 / 2020-25); stationary block
+        bootstrap (5,000, block 20, seed 7) one-sided p < 0.05/3.  Also
+        reported, descriptive only: the book's and NIFTY's mean monthly
+        return by growth x inflation quadrant.  Expect low power: 12 years
+        hold only a few regime changes.
+        RESULT: all three FAIL (MR1 entry in section 8); closed.
+     5. Ind / US stocks landing pages (LP1, uncommitted, centurion_core-fe):
+        components/common/market-overview.tsx (new), app/(dashboard)/
+        {ind-stocks,us-stocks}/page.tsx.  Shown only until the first
+        analysis runs: purpose, four market facts (US session also in IST,
+        DST-aware), three steps, six tool links from the sidebar's own list
+        (Advisory stays operator-only), a one-line disclaimer.  Checked at
+        1440 px and 390 px: no overflow, no page errors.
  >>> TUE 27 OCT - YOUR ACTIONS
      0. DONE 27 Oct, your decision (AC1): the deployed book stays as is,
         approved under the old rule (DSR 0.964 i.i.d.; 0.939 widened).  It
@@ -1118,6 +1195,127 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+28 Oct  MR1  Macro-regime study (your go-ahead), as pre-registered: MOSPI's
+             API for CPI (All India Combined General, base 2012) and IIP
+             (General, base 2011-12), 2013-25, each value used only once its
+             final figure was out (CPI +2 months, IIP +4); the overnight-rate
+             index for rates.  RBI's DBIE was unreachable; FRED's OECD India
+             series are discontinued.  MOSPI's server needs legacy TLS
+             renegotiation, so it was fetched with curl.  On the deployed
+             live-like WF book: T1 tightening (2008-25) Sharpe 0.60 -> 0.42,
+             worse in both halves, p 0.991; T2 stagflation (2014-25) 0.92 ->
+             0.97 (+0.05, the bar was +0.10), halves 0.69 -> 0.80 and 1.12 ->
+             1.12, MaxDD -20.9% -> -18.0%, p 0.27; T3 inflation rising 0.92
+             -> 0.89, p 0.61.  All FAIL; closed, no code, data not kept.
+             Descriptive: stagflation months were the weakest (book +0.52%,
+             NIFTY -0.48% a month vs +1.2 to +2.1% in the other quadrants),
+             and the book already beat NIFTY there through its regime gate.
+             A retest needs fresh data and its own pre-registration (it
+             would count as a new trial).
+28 Oct  VT1  Five "quant firm" models for Ind stocks (your ask).  Already in
+             Centurion: time-series momentum (stock forecasts are 50% fast
+             and 50% slow trend; the regime gate cuts to zero on NIFTY's
+             200-day trend, breadth and VIX, risk-off to metals; sleeves
+             have trend filters - R4, R5, R11, R13, GT5), inverse-vol
+             sizing with a core/sleeve risk split and max_gross 1, and the
+             factor and correlation view (scorecard style factors, alpha
+             decay, correlations, DSR clustering, sector cap).  Relative
+             value stays closed (R15 / U28: a market-neutral spread needs
+             Rs 2-3 crore at median lots of Rs 6.3 lakh; reopen past Rs 2
+             crore).  Macro regimes: no inflation / growth / rates data in
+             the stores and few regime changes in 18 years; not tested.
+             The one untested gap, book-level vol targeting, was
+             pre-registered and run on the deployed live-like WF book
+             2008-25: Sharpe 0.60 -> 0.38, CAGR 13.0% -> 9.8%, MaxDD
+             unchanged at -29.5%, worse in both halves (0.26 -> 0.14, 0.92
+             -> 0.61), bootstrap Sharpe difference -0.22 (90%: -0.34 to
+             -0.10), p 0.999.  FAIL, closed: the gate, the drawdown rule and
+             inverse-vol sizing already do this, and trimming after vol
+             spikes cuts the rebounds.  No code.
+28 Oct  MPT1 Varga-Haszonits, Caccioli & Kondor 2016 (arXiv 1606.08679,
+             research_inbox; your ask): Markowitz's out-of-sample error is
+             E[q0] = 1/(1 - r), r = N/T (eq 48), whatever the covariance or
+             target return, and the in-sample optimum is (1 - r) x the true
+             variance (eq 51); a phase transition at r = 1.  Replicated by
+             Monte Carlo, N = 100, 400 samples per point, 10 values of r,
+             9 setups (identity, one-factor, a real NSE covariance of 100
+             stocks 2008-25 x Gaussian minimum variance, Gaussian frontier,
+             Student-t(4) minimum variance).  Gaussian minimum variance: all
+             3 on one curve, the finite-size (T-2)/(T-N-1) (max |z| 2.7),
+             in-sample 0.50 at r = 0.5 as eq 51 says.  Frontier: on one
+             curve 1.5% under 1/(1-r) at N = 100, shrinking with N (a second
+             constraint's finite-size term; known means change little).
+             Student-t: the 3 agree with each other but sit 5-14% higher, and
+             in-sample is 0.33 not 0.50 - the Gaussian assumption matters.
+             Centurion: nothing inverts a sample covariance to pick weights
+             (engine: forecast / vol with caps; basket_vol: a fixed-weight
+             basket's vol; legacy HRP: no full inverse), so no code was
+             added.  Markowitz on the ~300-name universe would need T well
+             above 300 sessions to stay off r = 1 (60-session vol windows:
+             r = 5, singular).
+28 Oct  OF1  Order-flow transcript (volume profile, absorption, delta,
+             value area, gamma levels; your ask).  Tested what daily data
+             allows, with code written for the tests and deleted after (a
+             daily-bar volume profile with a 70% value area; dealer gamma
+             exposure and zero gamma from NSE open interest, dealer signs an
+             explicit assumption).
+             Absorption and delta need each trade's aggressor side (tick
+             data): not built; the legacy strategies/order_flow.py and
+             trading_strategies/.../order_flow.py approximate delta from
+             daily bars (close in range x volume, OBV), a proxy only.
+             Market structure: NSE participant OI contradicts the US dealer
+             convention - Pro desks net short index calls 86% and puts 84%
+             of sessions 2012-25; FII net long both.  Pre-registered tests
+             (2008-2025): (a) negative gamma: next-day |NIFTY move| 116.5 vs
+             75.7 bp, NW t 7.08, 2.61 with the IV level - passes as
+             written; (b) spot below zero gamma: t 7.38, 2.55 - passes;
+             post-hoc (not pre-registered) with yesterday's move, 20-day
+             realised vol and the 5-day return added, both fall to +1.3 bp,
+             t 0.26: the gamma regime is volatility clustering after falls,
+             nothing the regime gate's India VIX and realised vol miss.
+             (c) value area, 54,901 stock-months: next-20-day efficiency
+             outside 0.242 vs inside 0.245, t -1.23 - fails.  Nothing goes
+             into the engine or the overlay, and the code built for the
+             tests (volume profile, gamma levels) was deleted unmerged: the
+             record here is what stays, so the trial counts and is not rerun.
+28 Oct  GK1  Greeks transcript (gamma, theta, vega, rho; your ask).  Already
+             in theory.black_scholes with the video's units (theta per
+             calendar day, vega per vol point, rho per rate point): Part 33's
+             call gives delta 0.64 -> 0.66 on +$1, theta -1.76 cents a day,
+             vega 37.5 cents ("about 1.8" and "about 38" in the video; per
+             trading day theta would be 2.5 cents).  Added the video's own
+             check: every Greek confirmed by repricing (central differences,
+             300 seeded calls and puts with dividends), the quoted numbers,
+             the signs (a deep ITM European put's theta can be positive; a
+             put's rho is negative) and gamma as the hedge's ageing.  Mutants
+             (theta / 252, vega per 1.00, put rho sign, gamma without sqrt T)
+             all caught.  Value: risk monitoring for the options overlay, no
+             edge for stock selection or the equity backtests.  For a 30-day
+             NIFTY short put spread (24000/23500) vega is the risk (-7.5 pts
+             per vol point against a 34 pt credit; 1.3 pts theta a day), rho
+             negligible (0.4 pt per 25 bp).  Fixed on your go-ahead: with
+             time left and zero volatility black_scholes gave the intrinsic
+             at spot; it now gives the discounted forward intrinsic,
+             max(S e^-qT - K e^-rT, 0), with the formulas' sigma -> 0
+             Greeks (Part 33's call 0 -> 4.88, delta 0 -> 1), and
+             probability_itm tests the forward.  No production caller
+             reaches it (IVs are floored at 1e-4); 400 seeded cases equal the
+             formulas at sigma 1e-7; expiry is unchanged.
+28 Oct  SU1  Sign-up page (MU2; your ask): first name (required) and last
+             name (optional: one-name users) replace "Full name"; full_name
+             is stored as the two joined, so emails, sessions and the admin
+             list are unchanged; emails now greet by first name.  Checks, the
+             same in the page (lib/signup-validation.ts) and the API
+             (api/users.py, which has the last word; 72 cases agree):
+             names and places in any script (letters and marks, so Hindi
+             works; NFC-normalised; no digits or symbols); email as RFC
+             dot-atom with real domain labels and a 2+ letter TLD; mobile
+             stored as +country code (in India +91 optional, leading 0
+             dropped, 10 digits from 6-9).  The page shows each field's
+             problem once it is left, a "Did you mean gmail.com?" hint, the
+             number as it will be saved, and the Create button no longer sits
+             disabled without a reason.  Existing users keep their profiles;
+             a request with only full_name (the old page) still works.
 28 Oct  TH1  Sun Shuo's PhD thesis, "Reinforcement Learning for Financial
              Trading" (NTU 2024; research_inbox/, your ask).  Mostly RL
              (DeepScalper ch. 4, AlphaMix+ ch. 6, TradeMaster ch. 8) and
@@ -1301,7 +1499,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              (t +1.41), net -0.44% (t -2.10).  Both point the published
              way gross but are not significant even before costs; turnover
              ~2.9 a month at 25 bp a side costs ~0.73%/month.
-             nse_engine/option_signals.py; runs in runs_ivx1.
+             Runs in runs_ivx1 (they still count as trials).  The module,
+             nse_engine/option_signals.py, was removed 28 Oct (your call:
+             a closed family leaves no code; in git at f6a16c7).
 27 Oct  EM1  Expected move in the nightly email (IVS1's suggestion 3, your
              call): India VIX as NIFTY's one-SD move over the next 30 days
              (VIX x sqrt(30/365), in % and points), and in rupees for each

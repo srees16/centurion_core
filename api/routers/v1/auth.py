@@ -37,7 +37,9 @@ class ChangePasswordRequest(BaseModel):
 class SignupRequest(BaseModel):
     email: str
     password: str
-    full_name: str
+    first_name: str = ""
+    last_name: str = ""
+    full_name: str = ""                                   # sent alone by a frontend older than first and last names
     date_of_birth: str
     gender: str
     city: str
