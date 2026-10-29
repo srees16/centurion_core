@@ -130,20 +130,32 @@ def black_scholes(option_type: str, spot: float, strike: float, days_to_expiry: 
                   rate: float, iv: float, dividend: float = 0.0, days_per_year: int = 365) -> Greeks:
     """European Black-Scholes(-Merton) price and Greeks (ch. 21).
 
-    At or after expiry (or zero volatility) the price is the intrinsic value
-    and the Greeks are their limits: delta 1/0 (call) or -1/0 (put).
+    At or after expiry the price is the intrinsic value and the Greeks are
+    their limits: delta 1/0 (call) or -1/0 (put).  With time left but zero
+    volatility the outcome is certain: the discounted forward intrinsic,
+    max(S e^-qT - K e^-rT, 0) for a call, with the formulas' sigma -> 0 limits
+    (delta e^-qT, theta q S e^-qT - r K e^-rT, rho K T e^-rT; gamma and vega 0),
+    not the intrinsic at spot (tracker GK1).  An option exactly at the money
+    forward is worth 0 and has these Greeks at 0.
     """
     t_type = _check_type(option_type)
     t = days_to_expiry / days_per_year
     if spot <= 0 or strike <= 0:
         raise ValueError("spot and strike must be positive")
-    if t <= 0 or iv <= 0:
+    if t <= 0:
         iv_now = intrinsic_value(t_type, spot, strike)
         itm = iv_now > 0
         delta = (1.0 if itm else 0.0) if t_type == CALL else (-1.0 if itm else 0.0)
         return Greeks(price=iv_now, delta=delta)
-    d1, d2 = _d1_d2(spot, strike, t, rate, iv, dividend)
     dq, dr = math.exp(-dividend * t), math.exp(-rate * t)
+    if iv <= 0:
+        sign = 1.0 if t_type == CALL else -1.0
+        gap = sign * (spot * dq - strike * dr)
+        if gap <= 0:
+            return Greeks()
+        return Greeks(price=gap, delta=sign * dq, theta=sign * (dividend * spot * dq - rate * strike * dr) / days_per_year,
+                      rho=sign * strike * t * dr / 100.0)
+    d1, d2 = _d1_d2(spot, strike, t, rate, iv, dividend)
     pdf = norm.pdf(d1)
     gamma = dq * pdf / (spot * iv * math.sqrt(t))
     vega = spot * dq * pdf * math.sqrt(t) / 100.0  # per volatility point
@@ -163,12 +175,15 @@ def black_scholes(option_type: str, spot: float, strike: float, days_to_expiry: 
 
 def probability_itm(option_type: str, spot: float, strike: float, days_to_expiry: float,
                     rate: float, iv: float, dividend: float = 0.0, days_per_year: int = 365) -> Dict[str, float]:
-    """Risk-neutral P(expires ITM) = N(d2) / N(-d2), beside ch. 11's |delta| approximation."""
+    """Risk-neutral P(expires ITM) = N(d2) / N(-d2), beside ch. 11's |delta| approximation.  With time left
+    and zero volatility it is 1 when the forward is in the money, else 0 (GK1)."""
     t_type = _check_type(option_type)
     t = days_to_expiry / days_per_year
     g = black_scholes(t_type, spot, strike, days_to_expiry, rate, iv, dividend, days_per_year)
-    if t <= 0 or iv <= 0:
+    if t <= 0:
         p = 1.0 if intrinsic_value(t_type, spot, strike) > 0 else 0.0
+    elif iv <= 0:
+        p = 1.0 if g.price > 0 else 0.0
     else:
         _, d2 = _d1_d2(spot, strike, t, rate, iv, dividend)
         p = norm.cdf(d2) if t_type == CALL else norm.cdf(-d2)

@@ -38,6 +38,7 @@ import os
 import re
 import threading
 import time
+import unicodedata
 from datetime import date, datetime, timezone
 from html import escape
 from typing import Dict, List, Optional
@@ -59,8 +60,14 @@ MIN_AGE = 18
 PASSWORD_MIN, PASSWORD_MAX, PASSWORD_MAX_BYTES = 12, 64, 72
 _COMMON = ("password", "passw0rd", "centurion", "qwerty", "123456", "letmein", "welcome", "admin", "iloveyou")
 
-_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-_PHONE = re.compile(r"^\+?[0-9][0-9 \-]{6,18}[0-9]$")
+#: An email's local part (RFC 5322 dot-atom) and each label of its domain; the top-level domain is 2+ letters.
+_EMAIL_LOCAL = re.compile(r"^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*$")
+_EMAIL_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+#: Names and places in any script: letters and combining marks (Devanagari vowel signs are marks), with
+#: these between them ("Anne-Marie", "D'Souza", "R. Kumar"; "Navi Mumbai", "Bengaluru (Bangalore)").
+NAME_MAX, PLACE_MAX = 40, 60
+_NAME_JOINERS, _PLACE_JOINERS = " -.'’", " -.'’,()&"
+INDIA = ("india", "bharat", "in")
 
 _TABLE = "app.users"
 _ready = False
@@ -122,8 +129,8 @@ def allowed(key: str, limit: int, window_s: int) -> bool:
 # ── Store (Neon) ──────────────────────────────────────────────────────────
 
 #: The encrypted profile's fields, in the order the sign-up form gathers them.
-PROFILE = ("email", "full_name", "date_of_birth", "gender", "phone", "city", "state", "country",
-           "trading_experience")
+PROFILE = ("email", "first_name", "last_name", "full_name", "date_of_birth", "gender", "phone", "city", "state",
+           "country", "trading_experience")
 
 
 def _key() -> bytes:
@@ -216,14 +223,80 @@ def _update(email: str, **values) -> None:
         session.execute(text(f"UPDATE {_TABLE} SET {sets} WHERE email_hash = :h"), {**values, "h": email_index(email)})
 
 
+def _plain(value) -> str:
+    """``value`` trimmed, its inner spaces collapsed, in Unicode NFC (one spelling per name)."""
+    return unicodedata.normalize("NFC", " ".join(str(value or "").split()))
+
+
+def text_problem(value: str, label: str, max_len: int, joiners: str = _NAME_JOINERS) -> str:
+    """Why ``value`` is not a name of letters in any script, starting with a letter ("" when it is)."""
+    if len(value) > max_len:
+        return f"{label}: up to {max_len} characters"
+    if not value or not unicodedata.category(value[0]).startswith("L"):
+        return f"{label}: start with a letter"
+    if any(unicodedata.category(c)[0] not in "LM" and c not in joiners for c in value):
+        allowed = "spaces, hyphens, apostrophes or full stops" if joiners == _NAME_JOINERS else "spaces and . , - ' ( ) &"
+        return f"{label}: letters only, with {allowed}"
+    return ""
+
+
+def email_problem(email: str) -> str:
+    """Why ``email`` (lower case) is not a deliverable-looking address ("" when it is)."""
+    if len(email) > 254 or email.count("@") != 1:
+        return "Enter a valid email address"
+    local, domain = email.split("@")
+    labels = domain.split(".")
+    if (not 1 <= len(local) <= 64 or not _EMAIL_LOCAL.match(local) or len(labels) < 2
+            or not all(_EMAIL_LABEL.match(part) for part in labels) or not re.fullmatch(r"[a-z]{2,63}", labels[-1])):
+        return "Enter a valid email address"
+    return ""
+
+
+def clean_phone(raw: str, country: str) -> str:
+    """The mobile number as + country code and digits ("" when none was given; raises :class:`UserError`).
+    In India the +91 may be left out, and a leading 0 is dropped: 098765 43210 is +919876543210."""
+    s = re.sub(r"[\s\-().]", "", str(raw or ""))
+    if not s:
+        return ""
+    if s.startswith("+"):
+        digits = s[1:]
+    elif country.strip().lower() in INDIA:
+        digits = "91" + (s[1:] if len(s) == 11 and s.startswith("0") else s)
+    else:
+        raise UserError("Mobile number: start with + and your country code")
+    if not digits.isdigit():
+        raise UserError("Mobile number: digits only, after an optional +")
+    if digits.startswith("91"):                           # India's code; no other country code starts 91
+        if not re.fullmatch(r"91[6-9][0-9]{9}", digits):
+            raise UserError("Indian mobile number: 10 digits starting with 6, 7, 8 or 9")
+    elif not 8 <= len(digits) <= 15:
+        raise UserError("Mobile number: + country code and number, 8 to 15 digits")
+    return "+" + digits
+
+
 def clean_signup(body: Dict) -> Dict:
-    """The sign-up fields, checked and normalised (raises :class:`UserError`)."""
+    """The sign-up fields, checked and normalised (raises :class:`UserError`).
+
+    First name required, last name optional (one-name users exist); ``full_name`` is the two joined.  A request
+    with only ``full_name`` comes from a frontend older than first and last names (the two deploy apart): it is
+    checked as before and kept with empty first and last names.
+    """
     email = str(body.get("email") or "").strip().lower()
-    if len(email) > 254 or not _EMAIL.match(email):
-        raise UserError("Enter a valid email address")
-    name = " ".join(str(body.get("full_name") or "").split())
-    if not 2 <= len(name) <= 80:
-        raise UserError("Full name: 2 to 80 characters")
+    problem = email_problem(email)
+    if problem:
+        raise UserError(problem)
+    first, last = _plain(body.get("first_name")), _plain(body.get("last_name"))
+    if first or last or not body.get("full_name"):
+        if not first:
+            raise UserError("Enter your first name")
+        problem = text_problem(first, "First name", NAME_MAX) or (last and text_problem(last, "Last name", NAME_MAX))
+        if problem:
+            raise UserError(problem)
+        name = f"{first} {last}".strip()
+    else:
+        name = " ".join(str(body.get("full_name") or "").split())
+        if not 2 <= len(name) <= 80:
+            raise UserError("Full name: 2 to 80 characters")
     try:
         dob = date.fromisoformat(str(body.get("date_of_birth") or ""))
     except ValueError:
@@ -235,12 +308,15 @@ def clean_signup(body: Dict) -> Dict:
     gender = str(body.get("gender") or "")
     if gender not in GENDERS:
         raise UserError("Choose a gender option")
-    phone = " ".join(str(body.get("phone") or "").split())
-    if phone and not _PHONE.match(phone):
-        raise UserError("Mobile number: digits, optionally starting with + and the country code")
-    city, state, country = (" ".join(str(body.get(k) or "").split()) for k in ("city", "state", "country"))
-    if not 1 <= len(city) <= 60 or not 2 <= len(country) <= 60 or len(state) > 60:
-        raise UserError("City and country are required (up to 60 characters each)")
+    city, state, country = (_plain(body.get(k)) for k in ("city", "state", "country"))
+    if not city or len(country) < 2:
+        raise UserError("City and country are required")
+    problem = (text_problem(city, "City", PLACE_MAX, _PLACE_JOINERS)
+               or (state and text_problem(state, "State", PLACE_MAX, _PLACE_JOINERS))
+               or text_problem(country, "Country", PLACE_MAX, _PLACE_JOINERS))
+    if problem:
+        raise UserError(problem)
+    phone = clean_phone(body.get("phone"), country)
     experience = str(body.get("trading_experience") or "")
     if experience not in EXPERIENCE:
         raise UserError("Choose a trading experience option")
@@ -249,8 +325,9 @@ def clean_signup(body: Dict) -> Dict:
     problem = password_problem(str(body.get("password") or ""), email, name)
     if problem:
         raise UserError(problem)
-    return {"email": email, "full_name": name, "date_of_birth": dob.isoformat(), "gender": gender,
-            "phone": phone, "city": city, "state": state, "country": country, "trading_experience": experience}
+    return {"email": email, "first_name": first, "last_name": last, "full_name": name,
+            "date_of_birth": dob.isoformat(), "gender": gender, "phone": phone, "city": city, "state": state,
+            "country": country, "trading_experience": experience}
 
 
 def sign_up(details: Dict, password: str) -> Optional[Dict]:
@@ -345,7 +422,7 @@ def _email(subject: str, heading: str, body: str, user: Dict, button: str = "", 
     html = ("<html><body style='font-family:Segoe UI,Arial,sans-serif;background:#f9fafb;padding:20px;'>"
             "<div style='max-width:560px;margin:auto;background:#fff;border-radius:10px;padding:24px;'>"
             f"<h2 style='margin-top:0;'>{escape(heading)}</h2>"
-            f"<p>Hello {escape(user['full_name'])},</p><p>{body}</p>{action}"
+            f"<p>Hello {escape(user.get('first_name') or user['full_name'])},</p><p>{body}</p>{action}"
             "<p style='color:#666;font-size:13px;'>If this was not you, ignore this email: nothing changes.</p>"
             "</div></body></html>")
     return NotificationManager._send_html_email(subject, html, [user["email"]])

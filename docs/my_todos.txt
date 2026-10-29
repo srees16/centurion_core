@@ -208,9 +208,16 @@ Rules:
 
 ~~~~~~~~~~~~
 
-Implement ideas from a PhD thesis to make centurion application more robust.
+Implement ideas from the pdf file to make centurion application more robust.
 
-THESIS: ProjectX/centurion_core/research_inbox/Sun_Shuo_PhD_Thesis.pdf
+Task: The math behind modern portfolio theory literally has a phase transition in it, the same kind of phase transition physicists study in spin glasses.
+
+When you have N stocks and only T days of historical data, the whole Markowitz optimization breaks down at exactly N/T = 1, no matter what stocks you pick or how their returns behave. The only way to prove this rigorously is a technique called the replica method, which is what Giorgio Parisi shared the 2021 Nobel Prize in Physics for.
+
+Derived the result from ProjectX/centurion_core/research_inbox/1606.08679v1.pdf, then code a Monte Carlo simulation to verify it. Run it with 9 different model setups and check if every single one collapses onto the same curve.
+
+PDF: ProjectX/centurion_core/research_inbox/1606.08679v1.pdf
+
 GOAL: implement the methods or replicate a result or audit my code against it or add checks/validation as applicable and relevant to centurion_core
 
 Do this:
