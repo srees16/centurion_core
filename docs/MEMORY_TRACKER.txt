@@ -263,6 +263,15 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      REJECT or WATCH (WATCH: decided again at 90 sessions, about 25 Jan
      2027).  ACCEPT: live may start at Rs 6 lakh after 5 clean dry runs, on
      your go-ahead.  REJECT: no live capital; 679cbd0c is not re-tuned.
+ >>> FRI 30 OCT - YOUR ACTIONS
+     1. Commit and merge RB5 (a live-order bug, both repos; uncommitted):
+        centurion_core api/routers/v1/kite.py,
+        kite_connect/trading/order_service.py,
+        tests/test_execution_and_costs.py, this file; centurion_core-fe
+        lib/api-client.ts, hooks/use-kite.ts,
+        components/kite/quick-trade-panel.tsx.  Either side may deploy
+        first, but the bug is only fully closed with both.
+     2. Your call: a maximum order value on manual orders (Quick Trade)?
  >>> THU 29 OCT - YOUR ACTIONS
      1. Commit and merge EM2 (email presentation, uncommitted):
         nse_engine/books.py, tools/books_report.py,
@@ -1200,6 +1209,36 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+30 Oct  RB5  Robustness audit against nautechsystems/nautilus_trader (LGPL-3;
+             ideas only; your ask), the first production engine in this
+             series: its risk engine in front of every order, client order
+             ids, an order state machine, in-flight reconciliation.  Found a
+             live-order bug: Quick Trade's POST /api/v1/kite/orders called
+             the broker directly, past order_service, and the browser's
+             api.post repeats any 5xx up to twice.  An order accepted at Kite
+             whose answer was lost was sent again: 3 POSTs on a 500, checked
+             with a stub.  It also skipped the whole-share check, retries
+             that read the book first, and the audit record.  Fixed: the
+             route takes a typed request (unknown fields and fractions
+             refused) and goes through place_order; place_order(dedupe=True)
+             reads the book for the tag before the first send (returns the
+             first order; an unreadable book sends nothing, status UNKNOWN);
+             failures are 4xx, never 5xx; the browser sends once
+             (api.postOnce) with one key per confirmed order and says to
+             check Kite when no clear answer comes.  For every path:
+             order_refusal (LIMIT / SL need a positive finite price, SL /
+             SL-M a trigger, known types only), a last look at the book after
+             the final failed attempt (the order is live, or UNKNOWN), and a
+             lost audit write now logs a warning, not debug.  Changes to
+             call out: manual orders now email and persist like the others,
+             and regular orders outside market hours are refused here, not
+             at Kite.  The engine's path is unchanged except the last two.
+             Already covered: duplicates (any status not failed counts as
+             placed), reconciliation (ledger vs broker), intended orders
+             written before sending, kill switch, backoff, bar checks (RB1).
+             Not needed: Decimal (float64 drifts Rs 0.00013 over a million
+             postings), a rate limiter (plans are under 30 orders), a clock
+             abstraction (as_of already drives replays).
 29 Oct  EM2  Daily and Saturday emails in Calibri, easier to read, the words
              unchanged (your ask).  books.readable() runs on every summary
              email as sent (and the one-by-one fallback): each font becomes

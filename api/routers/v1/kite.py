@@ -4,10 +4,10 @@ Moved from v1_gateway.py (tracker H4), which includes this router under /api/v1.
 """
 
 import asyncio
-from typing import Any, Dict
+from typing import Dict, Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from api.dependencies import kite_call, get_kite_session
 from api.routers.v1.common import KITE_SESSION_INACTIVE, logger
@@ -317,33 +317,58 @@ async def kite_orders():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/kite/orders")
-async def kite_place_order(order: Dict[str, Any]):
-    """Place an order via Kite (swing and positional only: an intraday order is refused)."""
-    from kite_connect.trading.order_service import intraday_refusal, kill_switch_refusal, same_day_refusal
+class KiteOrderRequest(BaseModel):
+    """A manual order.  ``tag`` is the client's idempotency key: a repeat with the same tag returns the first order.
+    Unknown fields are refused rather than passed to the broker."""
 
-    refusal = intraday_refusal(order.get("product"), order.get("variety", "regular"))
+    model_config = ConfigDict(extra="forbid")
+
+    tradingsymbol: str = Field(min_length=1)
+    exchange: str = Field(min_length=1)
+    transaction_type: str
+    quantity: int = Field(gt=0)
+    order_type: str = "MARKET"
+    product: str = "CNC"
+    price: Optional[float] = None
+    trigger_price: Optional[float] = None
+    validity: str = "DAY"
+    variety: str = "regular"
+    tag: Optional[str] = None
+
+
+@router.post("/kite/orders")
+async def kite_place_order(order: KiteOrderRequest):
+    """Place a manual order through ``order_service.place_order``, the gate every order passes: whole shares,
+    prices, swing and positional only, kill switch, retries that check the book first, the audit record, and a
+    check of the book for this tag before sending (tracker RB5).  A failure is a 4xx, never a 5xx: a client may
+    repeat a 5xx, and an order can reach the exchange even when the answer does not reach us."""
+    from kite_connect.trading.order_service import (
+        intraday_refusal,
+        kill_switch_refusal,
+        place_order,
+        same_day_refusal,
+    )
+
+    refusal = intraday_refusal(order.product, order.variety)
     if refusal:
         raise HTTPException(status_code=422, detail=refusal)
     kite = get_kite_session()
     if not kite:
         raise HTTPException(status_code=409, detail=KITE_SESSION_INACTIVE)
-    refusal = await asyncio.to_thread(same_day_refusal, kite, order.get("tradingsymbol"), order.get("exchange"),
-                                      order.get("transaction_type"), order.get("product"),
-                                      order.get("variety", "regular"))
+    refusal = await asyncio.to_thread(same_day_refusal, kite, order.tradingsymbol, order.exchange,
+                                      order.transaction_type, order.product, order.variety)
     if refusal:
         raise HTTPException(status_code=422, detail=refusal)
-    refusal = await asyncio.to_thread(kill_switch_refusal, kite, order.get("tradingsymbol"), order.get("exchange"),
-                                      order.get("transaction_type"), order.get("quantity"), order.get("product"))
+    refusal = await asyncio.to_thread(kill_switch_refusal, kite, order.tradingsymbol, order.exchange,
+                                      order.transaction_type, order.quantity, order.product)
     if refusal:                                           # tracker DM0: the kill switch holds here too
         raise HTTPException(status_code=423, detail=refusal)
-    try:
-        variety = order.pop("variety", "regular")
-        order_id = await asyncio.to_thread(
-            kite.place_order,
-            variety=variety,
-            **order,
-        )
-        return {"order_id": str(order_id)}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    result = await asyncio.to_thread(
+        place_order, kite, symbol=order.tradingsymbol, exchange=order.exchange,
+        transaction_type=order.transaction_type, quantity=order.quantity, order_type=order.order_type,
+        product=order.product, price=order.price, trigger_price=order.trigger_price, validity=order.validity,
+        tag=order.tag, variety=order.variety, dedupe=True)
+    if result.get("success"):
+        return {"order_id": str(result.get("order_id")), "duplicate": bool(result.get("duplicate"))}
+    raise HTTPException(status_code=409 if result.get("status") == "UNKNOWN" else 422,
+                        detail=result.get("error") or "the order was not placed")

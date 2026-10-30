@@ -1,4 +1,5 @@
-"""Execution realism: fills come from prices the decision could not see, and cost money."""
+"""Execution realism: fills come from prices the decision could not see, and cost money; and every order passes
+one gate, so a repeated request or a lost answer never trades twice (RB5)."""
 from __future__ import annotations
 
 import numpy as np
@@ -116,3 +117,172 @@ def test_trading_costs_reduce_returns(store_path):
         "costs.spread_floor_bps": cfg.costs.spread_floor_bps * 3}), record=False)
     assert dear.metrics["cagr"] < cheap.metrics["cagr"]
     assert dear.metrics["cost_drag"] > cheap.metrics["cost_drag"]
+
+
+# ── RB5: the order gate ──────────────────────────────────────────────────
+
+class _Broker:
+    """A broker that accepts orders into a book.  ``lose`` answers are lost after the order is accepted, ``refuse``
+    calls fail before it is, and ``book_down`` makes the order book unreadable."""
+
+    def __init__(self, book=None, lose=0, refuse=0, book_down=False):
+        self.book, self.lose, self.refuse, self.book_down, self.sent = list(book or []), lose, refuse, book_down, 0
+
+    def positions(self):
+        return {"day": []}
+
+    def orders(self):
+        if self.book_down:
+            raise ConnectionError("order book down")
+        return self.book
+
+    def order_history(self, order_id):
+        return []
+
+    def place_order(self, **params):
+        if self.refuse:
+            self.refuse -= 1
+            raise ConnectionError("no route to host")
+        self.sent += 1
+        order_id = f"O{self.sent}"
+        self.book.append({"order_id": order_id, "tag": params["tag"], "status": "OPEN"})
+        if self.lose:
+            self.lose -= 1
+            raise TimeoutError("read timed out")
+        return order_id
+
+
+@pytest.fixture
+def gate(monkeypatch):
+    from kite_connect.trading import order_service as os_
+
+    monkeypatch.setattr(os_, "_is_nse_market_open", lambda: True)
+    monkeypatch.setattr(os_, "is_kill_switch_active", lambda: False)
+    monkeypatch.setattr(os_, "_persist_to_db", lambda *a, **k: None)
+    monkeypatch.setattr(os_, "_send_order_email", lambda *a, **k: None)
+    monkeypatch.setattr(os_, "_order_circuit", None)
+    monkeypatch.setattr(os_.time, "sleep", lambda *_: None)
+    return os_
+
+
+LIMIT = dict(symbol="RELIANCE", exchange="NSE", transaction_type="BUY", quantity=5, order_type="LIMIT", price=2500.0)
+
+
+@pytest.mark.parametrize("order_type, price, trigger, refused", [
+    ("MARKET", None, None, False), ("LIMIT", 100.5, None, False), ("SL", 100.0, 101.0, False),
+    ("SL-M", None, 101.0, False), ("MARKET", float("nan"), None, False),       # a market order's price is only a reference
+    ("LIMIT", None, None, True), ("LIMIT", 0, None, True), ("LIMIT", -5, None, True),
+    ("LIMIT", float("nan"), None, True), ("LIMIT", float("inf"), None, True), ("LIMIT", "abc", None, True),
+    ("SL", 100.0, None, True), ("SL", None, 101.0, True), ("SL-M", None, 0, True), ("BRACKET", 100.0, None, True),
+])
+def test_order_refusal_known_answers(order_type, price, trigger, refused):
+    from kite_connect.trading.order_service import order_refusal
+
+    assert bool(order_refusal(order_type, price, trigger)) is refused
+
+
+def test_an_impossible_price_never_reaches_the_broker(gate):
+    broker = _Broker()
+    assert gate.place_order(broker, **{**LIMIT, "price": 0})["success"] is False and broker.sent == 0
+
+
+def test_a_repeated_request_returns_the_first_order(gate):
+    """The browser repeated a 5xx: the same tag must not trade twice."""
+    broker = _Broker()
+    first = gate.place_order(broker, **LIMIT, tag="abc123", dedupe=True)
+    again = gate.place_order(broker, **LIMIT, tag="abc123", dedupe=True)
+    assert broker.sent == 1 and again["order_id"] == first["order_id"] and again["duplicate"] is True
+
+
+def test_a_rejected_order_may_be_placed_again(gate):
+    broker = _Broker(book=[{"order_id": "O0", "tag": "abc123", "status": "REJECTED"}])
+    assert gate.place_order(broker, **LIMIT, tag="abc123", dedupe=True)["order_id"] == "O1" and broker.sent == 1
+
+
+def test_an_unreadable_book_sends_nothing_when_deduping(gate):
+    broker = _Broker(book_down=True)
+    out = gate.place_order(broker, **LIMIT, tag="abc123", dedupe=True)
+    assert out["status"] == "UNKNOWN" and out["success"] is False and broker.sent == 0
+
+
+def test_without_dedupe_the_first_send_reads_no_book(gate):
+    """The engine checks its own tags: its path makes no extra call."""
+    broker = _Broker(book_down=True)
+    assert gate.place_order(broker, **LIMIT, tag="abc123")["success"] is True and broker.sent == 1
+
+
+def test_a_lost_answer_is_not_sent_again(gate):
+    broker = _Broker(lose=1)
+    out = gate.place_order(broker, **LIMIT, tag="abc123")
+    assert out["success"] is True and out["order_id"] == "O1" and broker.sent == 1
+
+
+def test_the_last_attempt_is_checked_against_the_book(gate):
+    """Every attempt failed, the last after reaching the exchange: the order is live, so it is not reported failed."""
+    broker = _Broker(refuse=2, lose=1)
+    out = gate.place_order(broker, **LIMIT, tag="abc123")
+    assert out["success"] is True and out["order_id"] == "O1" and broker.sent == 1
+
+
+def test_a_lost_last_answer_with_an_unreadable_book_is_unknown_not_failed(gate):
+    class Blind(_Broker):
+        def orders(self):
+            if self.sent or self.refuse < 2:
+                raise ConnectionError("order book down")
+            return []
+
+    out = gate.place_order(Blind(refuse=3), **LIMIT, tag="abc123")
+    assert out["status"] == "UNKNOWN" and out["success"] is False
+
+
+def test_a_refused_order_with_nothing_in_the_book_still_fails(gate):
+    broker = _Broker(refuse=3)
+    out = gate.place_order(broker, **LIMIT, tag="abc123")
+    assert out["success"] is False and "status" not in out and broker.sent == 0
+
+
+@pytest.fixture
+def route(gate, monkeypatch):
+    pytest.importorskip("fastapi")
+    from api.routers.v1 import kite as route_
+
+    monkeypatch.setattr(route_, "get_kite_session", lambda: route_._test_broker, raising=False)
+    return route_
+
+
+def _post(route_, broker, **fields):
+    import asyncio
+
+    route_._test_broker = broker
+    body = dict(tradingsymbol="RELIANCE", exchange="NSE", transaction_type="BUY", quantity=5, order_type="LIMIT",
+                price=2500.0, tag="abc123")
+    return asyncio.run(route_.kite_place_order(route_.KiteOrderRequest(**{**body, **fields})))
+
+
+def test_the_manual_route_goes_through_the_gate(route):
+    """The route used to call the broker directly, so a browser retry of a 5xx sent a real order again."""
+    broker = _Broker()
+    first, again = _post(route, broker), _post(route, broker)
+    assert broker.sent == 1 and first["order_id"] == again["order_id"] == "O1"
+    assert first["duplicate"] is False and again["duplicate"] is True
+
+
+def test_the_manual_route_answers_failures_with_a_4xx(route):
+    """Never a 5xx, which the browser would repeat."""
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as bad_price:
+        _post(route, _Broker(), price=0)
+    with pytest.raises(HTTPException) as unknown:
+        _post(route, _Broker(book_down=True))
+    with pytest.raises(HTTPException) as refused:
+        _post(route, _Broker(refuse=3))
+    assert (bad_price.value.status_code, unknown.value.status_code, refused.value.status_code) == (422, 409, 422)
+
+
+def test_the_manual_route_refuses_fractions_and_unknown_fields(route):
+    from pydantic import ValidationError
+
+    for bad in (dict(quantity=2.5), dict(quantity=0), dict(quantity=-1), dict(iceberg_legs=5)):
+        with pytest.raises(ValidationError):
+            _post(route, _Broker(), **bad)

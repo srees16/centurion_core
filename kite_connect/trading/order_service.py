@@ -19,6 +19,8 @@ import time
 import types
 from typing import Optional
 
+from kite_connect.trading.public_log import book_detail
+
 logger = logging.getLogger(__name__)
 
 
@@ -177,6 +179,33 @@ def whole_share_refusal(quantity) -> Optional[str]:
     return None
 
 
+ORDER_TYPES = frozenset({"MARKET", "LIMIT", "SL", "SL-M"})
+
+
+def order_refusal(order_type, price=None, trigger_price=None) -> Optional[str]:
+    """Why the order's type or prices cannot be sent, or None (tracker RB5): LIMIT and SL need a price, SL and SL-M a
+    trigger, each a positive finite number.  Refused here rather than left for Kite to reject."""
+    if order_type not in ORDER_TYPES:
+        return f"order type {order_type!r} is not one of {sorted(ORDER_TYPES)}"
+    needed = ((("price", price),) if order_type in ("LIMIT", "SL") else ()) + \
+             ((("trigger price", trigger_price),) if order_type in ("SL", "SL-M") else ())
+    for name, value in needed:
+        try:
+            ok = value is not None and math.isfinite(float(value)) and float(value) > 0
+        except (TypeError, ValueError):
+            ok = False
+        if not ok:
+            return f"a {order_type} order needs a positive {name}, got {value!r}"
+    return None
+
+
+def _placed_with_tag(orders, tag) -> Optional[dict]:
+    """The order in the book carrying ``tag`` at any stage short of rejection or cancellation, or None."""
+    from kite_connect.trading.order_status import order_placed
+
+    return next((o for o in orders if o.get("tag") == tag and order_placed(o.get("status"))), None)
+
+
 def intraday_refusal(product, variety=REGULAR_VARIETY) -> Optional[str]:
     """Why an order is refused as intraday, or None when it may go (CNC delivery, NRML for F&O)."""
     if str(product or "").upper() in INTRADAY_PRODUCTS:
@@ -215,7 +244,7 @@ def same_day_refusal(kite, symbol, exchange, transaction_type, product, variety=
 def place_order(kite, symbol, exchange, transaction_type, quantity,
                 order_type="MARKET", product="CNC", price=None,
                 trigger_price=None, validity="DAY", tag=None, is_exit=False,
-                variety=REGULAR_VARIETY):
+                variety=REGULAR_VARIETY, dedupe=False):
     """
     Place an order on Zerodha via Kite Connect.
 
@@ -253,6 +282,11 @@ def place_order(kite, symbol, exchange, transaction_type, quantity,
         accepted while the market is closed and released at the next open -
         what the engine's end-of-day session needs.  The market-hours guard
         applies to regular orders only.
+    dedupe : bool
+        Read the order book before the first send and return the order already
+        carrying this tag instead of placing another (tracker RB5).  For callers
+        that can repeat a request; the engine checks its own tags, so it stays
+        off by default.  An unreadable book sends nothing (status ``UNKNOWN``).
 
     Returns
     -------
@@ -266,6 +300,10 @@ def place_order(kite, symbol, exchange, transaction_type, quantity,
         logger.error("Order refused for %s: %s", symbol, refusal)
         return {"success": False, "error": refusal}
     quantity = int(float(quantity))
+    refusal = order_refusal(order_type, price, trigger_price)
+    if refusal:
+        logger.error("Order refused for %s: %s", symbol, refusal)
+        return {"success": False, "error": refusal}
 
     # ── Swing and positional only: no intraday product, variety or same-day round trip ──
     refusal = (intraday_refusal(product, variety)
@@ -306,7 +344,7 @@ def place_order(kite, symbol, exchange, transaction_type, quantity,
                                                "use variety='amo' after hours"}
 
     # Generate idempotency tag from order parameters (caller tag takes precedence)
-    from kite_connect.trading.order_status import kite_tag, order_placed
+    from kite_connect.trading.order_status import kite_tag
 
     if tag:
         idempotency_tag = kite_tag(tag)  # Kite: alphanumeric, max 20 chars (LN-T3)
@@ -315,6 +353,17 @@ def place_order(kite, symbol, exchange, transaction_type, quantity,
         idempotency_tag = hashlib.sha256(tag_seed.encode()).hexdigest()[:20]
 
     expected_price = price  # Track for slippage measurement
+
+    if dedupe:
+        try:
+            existing = _placed_with_tag(kite.orders() or [], idempotency_tag)
+        except Exception as exc:
+            msg = f"order status unknown: the order book could not be read before sending ({exc}); nothing was sent"
+            logger.error("%s %s x %s (tag=%s): %s", transaction_type, symbol, quantity, idempotency_tag, msg)
+            return {"success": False, "status": "UNKNOWN", "error": msg}
+        if existing:
+            logger.warning("Duplicate request for %s (tag=%s): the order already placed stands", symbol, idempotency_tag)
+            return {"success": True, "order_id": existing.get("order_id"), "duplicate": True}
 
     for attempt in range(_MAX_RETRIES):
         try:
@@ -332,10 +381,10 @@ def place_order(kite, symbol, exchange, transaction_type, quantity,
                     _send_order_email(symbol, exchange, transaction_type, int(quantity), price or 0, "-",
                                       "UNKNOWN", error=msg)
                     return {"success": False, "status": "UNKNOWN", "error": msg}
-                for o in orders:
-                    if o.get("tag") == idempotency_tag and order_placed(o.get("status")):
-                        logger.info("Idempotent duplicate detected for %s (tag=%s) — skipping retry", symbol, idempotency_tag)
-                        return {"success": True, "order_id": o.get("order_id")}
+                existing = _placed_with_tag(orders, idempotency_tag)
+                if existing:
+                    logger.info("Idempotent duplicate detected for %s (tag=%s) — skipping retry", symbol, idempotency_tag)
+                    return {"success": True, "order_id": existing.get("order_id")}
 
             params = dict(
                 tradingsymbol=symbol,
@@ -427,6 +476,21 @@ def place_order(kite, symbol, exchange, transaction_type, quantity,
                 )
                 time.sleep(wait)
                 continue
+            # The last attempt failed too, but it may have reached the exchange: its answer is what got lost (RB5)
+            time.sleep(_BACKOFF_SECONDS[attempt])
+            try:
+                existing = _placed_with_tag(kite.orders() or [], idempotency_tag)
+            except Exception as exc:
+                msg = f"order status unknown: the last attempt failed ({e}) and the book could not be read ({exc}); check Kite"
+                logger.error("%s %s x %s (tag=%s): %s", transaction_type, symbol, quantity, idempotency_tag, msg)
+                _persist_to_db(symbol, exchange, transaction_type, int(quantity), order_type, product, price,
+                               success=False, error_msg=msg, status_text="UNKNOWN")
+                _send_order_email(symbol, exchange, transaction_type, int(quantity), price or 0, "-",
+                                  "UNKNOWN", error=msg)
+                return {"success": False, "status": "UNKNOWN", "error": msg}
+            if existing:
+                logger.warning("The last attempt for %s failed but the order is in the book (tag=%s)", symbol, idempotency_tag)
+                return {"success": True, "order_id": existing.get("order_id")}
             result = {"success": False, "error": str(e)}
             _persist_to_db(symbol, exchange, transaction_type, int(quantity),
                            order_type, product, price, success=False, error_msg=str(e))
@@ -457,8 +521,9 @@ def _persist_to_db(symbol, exchange, side, quantity, order_type, product,
             fill_price=fill_price, filled_qty=filled_qty,
             status_text=status_text,
         )
-    except Exception as exc:
-        logger.debug("Order DB persist failed (non-fatal): %s", exc)
+    except Exception as exc:                              # RB5: the audit record of a real order was lost: say so
+        logger.warning("Order DB persist failed (non-fatal): %s", exc,
+                       extra=book_detail(f"Order DB persist failed ({type(exc).__name__})"))
 
     # T3-4: Persist slippage to analytics log for aggregate tracking
     if slippage_bps > 0 and success:
