@@ -228,6 +228,21 @@ def presence_gaps(view, cfg) -> List[str]:
     return gaps
 
 
+def warn_if_no_holiday_list(today=None) -> Optional[int]:
+    """Email the owner, about once a week (``once=True``), while NSE's holiday list for this year, or from 15 December
+    next year's, is missing from ``nse_engine.nse_calendar`` (tracker RB7); returns that year."""
+    from nse_engine.nse_calendar import holiday_list_missing
+    from services.notifications.alerts import WARNING, alert
+
+    year = holiday_list_missing(today or datetime.now(_IST).date())
+    if year:
+        alert(WARNING, f"holiday_list:{year}", f"Centurion: NSE's {year} holiday list is missing",
+              ["Add it to nse_engine/nse_calendar.py (HOLIDAYS and HOLIDAY_YEARS).",
+               f"Until then every weekday of {year} counts as a trading day: a holiday reads as stale data, so no "
+               "orders are planned on it, and the market ribbon shows open."], once=True)
+    return year
+
+
 def live_order_outcomes(kite, as_of) -> List[dict]:
     """What became of the engine's orders for the session decided on ``as_of``.
 
@@ -254,7 +269,7 @@ def live_order_outcomes(kite, as_of) -> List[dict]:
             kind = "complete"
         elif status in ("REJECTED",):
             kind = "rejected"
-        elif status in ("CANCELLED",):
+        elif status.startswith("CANCELLED"):              # an after-market order cancelled reads CANCELLED AMO
             kind = "partial" if filled > 0 else "cancelled"
         elif filled > 0:
             kind = "partial"
@@ -638,6 +653,8 @@ class EngineExecutor:
             logger.debug("Freshness check unavailable: %s", exc)
 
         view = data.until(as_of) if hasattr(data, "until") else data
+        if not replay and self._as_of_is_live(as_of):
+            warn_if_no_holiday_list()
         gaps = presence_gaps(view, cfg) if not replay and self._as_of_is_live(as_of) else []
         if gaps:                                          # LN-T19: still plan; the trends carry the gap
             plan.notes.append("data gap: " + "; ".join(gaps))

@@ -3,8 +3,7 @@ Options theory engine: Zerodha Varsity Module 5 (see docs/options/CONCEPTS.md).
 
 Payoffs and moneyness (ch. 3 to 8), Black-Scholes price and Greeks with an
 implied-volatility solver and put-call parity (ch. 9 to 14, 19 to 21),
-volatility, expected ranges and the ch. 18 applications (15 to 18, 20), and
-delta hedging: the delta-neutral hedge and a rebalanced-hedge simulation.
+volatility, expected ranges and the ch. 18 applications (15 to 18, 20).
 
 Conventions (CONCEPTS.md § Conventions): P&L per unit of underlying, + = money
 in; T = calendar days / 365; theta per calendar day, vega per volatility
@@ -233,56 +232,6 @@ def position_greeks(items: Iterable[Tuple[float, Greeks]]) -> Greeks:
     for qty, g in items:
         total = total + g.scaled(qty)
     return total
-
-
-def delta_neutral_units(items: Iterable[Tuple[float, Greeks]]) -> float:
-    """Units of the underlying to buy (negative: sell) for a delta-neutral position: minus its net delta.  A
-    short call of delta 0.64 needs 0.64 of a share; the share's gain then offsets the call's loss for small moves."""
-    return -position_greeks(items).delta
-
-
-def delta_hedge_simulation(spot: float, strike: float, days_to_expiry: float, rate: float, iv: float,
-                           n_paths: int = 2000, rebalances: int = 252, drift: Optional[float] = None,
-                           realised_vol: Optional[float] = None, seed: int = 0,
-                           days_per_year: int = 365) -> Dict[str, float]:
-    """Sell one call at its Black-Scholes price and hold delta shares against it, rebalanced ``rebalances`` times
-    to expiry and self-financed at ``rate``, on ``n_paths`` geometric Brownian paths; the final P&L per call,
-    hedged and unhedged (the premium earning ``rate``, the payoff paid).
-
-    ``drift``: the stock's real-world annual drift (default ``rate``).  ``realised_vol``: the paths' volatility
-    (default ``iv``); a different one leaves the hedged P&L a gamma gain or loss, not only noise.
-    """
-    if n_paths < 2 or rebalances < 1:
-        raise ValueError("need at least 2 paths and 1 rebalance")
-    t = days_to_expiry / days_per_year
-    if t <= 0 or iv <= 0 or spot <= 0 or strike <= 0:
-        raise ValueError("needs time to expiry, a positive volatility, spot and strike")
-    mu = rate if drift is None else drift
-    vol = iv if realised_vol is None else realised_vol
-    dt = t / rebalances
-    rng = np.random.default_rng(seed)
-    premium = black_scholes(CALL, spot, strike, days_to_expiry, rate, iv, days_per_year=days_per_year)
-
-    def call_delta(s: np.ndarray, tau: float) -> np.ndarray:
-        d1 = (np.log(s / strike) + (rate + 0.5 * iv * iv) * tau) / (iv * math.sqrt(tau))
-        return norm.cdf(d1)
-
-    s = np.full(n_paths, float(spot))
-    shares = np.full(n_paths, premium.delta)
-    cash = premium.price - shares * s                     # premium in, the first hedge bought
-    for i in range(1, rebalances + 1):
-        s = s * np.exp((mu - 0.5 * vol * vol) * dt + vol * math.sqrt(dt) * rng.standard_normal(n_paths))
-        cash = cash * math.exp(rate * dt)
-        if i < rebalances:                                # rebalance to the new delta at this close
-            new = call_delta(s, t - i * dt)
-            cash -= (new - shares) * s
-            shares = new
-    payoff = np.maximum(s - strike, 0.0)
-    hedged = cash + shares * s - payoff
-    unhedged = premium.price * math.exp(rate * t) - payoff
-    return {"premium": premium.price, "delta": premium.delta, "n_paths": n_paths, "rebalances": rebalances,
-            "hedged_mean": float(hedged.mean()), "hedged_sd": float(hedged.std(ddof=1)),
-            "unhedged_mean": float(unhedged.mean()), "unhedged_sd": float(unhedged.std(ddof=1))}
 
 
 # ----------------------------------------------------------- ch. 15 to 18, 20

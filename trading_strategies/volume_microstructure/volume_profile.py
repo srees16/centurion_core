@@ -234,7 +234,7 @@ class VolumeProfileStrategy(BaseStrategy):
         signals["poc"] = np.nan
         signals["va_high"] = np.nan
         signals["va_low"] = np.nan
-        signals["positions"] = 0
+        signals["positions"] = np.nan                     # 1 at a buy, 0 at a sell, unset where neither happens
         signals["signals"] = 0
 
         for i in range(profile_lb, len(signals)):
@@ -259,8 +259,8 @@ class VolumeProfileStrategy(BaseStrategy):
             elif poc > 0 and price < poc and close.iloc[i - 1] >= poc:
                 signals.iloc[i, signals.columns.get_loc("positions")] = 0
 
-        # Forward-fill positions
-        signals["positions"] = signals["positions"].replace(0, np.nan).ffill().fillna(0).astype(int)
+        # Each decision holds until the next one
+        signals["positions"] = signals["positions"].ffill().fillna(0).astype(int)
         signals["signals"] = signals["positions"].diff().fillna(0)
         return signals
 

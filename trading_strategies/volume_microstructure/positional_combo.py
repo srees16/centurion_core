@@ -37,7 +37,7 @@ from strategies.base_strategy import (
 )
 from strategies.registry import StrategyRegistry
 from strategies.data_service import DataService
-from strategies.utils import matplotlib_to_base64, calculate_rsi
+from strategies.utils import calculate_rsi, matplotlib_to_base64, running_avwap, volume_anchors
 
 
 @StrategyRegistry.register_decorator
@@ -256,37 +256,16 @@ class PositionalComboStrategy(BaseStrategy):
     ) -> pd.Series:
         """Return +1 / -1 / 0 based on Anchored VWAP bounce/reject."""
         close = df["Close"]
-        high = df["High"]
-        low = df["Low"]
         volume = df["Volume"] if "Volume" in df.columns else pd.Series(1, index=df.index)
 
-        # Find anchor: most recent bar with volume above percentile
-        vol_threshold = volume.quantile(vol_pctile / 100.0)
-        anchor_bars = volume[volume >= vol_threshold].index
+        anchors = volume_anchors(volume, vol_pctile)
+        vwap = running_avwap(df, anchors).to_numpy(dtype=float)
 
         sig = pd.Series(0, index=df.index)
-        if len(anchor_bars) == 0:
-            return sig
-
-        # Compute AVWAP from most recent anchor
-        tp = (high + low + close) / 3
         for i in range(len(df)):
-            # Find latest anchor at or before i
-            valid_anchors = [a for a in anchor_bars if a <= df.index[i]]
-            if not valid_anchors:
+            avwap = vwap[i]
+            if not np.isfinite(avwap) or anchors.iloc[i]:     # no anchor yet, or the anchor bar itself
                 continue
-            anchor = valid_anchors[-1]
-            anchor_loc = df.index.get_loc(anchor)
-            cur_loc = df.index.get_loc(df.index[i])
-            if cur_loc <= anchor_loc:
-                continue
-
-            slc = slice(anchor_loc, cur_loc + 1)
-            cum_tp_vol = (tp.iloc[slc] * volume.iloc[slc]).sum()
-            cum_vol = volume.iloc[slc].sum()
-            if cum_vol == 0:
-                continue
-            avwap = cum_tp_vol / cum_vol
 
             cur_close = close.iloc[i]
             # Buy bounce: price touches AVWAP from above and holds
@@ -351,6 +330,8 @@ class PositionalComboStrategy(BaseStrategy):
         combo[buy_count >= min_agree] = 1
         combo[sell_count >= min_agree] = -1
         signals["signal"] = combo
+        # A buy opens the position and a sell closes it (delivery cannot short); it is held in between
+        signals["positions"] = combo.replace({0: np.nan, -1: 0}).ffill().fillna(0).astype(int)
 
         return signals
 
@@ -359,12 +340,8 @@ class PositionalComboStrategy(BaseStrategy):
     def _calculate_portfolio(
         self, signals: pd.DataFrame, capital: float, risk: RiskParams,
     ) -> pd.DataFrame:
-        portfolio = signals[["Close"]].copy()
-        portfolio.rename(columns={"Close": "close"}, inplace=True)
-        portfolio["position"] = signals["signal"].shift(1).fillna(0)
-        portfolio["returns"] = portfolio["close"].pct_change().fillna(0)
-        portfolio["strategy_returns"] = portfolio["position"] * portfolio["returns"]
-        portfolio["equity"] = capital * (1 + portfolio["strategy_returns"]).cumprod()
+        portfolio = self._calculate_portfolio_long_only(signals, capital, risk)
+        portfolio["equity"] = portfolio["total_value"]
         portfolio["drawdown"] = portfolio["equity"] / portfolio["equity"].cummax() - 1
         return portfolio
 

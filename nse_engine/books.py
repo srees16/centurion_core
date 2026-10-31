@@ -450,20 +450,52 @@ def _num(x: Any, digits: int = 2, signed: bool = False) -> str:
     return (f"{x:+.{digits}f}" if signed else f"{x:.{digits}f}") if _finite(x) else NA
 
 
-_TD = "padding:5px 10px;border:1px solid #e5e7eb;"
+_TD = "padding:6px 10px;border:1px solid #e5e7eb;vertical-align:top;"
 _COLOURS = {PASS: "#15803d", FAIL: "#dc2626", PENDING: "#b45309", NA: "#6b7280"}
+
+#: The paper emails' typeface (your call, 29 Oct 2026, tracker EM2): Calibri, then its metric twin Carlito and the
+#: previous faces where Calibri is not installed (Apple Mail and iOS lack it without Office).  Unquoted, so it fits
+#: inside both single- and double-quoted style attributes.
+EMAIL_FONT = "Calibri, Carlito, Segoe UI, Arial, sans-serif"
+#: Calibri sets smaller than Segoe UI at the same size, so every inline size grows by this much, never below the floor.
+EMAIL_SCALE, EMAIL_MIN_PX = 1.12, 12
+
+
+def readable(html: str) -> str:
+    """The daily and Saturday emails as sent (tracker EM2): presentation only, the text untouched.  Every inline font
+    family but monospace becomes ``EMAIL_FONT``, every inline pixel size grows by ``EMAIL_SCALE`` (at least
+    ``EMAIL_MIN_PX``), and a head adds line spacing and list spacing for the mail apps that read one."""
+    import re
+
+    if "<!-- EM2 -->" in html:                            # already done: a second pass would grow the sizes again
+        return html
+
+    def family(m: "re.Match") -> str:
+        return m.group(0) if "monospace" in m.group(1) else f"font-family:{EMAIL_FONT}"
+
+    def size(m: "re.Match") -> str:
+        return f"font-size:{max(EMAIL_MIN_PX, round(float(m.group(1)) * EMAIL_SCALE))}px"
+
+    out = re.sub(r"font-family:\s*([^;\"'>]+)", family, html)
+    out = re.sub(r"font-size:\s*(\d+(?:\.\d+)?)px", size, out)
+    head = (f"<head><meta charset='utf-8'><style>body,p,li,td,th,div{{font-family:{EMAIL_FONT};}}"
+            "p,li,td,th{line-height:1.5;}li{margin-bottom:5px;}</style></head>")
+    out = re.sub(r"<html>(?!\s*<head>)", "<html>" + head, out, count=1)
+    return "<!-- EM2 -->" + out
 
 
 def _html_table(columns: Sequence[str], rows: Sequence[Sequence[Any]]) -> str:
-    head = "".join(f"<th style='{_TD}background:#f3f4f6;text-align:left;'>{c}</th>" for c in columns)
+    head = "".join(f"<th style='{_TD}background:#eef2f7;color:#111827;font-weight:bold;text-align:left;'>{c}</th>"
+                   for c in columns)
     body = ""
-    for r in rows:
+    for i, r in enumerate(rows):
         cells = ""
         for v in r:
             colour = _COLOURS.get(str(v), "")
-            style = f"{_TD}" + (f"color:{colour};font-weight:bold;" if colour else "")
+            style = (f"{_TD}" + (f"color:{colour};font-weight:bold;" if colour else "")
+                     + ("white-space:nowrap;" if len(str(v)) <= 14 else ""))    # amounts and dates stay on one line
             cells += f"<td style='{style}'>{v}</td>"
-        body += f"<tr>{cells}</tr>"
+        body += f"<tr style='background:{'#ffffff' if i % 2 == 0 else '#f9fafb'};'>{cells}</tr>"
     return f"<table style='border-collapse:collapse;width:100%;font-size:13px;margin:6px 0 14px;'>" \
            f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
 
@@ -965,20 +997,22 @@ def _book_sections(days: Sequence[DayBook], kept_on: date, what: str = "report")
 
 
 def _email(title: str, subtitle: str, body: str, tracker: str) -> str:
-    return ("<html><body style='font-family:Segoe UI,Arial,sans-serif;background:#f9fafb;padding:20px;'>"
+    return ("<html><body style='font-family:Segoe UI,Arial,sans-serif;font-size:13px;line-height:1.5;color:#1f2937;"
+            "background:#f9fafb;padding:20px;'>"
             "<a name='summary'></a><div id='summary' style='max-width:1000px;margin:0 auto;background:#fff;"
             "border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.08);overflow:hidden;'>"
             f"<div style='background:#1a1a2e;padding:16px 24px;'><h2 style='margin:0;color:#fff;font-size:18px;'>{title}</h2>"
             f"<p style='margin:4px 0 0;color:#9ca3af;font-size:13px;'>{subtitle}</p></div>"
             f"<div style='padding:20px 24px;'>{body}</div>"
-            "<div style='padding:12px 24px;background:#f3f4f6;font-size:11px;color:#999;text-align:center;'>"
+            "<div style='padding:12px 24px;background:#f3f4f6;font-size:11px;color:#6b7280;text-align:center;'>"
             f"Centurion paper books &bull; {tracker} &bull; auto-generated</div></div></body></html>")
 
 
 def _summary_body(columns: Sequence[str], table: Sequence[Sequence[Any]], findings: Sequence[str], footer: str) -> str:
     return (_html_table(columns, table)
-            + "<h3 style='color:#1a1a2e;margin:18px 0 6px;'>Findings</h3><ul style='font-size:13px;color:#333;'>"
-            + "".join(f"<li>{f}</li>" for f in findings) + "</ul>"
+            + "<h3 style='color:#1a1a2e;margin:22px 0 8px;'>Findings</h3>"
+            + "<ul style='font-size:13px;color:#1f2937;padding-left:20px;margin:0;'>"
+            + "".join(f"<li style='margin-bottom:6px;'>{f}</li>" for f in findings) + "</ul>"
             + f"<p style='font-size:12px;color:#666;margin-top:18px;'>{footer}</p>")
 
 

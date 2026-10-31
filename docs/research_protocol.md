@@ -58,9 +58,10 @@ containing:
 4. **Data and window.** The 2013–25 test window; the 2007–25 window,
    reported only; 2026 is the sealed holdout, opened once per family.
    Anything headed for live money is also tested on 2008–25 (section 6,
-   your rule). Where no 2008 data exists (stock futures before 2013, filings
-   before 2012), the pre-registration states the gap, and going live
-   without 2008 is your call. Each January the window rolls forward (RF1, from Jan 2027): the past year joins the test window and the new year becomes the sealed holdout. Also
+   your rule). Where no 2008 data exists (filings before 2012), the
+   pre-registration states the gap, and going live without 2008 is your
+   call. Stock futures before 2013 are in the raw F&O archive, not the
+   store: build those years for the test. Each January the window rolls forward (RF1, from Jan 2027): the past year joins the test window and the new year becomes the sealed holdout. Also
    the store and its data hash.
 5. **Costs and sizing.** Every instrument at its own current cost model,
    at its dated rates: `nse_engine.costs` for stocks and ETFs, `fno_costs`

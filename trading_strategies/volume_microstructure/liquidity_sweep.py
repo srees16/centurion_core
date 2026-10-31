@@ -178,7 +178,7 @@ class LiquiditySweepStrategy(BaseStrategy):
         swing_low = low.rolling(window=swing_lb * 2 + 1, min_periods=swing_lb + 1).min()
 
         # Detect sweeps
-        signals["positions"] = 0
+        signals["positions"] = np.nan                     # 1 at a buy, 0 at a sell, unset where neither happens
         signals["signals"] = 0
         signals["sweep_type"] = ""
 
@@ -208,8 +208,8 @@ class LiquiditySweepStrategy(BaseStrategy):
                     signals.iloc[i, signals.columns.get_loc("positions")] = 0
                     signals.iloc[i, signals.columns.get_loc("sweep_type")] = "bull_sweep"
 
-        # Forward-fill positions, generate trade signals
-        signals["positions"] = signals["positions"].replace(0, np.nan).ffill().fillna(0).astype(int)
+        # Each decision holds until the next one
+        signals["positions"] = signals["positions"].ffill().fillna(0).astype(int)
         signals["signals"] = signals["positions"].diff().fillna(0)
 
         return signals

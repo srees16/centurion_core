@@ -1369,7 +1369,7 @@ class AutoExecutor:
     def _place_orders(
         self, plans: List[TradePlan], _cb
     ) -> List[OrderResult]:
-        from kite_connect.trading.order_service import place_order, get_order_book
+        from kite_connect.trading.order_service import place_order
         from kite_connect.trading.trade_monitor import TradeMonitor, MonitoredTrade
 
         results: List[OrderResult] = []
@@ -1452,15 +1452,24 @@ class AutoExecutor:
         # â”€â”€ Duplicate check: skip symbols with open BUY orders â”€â”€â”€â”€â”€
         existing_symbols: set = set()
         try:
-            order_book = get_order_book(self.kite)
-            for o in order_book:
-                if (
-                    o.get("status") in ("OPEN", "TRIGGER PENDING", "COMPLETE")
-                    and o.get("transaction_type") in ("BUY", "SELL")
-                ):
-                    existing_symbols.add(o.get("tradingsymbol", ""))
-        except Exception:
-            pass  # proceed without dedup if order book fails
+            order_book = self.kite.orders() or []
+        except Exception as exc:  # a buy may already be working, so none is sent (tracker RB6)
+            logger.error("Order book unreadable, buys held back: %s", exc)
+            _cb("⛔ Order book unreadable — buys held back, exits continue")
+            results += [OrderResult(
+                symbol=p.symbol, side=p.side,
+                quantity=p.quantity, entry_price=p.entry_price,
+                stop_loss=p.stop_loss, target_price=p.target_price,
+                success=False, error="Order book unreadable — a duplicate cannot be ruled out",
+            ) for p in plans if p.side == "BUY"]
+            plans = [p for p in plans if p.side != "BUY"]
+            order_book = []
+        for o in order_book:
+            if (
+                o.get("status") in ("OPEN", "TRIGGER PENDING", "COMPLETE")
+                and o.get("transaction_type") in ("BUY", "SELL")
+            ):
+                existing_symbols.add(o.get("tradingsymbol", ""))
 
         # â”€â”€ Monitor for post-trade SL/TP lifecycle (reuse existing) â”€
         monitor = None

@@ -7,7 +7,7 @@ Robustness still comes from what you already have: walk-forward, holdout, PBO, d
 
 *success criterion should be highest Sharpe + lowest max DD, not a CAGR number. A config with 45%+ CAGR and 0.90 Sharpe is far better than 60% CAGR and 0.50 Sharpe, because the former will survive in live trading while the latter will blow up.*
 
-
+/Users/sreekanths/Desktop/ProjectX/centurion_core/data/nse_engine
 ┌──────────────────────────────────────────────────────────────────────┐
 │  PERFORMANCE SUMMARY — CURRENT BOOKS (RR2, 10 Oct 2026)             │
 ├──────────────┬────────┬────────┬────────┬────────┬─────────┬────────┤
@@ -90,7 +90,6 @@ R19C benchmark: CAGR=48.78%, Sharpe=1.025, MaxDD=67.41%
 R19C Signal weights (winner):
 momentum=16%, mean_reversion=13%, penfold_trend=12%, ehlers_dsp=12%, ewmac_16_64=9%, ewmac_64_256=8%, carver_value=7%, breakout=7%, ewmac_8_32=7%, screener=5%, acceleration=4%
 
-R21A OOS metrics (Sharpe=2.093, CAGR=74.1%, MaxDD=25.2%)
 R21A Full Period: Sharpe=1.181, CAGR=32.7%, MaxDD=29.6%, Calmar=1.1, PBO=27.1%
 
 ~~~~~~
@@ -180,7 +179,9 @@ Rules:
 
 Study the reference GitHub repo and apply its ideas to make Centurion more robust. BEFORE APPLYING THE IDEAS, VALIDATE IF CENTURION ACTUALLY NEEDS IT AND ONLY THEN APPLY THE IDEAS!
 
-REFERENCE REPO: <repo url>
+REFERENCE REPO: https://github.com/Jakeschincariol/day-trader-skill
+
+verify if modules, code, patterns, approach discussed in the github repo would enhance centurion_core's workflow for Ind stocks.
 
 Do this:
 1. Analyze the reference repo. List the robustness patterns it uses, each with the file/function where it lives. Check especially for:
@@ -241,3 +242,6 @@ Rules:
 - Never silently change calculation results. Fail loudly on bad data. No placeholders or "TODO: implement."
 - Keep explanations short. Code and tests first.
 - Highlight any useful new findings from the transcript which was not implemented earlier.
+
+~~~~~~~~~~~~~
+
