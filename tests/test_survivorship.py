@@ -17,8 +17,9 @@ import pytest
 from nse_engine.config import EngineConfig, UniverseConfig
 from nse_engine.data.panel import liquid_symbols
 from nse_engine.data.reference import build_sector_map, load_sector_history
-from nse_engine.data.store import build_year_frames, invalid_bars
-from nse_engine.engine import EngineCache
+from nse_engine.data.reference import FOR_CAUSE_EXITS, load_for_cause_exits
+from nse_engine.data.store import build_year_frames, for_cause_exits, invalid_bars
+from nse_engine.engine import EngineCache, run_backtest
 from nse_engine.universe import compute_universe_panel
 
 UNIVERSE = UniverseConfig(top_n_liquid=40, min_history_days=60, liquidity_lookback_days=40,
@@ -178,3 +179,60 @@ def test_a_backtest_of_the_past_runs_without_todays_sector_map(store_path):
     assert data.sector_history, "the repo's dated snapshots must load"
     cache = EngineCache(data, cfg)
     assert cache.sectors_on(len(data.dates) - 1) == {}
+
+
+def _prints(closes, start="2020-02-03", symbol="X"):
+    days = pd.bdate_range(start, periods=len(closes))
+    return pd.DataFrame({"date": days, "symbol": symbol, "close": closes})
+
+
+def _left(symbol="X", close=100.0, day="2020-01-31"):
+    return pd.DataFrame({"date": [pd.Timestamp(day)], "close": [close]}, index=[symbol])
+
+
+def test_a_for_cause_exit_takes_the_price_a_holder_could_get():
+    """Twenty prints later, or the last one; a later gain is not credited; no later print is a normal exit."""
+    assert for_cause_exits(_prints([50.0 - i for i in range(30)]), _left()) == {"X": 0.31}
+    assert for_cause_exits(_prints([60.0, 40.0]), _left()) == {"X": 0.4}
+    assert for_cause_exits(_prints([150.0] * 25), _left()) == {"X": 1.0}
+    assert for_cause_exits(_prints([50.0], start="2019-01-01"), _left()) == {}, "a print before it left is no exit"
+    assert for_cause_exits(_prints([50.0], symbol="Y"), _left()) == {}
+
+
+def test_the_recorded_exits_are_sane_and_keep_buyouts_out():
+    ratios = load_for_cause_exits()
+    assert len(ratios) >= 200 and all(0 < r <= 1 for r in ratios.values())
+    assert ratios["BINANIIND"] < 0.2, "a known collapse"
+    assert not {"RANBAXY", "HEXAWARE", "PATNI", "BANKRAJAS"} & set(ratios), "a buyout's last close is a fair exit"
+    assert '"built_to": "2025-12-31"' in FOR_CAUSE_EXITS.read_text(), "2026 stays sealed"
+
+
+def test_a_bad_exit_ratio_is_refused(tmp_path):
+    path = tmp_path / "exits.json"
+    path.write_text('{"ratios": {"X": 1.5}}')
+    with pytest.raises(ValueError, match="must lie in"):
+        load_for_cause_exits(path)
+
+
+def test_a_held_stock_that_left_for_cause_is_sold_at_its_exit_ratio(panel, monkeypatch):
+    """The backtest fill falls by the ratio, and the US store's own rule is left alone."""
+    dates = panel.dates
+    cfg = EngineConfig().replace(start=str(dates[300].date()), end=str(dates[-1].date()),
+                                 **{"universe.top_n_liquid": 40, "universe.min_history_days": 60,
+                                    "universe.liquidity_lookback_days": 40, "universe.min_median_value_inr": 0.0,
+                                    "universe.min_price_inr": 0.0})
+    held = run_backtest(panel, cfg, record=False).weights.iloc[400]
+    name = held[held > 0].index[0]
+    gone = _delist(panel, name, after=dates.get_loc(held.name))
+
+    def fills(ratio):
+        monkeypatch.setattr("nse_engine.engine.load_for_cause_exits", lambda: {name: ratio})
+        trades = run_backtest(gone, cfg, record=False).trades
+        return trades[(trades["symbol"] == name) & (trades["reason"] == "delisted")]
+
+    whole, half = fills(1.0), fills(0.5)
+    assert len(whole) == len(half) == 1
+    assert float(half["price"].iloc[0]) == pytest.approx(float(whole["price"].iloc[0]) * 0.5, rel=1e-3)
+    assert EngineCache(gone, cfg).exit_ratio.min() == 0.5
+    assert EngineCache(gone, cfg.replace(**{"costs.market": "US"})).exit_ratio.min() == 1.0
+

@@ -345,6 +345,7 @@ async def kite_place_order(order: KiteOrderRequest):
     from kite_connect.trading.order_service import (
         intraday_refusal,
         kill_switch_refusal,
+        manual_value_refusal,
         place_order,
         same_day_refusal,
     )
@@ -363,6 +364,11 @@ async def kite_place_order(order: KiteOrderRequest):
                                       order.transaction_type, order.quantity, order.product)
     if refusal:                                           # tracker DM0: the kill switch holds here too
         raise HTTPException(status_code=423, detail=refusal)
+    refusal = await asyncio.to_thread(manual_value_refusal, kite, order.tradingsymbol, order.exchange,
+                                      order.transaction_type, order.quantity, order.order_type, order.price,
+                                      order.trigger_price, order.product)
+    if refusal:
+        raise HTTPException(status_code=422, detail=refusal)
     result = await asyncio.to_thread(
         place_order, kite, symbol=order.tradingsymbol, exchange=order.exchange,
         transaction_type=order.transaction_type, quantity=order.quantity, order_type=order.order_type,

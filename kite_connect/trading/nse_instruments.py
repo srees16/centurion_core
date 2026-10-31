@@ -14,9 +14,10 @@ The engine names a stock by its canonical symbol; Kite by its tradingsymbol,
 which carries the series for anything but EQ: a stock moved to BE (trade for
 trade) is ``SYM-BE`` and has no bare instrument, so an order for ``SYM`` is
 rejected (HFCL, MTARTECH and STLTECH trade only as BE in Oct 2026).
-``to_broker`` sends the bare symbol when Kite lists it, else ``SYM-BE`` (the
-only fallback, with a note: never other suffixes such as -RE rights or -D1),
-else nothing.  ``to_engine`` maps Kite's names back by removing a series
+``to_broker`` sends the bare symbol when Kite lists it, else ``SYM-BE``, and for
+an exit ``SYM-BZ``: a holding NSE moved to series BZ must stay sellable, a buy
+never goes there (SB3).  Those are the only fallbacks, each with a note: never
+other suffixes such as -RE rights or -D1.  ``to_engine`` maps Kite's names back by removing a series
 suffix, so holdings, orders and GTTs of ``SYM-BE`` belong to ``SYM``.
 """
 
@@ -97,12 +98,15 @@ def tick_for(symbol: str, price: float, ticks: Optional[Mapping[str, float]]) ->
 SERIES_SUFFIXES = ("BE", "BZ", "BL", "SM", "ST", "IL", "T0")
 
 
-def to_broker(symbol: str, ticks: Optional[Mapping[str, float]]) -> Tuple[Optional[str], str]:
+def to_broker(symbol: str, ticks: Optional[Mapping[str, float]],
+              exit_order: bool = False) -> Tuple[Optional[str], str]:
     """(Kite tradingsymbol or None, note) for the engine's ``symbol``; as is when the dump is unknown."""
     if ticks is None or symbol in ticks:
         return symbol, ""
     if f"{symbol}-BE" in ticks:
         return f"{symbol}-BE", f"{symbol} trades as {symbol}-BE (series BE, trade for trade)"
+    if exit_order and f"{symbol}-BZ" in ticks:
+        return f"{symbol}-BZ", f"{symbol} trades as {symbol}-BZ (series BZ, trade for trade): exit only"
     return None, f"{symbol}: not in Kite's NSE equity list (no EQ or BE instrument)"
 
 

@@ -1094,12 +1094,13 @@ class EngineExecutor:
 
         variety = variety or order_variety_now()
         ticks = ticks_for(self.kite) if self.kite is not None else None
-        floors = (self.next_lower_circuits([to_broker(o.symbol, ticks)[0] or o.symbol for o in plan.sells])
+        floors = (self.next_lower_circuits([to_broker(o.symbol, ticks, exit_order=True)[0] or o.symbol
+                                             for o in plan.sells])
                   if self.kite is not None and plan.sells else {})
         out = []
         for o in plan.sells + plan.buys:
             price, fallback, limit_note = float(o.limit_price), False, ""
-            broker, note = to_broker(o.symbol, ticks)       # SYM-BE for a stock in series BE (LN-T5)
+            broker, note = to_broker(o.symbol, ticks, exit_order=o.side == "SELL")  # SYM-BE, BE stock (LN-T5)
             if self.kite is not None:
                 tick, known = tick_for(broker or o.symbol, price, ticks)
                 if o.side == "SELL":                        # LN-T14: the exit band, clamped to the circuit

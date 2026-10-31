@@ -39,7 +39,7 @@ import pandas as pd
 
 from nse_engine.allocator import allocate, basket_vol
 from nse_engine.config import EngineConfig
-from nse_engine.costs import (COST_MODEL_VERSION, IDLE_CASH_YIELD_ANNUAL, fillable_open, fractional_units,
+from nse_engine.costs import (COST_MODEL_VERSION, IDLE_CASH_YIELD_ANNUAL, circuit_locks, fillable_open, fractional_units,
                                median_traded_value, simulate_fill)
 from nse_engine import live_rules as lr
 from nse_engine.drawdown import NORMAL as DD_NORMAL, DrawdownDecision, DrawdownTracker, summarise as dd_summarise
@@ -54,6 +54,7 @@ from nse_engine.portfolio import (
     stop_fill_price,
     trailing_stop,
 )
+from nse_engine.data.reference import load_for_cause_exits
 from nse_engine.regime import compute_regime, require_index_from
 from nse_engine.signals import compute_signal_panels, daily_returns, realised_vol
 from nse_engine.sleeves import compute_sleeve_panels, sleeve_weights
@@ -109,6 +110,14 @@ class EngineCache:
         n = len(self.dates)
         has = finite.any(axis=0)
         self.last_valid_pos = np.where(has, n - 1 - np.argmax(finite[::-1], axis=0), -1)
+        self.locked_down, self.locked_up = (circuit_locks(self.high, self.low, self.close)
+                                            if config.portfolio.respect_circuit_locks else (None, None))
+        # What a holder got for a stock that left for a restricted series (SB3); the US store has its own rule.
+        self.exit_ratio = np.ones(len(self.symbols))
+        if config.costs.market == "NSE":
+            for sym, ratio in load_for_cause_exits().items():
+                if sym in self.sym_index:
+                    self.exit_ratio[self.sym_index[sym]] = ratio
 
         returns_df = daily_returns(close_df)
         self.returns = returns_df.to_numpy()
@@ -529,6 +538,11 @@ def _live_fill(live: _LiveRules, cache: EngineCache, book: _Book, side: str, sym
     return px
 
 
+def _locked(locks: Optional[np.ndarray], u: int, j: int) -> bool:
+    """Whether a circuit lock stops this fill; ``None`` when ``respect_circuit_locks`` is off."""
+    return locks is not None and bool(locks[u, j])
+
+
 def _execute_order(book: _Book, cache: EngineCache, order: _Order, u: int, skip: set,
                    live: Optional[_LiveRules] = None) -> None:
     cfg = cache.config
@@ -546,6 +560,9 @@ def _execute_order(book: _Book, cache: EngineCache, order: _Order, u: int, skip:
         o = cache.open[u, j]
         if not np.isfinite(o) or o <= 0:
             book.notes.append(f"{date.date()} {sym}: no open, sell skipped")
+            continue
+        if _locked(cache.locked_down, u, j):
+            book.notes.append(f"{date.date()} {sym}: locked at its lower circuit, sell skipped")
             continue
         diff = h.quantity - tgt
         if tgt > 0 and diff * o < min_val:
@@ -575,6 +592,9 @@ def _execute_order(book: _Book, cache: EngineCache, order: _Order, u: int, skip:
         st = order.stops.get(sym) if sym not in book.positions else book.positions[sym].stop_price
         if st is not None and o <= st:
             book.notes.append(f"{date.date()} {sym}: open at/below stop, buy skipped")
+            continue
+        if _locked(cache.locked_up, u, j):
+            book.notes.append(f"{date.date()} {sym}: locked at its upper circuit, buy skipped")
             continue
         if live is not None:
             o = _live_fill(live, cache, book, "BUY", sym, j, u, dpos)
@@ -699,19 +719,19 @@ def run_backtest(
         date = dates[u]
         if u > s0 and book.cash > 0:
             book.cash += book.cash * daily_yield
-        # delisted symbols: liquidate at last close
+        # delisted symbols: liquidate at last close, less what a stock that left for cause fell after it (SB3)
         for sym in list(book.positions):
             j = cache.sym_index[sym]
             lv = cache.last_valid_pos[j]
             if lv < u:
                 h = book.positions[sym]
-                px = cache.close[lv, j] if lv >= 0 else np.nan
+                px = cache.close[lv, j] * cache.exit_ratio[j] if lv >= 0 else np.nan
                 fill = simulate_fill("SELL", h.quantity, px, cache.adv[max(lv, 0), j], date, cfg_costs, apply_cap=False,
                                      symbol=sym, fractional=frac)
                 book.cash += fill.value_inr - fill.cost_inr
                 del book.positions[sym]
                 _record_trade(book, date, sym, "SELL", fill, "delisted", frac)
-                book.notes.append(f"{date.date()} {sym}: stopped trading after {dates[lv].date()}; liquidated at last close {px:.2f}")
+                book.notes.append(f"{date.date()} {sym}: stopped trading after {dates[lv].date()}; liquidated at {px:.2f}")
         stopped_today: set = set()
         carried: set = set()                              # live: a triggered stop GTT that did not fill today
         # gap stops at the open
@@ -730,7 +750,7 @@ def run_backtest(
                     continue
                 if kind == lr.AT_LIMIT:
                     book.notes.append(f"{date.date()} {sym}: live: stop GTT filled at its limit")
-            if np.isfinite(o) and o <= h.stop_price:
+            if np.isfinite(o) and o <= h.stop_price and not _locked(cache.locked_down, u, j):
                 _sell(book, cache, sym, h.quantity, o, cache.adv[u - 1, j] if u > 0 else np.nan, date, "stop", False)
                 book.stopped_out[sym] = date
                 book.stopped_pos[sym] = u
@@ -749,7 +769,7 @@ def run_backtest(
                 continue                                  # live: its GTT is placed tonight, or already failed today
             j = cache.sym_index[sym]
             px = stop_fill_price(cache.open[u, j], cache.low[u, j], h.stop_price)
-            if px is not None:
+            if px is not None and not _locked(cache.locked_down, u, j):
                 _sell(book, cache, sym, h.quantity, px, cache.adv[u - 1, j] if u > 0 else np.nan, date, "stop", False)
                 book.stopped_out[sym] = date
                 book.stopped_pos[sym] = u

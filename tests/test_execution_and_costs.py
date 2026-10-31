@@ -1284,3 +1284,429 @@ def test_a_run_cannot_start_before_its_regime_index(panel):
     with pytest.raises(ValueError, match="regime index NIFTY50 starts"):
         EngineCache(panel, cfg.replace(start=str(dates[50].date()), end=str(dates[-1].date())))
 
+
+def test_a_stock_moved_to_series_bz_can_be_sold_but_never_bought(monkeypatch):
+    """A failing stock leaves EQ and BE: a holding must stay sellable (SB3), and nothing new goes there."""
+    from types import SimpleNamespace
+
+    from kite_connect.trading.nse_engine_executor import EngineExecutor
+    from kite_connect.trading.nse_instruments import to_broker, to_engine
+
+    ticks = {"DEAD-BZ": 0.01, "HFCL-BE": 0.01, "INFY": 0.05}
+    assert to_broker("DEAD", ticks, exit_order=True)[0] == "DEAD-BZ"
+    assert to_broker("DEAD", ticks) == (None, "DEAD: not in Kite's NSE equity list (no EQ or BE instrument)")
+    assert to_broker("HFCL", ticks)[0] == "HFCL-BE" and to_broker("INFY", ticks, exit_order=True) == ("INFY", "")
+    assert to_engine("DEAD-BZ") == "DEAD"
+
+    order = lambda side: SimpleNamespace(symbol="DEAD", side=side, limit_price=4.0, ref_price=4.0, quantity=10,  # noqa: E731
+                                         reason="delisted", current_qty=10, target_qty=0)
+    plan = SimpleNamespace(sells=[order("SELL")], buys=[order("BUY")], as_of="2026-10-30")
+    executor = EngineExecutor.__new__(EngineExecutor)
+    executor.kite, executor.next_lower_circuits = object(), lambda symbols: {}
+    monkeypatch.setattr("kite_connect.trading.nse_instruments.ticks_for", lambda kite: ticks)
+    sell, buy = executor.live_orders(plan, variety="amo")
+    assert sell["symbol"] == "DEAD-BZ" and sell["unresolved"] is None and "exit only" in sell["series_note"]
+    assert buy["symbol"] == "DEAD" and buy["unresolved"], "a buy is not resolved to a restricted series"
+
+
+def test_circuit_locks_known_answers():
+    """No range and a moved close is a lock; a flat day, a ranging day or a missing bar is not (RB8)."""
+    from nse_engine.costs import circuit_locks
+
+    nan = float("nan")
+    close = np.array([[100.0], [95.0], [99.75], [99.75], [nan], [94.76], [90.0], [90.0]])
+    high = np.array([[101.0], [95.0], [99.75], [99.75], [nan], [94.76], [91.0], [90.0]])
+    low = np.array([[99.0], [95.0], [99.75], [99.75], [nan], [94.76], [89.0], [nan]])
+    down, up = circuit_locks(high, low, close)
+    assert down[:, 0].tolist() == [False, True, False, False, False, True, False, False]
+    assert up[:, 0].tolist() == [False, False, True, False, False, False, False, False]
+
+
+def test_circuit_locks_properties():
+    """Over random panels: a bar is never both, a ranging bar is never a lock, and scaling prices changes nothing."""
+    from nse_engine.costs import circuit_locks
+
+    rng = np.random.default_rng(8)
+    for _ in range(50):
+        close = 100 * np.exp(np.cumsum(rng.normal(0, 0.03, (300, 6)), axis=0))
+        spread = rng.uniform(0, 1, close.shape) * (rng.uniform(0, 1, close.shape) > 0.1) * close * 0.02
+        high, low = close + spread, close - spread
+        close[rng.uniform(0, 1, close.shape) < 0.02] = np.nan
+        down, up = circuit_locks(high, low, close)
+        assert not (down & up).any()
+        assert not ((down | up) & (spread > 1e-3 * np.nan_to_num(close, nan=1e9))).any()
+        d2, u2 = circuit_locks(high * 37, low * 37, close * 37)
+        assert (d2 == down).all() and (u2 == up).all()
+
+
+def _locked_bar(panel, symbol, row, move):
+    """The panel with ``symbol`` frozen on ``row`` at ``move`` from the close before it."""
+    import dataclasses
+
+    frames = {n: getattr(panel, n).copy() for n in ("open", "high", "low", "close")}
+    col = frames["close"].columns.get_loc(symbol)
+    px = float(frames["close"].iloc[row - 1, col]) * (1 + move)
+    for f in frames.values():
+        f.iloc[row, col] = px
+    return dataclasses.replace(panel, **frames)
+
+
+def _lock_config(panel, on):
+    from nse_engine.config import EngineConfig
+
+    dates = panel.dates
+    return EngineConfig().replace(start=str(dates[300].date()), end=str(dates[-1].date()),
+                                  **{"portfolio.respect_circuit_locks": on, "universe.top_n_liquid": 40,
+                                     "universe.min_history_days": 60, "universe.liquidity_lookback_days": 40,
+                                     "universe.min_median_value_inr": 0.0, "universe.min_price_inr": 0.0})
+
+
+@pytest.mark.parametrize("side, move, opposite", [("SELL", -0.02, 0.02), ("BUY", 0.02, -0.02)])
+def test_a_locked_bar_stops_only_the_side_that_cannot_trade(panel, side, move, opposite):
+    """Off, the order fills on the locked day as before.  On, it does not; the free side still fills (RB8)."""
+    from nse_engine.engine import run_backtest
+
+    trades = run_backtest(panel, _lock_config(panel, False), record=False).trades
+    picked = trades[(trades["side"] == side) & (trades["reason"] == "rebalance") & (trades["date"] > panel.dates[320])]
+    trade = picked.sort_values("value_inr", ascending=False).iloc[0]
+    row, sym, day = panel.dates.get_loc(trade["date"]), trade["symbol"], trade["date"]
+
+    def fills(data, on):
+        out = run_backtest(data, _lock_config(data, on), record=False).trades
+        return out[(out["symbol"] == sym) & (out["side"] == side) & (out["date"] == day)]
+
+    locked = _locked_bar(panel, sym, row, move)
+    assert len(fills(locked, False)) == 1, "legacy behaviour is unchanged"
+    assert fills(locked, True).empty
+    assert len(fills(_locked_bar(panel, sym, row, opposite), True)) == 1, "the free side still trades"
+
+
+def test_a_stop_cannot_fill_on_a_locked_bar_and_goes_out_next_session(panel):
+    """A stop under a lower lock waits, as a real GTT would, then sells at the next tradable open (RB8)."""
+    from nse_engine.engine import run_backtest
+
+    trades = run_backtest(panel, _lock_config(panel, False), record=False).trades
+    stop = trades[(trades["side"] == "SELL") & (trades["reason"] == "stop") & (trades["date"] > panel.dates[320])].iloc[0]
+    row, sym, day = panel.dates.get_loc(stop["date"]), stop["symbol"], stop["date"]
+    data = _locked_bar(panel, sym, row, float(stop["price"]) / float(panel.close[sym].iloc[row - 1]) - 1.03)
+
+    def sells(on):
+        out = run_backtest(data, _lock_config(data, on), record=False).trades
+        return out[(out["symbol"] == sym) & (out["side"] == "SELL") & (out["date"] >= day)]
+
+    assert sells(False)["date"].iloc[0] == day, "legacy fills on the locked day"
+    held = sells(True)
+    assert held["date"].iloc[0] > day and held["reason"].iloc[0] == "stop"
+
+
+class _ValueBroker:
+    """Only what the manual limit reads: the last price and the long position."""
+
+    def __init__(self, ltp=1000.0, long_qty=0, fail=False):
+        self._ltp, self.long_qty, self.fail = ltp, long_qty, fail
+
+    def ltp(self, keys):
+        if self.fail:
+            raise RuntimeError("quotes down")
+        return {keys[0]: {"last_price": self._ltp}}
+
+
+@pytest.mark.parametrize("side, qty, kind, price, trigger, product, refused", [
+    ("BUY", 80, "LIMIT", 2500.0, None, "CNC", False),      # exactly Rs 2 lakh
+    ("BUY", 81, "LIMIT", 2500.0, None, "CNC", True),
+    ("BUY", 81, "SL", 2500.0, 2490.0, "CNC", True),
+    ("BUY", 81, "SL-M", None, 2500.0, "CNC", True),
+    ("BUY", 200, "MARKET", None, None, "CNC", False),
+    ("BUY", 201, "MARKET", None, None, "CNC", True),
+    ("SELL", 5000, "LIMIT", 2500.0, None, "CNC", False),   # an exit is never limited
+    ("SELL", 5000, "MARKET", None, None, "CNC", False),
+])
+def test_the_manual_limit_known_answers(side, qty, kind, price, trigger, product, refused):
+    from kite_connect.trading.order_service import manual_value_refusal
+
+    got = manual_value_refusal(_ValueBroker(), "RELIANCE", "NSE", side, qty, kind, price, trigger, product)
+    assert bool(got) is refused
+
+
+def test_the_manual_limit_refuses_a_market_buy_it_cannot_value_but_never_an_exit():
+    from kite_connect.trading.order_service import manual_value_refusal
+
+    down = _ValueBroker(fail=True)
+    assert "cannot value" in manual_value_refusal(down, "X", "NSE", "BUY", 1, "MARKET", None, None, "CNC")
+    assert manual_value_refusal(down, "X", "NSE", "SELL", 1, "MARKET", None, None, "CNC") is None
+
+
+def test_the_manual_limit_lets_a_verified_exit_go_and_caps_a_new_short(monkeypatch):
+    from kite_connect.trading import order_service as gate
+
+    monkeypatch.setattr(gate, "_long_quantity", lambda kite, s, e, p: 100)
+    args = ("NIFTYFUT", "NFO", "SELL")
+    assert gate.manual_value_refusal(_ValueBroker(), *args, 100, "LIMIT", 20000.0, None, "NRML") is None
+    assert gate.manual_value_refusal(_ValueBroker(), *args, 101, "LIMIT", 20000.0, None, "NRML")
+
+    def unreadable(*_):
+        raise RuntimeError("positions down")
+
+    monkeypatch.setattr(gate, "_long_quantity", unreadable)
+    assert gate.manual_value_refusal(_ValueBroker(), *args, 100, "LIMIT", 20000.0, None, "NRML"), "unverified is new risk"
+
+
+def test_the_manual_route_enforces_the_limit(route):
+    from fastapi import HTTPException
+
+    broker = _Broker()
+    with pytest.raises(HTTPException) as refused:
+        _post(route, broker, quantity=81)
+    assert refused.value.status_code == 422 and "manual limit" in refused.value.detail and broker.sent == 0
+    assert _post(route, broker, quantity=80)["order_id"] and broker.sent == 1
+
+
+NIFTY_LOT, BANKNIFTY_LOT = 65 * 23098.9, 30 * 54823.4     # Rs 15.0 and 16.4 lakh on 30 Oct 2026
+
+
+@pytest.mark.parametrize("capital, symbol, notional, refused", [
+    (600_000, "NIFTY26NOVFUT", NIFTY_LOT, True),
+    (1_200_000, "NIFTY26NOVFUT", NIFTY_LOT, True),
+    (2_100_000, "NIFTY26NOVFUT", NIFTY_LOT, False),
+    (3_000_000, "NIFTY26NOVFUT", 2 * NIFTY_LOT, True),
+    (1_200_000, "BANKNIFTY26NOVFUT", BANKNIFTY_LOT, True),
+    (2_100_000, "BANKNIFTY26NOVFUT", BANKNIFTY_LOT, False),
+    (600_000, "RELIANCE26NOVFUT", 340_000, False),
+    (600_000, "RELIANCE26NOVFUT", 350_000, True),
+    (1_200_000, "RELIANCE26NOVFUT", 580_000, False),
+    (2_100_000, "RELIANCE26NOVFUT", 1_210_000, False),
+    (2_100_000, "RELIANCE26NOVFUT", 1_220_000, True),
+])
+def test_the_manual_fo_limit_follows_the_capital_rungs(monkeypatch, capital, symbol, notional, refused):
+    """The stress loss stays within 15% of live capital: -17% on an index, -26% on a stock (MO2)."""
+    from kite_connect.trading.order_service import manual_value_refusal
+
+    monkeypatch.setenv("CENTURION_LIVE_CAPITAL", str(capital))
+    got = manual_value_refusal(_ValueBroker(), symbol, "NFO", "BUY", 1, "LIMIT", notional, None, "NRML")
+    assert bool(got) is refused
+
+
+@pytest.mark.parametrize("raw", ["", "lots", "-5", "0", "nan", "inf"])
+def test_a_missing_or_bad_capital_tightens_to_the_first_rung(monkeypatch, raw):
+    from kite_connect.trading.order_service import manual_fo_capital
+
+    monkeypatch.setenv("CENTURION_LIVE_CAPITAL", raw)
+    assert manual_fo_capital() == 300_000
+
+
+def test_manual_options_buy_up_to_the_budget_and_never_open_short(monkeypatch):
+    from kite_connect.trading import order_service as gate
+
+    monkeypatch.setenv("CENTURION_LIVE_CAPITAL", "600000")
+    monkeypatch.setattr(gate, "_long_quantity", lambda kite, s, e, p: 0)
+    buy = lambda q: gate.manual_value_refusal(_ValueBroker(), "NIFTY26NOV23000CE", "NFO", "BUY", q, "LIMIT", 100.0, None, "NRML")  # noqa: E731
+    assert buy(900) is None and buy(901)
+    short = gate.manual_value_refusal(_ValueBroker(), "NIFTY26NOV23000PE", "NFO", "SELL", 1, "LIMIT", 1.0, None, "NRML")
+    assert "no defined loss" in short
+    monkeypatch.setattr(gate, "_long_quantity", lambda kite, s, e, p: 65)
+    assert gate.manual_value_refusal(_ValueBroker(), "NIFTY26NOV23000PE", "NFO", "SELL", 65, "LIMIT", 1.0, None, "NRML") is None
+
+
+def test_an_unknown_contract_is_refused_and_a_cash_order_keeps_the_rupee_limit(monkeypatch):
+    from kite_connect.trading.order_service import manual_value_refusal
+
+    monkeypatch.setenv("CENTURION_LIVE_CAPITAL", "3000000")
+    assert "not a known" in manual_value_refusal(_ValueBroker(), "ODDSYMBOL", "NFO", "BUY", 1, "LIMIT", 1.0, None, "NRML")
+    assert manual_value_refusal(_ValueBroker(), "RELIANCE", "NSE", "BUY", 81, "LIMIT", 2500.0, None, "CNC")
+
+
+class _FakeClock:
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        assert seconds > 0
+        self.now += seconds
+
+
+@pytest.fixture
+def pace(monkeypatch):
+    from kite_connect.trading import order_service as gate
+
+    monkeypatch.setattr(gate, "_order_times", type(gate._order_times)(maxlen=gate.ORDERS_PER_SECOND))
+    return gate
+
+
+def test_no_second_ever_holds_more_than_ten_orders(pace):
+    """Property: over bursts and random gaps, any one-second span holds at most 10 sends (GT2H)."""
+    rng = np.random.default_rng(10)
+    for _ in range(50):
+        pace._order_times.clear()
+        clock, sent = _FakeClock(), []
+        for gap in rng.choice([0.0, 0.0, 0.0, 0.01, 0.2, 1.5], size=60):
+            clock.now += float(gap)
+            pace._pace_orders(clock, clock.sleep)
+            sent.append(clock.now)
+        times = np.array(sent)
+        assert all((times[i + pace.ORDERS_PER_SECOND] - times[i]) >= 1.0 for i in range(len(times) - pace.ORDERS_PER_SECOND))
+
+
+def test_ten_orders_go_at_once_and_the_eleventh_waits_its_second(pace):
+    clock = _FakeClock()
+    for _ in range(10):
+        pace._pace_orders(clock, clock.sleep)
+    assert clock.now == 1000.0
+    pace._pace_orders(clock, clock.sleep)
+    assert clock.now == pytest.approx(1001.0)
+
+
+def test_an_idle_book_never_waits(pace):
+    clock = _FakeClock()
+    for _ in range(40):
+        clock.now += 0.2
+        before = clock.now
+        pace._pace_orders(clock, clock.sleep)
+        assert clock.now == before
+
+
+def test_the_wait_holds_the_lock_so_no_other_thread_can_slip_past(pace):
+    clock = _FakeClock()
+    for _ in range(10):
+        pace._pace_orders(clock, clock.sleep)
+    held = []
+    pace._pace_orders(clock, lambda seconds: held.append(pace._order_pace_lock.locked()))
+    assert held == [True]
+
+
+def test_threads_cannot_break_the_limit(pace):
+    """Real clock: 15 sends from 15 threads, the last must wait for the window."""
+    import threading
+
+    stamps, lock = [], threading.Lock()
+
+    def send():
+        pace._pace_orders()
+        with lock:
+            stamps.append(pace.time.monotonic())
+
+    threads = [threading.Thread(target=send) for _ in range(15)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    stamps.sort()
+    assert len(stamps) == 15 and stamps[10] - stamps[0] >= 0.99
+
+
+@pytest.mark.parametrize("call", ["cancel", "modify"])
+def test_cancels_and_modifies_are_paced_too(monkeypatch, pace, call):
+    from unittest import mock
+
+    paced = mock.Mock()
+    monkeypatch.setattr(pace, "_pace_orders", paced)
+    kite = mock.Mock()
+    assert (pace.cancel_order(kite, "1") if call == "cancel" else pace.modify_order(kite, "1", price=10.0))["success"]
+    paced.assert_called_once()
+
+
+def test_every_order_send_is_paced_before_it_goes(monkeypatch, route):
+    from kite_connect.trading import order_service as svc
+
+    broker, seen = _Broker(), []
+    monkeypatch.setattr(svc, "_pace_orders", lambda: seen.append(broker.sent))
+    _post(route, broker)
+    assert seen == [0] and broker.sent == 1, "the wait comes before the send"
+
+
+# ---- the go-live ramp (GT2I)
+def _ladder(rung=0, sessions=100):
+    from nse_engine.capital_ladder import LadderState
+
+    return LadderState(rung=rung, since="2027-01-01", sessions=sessions, last_session="2027-06-01")
+
+
+def _ladder_gate(costs="PASS"):
+    names = ("tracking error", "daily gap", "drawdown", "regime break")
+    return {"checks": [{"name": n, "status": "PASS"} for n in names] + [{"name": "costs", "status": costs}]}
+
+
+def _ladder_eval(state, gate=None, ramp=None, requested=None):
+    from nse_engine.capital_ladder import evaluate
+
+    return evaluate(state, "2027-06-02", gate=gate or _ladder_gate(), drawdown_state="normal", book_dd=0.02,
+                    nifty_dd=0.02, shift_multipliers=[], requested_capital=requested, ramp=ramp)
+
+
+def _ramp(alarm=False, low=-1.0, volatility=True, turnover=True):
+    return {"cusum": {"low": low, "alarm": alarm, "sessions": 40},
+            "volatility": {"value": 1.0 if volatility else 1.6, "ok": volatility, "display": "1.00x"},
+            "turnover": {"value": 1.0 if turnover else 0.4, "ok": turnover, "display": "1.00x"}}
+
+
+def test_the_canary_needs_three_months_before_go():
+    held = _ladder(sessions=58)                    # evaluate counts tonight's session
+    assert "59 of 60 sessions" in _ladder_eval(held, requested=600_000).reasons[0]
+    assert held.rung == 0
+    moved = _ladder(sessions=59)
+    d = _ladder_eval(moved, ramp=_ramp(), requested=600_000)
+    assert d.action == "GO" and d.capital == 600_000 and moved.rung == 1
+
+
+@pytest.mark.parametrize("gate,ramp,why", [
+    (_ladder_gate("n/a"), _ramp(), "costs"),
+    (_ladder_gate("WATCH"), _ramp(), "costs"),
+    (_ladder_gate(), _ramp(volatility=False), "volatility"),
+    (_ladder_gate(), _ramp(turnover=False), "turnover"),
+])
+def test_go_needs_measured_fills_and_behaviour(gate, ramp, why):
+    state = _ladder(rung=1)
+    d = _ladder_eval(state, gate=gate, ramp=ramp, requested=1_200_000)
+    assert d.action == "HOLD" and state.rung == 1
+    assert why in d.alerts[0]
+
+
+def test_the_cusum_alarm_steps_down_one_rung_and_alerts():
+    state = _ladder(rung=2)
+    d = _ladder_eval(state, ramp=_ramp(alarm=True, low=-12.5))
+    assert d.action == "STEP DOWN" and d.capital == 600_000 and "CUSUM" in d.reasons[0]
+    assert d.critical
+
+
+def test_the_cusum_alarm_at_the_canary_alerts_and_keeps_the_rung():
+    state = _ladder(rung=0)
+    d = _ladder_eval(state, ramp=_ramp(alarm=True, low=-12.5))
+    assert state.rung == 0 and d.flow == 0.0 and "kill switch" in d.critical[0]
+
+
+def test_gap_cusum_catches_a_break_and_ignores_noise():
+    from nse_engine.capital_ladder import gap_cusum
+
+    rng = np.random.default_rng(3)
+    noise = pd.Series(rng.normal(0.0, 0.0025, 120))
+    assert not gap_cusum(noise)["alarm"]
+    assert gap_cusum(noise - 0.0025)["alarm"]
+    assert gap_cusum(pd.Series(-0.01, index=range(19)))["sessions"] == 19      # too few to read
+    assert not gap_cusum(noise.head(19))["alarm"]
+    assert not gap_cusum(pd.Series(0.0, index=range(40)))["alarm"]             # identical to the backtest
+
+
+def test_ramp_checks_measure_fills_against_the_backtest():
+    from nse_engine.capital_ladder import ramp_checks
+
+    days = pd.bdate_range("2027-01-04", periods=30)
+    ref = pd.Series(np.random.default_rng(1).normal(0.0005, 0.01, 30), index=days)
+    equity = 300_000 * (1 + ref).cumprod()
+    fills = pd.DataFrame({"session_date": [days[5].date().isoformat()] * 2, "status": ["FILLED", "CANCELLED"],
+                          "quantity": [100, 100], "fill_price": [100.0, 100.0], "costs_inr": [5.0, 0.0],
+                          "impact_bps": [2.0, 0.0]})
+    trades = pd.DataFrame({"date": [days[5], days[6]], "value_inr": [15_000.0, 5_000.0]})
+    out = ramp_checks(equity, ref, fills, trades)
+    assert out["volatility"]["ok"] and not out["cusum"]["alarm"]
+    assert out["turnover"]["value"] == pytest.approx(0.5) and not out["turnover"]["ok"]      # half the trading
+    assert ramp_checks(equity, ref, None, trades)["turnover"]["display"] == "not measurable"
+
+
+def test_go_live_refuses_any_start_but_the_canary():
+    from nse_engine.capital_ladder import readiness
+
+    assert dict((n, ok) for n, ok, _ in readiness({}, [], capital=300_000))["canary"]
+    assert not dict((n, ok) for n, ok, _ in readiness({}, [], capital=600_000))["canary"]
+    assert "canary" not in dict((n, ok) for n, ok, _ in readiness({}, []))

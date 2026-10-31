@@ -51,6 +51,9 @@ STORE_VERSION = 3  # bump when parsing changes so every year is rebuilt
 #: bump when corporate-action / dividend event derivation changes (no year rebuild needed)
 EVENTS_VERSION = 3
 KEEP_SERIES = ("EQ", "BE")
+#: Where a failing stock trades after EQ and BE, and how many prints a holder needs to get out (tracker SB3).
+FOR_CAUSE_SERIES = ("BZ", "IL", "SZ", "BT")
+FOR_CAUSE_SESSIONS = 20
 #: Sessions NSE held for a handful of instruments only, never market-wide.  Counting one would add a session to
 #: every stock's calendar and shift every later rebalance day (they count sessions from the data anchor), so the
 #: store skips their files; the archive keeps them.  Found 20 Oct 2026: a full bootstrap on Actions probed every
@@ -299,6 +302,37 @@ def _safe(parser, path: Path) -> Optional[pd.DataFrame]:
     except Exception as exc:  # corrupt file must not kill the whole build
         logger.error("failed to parse %s: %s", path, exc)
         return None
+
+
+def restricted_prints(archive_root: PathLike, end: str) -> pd.DataFrame:
+    """[date, symbol, close] of every print in ``FOR_CAUSE_SERIES`` up to ``end`` (the store keeps none)."""
+    years = sorted(int(p.name) for p in (Path(archive_root) / "equity").glob("[0-9]" * 4) if int(p.name) <= int(end[:4]))
+    parts = []
+    for year in years:
+        for p in year_sources(archive_root, year)["equity"]:
+            df = _safe(parse_udiff_bhavcopy if p.name.startswith("udiff") else parse_legacy_bhavcopy, p)
+            if df is not None:
+                parts.append(df.loc[df["series"].isin(FOR_CAUSE_SERIES), ["date", "symbol", "close"]])
+    out = pd.concat(parts, ignore_index=True)
+    return out[out["date"] <= pd.Timestamp(end)].dropna(subset=["close"])
+
+
+def for_cause_exits(prints: pd.DataFrame, last: pd.DataFrame, sessions: int = FOR_CAUSE_SESSIONS) -> Dict[str, float]:
+    """{symbol: exit price / last close} for each stock in ``last`` (index symbol; date, close) with a later print.
+
+    A stock that leaves EQ and BE for a restricted series has no bar in the store, but it did not stop falling
+    (tracker SB3: 84 of 291 universe names, a median -56%).  A holder sells trade for trade, so the exit is the
+    close ``sessions`` prints later, or the last print if there are fewer.  A later gain is not credited.
+    """
+    out: Dict[str, float] = {}
+    by_symbol = {str(s): g.sort_values("date") for s, g in prints.groupby("symbol", observed=True)}
+    for sym, row in last.iterrows():
+        after = by_symbol.get(str(sym))
+        after = after[after["date"] > row["date"]] if after is not None else None
+        if after is not None and len(after):
+            ratio = float(after["close"].iloc[min(sessions, len(after)) - 1]) / float(row["close"])
+            out[str(sym)] = round(min(ratio, 1.0), 4)
+    return out
 
 
 def build_year_frames(sources: Dict[str, List[Path]], keep_series: Sequence[str] = KEEP_SERIES):
