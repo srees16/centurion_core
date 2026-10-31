@@ -1713,9 +1713,8 @@ What the result says:
 - **2026 (holdout, opened once):** RBI +97 bp over 5 events; FOMC
   tradable −27 bp, pure window +70 bp over 6 events, all up. Too few events
   to read.
-- **Not re-tuned:** any other window would be a new trial. The module
-  (`nse_engine/event_drift.py`) stays as the tool for re-checking with new
-  data.
+- **Not re-tuned:** any other window would be a new trial. The module was
+  removed on 31 Oct 2026 under your failed-ideas rule; git history holds it.
 
 ## 5x. Options rounds O5–O8 from the owner's books (pre-registered 10 Oct 2026, 23:17 IST)
 
@@ -4265,6 +4264,447 @@ family closed (in git history at f6a16c7, to reproduce it). Results in
   (t −2.36).
 - **Not re-tuned, as pre-registered:** no other quantiles, horizons or
   costs. The 2026 holdout stays sealed for this family.
+
+## 5aq. DT1: the day-trader-skill modules as swing diagnostics (India tracker DT1; your ask, pre-registered 30 Oct 2026, 21:50 IST)
+
+**Source.** github.com/Jakeschincariol/day-trader-skill (MIT): eleven US
+day-trading skills. Read in full, ideas only, no code taken. Its scanner,
+news, entry, exit, time machine and alerts modules are tested here in the
+only form Centurion may use them: delivery, daily bars, no same-day exit
+(section 2: rules needing intraday prices or a same-day exit are out of
+scope, so its opening-range entry and flat-by-close cannot be adapted as
+written).
+
+**Status.** An event study: no change to any book, no registry entry, N = 8
+(S1 to S5, N1, E1, X1, T1 is reported beside them and A1 is a build decision,
+neither a return claim). A pass earns one pre-registered trial through the
+normal gates, never adoption. Anything that fails leaves no code.
+
+**Hypothesis.** S1 to S5: chart setups capture continuation (breakout, flag,
+reclaim) or overreaction (oversold), and a scan adds to the book's selection.
+N1: buying just before results takes on event risk that is not paid. E1: a
+completed close that confirms the signal filters false starts. X1: taking
+profit at a fixed multiple of risk beats the book's rank exit. T1: a stock's
+own recent bars, resampled, give honest odds of stop against target.
+
+**Data and window.** The deployed configuration's data (`load_market_data`
+with its own settings, adjusted prices, `data_start` 2012-01-02 replaced by
+2007-01-01 for the reported years), its point-in-time universe mask, and its
+recorded trades (run `20261017T110547431678Z_679cbd0c`, 2007-25). Gates are
+read on 2013-25; 2008-12 is reported. 2026 is not opened.
+
+**Common rules.** A decision uses closes up to day t only; the fill is the
+open of t+1. The horizon is 20 sessions, open to open (A: the source has no
+swing horizon; 20 sessions is the book's median hold). Excess = the return
+minus the equal-weight universe's over the same window. Cost = one round trip
+at `statutory_cost` on Rs 25,000 a side plus 3 bp of spread each way (A).
+Sleeve ETFs are left out. A fresh entry is a BUY from a flat position.
+Daily-event series use Newey-West with lag 20; tests on the book's entries
+average each decision date first and use lag 4 (A: rebalances are 5 sessions
+apart).
+
+**S1 to S5, trader-scanner.** Over the universe, on adjusted closes, exactly
+`find_setups`: S1 breakout_20d, close above each of the previous 20 closes;
+S2 bull_flag, close[t-5]/close[t-15]-1 > 10% and the last 5 closes inside 5%
+of the close; S3 reclaim_ma20, close[t-1] under its 20-day mean and close[t]
+above its own; S4 oversold, Wilder RSI(14) < 30; S5 oversold_bounce, RSI(14)
+< 30 at t-1 and close[t] > close[t-1]. **Pass:** mean net excess, t >= 3.
+Also reported, no gate: the book's fresh entries with the flag against those
+without.
+
+**N1, trader-news.** Book's fresh entries with a results board meeting
+(purpose naming results) in the 5 sessions after the fill and already
+intimated at the decision (`available_from` <= t), against all others. **Pass
+(a hold-back earns a trial):** near minus away < 0, |t| >= 3. Also reported:
+the universe's mean excess over [-1, +1] sessions around results.
+
+**E1, trader-entry.** The swing form of "a completed bar confirms": buy at the
+open of t+2 only if close[t+1] > close[t], else skip the entry. Paired on the
+book's fresh entries, excess to the same end date, a skip scoring 0. **Pass:**
+rule minus actual > 0, t >= 3. Also reported: the cost of one day's delay.
+
+**X1, trader-exit.** The source's default target, +2R (A: R = 6 x ATR(20) at
+the decision, the book's stop distance), on the book's round trips: sell at
+the target on the first session whose high reaches it before the recorded
+exit; else the recorded exit. Paired per round trip. **Pass:** target minus
+actual > 0, t >= 3.
+
+**T1, trader-timemachine.** For each fresh entry: pool = the stock's previous
+60 sessions' (high, low, close) / previous close (A: a day replaces a 5-minute
+bar, so its time-of-day slots fall away); 10,000 replays, seed 19, of 20
+sessions; stop = entry - 6 x ATR(20), target = entry + 2R, stop checked first
+in a bar, as the source. Compared with what the stock then did over the same
+20 sessions. **Pass (a per-trade line earns a build):** Brier skill above the
+base rate, mean predicted within 5 points of realised, and the forward excess
+rising with the source's lean (target share minus break-even), t >= 3. The
+source's second half, the same rule on the stock's own past, is not tested: 12
+entries a stock over 19 years is too few (A).
+
+**A1, trader-alerts.** No return claim. The book's stop exits: the trigger is
+the highest close since entry minus 6 x ATR(20) as `trailing_stop`, and the
+live GTT's limit is 2% below it. Reported: the share of stop days whose open
+is under that limit (the live order rests unfilled while the backtest sells
+at the open), and for those the return from that open to the next session's
+open. **Build a market-hours stop check only if** the share is at least 10%
+and waiting loses at least 1% on average.
+
+**Result (30 Oct 2026): every test failed its rule. Nothing is adopted and no
+code stays; the study's script was temporary.** Net of 34.6 bp a round trip.
+
+| Test | 2013-25 | 2008-12 | Rule | Verdict |
+|---|---|---|---|---|
+| S1 breakout_20d | −0.47%, t −3.19 | −0.66%, t −1.27 | t ≥ 3 | FAIL |
+| S2 bull_flag | −0.03%, t −0.16 | +0.04%, t +0.13 | t ≥ 3 | FAIL |
+| S3 reclaim_ma20 | −0.49%, t −6.58 | −0.45%, t −1.78 | t ≥ 3 | FAIL |
+| S4 oversold | −1.43%, t −2.77 | −2.40%, t −3.07 | t ≥ 3 | FAIL |
+| S5 oversold_bounce | −0.73%, t −2.39 | −1.18%, t −1.99 | t ≥ 3 | FAIL |
+| N1 hold back before results | near minus away −0.99%, t −2.00 | no data before 2012 | < 0, \|t\| ≥ 3 | FAIL |
+| E1 confirming close | rule minus actual −0.66%, t −2.47 | | > 0, t ≥ 3 | FAIL |
+| X1 +2R target | target minus actual −0.83%, t −1.35 | | > 0, t ≥ 3 | FAIL |
+
+- **Scanner.** 2013-25 events: 118,989, 47,995, 54,344, 40,380 and 19,994. Of the
+  book's 1,822 fresh entries, 522 were 20-day breakouts (−0.36% against the
+  rest), 269 flags (+0.82%), 39 reclaims (−0.73%) and none oversold.
+- **N1.** 155 entries near results, 1,667 away. With the fill day counted as
+  near: −0.62%, t −0.86, so the rule is also fragile. The universe's own excess
+  over [−1, +1] around 16,635 results is −0.26%, t −3.12: no earnings premium
+  on NSE, and too small to trade around.
+- **E1.** One day's delay costs the confirmed trades 1.65%, t −14.88. Confirmed
+  entries made +3.17% and the skipped −0.16%, but most of that gap is the day
+  the rule waits out.
+- **X1.** 170 of 1,822 round trips reach +2R. The book's mean round trip is
+  +3.79%, its median −1.23%, and the best tenth holds 64% of gross wins: a
+  target cuts the trades that pay for the rest.
+- **T1 FAIL.** Stop first: predicted 1.4%, real 5.2%, Brier skill −0.030. Target
+  first: predicted 3.2%, real 2.0%, Brier skill −0.024. Both are within 5 points
+  but worse than the base rate. The lean's slope is +0.023, t +2.94, under the
+  bar and by quartile (−0.18% to +2.16%) only the momentum the book already
+  buys. Resampling days one at a time loses volatility clustering, so it
+  understates stop-outs almost fourfold. `nse_engine.mc_bands` already uses a
+  block bootstrap for this reason.
+- **A1: not built.** 20 of 239 stop days (8.4%) opened under the GTT's limit,
+  under the 10% bar; 6 of those never traded back up to it that day. From that
+  open to the next open: +2.91% over all 20, −1.73% over the 6, so waiting for
+  the evening session costs nothing on average. The backtest's fill at the open
+  and the live resting limit differ on about one stop in 40, and not in a way
+  that flatters the backtest.
+
+A first run measured past returns by a sign error in the script (the book's own
+entries showed −11%). It was caught before any verdict, fixed with known-answer
+checks, and no rule changed. The study's ATR was also replaced by the engine's
+`atr_panel` before anything was read.
+
+## 5ar. WV1: Wyckoff, volume profile and order flow on NSE (India tracker WV1; your ask, pre-registered 30 Oct 2026, 22:17 IST)
+
+**Why now.** None of the three is in the deployed engine. Wyckoff is not in the
+repo at all, though the legacy `liquidity_sweep.py` is close to a spring. Volume
+profile and an order-flow proxy exist only as legacy single-stock strategies, and
+the order-flow forecast sits at weight 0 in the old combiner. OF1 (28 Oct) tested
+one claim: whether price trends outside the value area. That is not rerun. This
+study asks a different question: whether any of these predicts a stock's return,
+or would change what this book does.
+
+**Evidence read before writing this.** Wyckoff: no rigorous return study was
+found; practitioners call it hard to backtest and say phases are easier to label
+in hindsight, so every rule below uses only data up to the decision. Volume
+profile: no direct study; the closest rigorous relative is Grinblatt & Han (2005),
+a turnover-weighted cost basis. Order flow: Chordia & Subrahmanyam (2004) find
+lagged imbalances predict daily returns, with signed trades. Bulk volume
+classification estimates that from bars, but is less accurate than the tick rule
+(Chakrabarty, Pascual & Shkilko, 2015), so a failure of O1 fails that proxy, not
+order flow itself. Gervais, Kaniel & Mingelgrin (2001): high volume earns a
+premium over the next month. Bulk deals: Indian studies find large returns around
+them, mostly before publication.
+
+**Family and N.** Event studies; N = 17 here. No change to any book. A pass earns
+a stage 2, pre-registered separately before it runs, never adoption. Anything
+that fails leaves no code; the legacy strategies stay, as strategy code does.
+
+**Data and window.** The deployed configuration's adjusted data loaded from
+2006-01-02, its point-in-time universe mask, and run
+`20261017T110547431678Z_679cbd0c` for the book's trades and weights. Gates are read
+on 2013-25; 2008-12 is reported; 2026 stays sealed.
+
+**Not testable.** Footprint, absorption and true delta need each trade's aggressor
+side, and Centurion has no tick data. Bulk and block deals: only the day's file
+can be read; NSE's history endpoint refuses automated clients and that is not
+worked around, so they stay untested until the history is obtained properly.
+
+**Shared terms (t = the decision day; nothing after t is read).** ATR is the
+engine's `atr_panel`(20). `vr` = volume[t] / mean volume of the previous 20 sessions.
+`range` = high[t] - low[t]. Windows accept up to 10% missing days (halts).
+
+*Trading range (A), 60 sessions to t-1:* support S = lowest low, resistance R =
+highest high, efficiency = |net close move| / sum of |daily close moves|. A base
+has efficiency <= 0.30. `prior` = the 120-session return ending where the base
+starts. Accumulation = base and prior < 0. Distribution = base and prior > 0.
+
+*Events* count once per stock in any 20 sessions, for a universe member that
+traded on t. Fewer than 200 events in 2013-25 is reported as too few to judge.
+
+**Wyckoff (StockCharts' tutorial for the definitions; thresholds are (A)).**
+- W1 spring: accumulation, low[t] < S, close[t] >= S, vr <= 1. Bullish.
+- W2 sign of strength: accumulation, close[t] > R, vr >= 1.5, range >= 1.5 ATR.
+  Bullish.
+- W3 upthrust: distribution, high[t] > R, close[t] <= R. Bearish.
+- W4 sign of weakness: distribution, close[t] < S, vr >= 1.5, range >= 1.5 ATR.
+  Bearish.
+- W5 absorption (effort without result): 20-session return < 0, vr >= 2, no new
+  20-session low, range <= ATR. Bullish.
+- W6 supply (effort without result): 20-session return > 0, vr >= 2, no new
+  20-session high, range <= ATR. Bearish.
+- W7 the buying tests, at least 6 of these 8 (test 1, the point-and-figure count,
+  cannot be made mechanical): T2 a climax (vr-like volume >= 3 x the 60-session
+  mean, a fall of 2 sd, close in the upper half of the bar) in the last 120
+  sessions, then a retest within 3% of its low on <= 0.7 of its volume; T3 mean
+  volume on up days above down days, 20 sessions; T4 close above its 50-session
+  mean; T5 and T6 the last 20 sessions' low and high above the 20 before; T7 the
+  60-session return above the universe's median; T8 a base; T9 distance to the
+  250-session high >= 3 x distance to S. Bullish.
+
+**Volume profile.** 60 sessions to t, 50 bins from the lowest low to the highest
+high, each day's volume spread evenly across the bins its range touches; the point
+of control (POC) is the fullest bin; the value area grows from it, one bin at a
+time, toward the fuller neighbour until it holds 70% (the OF1 settings).
+- V1: close crosses above the value area's top. Bullish.
+- V2: close crosses below its bottom. Bearish.
+- V3: the legacy `VolumeProfileStrategy` buy, as coded and at its defaults (the
+  profile to t-1, close within 0.3% above the value-area low, or close reclaiming
+  the POC). Bullish.
+- V4 (factor): close / POC - 1, high minus low.
+- V5 (factor, published): capital-gains overhang, (P - RP) / P with RP[t] =
+  (1 - v[t]) RP[t-1] + v[t] P[t], v = shares traded / shares outstanding. Share
+  counts are the last filed, known by `available_from`; before filings start in
+  2012, the first one filed (A, burn-in only). High minus low.
+
+**Order flow (daily proxies).**
+- O1 (factor, published): bulk volume classification, sum over 20 sessions of
+  volume x (2 Phi(r / sd) - 1) / volume, sd over 60 sessions. High minus low.
+- O2 (factor): mean of close / VWAP - 1 over 20 sessions, VWAP = traded value /
+  shares. High minus low.
+- O3 (factor, NSE only): sum over 20 sessions of the sign of the day's move x
+  delivered shares / delivered shares. High minus low.
+- O4 (factor): the legacy `compute_order_flow_forecast` as coded (OBV, MFI, close-in-
+  range delta, delivery). High minus low.
+- O5 (factor, published): high-volume premium, weekly form: this week's volume
+  above all 9 prior weeks (high) against below all 9 (low). High minus low.
+
+**Tests.**
+- *Events:* fill at the open of t+1, 20 sessions, open to open, excess over the
+  equal-weight universe, Newey-West lag 20 on the daily mean. Bullish: net of 34.6
+  bp a round trip, mean > 0. Bearish: gross, mean < 0 (a veto pays no cost).
+- *Factors:* month-end quintiles, equal weight, bought at the next open and held
+  to the open after the next month-end, 25 bp a side on both legs' turnover,
+  Newey-West lag 3 on the monthly high-minus-low.
+
+**Pass.** |t| >= 3 in the claimed direction for a new idea; t >= 2.39 for a
+published effect (V5, O1, O5: Bonferroni for three, two-sided p <= 0.0167); the same
+sign in 2013-19 and 2020-25.
+
+**The book's route, also a pass at |t| >= 3 in the claimed direction.** A long-only
+book cannot short a signal, so what counts is what it would change. Entries: fresh
+entries with a bullish flag in the 5 sessions to the decision against the rest, or
+the factor's top against bottom quintile that day (a veto of the bottom). Holdings:
+every 5th session, names held with a bearish flag in those 5 sessions against other
+names held, gross 20-session excess. Same dating, same 20 sessions.
+
+**Stage 2, for any pass.** Written and timestamped before it runs: the signal as a
+veto on new buys, or as an early exit for a held name, in a real engine run of the
+deployed rules on the honest base, under the diversifier gate's Sharpe route.
+
+**Addendum (30 Oct 2026, 22:26 IST, written after stage 1's numbers were seen).** Two
+additions, both before they run.
+
+*W1b to W4b and W7b, five new hypotheses (N 17 -> 22), not a re-tune.* Stage 1
+showed the base rule above did not select bases: 90.3% of member days passed it,
+because efficiency <= 0.30 over 60 sessions is close to always true. W1 to W4 and
+W7 were therefore tests of false breaks in general, not of Wyckoff's trading
+range, and stay recorded as such. The variants differ only in the base: efficiency
+<= 0.30 **and** (R - S) / ATR in the tightest fifth of that day's universe. Same
+events, tests and bars, and T8 reads the tight base in W7b. These five are not
+varied further, whatever they show.
+
+*V2's stage 2.* V2 passed stage 1. Rule V2X: from the day of a V2 event, for 20
+sessions, the stock's forecast is -1 in the engine, which stops new buys and exits
+a holding at the next open through the engine's own `exit_reason`. Run:
+`dep.reference_config()`, 2008-25, against the same config without the rule, on this
+machine. **Pass:** excess Sharpe above the base with `diversifier_gate.bootstrap_p`
+<= 0.10, and above it in 2008-12 too. A fail on this first book ends it; a pass goes
+to the walk-forward book before anything else. Reported: CAGR, MaxDD, turnover, the
+number of forced exits.
+
+**Result (30 Oct 2026): nothing adds value. All 22 are discarded and no code
+stays.** One test passed stage 1 and failed in the engine. All on 2013-25; the
+checks reproduced DT1's book exactly (1,822 entries, +1.04%).
+
+| Event | Claim | Events | 20-session excess | t | Verdict |
+|---|---|---|---|---|---|
+| W1 spring | up | 1,812 | −1.04% | −3.49 | FAIL |
+| W2 sign of strength | up | 2,447 | −0.77% | −2.98 | FAIL |
+| W3 upthrust | down | 7,764 | +0.08% | +0.40 | FAIL |
+| W4 sign of weakness | down | 1,847 | −0.12% | −0.43 | FAIL |
+| W5 absorption | up | 3,784 | −0.15% | −0.76 | FAIL |
+| W6 supply | down | 2,988 | −0.00% | −0.02 | FAIL |
+| W7 buying tests | up | 19,965 | −0.23% | −1.80 | FAIL |
+| W1b spring, tight base | up | 413 | −0.55% | −1.43 | FAIL |
+| W2b sign of strength, tight base | up | 830 | −1.33% | −4.08 | FAIL |
+| W3b upthrust, tight base | down | 2,829 | −0.25% | −0.91 | FAIL |
+| W4b sign of weakness, tight base | down | 460 | −0.76% | −1.51 | FAIL |
+| W7b buying tests, tight base | up | 7,561 | −0.31% | −1.86 | FAIL |
+| V1 above value | up | 16,165 | −0.37% | −2.40 | FAIL |
+| V2 below value | down | 13,986 | −0.48% | −3.20 | stage 1 pass |
+| V3 legacy buy | up | 22,611 | −0.31% | −3.94 | FAIL |
+
+Bullish rows are net of 34.6 bp, bearish rows gross.
+
+| Factor | Gross a month | Net a month | t | Bar | Verdict |
+|---|---|---|---|---|---|
+| V4 distance from POC | +0.47% | −0.18% | −0.52 | 3 | FAIL |
+| V5 capital-gains overhang | +1.27% | +1.08% | +2.14 | 2.39 | FAIL |
+| O1 bulk volume | +0.05% | −0.74% | −2.67 | 2.39 | FAIL |
+| O2 close against VWAP | −0.00% | −0.63% | −1.68 | 3 | FAIL |
+| O3 signed delivery | +0.04% | −0.74% | −3.41 | 3 | FAIL |
+| O4 legacy forecast | −0.16% | −0.95% | −4.03 | 3 | FAIL |
+| O5 high volume | −0.06% | −0.95% | −3.55 | 2.39 | FAIL |
+
+- **The book's route: no pass.** The nearest is against its claim: 377 entries just
+  above value did 1.92% worse than the rest (t −2.54). It stays a note, not a rule.
+- **V2X in the engine: FAIL.** Sharpe 0.704 to 0.713, p 0.410 against 0.10, and
+  2008-12 fell from −0.009 to −0.060. 2013-25 0.934 to 0.960; CAGR 15.59% to 15.68%;
+  MaxDD −28.3% to −27.3%. It forced 215 exits. The book is rarely exposed: 4 of
+  1,822 entries were flagged, and flagged holdings beat other holdings by 1.70%
+  (t +1.78), the wrong way. Corrected 31 Oct: the first run used the default store,
+  which has no NIFTY before 2012, so the regime gate had no trend vote for 2008-11
+  (Sharpe 0.605 to 0.617, p 0.373, 2008-12 −0.408 to −0.451). Same verdict on
+  `store_ext2006`; a run that starts before its regime index now refuses.
+- **V5 is the nearest miss,** and it would add nothing: the book already holds it,
+  with 1,009 of 1,822 entries in the top quintile and 7 in the bottom. 2008-12 was
+  −0.26%.
+- **The gross spreads of O1 to O5 are all within 0.16% of zero.** The proxies' net
+  losses are their turnover, not a reverse signal. O4 supports its weight of 0.
+- **Not a verdict on order flow itself.** These are daily proxies, and bulk volume
+  is known to classify poorly. Tick-level order flow and bulk deals stay untested.
+- **Implementation.** 36 temporary tests passed before any data was read, including
+  an exact match with the legacy profile. The no-look-ahead test first missed planted
+  leaks; it was rebuilt until all 11 were caught.
+
+## 5as. BLK1: what bulk deals leave for a buyer the morning after (India tracker BLK1; your ask, pre-registered 31 Oct 2026, 10:06 IST)
+
+**Why now.** WV1 left bulk deals untested because NSE's history endpoint refuses
+automated clients. You exported the history by hand, 2006-25, so it can be tested.
+The question is narrow: a bulk deal is public that evening, so what is still there
+at the next open?
+
+**Hypothesis.** A client must disclose a trade above 0.5% of a company's shares, so
+each row is a large flow. Large investors split their orders (Chan & Lakonishok,
+1995), so a one-sided buyer may not have finished, and a fund that takes that much
+in a day has done the work. A one-sided seller may hold the same information the
+other way, or have more to sell. Against: the deal is public by the open, and WV1's
+reading was that Indian studies find the returns mostly before publication. No study
+of what is left after publication was found to replicate, so this is a new signal.
+
+**Family and N.** Event studies; N = 3. No change to any book. A pass earns a stage
+2, pre-registered separately, never adoption. Anything that fails leaves no code.
+Temporary code, run on the Mac (A), plain arithmetic with no engine decisions.
+
+**Data and window.** `data/nse_engine/bulk_deals/`, 20 files, 211,188 rows, 2006-01-02
+to 2025-12-31, no 2026 row, gitignored; client names stay out of the docs. Prices:
+the deployed configuration's adjusted data on `store_ext2006`, loaded from
+2006-01-02, its point-in-time universe mask, and run
+`20261017T110547431678Z_679cbd0c` for the book's trades and weights. Gates are read
+on 2013-25; 2008-12 is reported; 2026 stays sealed.
+
+**Read before writing this (structure only, no return or later price).** 55% of
+client-stock-days have the same client on both sides, mostly high-frequency desks.
+12% of rows fall in the book's universe. Events below, once per stock in 20 sessions,
+2013-25: any buyer 970, fund buyer 109, repeat buyer 61, any seller 1,138, fund seller
+58. So the minimum is 100 events (5ar's 200 would rule out the fund buyer), and repeat
+buyers and fund sellers are reported only, because a pass needs a move too large to be
+worth counting as a trial.
+
+**Rules (t = the deal date; nothing after t decides an event).**
+- Clean: drop exact duplicates; drop every row with a remark other than "-" or blank
+  (reported late, added or modified, so their publication date is unknown), 160 rows
+  in all; symbols through the engine's rename table; sum each client's shares per
+  stock, day and side.
+- One-sided buyer: a client with a BUY and no SELL in that stock that day. One-sided
+  seller: the reverse. A client on both sides is churn, not an event.
+- Fund (A): the client's name matches `MUTUAL FUND|MUTUAL FD|\bMF\b|LIFE INSURANCE|
+  GENERAL INSURANCE|INSURANCE CO|PENSION|PROVIDENT FUND|TRUSTEE CO`. Trustee companies
+  of mutual funds count; debenture trustees (`TRUSTEESHIP`) do not, being mostly pledge
+  transfers. Foreign names are not funds here: a name cannot split investors from
+  arbitrage desks. 4% of these client-days are both-sided, against 55% overall.
+- Publication (A): SEBI's 2004 rule has the broker report on the day and the exchange
+  publish after the close, so the first tradable moment is the open of t+1. The
+  exports carry no publication time, so this cannot be checked from them.
+
+**Hypotheses.** A stock with both a buyer and a seller on t counts in both.
+- B1 any one-sided buyer. Bullish.
+- B2 a fund as one-sided buyer. Bullish.
+- B3 any one-sided seller. Bearish.
+
+**Tests, as 5ar.** Events: a universe member that traded on t, once per stock in any
+20 sessions. Fill at the open of t+1, 20 sessions, open to open, excess over the
+equal-weight universe, Newey-West lag 20 on the daily mean. Bullish: net of 34.6 bp a
+round trip, mean > 0. Bearish: gross, mean < 0 (a veto pays no cost).
+
+**Pass.** |t| >= 3 in the claimed direction, the same sign in 2013-19 and 2020-25, and
+at least 100 events.
+
+**The book's route, also a pass at |t| >= 3 in the claimed direction.** Entries: fresh
+entries with a bullish flag in the 5 sessions to the decision against the rest, net.
+Holdings: every 5th session, names held with a bearish flag in those 5 sessions
+against other names held, gross. Same dating, same 20 sessions.
+
+**Reported, no pass can come from these.**
+- Where the move went, for B1 to B3: the 20 sessions to t-1, day t, and the close of t
+  to the open of t+1.
+- Repeat buyer: the same client's second one-sided buy in a stock within 10 sessions.
+- Fund seller.
+- Placebo: stock-days with only both-sided clients, which are volume without a
+  directional holder.
+- 2008-12, the 5-session horizon, and a fill at the open of t+2.
+
+**Stage 2, for any pass.** Written and timestamped before it runs: a real engine run
+of the deployed rules on `store_ext2006`, 2008-25, under the diversifier gate's Sharpe
+route.
+
+**Result (31 Oct 2026): all three FAIL. Nothing is left for a buyer the morning after,
+so there is no stage 2 and no code.**
+
+| Hypothesis | Claim | Events | Net or gross 20-session excess | t | 2013-19 | 2020-25 | Verdict |
+|---|---|---|---|---|---|---|---|
+| B1 any buyer | up | 965 | −1.59% | −3.22 | −1.75% | −1.34% | FAIL, wrong way |
+| B2 fund buyer | up | 108 | −0.60% | −0.65 | −1.95% | +0.38% | FAIL |
+| B3 any seller | down | 1,129 | −0.20% | −0.36 | −0.30% | −0.05% | FAIL |
+
+Bullish rows are net of 34.6 bp, the bearish row gross.
+
+| Where the move went | 20 sessions before | Day t | Overnight | 20 sessions after, gross |
+|---|---|---|---|---|
+| B1 any buyer | −0.06% | +1.86% | +0.54% | −1.06% |
+| B2 fund buyer | +0.90% | +2.12% | +0.57% | −0.13% |
+| B3 any seller | −0.93% | −1.24% | +0.11% | −0.18% |
+
+- **The move is over by the open.** A fund buyer's stock is 3.6% ahead of the universe
+  by the next open and flat after it. This agrees with WV1's reading of the Indian
+  studies.
+- **B1 is significant the wrong way, and that is not an edge.** The pass rule asks for
+  the claimed direction, so it fails. Turning it into a veto would be a new hypothesis,
+  and the evidence is against one: days with only both-sided clients do as badly
+  (−1.73%, t −2.74), so it is a volume-spike effect rather than the buyer. The book's
+  own 16 flagged entries beat its others by 8.17% (t +1.98).
+- **The book's route: no pass, and little exposure.** Flagged entries: 16 for B1, 1 for
+  B2, 13 for B3 of 1,823. Flagged holdings against others: +0.15% (t +0.10), and +0.09%
+  (t +0.08) for sellers.
+- **Reported, no pass possible.** Repeat buyer −1.30% (61 events), fund seller +1.97%
+  (56), with the two halves of each opposite in sign. 2008-12: B1 −1.29% (t −1.70), B2
+  +0.35% (t +0.28), B3 −0.47% (t −0.74). A fill at t+2: B1 −1.96% (t −4.22), B2 +0.61%,
+  B3 −0.57%. Five sessions: B1 −0.84% (t −3.21), B2 −0.31%, B3 +0.09%.
+- **Implementation.** 20 temporary tests passed before any return was read. Day t's
+  move has the right sign on both sides, so the dates line up. The sanity line read
+  1,823 book entries at +1.04% against DT1's 1,822 at +1.04%. The CSVs stay where they
+  are.
 
 ## 6. Stage D — Paper trading (60–90 trading days)
 

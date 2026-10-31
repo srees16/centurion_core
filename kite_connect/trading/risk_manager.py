@@ -140,7 +140,9 @@ class RiskManager:
     def _available_capital(self) -> float:
         """Return capital remaining after deducting open positions.
 
-        Respects max_deployment_cap from RiskEngine when set.
+        Respects max_deployment_cap from RiskEngine when set.  Positions that
+        cannot be read leave none: what is deployed is unknown, so no new risk
+        (tracker RB6).  Only new buys are sized here; exits are not.
         """
         capital_ceiling = self.cfg.total_capital
         if self._max_deployment_cap > 0:
@@ -149,8 +151,7 @@ class RiskManager:
         if self.kite is None:
             return capital_ceiling
         try:
-            from kite_connect.trading.order_service import get_positions
-            positions = get_positions(self.kite)
+            positions = self.kite.positions()
             deployed = sum(
                 abs(float(p.get("quantity", 0))) * float(p.get("average_price", 0))
                 for p in positions.get("net", [])
@@ -161,8 +162,8 @@ class RiskManager:
                         capital_ceiling, self.cfg.total_capital, deployed, available)
             return available
         except Exception as exc:
-            logger.warning("Could not fetch positions for capital calc: %s", exc)
-            return capital_ceiling
+            logger.error("Could not fetch positions for capital calc, no new buys: %s", exc)
+            return 0.0
 
     def plan_trades(
         self,

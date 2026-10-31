@@ -532,3 +532,50 @@ class TestUnusableNumbers:
         sig = bk.paper_significance([day("good", self._equity()), day("bad", self._equity(0.0))])
         assert "t" in sig["good"]["test"] and "error" in sig["bad"]["test"]
         assert "bad" not in (bk._significance_line(sig) or "")
+
+
+class TestReadableEmail:
+    """EM2: the daily and Saturday emails go out in Calibri at larger sizes; the words never change."""
+
+    HTML = ("<html><body style='font-family:Segoe UI,Arial,sans-serif;font-size:13px;'><h2 style='font-size:18px;'>"
+            "Paper books</h2><p style=\"font-size:11px;color:#666\">The book's note</p>"
+            "<td style='font-family:monospace;font-size:12px;'>RELIANCE x 7</td></body></html>")
+
+    @staticmethod
+    def _text(html):
+        import re
+        from html.parser import HTMLParser
+
+        class T(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.out, self.skip = [], 0
+
+            def handle_starttag(self, tag, attrs):
+                self.skip += tag in ("style", "head")
+
+            def handle_endtag(self, tag):
+                self.skip -= tag in ("style", "head")
+
+            def handle_data(self, data):
+                if not self.skip:
+                    self.out.append(data)
+        t = T()
+        t.feed(html)
+        return re.sub(r"\s+", " ", "".join(t.out)).strip()
+
+    def test_calibri_larger_sizes_and_the_same_words(self):
+        from nse_engine.books import EMAIL_FONT, readable
+
+        out = readable(self.HTML)
+        assert self._text(out) == self._text(self.HTML)
+        assert f"font-family:{EMAIL_FONT}" in out and "Segoe UI,Arial,sans-serif;" not in out.split("</head>")[1]
+        assert "font-family:monospace" in out                                    # codes keep their face
+        assert "font-size:15px" in out and "font-size:20px" in out and "font-size:12px" in out   # 13, 18, 11 -> floor 12
+        assert "font-size:13px" in out                                            # monospace 12 -> 13
+
+    def test_a_second_pass_changes_nothing(self):
+        from nse_engine.books import readable
+
+        once = readable(self.HTML)
+        assert readable(once) == once and once.count("<head>") == 1

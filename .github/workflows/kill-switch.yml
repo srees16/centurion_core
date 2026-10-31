@@ -1,17 +1,19 @@
 name: Kill switch
 
 # Tracker DM2: the latched kill switch in Neon, read by every order path on Actions and on the
-# HF Space (kite_connect/trading/kill_switch.py).  ON refuses new buys everywhere; exits and stop
-# GTTs still go.  It stays on until someone runs this with "off" and a reason; nothing resumes on
-# its own.  Each change emails the owner with the reason; this public log shows only on or off.
+# HF Space (kite_connect/trading/kill_switch.py).  ON refuses new buys everywhere and cancels the
+# buys already queued at the broker (RB6); exits and stop GTTs still go.  It stays on until someone
+# runs this with "off" and a reason; nothing resumes on its own.  "drain" repeats the cancelling,
+# for instance after the day's Kite login; "check" reads the books and cancels nothing.  Each change
+# emails the owner with the reason; this public log shows only on or off, and counts.
 on:
   workflow_dispatch:
     inputs:
       action:
-        description: "status, on or off"
+        description: "status, on, off, drain (cancel queued buys again) or check (read only)"
         required: true
         type: choice
-        options: [status, "on", "off"]
+        options: [status, "on", "off", drain, check]
         default: status
       reason:
         description: "Why (required for on / off; emailed to you, not printed; keep it non-sensitive: a public repo's run inputs are readable via the API)"
@@ -37,6 +39,7 @@ jobs:
       CENTURION_LIVE_MODE: ${{ vars.CENTURION_LIVE_MODE }}
       ACTION: ${{ inputs.action }}
       REASON: ${{ inputs.reason }}
+      CENTURION_KILL_SWITCH: ${{ vars.CENTURION_KILL_SWITCH || 'false' }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -44,5 +47,32 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install --quiet -r requirements-core.txt
+      - name: Kite client
+        if: inputs.action != 'status' && inputs.action != 'off'
+        continue-on-error: true   # never stops the switch: the broker result reports what is missing
+        timeout-minutes: 2
+        run: pip install --quiet "kiteconnect==5.1.0" "PySocks==1.7.1"
       - name: Kill switch
-        run: python -m kite_connect.trading.kill_switch "$ACTION" --reason "$REASON"
+        env:
+          ZERODHA_API_KEY: ${{ secrets.ZERODHA_API_KEY }}
+          CENTURION_KITE_TOKEN_KEY: ${{ secrets.CENTURION_KITE_TOKEN_KEY }}
+          CENTURION_KITE_PROXY: ${{ secrets.CENTURION_KITE_PROXY }}
+          # Oracle Cloud static IP via an SSH tunnel, as the live session (deployment/oracle-proxy/README.md)
+          CENTURION_PROXY_SSH_KEY: ${{ secrets.CENTURION_PROXY_SSH_KEY }}
+          CENTURION_PROXY_HOST: ${{ secrets.CENTURION_PROXY_HOST }}
+          CENTURION_PROXY_HOST_KEY: ${{ secrets.CENTURION_PROXY_HOST_KEY }}
+        run: |
+          if [ "$ACTION" != "status" ] && [ "$ACTION" != "off" ] && [ -n "$CENTURION_PROXY_HOST" ]; then
+            # A failed tunnel never stops the switch: the latch comes first and the broker result reports it.
+            install -d -m 700 ~/.ssh
+            (umask 077; printf '%s\n' "$CENTURION_PROXY_SSH_KEY" > ~/.ssh/kite_tunnel)
+            printf '%s\n' "$CENTURION_PROXY_HOST_KEY" > ~/.ssh/known_hosts_kite
+            if timeout 30 ssh -i ~/.ssh/kite_tunnel -o UserKnownHostsFile="$HOME/.ssh/known_hosts_kite" \
+                -o StrictHostKeyChecking=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
+                -o BatchMode=yes -o ConnectTimeout=20 -f -N -D 127.0.0.1:1080 "$CENTURION_PROXY_HOST"; then
+              export CENTURION_KITE_PROXY="socks5h://127.0.0.1:1080"
+            else
+              echo "::warning::Kite tunnel failed"
+            fi
+          fi
+          python -m kite_connect.trading.kill_switch "$ACTION" --reason "$REASON"

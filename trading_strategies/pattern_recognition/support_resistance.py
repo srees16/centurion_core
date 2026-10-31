@@ -308,7 +308,7 @@ class SupportResistanceStrategy(BaseStrategy):
         body = abs(df['Open'].iloc[idx] - df['Close'].iloc[idx])
         prev_body = abs(df['Open'].iloc[idx - 1] - df['Close'].iloc[idx - 1])
         
-        min_body = df['Close'].mean() * 0.001  # Minimum body size
+        min_body = df['Close'].iloc[idx] * 0.001  # Minimum body size, from that day's price
         
         if body <= min_body or prev_body <= min_body:
             return 0
@@ -341,7 +341,7 @@ class SupportResistanceStrategy(BaseStrategy):
         high_wick = df['High'].iloc[idx] - max(df['Open'].iloc[idx], df['Close'].iloc[idx])
         low_wick = min(df['Open'].iloc[idx], df['Close'].iloc[idx]) - df['Low'].iloc[idx]
         
-        min_body = df['Close'].mean() * 0.001
+        min_body = df['Close'].iloc[idx] * 0.001
         
         if body <= min_body:
             return 0
@@ -425,12 +425,12 @@ class SupportResistanceStrategy(BaseStrategy):
                 signals.iloc[i, signals.columns.get_loc('is_resistance')] = 1
         
         # Generate trading signals
-        for row in range(back_candles, len(signals) - n2):
-            # Collect recent S/R levels
+        for row in range(back_candles, len(signals)):
+            # Collect recent S/R levels: a pivot needs its n2 later bars, so it is known only n2 bars on
             support_levels = []
             resistance_levels = []
             
-            for subrow in range(row - back_candles + n1, row + 1):
+            for subrow in range(row - back_candles + n1, row + 1 - n2):
                 if signals['is_support'].iloc[subrow] == 1:
                     support_levels.append(signals['Low'].iloc[subrow])
                 if signals['is_resistance'].iloc[subrow] == 1:
@@ -451,9 +451,9 @@ class SupportResistanceStrategy(BaseStrategy):
                 signals.iloc[row, signals.columns.get_loc('signals')] = 1
                 signals.iloc[row, signals.columns.get_loc('pattern_type')] = 'Bullish Engulfing' if engulfing == 2 else 'Hammer'
         
-        # Calculate positions
-        signals['positions'] = signals['signals'].cumsum()
-        signals['positions'] = signals['positions'].clip(0, 1)  # Long only, max 1 position
+        # Long only, one position: a buy opens it, a sell closes it, and a repeat changes nothing
+        signals['positions'] = signals['signals'].replace({0: np.nan, -1: 0}).ffill().fillna(0).astype(int)
+        signals['signals'] = signals['positions'].diff().fillna(0).astype(int)
         
         return signals
     

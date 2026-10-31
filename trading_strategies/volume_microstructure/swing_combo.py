@@ -294,6 +294,8 @@ class SwingComboStrategy(BaseStrategy):
         combo[buy_count >= min_agree] = 1
         combo[sell_count >= min_agree] = -1
         signals["signal"] = combo
+        # A buy opens the position and a sell closes it (delivery cannot short); it is held in between
+        signals["positions"] = combo.replace({0: np.nan, -1: 0}).ffill().fillna(0).astype(int)
 
         # RSI for charting
         signals["RSI"] = calculate_rsi(df["Close"], period=rsi_period)
@@ -305,12 +307,8 @@ class SwingComboStrategy(BaseStrategy):
     def _calculate_portfolio(
         self, signals: pd.DataFrame, capital: float, risk: RiskParams,
     ) -> pd.DataFrame:
-        portfolio = signals[["Close"]].copy()
-        portfolio.rename(columns={"Close": "close"}, inplace=True)
-        portfolio["position"] = signals["signal"].shift(1).fillna(0)
-        portfolio["returns"] = portfolio["close"].pct_change().fillna(0)
-        portfolio["strategy_returns"] = portfolio["position"] * portfolio["returns"]
-        portfolio["equity"] = capital * (1 + portfolio["strategy_returns"]).cumprod()
+        portfolio = self._calculate_portfolio_long_only(signals, capital, risk)
+        portfolio["equity"] = portfolio["total_value"]
         portfolio["drawdown"] = portfolio["equity"] / portfolio["equity"].cummax() - 1
         return portfolio
 

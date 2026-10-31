@@ -308,15 +308,14 @@ class BollingerPatternStrategy(BaseStrategy):
         signals['pattern_confirmed'] = 0
         signals['coordinates'] = ''
         
-        # Average bandwidth for exit condition
-        avg_bandwidth = signals['bandwidth'].mean()
-        beta = avg_bandwidth * 0.8  # Exit when bandwidth contracts below this
+        # Exit when bandwidth contracts below 80% of its average so far: the bars after today are not known yet
+        signals['exit_bandwidth'] = signals['bandwidth'].expanding(min_periods=bb_period).mean() * 0.8
         
         for i in range(pattern_period, len(signals)):
             # Skip if already in position
             if signals['positions'].iloc[i-1] > 0:
                 # Check for exit condition (bandwidth contraction)
-                if signals['bandwidth'].iloc[i] < beta:
+                if signals['bandwidth'].iloc[i] < signals['exit_bandwidth'].iloc[i]:
                     signals.iloc[i, signals.columns.get_loc('signals')] = -1
                     signals.iloc[i, signals.columns.get_loc('positions')] = 0
                 else:
@@ -384,9 +383,6 @@ class BollingerPatternStrategy(BaseStrategy):
                 
                 if pattern_found:
                     continue
-        
-        # Forward fill positions
-        signals['positions'] = signals['positions'].replace(0, np.nan).ffill().fillna(0)
         
         return signals
     
@@ -459,8 +455,8 @@ class BollingerPatternStrategy(BaseStrategy):
         # Bandwidth plot
         ax2.fill_between(signals.index, 0, signals['bandwidth'], 
                         alpha=0.5, color='purple')
-        ax2.axhline(y=signals['bandwidth'].mean() * 0.8, color='red', 
-                   linestyle='--', label='Exit threshold')
+        ax2.plot(signals.index, signals['exit_bandwidth'], color='red',
+                linestyle='--', label='Exit threshold')
         ax2.set_title('Bollinger Bandwidth')
         ax2.set_xlabel('Date')
         ax2.set_ylabel('Bandwidth')

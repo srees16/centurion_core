@@ -24,7 +24,7 @@ as of Oct 2026); until a year's list is here, only its weekends are known.
 from __future__ import annotations
 
 from datetime import date
-from typing import Dict, FrozenSet, Tuple, Union
+from typing import Dict, FrozenSet, Optional, Tuple, Union
 
 DateLike = Union[date, str]
 
@@ -78,6 +78,14 @@ def is_special_session(d: DateLike) -> bool:
 def is_trading_day(d: date) -> bool:
     """A weekday that is not a listed holiday, or a special session (Budget day, Muhurat, drill)."""
     return (d.weekday() < 5 and not is_holiday(d)) or is_special_session(d)
+
+
+def holiday_list_missing(today: date) -> Optional[int]:
+    """The year whose holiday list is not here yet: this year, or next year from 15 December, about when NSE
+    publishes it; None when nothing is due.  Until it is added, every weekday of that year counts as a trading day."""
+    if today.year not in HOLIDAY_YEARS:
+        return today.year
+    return today.year + 1 if (today.month, today.day) >= (12, 15) and today.year + 1 not in HOLIDAY_YEARS else None
 
 
 def special_session_dates() -> Tuple[date, ...]:

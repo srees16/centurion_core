@@ -770,7 +770,7 @@ Real orders also need `CENTURION_LIVE_MODE=live` and the kill switch off.
 | Session failed | Emails when a paper or live session fails | nightly |
 | Dead-man's switch | healthchecks.io emails you when no healthy ping arrives by 23:00 IST on a weekday | nightly |
 | Paper heartbeat | Has the book traded recently? | 00:15 IST |
-| Kill switch | A latched halt for every order path, kept in Neon. New buys are refused; exits and protective stops still go. Only a person turns it off | the "Kill switch" workflow |
+| Kill switch | A latched halt for every order path, kept in Neon. New buys are refused and those already queued at the broker are cancelled; exits and protective stops still go. Only a person turns it off | the "Kill switch" workflow |
 | Fresh-capital requests | When NIFTY closes 20%, 30% or 40% below its peak, an email asks for one third of your crash reserve, with the suggested fund and the tax arithmetic | nightly |
 | Weekly report | Every paper book against the deployed one, the forward-gate status, and the register attached | Saturday 07:30 IST |
 
@@ -1123,6 +1123,17 @@ This verdict is one of the 11 forecast sources (weight: 5%) in the Carver foreca
 
 ## 4. Strategy Backtesting
 
+**How a backtest fills (tracker BT1).** A position decided at a close fills at
+the next open, sized from that morning's equity, in whole shares, and pays the
+statutory charges at that date's rates plus slippage (`BaseStrategy._fill_positions`).
+Raw NSE prices are not adjusted for splits or bonuses, so a ticker with one in
+the window uses Yahoo's adjusted prices, or is refused with the reason.
+`python -m tools.strategy_benchmark` compares the single-stock strategies on
+official adjusted prices, next to buy and hold, NIFTY 50 TRI and the deployed
+book. Pairs Trading, Mean Reversion and Shooting Star keep their own portfolio
+code, with no costs yet; Crypto Mean Reversion has its own commission setting.
+
+
 ### Registered Strategies (11)
 
 | ID | Name | Category | Key Parameters |
@@ -1215,7 +1226,8 @@ orders start at go-live (section 1.4).
 6. **Safety:**
    - real orders need `CENTURION_LIVE_MODE=live`, an approved deployment and
      the go-live checks;
-   - the kill switch refuses new buys while exits and stops still go
+   - the kill switch refuses new buys and cancels those already queued at
+     the broker, while exits and stops still go
      (`kite_connect/trading/kill_switch.py`);
    - no path places intraday orders (MIS is refused).
 
@@ -1298,7 +1310,7 @@ Push-based tick distribution via Kite WebSocket (KiteTicker) with an internal ev
 ### Key Features (web app and legacy pipeline)
 - **Order database persistence** — every order (BUY/SELL, MARKET/LIMIT/AMO, success/failure) is automatically saved to the `order_records` PostgreSQL table with fill_price, filled_at, and status
 - **Email order confirmations** — styled HTML email sent via SMTP for every placed order (requires `CENTURION_EMAIL_*` env vars)
-- **Circuit breaker** — 3 consecutive API failures → order placement halted for 120 seconds; auto-recovers via half-open test; manual reset available via `reset_circuit_breaker()`
+- **Circuit breaker** — 3 consecutive API failures → new buys held back for 10 minutes, while exits are always tried; auto-recovers via half-open test; manual reset available via `reset_circuit_breaker()`
 - **Crash recovery** — TradeMonitor persists all open trade state to SQLite (WAL mode); on container/process restart, active trades are automatically restored and monitoring resumes
 - **Paper trading engine** — virtual broker that simulates fills using live Kite LTP + configurable slippage; persists trades and P&L to SQLite for paper ↔ live reconciliation
 - **3-leg reconciliation** — weekly automated comparison: backtest ↔ paper, paper ↔ live, backtest ↔ live (Sharpe, win-rate, return drift detection)
@@ -1673,7 +1685,7 @@ centurion_core/
 │       ├── kite-login-reminder.yml  # 09:00 / 17:30 IST login email
 │       ├── paper-heartbeat.yml   # 00:15 IST: has the book traded recently?
 │       ├── record-sell-path.yml  # Records the supervised sell test (go-live check)
-│       ├── kill-switch.yml       # Turns the latched kill switch on or off, with a reason
+│       ├── kill-switch.yml       # Turns the latched kill switch on or off, with a reason; clears queued buys
 │       ├── options-paper-demo.yml · us-advisory.yml
 │       ├── tests.yml             # Fast test suite on push and pull request
 │       └── deploy.yml            # HF Spaces backend deployment
@@ -1810,7 +1822,7 @@ centurion_core/
 │   │   ├── gtt_stops.py · order_status.py · nse_instruments.py · book_events.py
 │   │   ├── kill_switch.py        # The latched kill switch for every order path
 │   │   ├── paper_book_view.py    # Read-only views of the paper books (API, Trade Center)
-│   │   ├── order_service.py      # Idempotent retry + circuit breaker (3 failures → 120s halt)
+│   │   ├── order_service.py      # Idempotent retry + circuit breaker (3 failures → 10 min, buys only)
 │   │   ├── trade_monitor.py      # SL/TP lifecycle, trailing stops, SQLite crash recovery
 │   │   ├── paper_trader.py       # Virtual broker — live LTP + slippage, SQLite persistence
 │   │   ├── auto_executor.py      # Screen → signal-filter → risk → order → monitor pipeline
@@ -2341,6 +2353,10 @@ python -m cloud.wf_stitch import-runs --src <pulled dir> --dest data/nse_engine/
 # Live book (needs today's Kite login)
 python -m kite_connect.trading.live_session --dry-run --capital 600000
 python -m kite_connect.trading.kill_switch status
+python -m kite_connect.trading.kill_switch check     # reads each book, cancels nothing
+
+# Benchmark the single-stock strategies on the research store (in-sample, a yardstick)
+python -m tools.strategy_benchmark
 ```
 
 ### Quick Start

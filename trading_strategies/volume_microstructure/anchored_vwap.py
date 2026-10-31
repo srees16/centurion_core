@@ -39,7 +39,7 @@ from strategies.base_strategy import (
 )
 from strategies.registry import StrategyRegistry
 from strategies.data_service import DataService
-from strategies.utils import matplotlib_to_base64, calculate_rsi
+from strategies.utils import calculate_rsi, matplotlib_to_base64, running_avwap, volume_anchors
 
 
 @StrategyRegistry.register_decorator
@@ -154,16 +154,6 @@ class AnchoredVWAPStrategy(BaseStrategy):
 
     # ── signal generation ──────────────────────────────────────
 
-    @staticmethod
-    def _compute_avwap(df: pd.DataFrame, anchor_idx: int) -> pd.Series:
-        """Compute VWAP anchored from *anchor_idx* forward."""
-        typical_price = (df["High"] + df["Low"] + df["Close"]) / 3
-        volume = df["Volume"] if "Volume" in df.columns else pd.Series(1, index=df.index)
-        cum_tpv = (typical_price * volume).iloc[anchor_idx:].cumsum()
-        cum_vol = volume.iloc[anchor_idx:].cumsum()
-        avwap = cum_tpv / cum_vol.replace(0, np.nan)
-        return avwap.reindex(df.index)
-
     def _generate_signals(
         self,
         df: pd.DataFrame,
@@ -175,31 +165,20 @@ class AnchoredVWAPStrategy(BaseStrategy):
         close = signals["Close"]
         volume = signals["Volume"] if "Volume" in signals.columns else pd.Series(1, index=signals.index)
 
-        # Find anchor events (top N% volume days)
-        vol_threshold = np.percentile(volume.dropna().values, vol_pctile)
-        anchor_candidates = volume[volume >= vol_threshold].index
-        # Also consider 52-week high/low as anchor
+        # Anchor events: a top-volume day for its year, or a 52-week closing high or low
         rolling_high = close.rolling(252, min_periods=60).max()
         rolling_low = close.rolling(252, min_periods=60).min()
         is_52w_extreme = (close >= rolling_high) | (close <= rolling_low)
-        anchor_days = sorted(set(anchor_candidates) | set(close[is_52w_extreme].index))
 
-        # Use the most recent anchor event at each bar
-        signals["avwap"] = np.nan
-        if anchor_days:
-            # Pick the latest anchor before each bar
-            anchor_positions = [signals.index.get_loc(d) for d in anchor_days if d in signals.index]
-            if anchor_positions:
-                last_anchor = anchor_positions[-1]
-                avwap = self._compute_avwap(df, last_anchor)
-                signals["avwap"] = avwap
+        # Each bar uses the most recent anchor at or before it
+        signals["avwap"] = running_avwap(df, volume_anchors(volume, vol_pctile) | is_52w_extreme)
 
         # RSI for confirmation
         rsi_series = calculate_rsi(close, period=rsi_period)
         signals["rsi"] = rsi_series
 
         # Generate signals
-        signals["positions"] = 0
+        signals["positions"] = np.nan                     # 1 at a buy, 0 at a sell, unset where neither happens
         signals["signals"] = 0
 
         avwap = signals["avwap"]
@@ -220,7 +199,8 @@ class AnchoredVWAPStrategy(BaseStrategy):
             elif proximity <= touch_pct and price < vwap_val and rsi_val < 55:
                 signals.iloc[i, signals.columns.get_loc("positions")] = 0
 
-        signals["positions"] = signals["positions"].replace(0, np.nan).ffill().fillna(0).astype(int)
+        # Each decision holds until the next one
+        signals["positions"] = signals["positions"].ffill().fillna(0).astype(int)
         signals["signals"] = signals["positions"].diff().fillna(0)
         return signals
 

@@ -286,7 +286,8 @@ def walk_forward_validate(
                 # Apply per trade, estimate trades from signals count
                 _total_trades = metrics.get("total_trades", 0) or metrics.get("trades", 0) or 2
                 _round_trip_cost = 0.004  # 0.40% per round-trip (conservative)
-                _cost_drag = _total_trades * _round_trip_cost
+                # Strategies on the shared simulator paid real costs already: charging again would double them
+                _cost_drag = 0.0 if metrics.get("costs_included") else _total_trades * _round_trip_cost
                 _oos_return = _oos_return - _cost_drag
                 # Adjust Sharpe by cost drag (annualized)
                 _ann_cost = _cost_drag * (252 / max((_test_end - _test_start).days, 1))
