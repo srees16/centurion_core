@@ -270,7 +270,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
         manual sells refused while the kill switch is on.  Either repo may
         deploy first, but RB5's bug is only fully closed with both.
      2. Your call: a maximum order value on manual orders (Quick Trade)?
-     3. Commit and merge RB6, RB7, BT1 and C8 (the kill switch clears queued
+     3. CL1's removals are uncommitted: commit them after your review.  You
+        committed the list below on 31 Oct (c5a5b58); merge it to main.
+        RB6, RB7, BT1 and C8 (the kill switch clears queued
         buys; exits are always tried; an honest strategy backtest; a run
         cannot start before its regime index; uncommitted):
         .github/workflows/kill-switch.yml, api/routers/v1/kite.py,
@@ -1230,6 +1232,31 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+31 Oct  CL1  Unused code removed, then narrowed (your two asks).  The first pass
+             took out 5,916 lines of Python.  Your follow-up said to retain the
+             guardrails, strategies and backtest analysis scripts, so
+             services/, optimizer/, the legacy runners,
+             run_backtest_production.py, the evaluator's three reports and the
+             README were restored from the commit, byte for byte.  My error,
+             found on that review: trade_returns_collector.py had no caller
+             but writes data/recent_trade_returns.json, which carver_pipeline
+             reads for its Monte Carlo risk estimate, and
+             update_signal_decay_state has the same shape.  An audit of calls
+             misses a link through a file; that check is now part of the rule.
+             Still removed: nse_engine/event_drift.py (GT13, failed, writes no
+             file); the Azure compute container (compute_entrypoint.py,
+             Dockerfile.compute, deploy-compute-azure.ps1,
+             setup-cloud-compute.ps1) and monitor_r21a.bat, because Kaggle
+             replaced it; the option study helpers you approved
+             (delta_hedge_simulation, delta_neutral_units, iv_surface,
+             session_surface, skew).  Compared with the last commit: no new
+             broken import, 183 API routes identical, 42 of 42 workflow and
+             service modules load including us_engine, both Carver status maps
+             green, 415 fast and 6 slow tests pass (367 plus 48 skips
+             core-only), canary ok on every book, the strategy benchmark
+             reproduces its recorded table.  22 broken imports in legacy
+             routes and dormant modules were there before this and are
+             unchanged.  Your bulk-deal CSVs and kaggle_out stay.
 31 Oct  BLK1 What bulk deals leave for a buyer the morning after (your ask,
              your hand-exported CSVs, 2006-25, 211,188 rows, no 2026; plan
              5as, pre-registered 10:06 IST, N = 3, 2013-25): all FAIL, nothing

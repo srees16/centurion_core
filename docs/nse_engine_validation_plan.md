@@ -1713,9 +1713,8 @@ What the result says:
 - **2026 (holdout, opened once):** RBI +97 bp over 5 events; FOMC
   tradable −27 bp, pure window +70 bp over 6 events, all up. Too few events
   to read.
-- **Not re-tuned:** any other window would be a new trial. The module
-  (`nse_engine/event_drift.py`) stays as the tool for re-checking with new
-  data.
+- **Not re-tuned:** any other window would be a new trial. The module was
+  removed on 31 Oct 2026 under your failed-ideas rule; git history holds it.
 
 ## 5x. Options rounds O5–O8 from the owner's books (pre-registered 10 Oct 2026, 23:17 IST)
 
