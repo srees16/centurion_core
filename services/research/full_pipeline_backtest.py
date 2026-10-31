@@ -590,6 +590,9 @@ def run_full_backtest(
         if verbose:
             print(f"\n  WARNING: {len(_failed_tickers)}/{len(tickers)} tickers failed download "
                   f"(error/empty/<120 rows): {', '.join(_failed_tickers)}")
+        if market == "IND":   # Yahoo drops most delisted NSE names; nse_engine's store keeps them (SB3)
+            logger.warning("%d NSE names missing: a dead stock cannot be held here, so this backtest is "
+                           "survivorship-biased; use nse_engine for any research result", len(_failed_tickers))
 
     symbols = list(ohlcv_full.keys())
     n_symbols = len(symbols)

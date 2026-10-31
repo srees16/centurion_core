@@ -54,6 +54,7 @@ from nse_engine.portfolio import (
     stop_fill_price,
     trailing_stop,
 )
+from nse_engine.data.reference import load_for_cause_exits
 from nse_engine.regime import compute_regime, require_index_from
 from nse_engine.signals import compute_signal_panels, daily_returns, realised_vol
 from nse_engine.sleeves import compute_sleeve_panels, sleeve_weights
@@ -109,6 +110,12 @@ class EngineCache:
         n = len(self.dates)
         has = finite.any(axis=0)
         self.last_valid_pos = np.where(has, n - 1 - np.argmax(finite[::-1], axis=0), -1)
+        # What a holder got for a stock that left for a restricted series (SB3); the US store has its own rule.
+        self.exit_ratio = np.ones(len(self.symbols))
+        if config.costs.market == "NSE":
+            for sym, ratio in load_for_cause_exits().items():
+                if sym in self.sym_index:
+                    self.exit_ratio[self.sym_index[sym]] = ratio
 
         returns_df = daily_returns(close_df)
         self.returns = returns_df.to_numpy()
@@ -699,19 +706,19 @@ def run_backtest(
         date = dates[u]
         if u > s0 and book.cash > 0:
             book.cash += book.cash * daily_yield
-        # delisted symbols: liquidate at last close
+        # delisted symbols: liquidate at last close, less what a stock that left for cause fell after it (SB3)
         for sym in list(book.positions):
             j = cache.sym_index[sym]
             lv = cache.last_valid_pos[j]
             if lv < u:
                 h = book.positions[sym]
-                px = cache.close[lv, j] if lv >= 0 else np.nan
+                px = cache.close[lv, j] * cache.exit_ratio[j] if lv >= 0 else np.nan
                 fill = simulate_fill("SELL", h.quantity, px, cache.adv[max(lv, 0), j], date, cfg_costs, apply_cap=False,
                                      symbol=sym, fractional=frac)
                 book.cash += fill.value_inr - fill.cost_inr
                 del book.positions[sym]
                 _record_trade(book, date, sym, "SELL", fill, "delisted", frac)
-                book.notes.append(f"{date.date()} {sym}: stopped trading after {dates[lv].date()}; liquidated at last close {px:.2f}")
+                book.notes.append(f"{date.date()} {sym}: stopped trading after {dates[lv].date()}; liquidated at {px:.2f}")
         stopped_today: set = set()
         carried: set = set()                              # live: a triggered stop GTT that did not fill today
         # gap stops at the open

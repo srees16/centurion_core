@@ -1284,3 +1284,26 @@ def test_a_run_cannot_start_before_its_regime_index(panel):
     with pytest.raises(ValueError, match="regime index NIFTY50 starts"):
         EngineCache(panel, cfg.replace(start=str(dates[50].date()), end=str(dates[-1].date())))
 
+
+def test_a_stock_moved_to_series_bz_can_be_sold_but_never_bought(monkeypatch):
+    """A failing stock leaves EQ and BE: a holding must stay sellable (SB3), and nothing new goes there."""
+    from types import SimpleNamespace
+
+    from kite_connect.trading.nse_engine_executor import EngineExecutor
+    from kite_connect.trading.nse_instruments import to_broker, to_engine
+
+    ticks = {"DEAD-BZ": 0.01, "HFCL-BE": 0.01, "INFY": 0.05}
+    assert to_broker("DEAD", ticks, exit_order=True)[0] == "DEAD-BZ"
+    assert to_broker("DEAD", ticks) == (None, "DEAD: not in Kite's NSE equity list (no EQ or BE instrument)")
+    assert to_broker("HFCL", ticks)[0] == "HFCL-BE" and to_broker("INFY", ticks, exit_order=True) == ("INFY", "")
+    assert to_engine("DEAD-BZ") == "DEAD"
+
+    order = lambda side: SimpleNamespace(symbol="DEAD", side=side, limit_price=4.0, ref_price=4.0, quantity=10,  # noqa: E731
+                                         reason="delisted", current_qty=10, target_qty=0)
+    plan = SimpleNamespace(sells=[order("SELL")], buys=[order("BUY")], as_of="2026-10-30")
+    executor = EngineExecutor.__new__(EngineExecutor)
+    executor.kite, executor.next_lower_circuits = object(), lambda symbols: {}
+    monkeypatch.setattr("kite_connect.trading.nse_instruments.ticks_for", lambda kite: ticks)
+    sell, buy = executor.live_orders(plan, variety="amo")
+    assert sell["symbol"] == "DEAD-BZ" and sell["unresolved"] is None and "exit only" in sell["series_note"]
+    assert buy["symbol"] == "DEAD" and buy["unresolved"], "a buy is not resolved to a restricted series"

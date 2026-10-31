@@ -51,8 +51,19 @@ NIFTY500_LIST = "ind_nifty500list.csv"
 SECTOR_SNAPSHOTS = "nse_sector_maps"
 #: Dated face values (tracker LN-T32), next to the sector map: {symbol: [[first seen, face value], ...]}.
 FACE_VALUE_HISTORY = "nse_face_values.json"
+#: Tracked, so every runner holds the same exits: ``run_nse_engine for-cause-exits`` writes it (tracker SB3).
+FOR_CAUSE_EXITS = Path(__file__).resolve().parents[2] / "config" / "nse_for_cause_exits.json"
 
 CHANGE_COLUMNS = ["old", "new", "date", "valid_from", "source"]
+
+
+def load_for_cause_exits(path: PathLike = FOR_CAUSE_EXITS) -> Dict[str, float]:
+    """{symbol: exit price / last EQ or BE close} of stocks that left for a restricted series."""
+    ratios = json.loads(Path(path).read_text())["ratios"]
+    bad = {s: r for s, r in ratios.items() if not 0.0 < float(r) <= 1.0}
+    if bad:
+        raise ValueError(f"{path}: an exit ratio must lie in (0, 1]: {sorted(bad.items())[:3]}")
+    return {s: float(r) for s, r in ratios.items()}
 
 
 def reference_path(root: PathLike, name: str) -> Optional[Path]:

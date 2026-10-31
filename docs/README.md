@@ -1673,7 +1673,8 @@ centurion_core/
 ├── config/                       # Approved book configurations and the canary's expected values
 │   ├── nse_engine_deployed.json  # The deployed book (679cbd0c) with its drawdown overlay
 │   ├── nse_engine_candidate.json · nse_engine_e4.json   # Trial paper books
-│   └── canary_expected.json      # Expected backtest statistics and data fingerprints
+│   ├── canary_expected.json      # Expected backtest statistics and data fingerprints
+│   └── nse_for_cause_exits.json  # What a holder got for stocks that left EQ / BE for a restricted series
 │
 ├── us_engine/                    # US stocks (in research; documented here once tuned)
 │

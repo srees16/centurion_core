@@ -1,5 +1,5 @@
 ================================================================================
-  CENTURION IND STOCKS — MEMORY TRACKER            updated 17 Oct 2026, 22:10 IST
+  CENTURION IND STOCKS — MEMORY TRACKER            updated 31 Oct 2026, 15:45 IST
 ================================================================================
 HOW TO USE  Paste the Prompt of the first [ ] item in section 6, e.g. "do G4".
             Claude marks it [~], works, leaves changes uncommitted for your
@@ -263,6 +263,18 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      REJECT or WATCH (WATCH: decided again at 90 sessions, about 25 Jan
      2027).  ACCEPT: live may start at Rs 6 lakh after 5 clean dry runs, on
      your go-ahead.  REJECT: no live capital; 679cbd0c is not re-tuned.
+ >>> SAT 31 OCT - YOUR ACTIONS
+     1. Commit the 14 uncommitted files (SB3, GT2).  config/nse_for_cause_exits.json
+        is new and must go in, or the nightly run fails.
+     2. DONE, your call 31 Oct: the golden target stays what Centurion aspires
+        to.  Paper trading on live Kite data is allowed (you confirmed).
+     3. Send Zerodha one ticket: the seven questions below, then tell Claude
+        the answers.  The answers set LN-T11's buffer, LN-T29 and GT2H.
+        Q4 and the 09:00 check, Q5 and Q6 are the ST2 block's, still unsent.
+        - a holding moved to series BZ: can it be sold as CNC through the Kite
+          API, and does its GTT survive the series change?
+        - MARKET orders by API: is market_protection required, what value?
+        - the daily API logout: at what time does the token expire?
  >>> FRI 30 OCT - YOUR ACTIONS
      1. Merge RB5 to main together with item 3, never alone (a live-order
         bug, both repos; committed by you, 381f868 and centurion_core-fe
@@ -740,6 +752,44 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
  6. QUEUE — do #1 first.  Every item: pass rule fixed before running, every
     backtest recorded, no tuning on 2026 data, CAGR on calendar years.
 --------------------------------------------------------------------------------
+ >>> GT2 REBUILD (31 Oct, plan 5at; from the golden target review): do these first.
+     The golden target stays the aspiration (your call 31 Oct).  First milestone:
+     Sharpe about 0.8, 17-18% CAGR, about 15% vol, measured against a passive
+     NIFTY and gold mix.  Work in order; each step decides the next.
+     This replaces the ~20% live estimate below: walk-forward 2008-25 is 13.0%.
+[~] P0  GT2A Diagnostics, no recorded trial, about one session.  Stock alpha by
+             rank bucket against NIFTY plus gold; the book with metals replaced
+             by the liquid rate; each exit by removal, 63-session follow-through
+             of sold names; range-market losses by cause; DSR at N 61, 1,000
+             and 7,000 and PBO on the metric used to select.  Stop point: if
+             stock-only alpha has t < 1 over 2013-25, the product question comes
+             to you before GT2B.                            Prompt: do GT2A
+[ ] P1  GT2B Slower core, needs GT2A.  Equal-weight lookbacks centred on 63 days
+             or longer, with hold bands; values fixed in a dated addendum first;
+             Kaggle.  Uses the core's one configuration left before January.
+             Pass: walk-forward 2008-25 live-like Sharpe above base, bootstrap_p
+             <= 0.10, above base in 2008-12, turnover down a third.  Estimated +1
+             to +1.5 points CAGR, +0.10 Sharpe.             Prompt: do GT2B
+[ ] P1  GT2C Idle capital, needs GT2B.  Exposure 60-100% with hysteresis, no
+             borrowing, one rule.  Estimated +2 to +3 points CAGR, no Sharpe gain.
+                                                             Prompt: do GT2C
+[ ] P1  GT2D Multi-factor stock signal, needs GT2B.  Quality and low volatility
+             beside momentum, at signal level, at most 3 configurations.  Gap:
+             filings start 2012.  Estimated +0.05-0.10 Sharpe.  Prompt: do GT2D
+[ ] P2  GT2E Instruments by rule.  Metals, gilts and MCX chosen by a rule stated
+             before results, with a metals cap sized from GT2A.  Prompt: do GT2E
+[x]     GT2F WITHDRAWN 31 Oct: REITs and InvITs stay closed under GT14 (11 Oct).
+[ ] P2  GT2G Stock-futures short leg, judged on crash behaviour.  First puts stock
+             futures 2007-12 in the store (your 2008 rule), then at most 3
+             configurations.                                Prompt: do GT2G
+[ ] P1  GT2H Live safety, can start now, independent of the research.  Limiter at
+             10 orders a second; gap fills including band-locked days; limits
+             clamped inside the band; days-to-exit cap; -13% no-exit stress;
+             documented manual exit through a second broker. Prompt: do GT2H
+[ ] P1  GT2I Go-live ramp, before any live capital.  60 sessions and 5 dry runs
+             stay as operational readiness; add canary capital at 5-10% for 3-6
+             months, then 25%, 50%, full, advancing on fills, not profit; CUSUM
+             alarm scales capital down.  RA1 stands as fixed. Prompt: do GT2I
  GOAL  the best LIVE CAGR / Sharpe / Calmar.  Ranked by expected effect on
    the live book, largest first.  Backtest today (cost model 4, RR2): E4
    23.6% / 1.14 / Calmar 0.93; deployed 23.1% / 1.16 / 0.97.  Live
@@ -1232,6 +1282,35 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+31 Oct  GT2  Golden target review (your ask; plan 5at, pre-registered, nothing run
+             yet).  Verdict: Sharpe 1.4 and 35% are not a sustained outcome for a
+             positional Indian book; perfect foresight of every bear on NIFTY
+             gives about 25%, and Sharpe 0.6 tops out near 24.5% at any leverage.
+             Gold alone 13.8%, 60/40 NIFTY and gold 12.4%, the book 13.0%: its
+             edge is risk, +0.12 to +0.17 Sharpe.  Your call: the golden target
+             stays the aspiration; Sharpe about 0.8, 17-18% CAGR is the first
+             milestone.  Report in ProjectX/reports/.
+31 Oct  SB3  Survivorship audit and fixes (your ask).  The core was already
+             clean: 1,038 names passed through the universe, 291 (28%) are gone
+             and stay in the data, 17% of member-days; a survivors-only run
+             gives 16.97% / 0.795 against 16.87% / 0.791, so the honest result
+             is not inflated.  Three gaps closed.  (1) The store keeps EQ and
+             BE only, so a stock pushed to BZ vanished and was sold at its last
+             clean close: 84 universe names then fell a median 56%.  All 7
+             backtest exits and 6 walk-forward exits were buyouts or mergers,
+             so the book's record does not move.  New
+             config/nse_for_cause_exits.json (211 names, to 2025 only, close
+             20 prints after leaving, gains not credited), from run_nse_engine
+             for-cause-exits; rerun at January's window roll.  (2) Live: a
+             holding moved to BZ had no Kite symbol, so it could not be sold;
+             exits now reach SYM-BZ, buys never do.  (3) The legacy
+             full_pipeline_backtest uses Yahoo, which drops most dead NSE names:
+             every run now says it is biased.  Its R-series figures are not
+             evidence.  Left open: gold, silver, the liquid and gilt proxy funds
+             and MCX's five commodities were chosen knowing they survived.
+             Output change: none (canary ok, 420 fast and 6 slow tests, 372
+             plus 48 skips core-only, 8 of 8 deliberate breakages caught).  US
+             read only (on hold): point-in-time members and a delisting rule.
 31 Oct  CL1  Unused code removed, then narrowed (your two asks).  The first pass
              took out 5,916 lines of Python.  Your follow-up said to retain the
              guardrails, strategies and backtest analysis scripts, so

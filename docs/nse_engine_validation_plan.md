@@ -4706,6 +4706,60 @@ Bullish rows are net of 34.6 bp, the bearish row gross.
   1,823 book entries at +1.04% against DT1's 1,822 at +1.04%. The CSVs stay where they
   are.
 
+## 5at. GT2: the rebuild after the golden target review (India tracker GT2; your ask, pre-registered 31 Oct 2026, 14:53 IST)
+
+**Why now.** The audit and outside research agree that Sharpe 1.4 and 35% are not a sustained
+outcome for a positional Indian book. Live-like 2008-25 is 13.0% / 0.60. Gold alone earned 13.8%
+and 60 NIFTY / 40 gold 12.4%, so the book's edge is about +0.12 to +0.17 Sharpe, and metals earned
+4.7 of its 13.3 points. You kept the golden target as the aspiration (31 Oct). This plan works
+towards it through a first milestone: Sharpe about 0.8, 17-18% CAGR, about 15% vol.
+
+**Rules for everything below.**
+- The hurdle is a passive NIFTY and gold mix as well as the book. Alpha is reported against both.
+- Live-like metrics only; D2 is already inside them and is not charged twice.
+- Every new instrument comes from a rule stated before any result, never from a list of survivors.
+- 2026 stays out of every test here.
+- Failed ideas leave no code. Guardrails, strategies and backtest analysis scripts stay.
+
+**Phase A: diagnostics, one look each, nothing recorded, no parameter chosen.**
+- A1 Alpha by rank bucket against NIFTY plus gold, by period, to settle why IC and alpha disagree.
+- A2 The book with metals replaced by the liquid rate: return, Sharpe, crash drawdown.
+- A3 Each exit by removal, and sold names' excess over 63 sessions as well as 21.
+- A4 DSR at N 61, 1,000 and 7,000; PBO on the metric actually used to select.
+- A5 (added 31 Oct, before any run) Range-market losses by cause, including the cost of false signals.
+- If stock-only alpha has t < 1 over 2013-25, this comes to you before Phase B: the honest product
+  may be the passive mix with a defensive overlay.
+
+**Phase B: the core family's one remaining configuration.** A slower core: equal-weight lookbacks
+centred on 63 days or longer, with hold bands. Values are fixed in a dated addendum after Phase A
+and before any run, on Kaggle. Pass: walk-forward 2008-25 live-like Sharpe above the base with
+`bootstrap_p` <= 0.10, above the base in 2008-12, turnover down by at least a third.
+
+**Phase C: new streams, each its own family, at most 3 configurations, the §5.1 gate.**
+- C1 Quality and low volatility beside momentum, at signal level. Gap: filings start in 2012.
+- C2 Idle capital deployed: exposure 60-100% with hysteresis, no borrowing. One rule.
+- C3 withdrawn 31 Oct: REITs and InvITs stay closed under GT14 (every blend cut CAGR 2-4 points).
+- C4 A stock-futures short leg, judged on crash behaviour. Needs stock futures 2007-12 in the store.
+
+**Phase D: live safety, code and checks.**
+- A hard limiter at 10 orders a second.
+- Zerodha to confirm `market_protection` on manual MARKET orders, the daily logout, and whether
+  paper trading on live Kite data is allowed.
+- A gap-fill model that includes band-locked days, and re-placed limits clamped inside the band.
+- A days-to-exit cap beside the 8% name cap, and a -13% no-exit stress (23 Mar 2020).
+- A documented manual exit through a second broker.
+
+**Phase E: going live.** The 60 sessions and 5 dry runs stay, as operational readiness only: 60
+sessions has about 8% power to tell Sharpe 1.0 from 0.5. Added: canary capital at 5-10% for 3-6
+months, then 25%, 50% and full, advancing on slippage, volatility ratio, turnover and
+reconciliation, never on profit. A CUSUM alarm scales capital down. RA1's rule stands as fixed.
+
+**Not doing.** Structural leverage (until live Sharpe is near 0.9 and futures drag is under 2
+points, then at most 1.25-1.5x on index futures); permanent puts; naked short volatility; a fourth
+overlapping exit; intraday; earnings drift, bulk deals, index-inclusion longs and size alone.
+
+**Evidence.** `reports/Centurion golden target feasibility.md` in ProjectX, outside this repo.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast
