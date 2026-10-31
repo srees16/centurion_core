@@ -4729,17 +4729,114 @@ towards it through a first milestone: Sharpe about 0.8, 17-18% CAGR, about 15% v
 - A5 (added 31 Oct, before any run) Range-market losses by cause, including the cost of false signals.
 - If stock-only alpha has t < 1 over 2013-25, this comes to you before Phase B: the honest product
   may be the passive mix with a defensive overlay.
+- **Phase A result (31 Oct 2026): stop test passed.** Stock-only alpha 2013-25 +6.0% a year, t 2.03
+  (2008-25 +3.6%, t 1.38). Detail in tracker GT2A; nothing recorded, no parameter chosen.
 
 **Phase B: the core family's one remaining configuration.** A slower core: equal-weight lookbacks
 centred on 63 days or longer, with hold bands. Values are fixed in a dated addendum after Phase A
 and before any run, on Kaggle. Pass: walk-forward 2008-25 live-like Sharpe above the base with
-`bootstrap_p` <= 0.10, above the base in 2008-12, turnover down by at least a third.
+`bootstrap_p` <= 0.10, above the base in 2008-12. Changed 31 Oct, before any run: the turnover
+condition is dropped, because Phase A showed turnover alone does not pay.
+
+**Phase B addendum (31 Oct 2026, 19:37 IST, after Phase A, before any GT2B run).** One change set, one
+walk-forward, the core's one configuration left before January:
+- `portfolio.exit_rank` 40 to 60. Why: sold names keep beating the universe over 63 sessions, and
+  ranks 21-40 earn as much as the top 20.
+- `signals.fast_ewmac` from (8,32), (16,64) to (16,64), (32,128); `slow_ewmac` stays (64,256). Why:
+  the forecast's IC rises with horizon, 0.051 at 21 days and 0.079 at 63. All three spans stay equally
+  weighted inside their groups, so nothing is picked among them.
+- Nothing else moves. The rebalance stays weekly, because a monthly one gained nothing; the ATR stop
+  stays in the grid; the regime exit stays. Phase A's other in-sample leads are not adopted.
+- Same as the base `wf_stitched_r4b`: its 32-point grid, 18 folds, anchored from 2007, one-year first
+  training window, 12-month tests, `store_ext2006`, `excess_sharpe` selection, Kaggle.
+  The base is `engine_679cbd0c` with `universe.price_filter_unadjusted` true: it reproduces all 18 of the
+  base's recorded fold hashes.
+- Pass, on the live-like book against the base over 2008-25: higher Sharpe, `diversifier_gate.bootstrap_p`
+  <= 0.10, and higher Sharpe in 2008-12. Reported, not gates: 2013-25, CAGR, MaxDD, Calmar, trades, and
+  the passive NIFTY and gold hurdle. A failure is not re-tuned and leaves the deployed book unchanged.
+
+**Phase B result (31 Oct 2026): FAIL, not adopted.** Live-like 2008-25, base to GT2B: 13.04% / 0.600 /
+-29.5% to 13.19% / 0.593 / -31.2%; `bootstrap_p` 0.55; 2008-12 Sharpe -0.24 to -0.32. All three conditions
+fail. 2020-25 improved (1.13 to 1.40) and 2013-19 fell (0.64 to 0.45). Trades a year 340 to 264. Not re-tuned.
 
 **Phase C: new streams, each its own family, at most 3 configurations, the §5.1 gate.**
-- C1 Quality and low volatility beside momentum, at signal level. Gap: filings start in 2012.
+- C1 Reshaped 31 Oct, before any run: not another rank group (R6 and GT4 already failed that). A
+  look at dilution with 30-40 names, then a quality veto and a post-crash rebound rule, at most one
+  core configuration each. Gap: filings start in 2012.
 - C2 Idle capital deployed: exposure 60-100% with hysteresis, no borrowing. One rule.
 - C3 withdrawn 31 Oct: REITs and InvITs stay closed under GT14 (every blend cut CAGR 2-4 points).
-- C4 A stock-futures short leg, judged on crash behaviour. Needs stock futures 2007-12 in the store.
+- C4 withdrawn 31 Oct: single-stock futures shorts stay closed under U28 until the book passes Rs 2 crore.
+
+**GT2C addendum (31 Oct 2026, 22:55 IST, before any run).** Idle capital, one rule, N = 1, its own family. No
+borrowing and no change to the core: an overlay on the recorded walk-forward, plain arithmetic on the Mac (A).
+- Target exposure each close: risk_on 100%, neutral 80%, risk_off nothing added, so the regime exit is untouched.
+- The gap between that target and what the book holds goes into NIFTYBEES instead of the liquid rate: NIFTY
+  total return less 0.05% a year. No hindsight: an index, not a picked asset.
+- Hysteresis: the overlay moves only when its target differs by 5% of capital or more, or when risk_off takes
+  it to zero. It never takes the book above 100%.
+- Clarified 22:57 IST, before any result: the overlay is also zero whenever the drawdown rule is not normal
+  (`dg.guard_dates` replay, the rule A1G uses), so it never buys back a cut the rule made.
+- Timing: decided on the close, filled at the next open, so it is credited from the session after that. The
+  same two-session lag applies when it comes out. Only the 100% cap is immediate: a stock buy is funded by
+  selling NIFTYBEES at the same open.
+- Costs: NIFTYBEES at dated statutory charges plus 5 bp a side; D2's haircut on what it holds.
+- The gate, clarified before any run: §5.1 is for diversifiers, and this is not one. Gate 2 applies: on the
+  live-like book 2008-25, CAGR, Sharpe and alpha against NIFTY TRI all higher, and Sharpe in 2008-12 not lower.
+  Reported: `bootstrap_p`, MaxDD, Calmar, 2013-25, NIFTY's 30 worst weeks. If only CAGR rises, it is not a
+  pass; it comes to you as a risk choice.
+
+**GT2C result (31 Oct 2026): FAIL, not adopted, no code stays.** Live-like 2008-25, base to GT2C: 13.04% /
+0.600 / alpha 5.70% to 12.63% / 0.525 / alpha 5.16%. CAGR, Sharpe and alpha all fall, so gate 2 fails; 2008-12
+Sharpe -0.242 to -0.241 holds. Reported: `bootstrap_p` 0.93; 2013-25 16.87% / 0.88 to 16.37% / 0.77; MaxDD -29.5%
+to -28.2%, but -20.9% to -24.9% in 2013-25; Calmar 0.44 to 0.45; NIFTY's 30 worst weeks -0.99% to -1.38% on
+average. The overlay held 10% on average, a third of the 30% idle: most idle money sits in risk_off, where the
+rule rightly adds nothing. Cost is not the cause: 0.34 points a year on 5.6x turnover. NIFTY did not beat the
+liquid rate in the states it was held, as GT2A's causal test warned. Regime state rebuilt from the engine on
+store_ext2006 and checked: all 22 regime-exit days follow a risk_off close. The +2 to +3 point estimate was wrong.
+Results in `data/nse_engine/gt2c/results.json`.
+
+**GT2E addendum (31 Oct 2026, 23:05 IST, before any run).** Reshaped: only the metals cap can be tested.
+- Gilts: Bonds is closed at N = 3 of 3. MCX: closed, its third slot kept for a new source. Both stay on paper; a
+  rule choosing between them would reopen closed families.
+- Metals by rule: gold and silver are the only commodity classes among NSE ETFs, so a rule returns the same two.
+- The cap, N = 1: metals at most 35% of capital, sized before any result: 10% bounded tail / gold's -27.3%
+  worst drawdown = 37%, rounded down; GT2A's 26-32% mean weights stay untouched, so it cuts peaks only.
+- Overlay arithmetic on the recorded walk-forward, the Mac (A). Metals above 35% go to the liquid rate, pro rata
+  gold and silver, trimmed when over by 2 points or more, decided on the close, same two-session lag as GT2C.
+  Costs: dated statutory charges plus 5 bp a side on the trims; trades the engine would then skip are not
+  credited. D2's haircut is released on what is trimmed.
+- The gate, stated before any run: a cap is a risk limit and is not expected to raise CAGR, so gate 2 does not fit.
+  Pass: Sharpe not lower on the live-like book 2008-25 and in 2008-12. Reported: CAGR, alpha, MaxDD, Calmar,
+  2013-25, days capped. A pass with lower CAGR comes to you as a risk choice. Building it would be an engine
+  configuration, so it waits for January's budget; a fail leaves no code.
+
+**GT2E result (31 Oct 2026): FAIL, not adopted, no code stays.** Live-like 2008-25, base to the 35% cap: 13.04% /
+0.600 / alpha 5.70% to 12.58% / 0.581 / alpha 5.24%; 2008-12 Sharpe -0.242 to -0.381. Both conditions fail.
+Reported: `bootstrap_p` 0.75; 2013-25 Sharpe 0.879 to 0.882, CAGR 16.87% to 16.64%; MaxDD -29.5% to -27.4%; Calmar
+0.44 to 0.46. Capped on 40% of days, mean metals 29% to 24%. The damage is in 2009 (18.3% to 12.8%) and 2011 (7.4%
+to 4.6%), when the book had little else working. Metals check: 4.65 points a year against the audit's 4.7. The
+cap does not remove the hindsight risk; the book keeps it knowingly, about a third of its return from metals.
+Gilts and MCX stay on paper under their own books. Results in `data/nse_engine/gt2e/results.json`.
+
+**GT2D look (31 Oct 2026, 23:19 IST, before any run).** C1's first step, a look: nothing recorded, no parameter
+chosen, no trial spent. 18 fixed-settings books on store_ext2006, the deployed rules with the drawdown rule: 20,
+30 and 40 names with `exit_rank` at twice the names, each trend-only and with one of low_vol, delivery,
+residual_momentum, near_high or low_beta added at a third. Read live-like, 2008-25, 2008-12 and 2013-25.
+How it is read: dilution has gone only if a group at 30 or 40 names beats trend-only at the same names on Sharpe
+over 2008-25 and is not lower in 2008-12. Even then, the result is only a candidate for a January configuration,
+walk-forward and gated: these are in-sample settings. If no group does that, no signal group goes to January.
+
+**GT2D look result (31 Oct 2026): dilution has not gone; no signal group goes to January.** Live-like 2008-25,
+Sharpe, trend-only then each group added, low_vol / delivery / residual_momentum / near_high / low_beta. 20 names:
+0.697, then 0.426 / 0.745 / 0.685 / 0.717 / 0.548. 30 names: 0.750, then 0.461 / 0.775 / 0.658 / 0.657 / 0.569. 40
+names: 0.768, then 0.499 / 0.750 / 0.658 / 0.685 / 0.576. The 20-name trend book reproduces the recorded backtest.
+Of ten comparisons at 30 and 40 names one clears the rule: delivery at 30, Sharpe +0.025, 2008-12 +0.007, CAGR
+16.01% to 15.03%. That is the delivery tilt closed on 17 Sep at +0.06, not a new source, so it takes no January
+configuration; that is a judgment beyond the rule, recorded as such. Delivery data covers 88-98% of names each year
+from 2006. Width on trend alone: 20 / 30 / 40 names 15.48% / 0.697, 16.01% / 0.750, 16.32% / 0.768, but exit rank
+widened with it, and GT2A's 20 names at exit rank 60 read 17.4% / 0.82 against 16.01% / 0.750 at 30 names on the
+same exit rank. So the gain is the exit rank, not the width, and exit rank 60 did not survive walk-forward in GT2B.
+Results in `data/nse_engine/gt2d/results.json`.
 
 **Phase D: live safety, code and checks.**
 - A hard limiter at 10 orders a second.
@@ -4754,11 +4851,133 @@ sessions has about 8% power to tell Sharpe 1.0 from 0.5. Added: canary capital a
 months, then 25%, 50% and full, advancing on slippage, volatility ratio, turnover and
 reconciliation, never on profit. A CUSUM alarm scales capital down. RA1's rule stands as fixed.
 
+**Phase E result (31 Oct 2026): built, GT2I.** Before building, the look: one-year books 2013-25 at Rs 1.5, 3, 6 and
+30 lakh, reset each January because a small book compounds out of the problem. Rs 1.5 lakh holds 12 names, 74%
+invested, and misses the Rs 30 lakh book by -10 to +8 points a year: a different book. Rs 3 lakh holds 17, 85%
+invested, mean gap +0.5; Rs 6 lakh 18, 87%, +0.4; Rs 30 lakh 18, 87%. So the canary is 10%, not 5%.
+- Rungs Rs 3 / 6 / 12 / 21 / 30 lakh: the canary added under U6's ladder, not 25% and 50%, which would drop the
+  rungs already decided. First session refused at any other rung; `CENTURION_GO_LIVE_OVERRIDE` still overrides.
+- The canary holds at least 60 sessions, later rungs 20. About six months to full, against three.
+- GO now also needs G4's costs measured and PASS, and live over backtest volatility and rupees traded inside 0.7
+  to 1.3. Profit is not read. Reconciliation runs and alerts every session and does not block GO.
+- CUSUM on the daily gap, k 0.25, h 12 sd, sessions at this rung: fixed before the first live session by simulation
+  on t(4) days, 0.6% false alarms in 60 sessions, 4.6% in 250, a -0.5 sd gap caught in a median of 38 sessions. An
+  alarm steps down one rung after 20 sessions at it; at the canary it alerts. It sits outside G4's five checks, so
+  RA1 stands as fixed.
+- Changed behaviour: manual F&O with no capital set now reads Rs 3 lakh, not Rs 6 lakh.
+
 **Not doing.** Structural leverage (until live Sharpe is near 0.9 and futures drag is under 2
 points, then at most 1.25-1.5x on index futures); permanent puts; naked short volatility; a fourth
 overlapping exit; intraday; earnings drift, bulk deals, index-inclusion longs and size alone.
 
 **Evidence.** `reports/Centurion golden target feasibility.md` in ProjectX, outside this repo.
+
+## 5au. VP2: the value-area rotation plan, adapted to swing (India tracker VP2; your ask, pre-registered 31 Oct 2026, 20:51 IST)
+
+**Why now.** A volume profile video, for intraday index futures, teaches a plan OF1 and WV1 did not test.
+WV1 tested crossings of the value area, POC distance and the legacy buy, with no trend filter, stop or
+target. The new claim: in an uptrend, buy a dip under the value-area low that reclaims it, stop at that
+low, target POC then the value-area high.
+
+**Hypothesis.** Sellers who broke the low are trapped when it reclaims, and price rotates back through
+value. Against: Centurion's value-area tests so far failed, and the idea comes from intraday auctions.
+
+**Family and N.** Event studies; N = 4. No change to any book. A pass earns a separate stage 2. Anything
+that fails leaves no code; the legacy strategies stay. Temporary code, on the Mac (A).
+
+**Adaptation (A).** The video's profile is the previous New York session from minute data. Centurion has
+daily bars and trades swing, so the profile is the 60 sessions to t-1, 50 bins, 70% value area (OF1's and
+WV1's settings), and every level is known before t. Shorts are out: cash trades long only. Data, universe
+mask, run and window as 5as: 2013-25 gates, 2008-12 reported, 2026 sealed.
+
+**Rules (t = decision day; nothing after t decides an event).**
+- Uptrend (the video's "higher highs, higher low"): the highest high and the lowest low of the 60 sessions
+  to t-1 are both above those of the 60 sessions before.
+- P1 VAL reclaim: uptrend, low[t] < VAL, close[t] > VAL.
+- P2 resistance becomes support: uptrend, close crossed above VAH in the 10 sessions to t-1, low[t] <= VAH,
+  close[t] > VAH.
+- P3 point of control holds: uptrend, close[t-1] > POC, low[t] <= POC, close[t] > POC. POC stands in for the
+  high volume node.
+- P4 the full plan on P1 events: fill at the open of t+1, stop at low[t], half out at POC, the rest at VAH,
+  at most 20 sessions, then out at the open. A day touching stop and target counts as the stop.
+
+**Tests, as 5ar.** P1-P3: a universe member that traded on t, once per stock in any 20 sessions, fill at
+the open of t+1, 20 sessions, excess over the equal-weight universe, Newey-West lag 20, net of 34.6 bp. P4:
+each trade's net return less the universe over the same days, by entry date, same t.
+
+**Pass.** t >= 3, the same sign in 2013-19 and 2020-25, at least 200 events. The book's route as 5ar, at t >= 3.
+
+**Reported, no pass can come from these.** The same events without the trend filter; a fill one session
+later after a close above high[t], the video's "wait for a reaction"; 5 sessions; 2008-12.
+
+**Not testable.** The video's own form needs minute data, which the store lacks; low volume node speed and
+order-flow "trapped traders" are not observable on daily bars.
+
+**Result (31 Oct 2026): all four FAIL. Nothing is adopted and no code stays.**
+
+| Test | Events | Net excess | t | 2013-19 | 2020-25 | Verdict |
+|---|---|---|---|---|---|---|
+| P1 VAL reclaim | 6,978 | -0.55% | -3.05 | -0.40% | -0.73% | FAIL, wrong way |
+| P2 resistance becomes support | 6,664 | -0.36% | -1.84 | -0.21% | -0.52% | FAIL |
+| P3 POC holds | 7,826 | -0.00% | -0.03 | +0.28% | -0.33% | FAIL |
+| P4 the full plan | 6,720 | -0.78% | -9.16 | -0.81% | -0.75% | FAIL, wrong way |
+
+- **The plan loses on its own terms.** P4 stopped out on 71% of trades and hit its final target on 21%, with a
+  30% hit rate and win/loss of 1.76: net -0.48% a trade. 2008-12 was -1.22% (t -5.04).
+- **The trend filter helps a little, not enough.** Without it P1 is -0.73% (t -5.85) and P2 -0.52% (t -3.09).
+- **Waiting for a reaction does not help.** P1 -0.58% (t -2.05), P2 -0.43%, P3 -0.43%.
+- **The book's route: no pass.** Flagged entries against the rest: P1 -1.36% (t -0.57, 18 entries), P2 -1.66%
+  (t -2.01, 269), P3 +0.21% (t +0.14, 108).
+- **Implementation.** 11 temporary tests passed before any return was read. The sanity line read 1,823 entries at
+  +1.04%, as DT1. This does not judge the video's intraday form, which needs minute data.
+
+## 5av. INT1: the intraday programme (India tracker INT1; your amendment U37, plan written 31 Oct 2026, 21:09 IST)
+
+**Purpose.** Find out whether any intraday stream adds to CAGR and Sharpe beside the book, net of real
+costs, and stop cheaply if none does. This section is the programme. Each idea still gets its own dated
+pre-registration before any result is read.
+
+**Starts when.** GT2B has its verdict and GT2H (live safety) is done. The rest of GT2 does not block it.
+Your call first: the data vendor and budget.
+
+**Rules for every step.**
+- Its own family, `data/nse_engine/runs_intraday`, at most 3 configurations a source; failures stay
+  recorded and leave no code. 2026 stays sealed, opened once for the family.
+- The first scope is NIFTY and BANKNIFTY futures: they have no dead names, so no survivorship question.
+  Single stocks join only if the data keeps delisted names.
+- Flat by 15:15 IST every session, nothing held overnight by this stream, and no size above the cap.
+- `order_service.intraday_refusal` stays on until INT1E, then opens by a per-stream allow-list only.
+- Exception granted by you (31 Oct): minute data will not reach 2008, so the gap is stated and the crash
+  test uses the worst days the data does hold, such as 23 Mar 2020 and 4 Jun 2024.
+
+**INT1A Data, about 1-2 weeks.** One vendor shared with OX2 if it fits. A `minute_store` with every session
+checked: minute bars must reproduce the bhavcopy's daily high, low, volume and close within a stated
+tolerance, and a session that fails is refused, never filled. Contract rolls and expiry days explicit.
+Exit: at least 5 years, all checks clean. If not, stop and report.
+
+**INT1B Simulator, about 1-2 weeks.** Fills at the next bar, never the signal bar; spread and slippage on
+real quote data; each instrument's own dated costs in `fno_costs`; the 15:15 square-off; circuit halts;
+planted look-ahead traps that must be caught. Exit: known-answer tests pass and a no-skill random strategy
+loses exactly its costs.
+
+**INT1C Research round, about 2 weeks, one look at each.** At most 3 ideas, each pre-registered:
+the video's session value-area rotation on NIFTY futures (from the transcript), and suggestions, mine, to
+be confirmed then: the opening gap's fade or follow, and expiry-day behaviour after the 7 Dec 2026 VWAP
+settlement change. Evidence must come first, and any idea needs a reason someone else loses to it.
+Pass, on data to 2025: t >= 3 net; the same sign in each half; net Sharpe holds at 2x slippage; DSR >= 0.95
+at the family's N; the §5.1 diversifier gate beside the book, `bootstrap_p` <= 0.10.
+If nothing passes, the family closes, the code goes, and the store stays only if OX2 uses it.
+
+**INT1D Runner and paper, about 60 sessions.** A session-long process with its own market-hours risk loop,
+on the Oracle VM or a small paid host, kept apart from the nightly book. GitHub Actions cannot do this: 6.25
+hours a session is more than the minutes budget allows. Paper fills on live quotes. It measures slippage,
+latency, missed fills and a real flat-by-close every day. It cannot prove edge; it proves the machine.
+Exit: 60 sessions, measured slippage within the backtest's assumption, zero overnight positions, no breach.
+
+**INT1E Live, staged.** Starts at no more than 5% of book capital, on a separate budget, with a daily loss
+stop of 1% of the book (suggestion, stricter than the 10-15% overlay cap, since this runs every day), a stream
+kill switch and the 10 orders a second limiter from GT2H. It scales on measured fills, never on profit, as
+GT2I. CUSUM alarm cuts it. SEBI's retail algo rules are confirmed with Zerodha first.
 
 ## 6. Stage D — Paper trading (60–90 trading days)
 

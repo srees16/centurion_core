@@ -32,6 +32,7 @@ trials never enter another family's PBO or deflated-Sharpe matrix.
 | US core (US5, the India rules on US stocks) | `data/nse_engine/runs_us` | At most 3 configurations. N = 3 after round 1 (17 Oct, plan 5ad: all FAIL against SPY, closed). The next US idea starts its own family. |
 | Bonds (BD1, gilts) | `data/nse_engine/runs_bonds` | At most 3 configurations. N = 3 after BD1 (17 Oct, plan 5ag: all FAIL, closed). The cost of trading debt ETFs was modelled, not measured; a low-churn round would need your call. |
 | Leverage (L7, real stock futures) | `data/nse_engine/runs_leverage` | At most 3 configurations. N = 3 after L7-C (17 Oct, plans 5ae and 5af: all FAIL against L6's synthetic, closed). Its 2026 holdout is used (own lock, `runs_leverage/holdout.lock`). |
+| Intraday (INT1, your amendment 31 Oct 2026) | `data/nse_engine/runs_intraday` | At most 3 configurations per source. N = 0; opens with plan 5av. |
 | Event studies (e.g. GT13) | none; the verdict goes in the plan | The study's hypotheses count as its N (GT13: N = 2). A study that becomes a sleeve then starts a family. |
 
 **Budget rules:**
@@ -70,8 +71,10 @@ containing:
    at the maximum loss alone (OX3).
 6. **Pass rules** (section 5) and what a pass leads to.
 
-Rules that need intraday prices or a same-day exit are out of scope;
-Centurion is swing and positional only.
+Intraday and same-day rules are in scope only as their own family, on minute
+data, at these same gates, and only where they add to CAGR and Sharpe (your
+amendment, 31 Oct 2026; was out of scope). `order_service.intraday_refusal`
+stays on until a stream passes. Otherwise Centurion is swing and positional.
 
 ## 3. Running
 

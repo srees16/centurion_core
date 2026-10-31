@@ -28,6 +28,7 @@ HASH_NEUTRAL_DEFAULTS: Dict[Tuple[str, str], Any] = {
     ("portfolio", "calendar_schedule"): False,
     ("portfolio", "refill_exits"): False,
     ("portfolio", "fractional_shares"): False,
+    ("portfolio", "respect_circuit_locks"): False,
     ("universe", "calendar_schedule"): False,
     ("universe", "history_window_days"): 0,
     ("universe", "price_filter_unadjusted"): False,
@@ -162,6 +163,9 @@ class PortfolioConfig:
     # Quantities in fractions of a share (to 1e-6), as US brokers sell them (tracker US4).
     # False: whole shares, as NSE and BSE trade (``order_service.whole_share_refusal``).
     fractional_shares: bool = False
+    # No sell fills on a bar locked at its lower circuit, no buy on one locked at its upper (tracker RB8).
+    # False = legacy: every order fills at the open.  It flatters a stock that collapses limit-down.
+    respect_circuit_locks: bool = False
 
 
 @dataclass(frozen=True)

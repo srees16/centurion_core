@@ -49,8 +49,8 @@ It never falls back to the paper book.  A dry run needs only a Kite session
 would pose as its history and let the first real session skip the go-live
 checks (tracker LS2).
 
-    python -m kite_connect.trading.live_session --dry-run --capital 600000
-    python -m kite_connect.trading.live_session --capital 600000     # first real session
+    python -m kite_connect.trading.live_session --dry-run --capital 300000
+    python -m kite_connect.trading.live_session --capital 300000     # first real session
     python -m kite_connect.trading.live_session                       # later sessions
 
 A connected account (trackers FA2, MU1, ``kite_connect.auth.accounts``) runs
@@ -117,7 +117,7 @@ def load_ledger(state: Dict[str, str], capital: Optional[float]) -> dict:
         return json.loads(raw)
     if not capital or capital <= 0:
         raise RuntimeError(f"first live session: give the book's capital (--capital or {ENV_LIVE_CAPITAL}); "
-                           "month 1 of the ladder is Rs 6,00,000")
+                           "the ladder's first rung is Rs 3,00,000")
     return {"capital": float(capital), "cash": float(capital), "positions": {}, "entries": {}, "stops": {},
             "stop_basis": {}, "symbols": [], "session": ""}
 
@@ -719,7 +719,7 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
             user_id = None
         sell_path = cl.sell_path_check(json.loads(state.get(cl.SELL_PATH_KEY) or "null"), user_id)
         checks = cl.readiness(pgate, json.loads(state.get(cl.DRY_RUNS_KEY) or "[]"), source=source,
-                              sell_path=sell_path)
+                              sell_path=sell_path, capital=ledger["capital"])
         missing = [f"{n}: {d}" for n, ok, d in checks if not ok]
         if cl.rung_of(ledger["capital"]) is None:
             raise RuntimeError(f"live capital {ledger['capital']:,.0f} is not a ladder rung "
@@ -1290,7 +1290,8 @@ def _ladder_step(ex, data, view, dep, ledger: dict, state: Dict[str, str], book,
     from nse_engine import paper_gate as pg
     from nse_engine.engine import run_backtest
 
-    gate = None
+    gate, ramp = None, None
+    lstate = cl.LadderState.load(state.get(cl.STATE_KEY), float(ledger["capital"]), session.date().isoformat())
     window = history[history.index >= pd.Timestamp(since)] if since else history
     if len(window) >= 3:
         try:
@@ -1303,6 +1304,7 @@ def _ladder_step(ex, data, view, dep, ledger: dict, state: Dict[str, str], book,
             model = run_backtest(data, cfg, record=False, tag="live-reference")
             gate["model_reference"] = pg.one_line(pg.evaluate(window, model.returns, fills=fills,
                                                               reference_trades=model.trades, sessions=sessions))
+            ramp = cl.ramp_checks(window[window.index >= pd.Timestamp(lstate.since)], ref.returns, fills, ref.trades)
         except Exception as exc:                          # noqa: BLE001 - the ladder then holds
             logger.warning("live G4 unavailable: %s", exc)
     dd, _ = ex.drawdown_decision(session, marked["equity"])
@@ -1311,14 +1313,14 @@ def _ladder_step(ex, data, view, dep, ledger: dict, state: Dict[str, str], book,
     sessions = _book_read(book, "read_sessions", strict)
     mults = (pd.to_numeric(sessions.sort_values("session_date")["shift_multiplier"], errors="coerce").fillna(1.0).tolist()
              if sessions is not None and not sessions.empty and "shift_multiplier" in sessions.columns else [])
-    lstate = cl.LadderState.load(state.get(cl.STATE_KEY), float(ledger["capital"]), session.date().isoformat())
     req = requested if requested is not None else os.environ.get(ENV_LIVE_CAPITAL)
     decision = cl.evaluate(lstate, session.date().isoformat(), gate=gate,
                            drawdown_state=getattr(dd, "state", "normal") if dd is not None else "normal",
                            book_dd=cl.current_drawdown(history), nifty_dd=cl.current_drawdown(nifty),
                            shift_multipliers=mults, requested_capital=float(req) if req else None,
                            backtest_maxdd=cl.backtest_maxdd_for(dep.engine.config_hash()),
-                           capital_setting=f"{label}'s capital on Fly Kite" if label else ENV_LIVE_CAPITAL)
+                           capital_setting=f"{label}'s capital on Fly Kite" if label else ENV_LIVE_CAPITAL,
+                           ramp=ramp)
     return decision, gate, lstate                     # saved by the caller with the ledger (LN-T10)
 
 

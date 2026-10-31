@@ -191,6 +191,12 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  3. DECISIONS TAKEN (27 Sep)
 --------------------------------------------------------------------------------
+  U38  (31 Oct) Your calls: manual orders capped at Rs 2 lakh of new risk (MO1);
+       intraday may run without 2008 data, the gap stated, worst days it holds
+       used instead (INT1).
+  U37  (31 Oct) Intraday: amended by you.  Centurion may place intraday trades
+       where there are strong opportunities, if they add to CAGR and Sharpe.
+       Same gates, its own family; NI1's refusal stays on until a stream passes.
   U36  (17 Oct) Your four calls:
        - Leverage: 1.75x is accepted, with MaxDD to about -40%; hedging the
          drawdown comes later.
@@ -225,7 +231,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
        Orders go through a static-IP proxy from the existing Actions job
        (option 1).  Built the same day.                        -> U24, D3
   U6   Live capital Rs 30L.  Paper stays Rs 35L (resizing restarts the
-       record; the cost gap is small).  Ladder Rs 6L / 12L / 21L / 30L. -> D3
+       record; the cost gap is small).  Ladder Rs 6L / 12L / 21L / 30L, with
+       the Rs 3L canary below it from 31 Oct (GT2I). -> D3
   U34  (8 Oct) Accounts: any user's, on one set of criteria (your words:
        "remove the concept of relation altogether"): their own Kite
        Connect app, a daily Kite login, their "I agree" to the current
@@ -261,11 +268,22 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
  >>> MON 14 DEC 2026 - RA1 VERDICT DAY (plan 5ao, fixed 27 Oct 21:34 IST)
      The deployed book's 60th G4 session: the nightly email shows ACCEPT,
      REJECT or WATCH (WATCH: decided again at 90 sessions, about 25 Jan
-     2027).  ACCEPT: live may start at Rs 6 lakh after 5 clean dry runs, on
+     2027).  ACCEPT: live may start at Rs 3 lakh (GT2I's canary; the rule itself stands as
+     fixed, it read Rs 6 lakh) after 5 clean dry runs, on
      your go-ahead.  REJECT: no live capital; 679cbd0c is not re-tuned.
+ >>> MON 2 NOV - YOUR ACTIONS (a trading day)
+     1. Kite login, as every trading day.
+     2. Then run the Kill switch check, read only, it cancels nothing.  GitHub >
+        centurion_core > Actions > Kill switch > Run workflow.  Branch: main.
+        Action: check.  Reason: leave blank.  Green run, and the "Kill switch"
+        step's log must show "0 account(s) not checked".  Needed before go-live.
+     3. Sell test fallback, if 29-30 Oct did not record (ST2 step 3).
  >>> SAT 31 OCT - YOUR ACTIONS
-     1. Commit the 14 uncommitted files (SB3, GT2).  config/nse_for_cause_exits.json
-        is new and must go in, or the nightly run fails.
+     1. Merge PR #298 (SB3 with config/nse_for_cause_exits.json), then commit and
+        merge what is uncommitted: RB8, VP2, MO1, MO2, INT1 and the intraday
+        amendment.
+        Later, at each rung change: set CENTURION_LIVE_CAPITAL on the app's
+        server too, or manual F&O stays limited as at Rs 3 lakh.
      2. DONE, your call 31 Oct: the golden target stays what Centurion aspires
         to.  Paper trading on live Kite data is allowed (you confirmed).
      3. Send Zerodha one ticket: the seven questions below, then tell Claude
@@ -276,34 +294,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
         - MARKET orders by API: is market_protection required, what value?
         - the daily API logout: at what time does the token expire?
  >>> FRI 30 OCT - YOUR ACTIONS
-     1. Merge RB5 to main together with item 3, never alone (a live-order
-        bug, both repos; committed by you, 381f868 and centurion_core-fe
-        5d29ff1, not on main yet).  RB5 alone carries the bug RB7 fixes:
-        manual sells refused while the kill switch is on.  Either repo may
-        deploy first, but RB5's bug is only fully closed with both.
-     2. Your call: a maximum order value on manual orders (Quick Trade)?
-     3. CL1's removals are uncommitted: commit them after your review.  You
-        committed the list below on 31 Oct (c5a5b58); merge it to main.
-        RB6, RB7, BT1 and C8 (the kill switch clears queued
-        buys; exits are always tried; an honest strategy backtest; a run
-        cannot start before its regime index; uncommitted):
-        .github/workflows/kill-switch.yml, api/routers/v1/kite.py,
-        docs/README.md, docs/nse_engine_validation_plan.md,
-        docs/research_protocol.md,
-        kite_connect/trading/auto_executor.py, kill_switch.py,
-        nse_engine_executor.py, order_service.py, risk_manager.py,
-        nse_engine/engine.py, nse_calendar.py, regime.py,
-        services/research/walk_forward.py,
-        strategies/base_strategy.py, data_service.py, utils.py,
-        tools/strategy_benchmark.py (new), trading_strategies/: anchored_vwap,
-        bollinger_pattern, liquidity_sweep, order_flow, positional_combo,
-        support_resistance, swing_combo, volume_profile;
-        tests/test_execution_and_costs.py, this file.
-     4. After that merge, once you have logged in to Kite that day: run the
-        "Kill switch" workflow once with action check (it reads each book
-        and cancels nothing; no reason needed).  Green, with "0 account(s)
-        not checked" in the log, proves the tunnel and the token reach Kite
-        from that workflow, which no test here can.  Needed before go-live.
+     1. DONE 31 Oct: RB5 merged to main together with item 3.
+     2. DONE 31 Oct (MO1): Rs 2 lakh on manual orders that add risk.
+     3. DONE 31 Oct: RB6, RB7, BT1, C8 and CL1 merged to main (PRs #296, #297).
+     4. Moved to MON 2 NOV: the Kill switch check.
      5. DONE 31 Oct (BLK1): you exported the bulk-deal history; tested, and
         nothing is left for a buyer the morning after.
      6. DONE 30 Oct (BT1, your go-ahead): the five legacy strategies sell.
@@ -757,39 +751,34 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      Sharpe about 0.8, 17-18% CAGR, about 15% vol, measured against a passive
      NIFTY and gold mix.  Work in order; each step decides the next.
      This replaces the ~20% live estimate below: walk-forward 2008-25 is 13.0%.
-[~] P0  GT2A Diagnostics, no recorded trial, about one session.  Stock alpha by
-             rank bucket against NIFTY plus gold; the book with metals replaced
-             by the liquid rate; each exit by removal, 63-session follow-through
-             of sold names; range-market losses by cause; DSR at N 61, 1,000
-             and 7,000 and PBO on the metric used to select.  Stop point: if
-             stock-only alpha has t < 1 over 2013-25, the product question comes
-             to you before GT2B.                            Prompt: do GT2A
-[ ] P1  GT2B Slower core, needs GT2A.  Equal-weight lookbacks centred on 63 days
-             or longer, with hold bands; values fixed in a dated addendum first;
-             Kaggle.  Uses the core's one configuration left before January.
-             Pass: walk-forward 2008-25 live-like Sharpe above base, bootstrap_p
-             <= 0.10, above base in 2008-12, turnover down a third.  Estimated +1
-             to +1.5 points CAGR, +0.10 Sharpe.             Prompt: do GT2B
-[ ] P1  GT2C Idle capital, needs GT2B.  Exposure 60-100% with hysteresis, no
-             borrowing, one rule.  Estimated +2 to +3 points CAGR, no Sharpe gain.
-                                                             Prompt: do GT2C
-[ ] P1  GT2D Multi-factor stock signal, needs GT2B.  Quality and low volatility
-             beside momentum, at signal level, at most 3 configurations.  Gap:
-             filings start 2012.  Estimated +0.05-0.10 Sharpe.  Prompt: do GT2D
-[ ] P2  GT2E Instruments by rule.  Metals, gilts and MCX chosen by a rule stated
-             before results, with a metals cap sized from GT2A.  Prompt: do GT2E
+[x]     GT2A DONE 31 Oct: stop test passed, GT2B may proceed (section 8).
+[x]     GT2B FAILED 31 Oct: not adopted, deployed book unchanged (section 8).
+[x]     GT2C FAILED 31 Oct: not adopted, no code stays (section 8).
+[ ] P1  GT2D Stock signal rebuild, from January's budget; look done 31 Oct (section
+             8), dilution has not gone, so no signal group.  What is left: at most
+             one core configuration each, a quality veto that drops the worst names
+             (filings from 2012, gap stated) and a rule for post-crash rebounds,
+             where ranks gave no alpha in 2008-12.  Gain unknown, possibly none.
+                                                             Prompt: do GT2D
+[x]     GT2E FAILED 31 Oct: reshaped to the metals cap, not adopted (section 8).
 [x]     GT2F WITHDRAWN 31 Oct: REITs and InvITs stay closed under GT14 (11 Oct).
-[ ] P2  GT2G Stock-futures short leg, judged on crash behaviour.  First puts stock
-             futures 2007-12 in the store (your 2008 rule), then at most 3
-             configurations.                                Prompt: do GT2G
-[ ] P1  GT2H Live safety, can start now, independent of the research.  Limiter at
-             10 orders a second; gap fills including band-locked days; limits
-             clamped inside the band; days-to-exit cap; -13% no-exit stress;
-             documented manual exit through a second broker. Prompt: do GT2H
-[ ] P1  GT2I Go-live ramp, before any live capital.  60 sessions and 5 dry runs
-             stay as operational readiness; add canary capital at 5-10% for 3-6
-             months, then 25%, 50%, full, advancing on fills, not profit; CUSUM
-             alarm scales capital down.  RA1 stands as fixed. Prompt: do GT2I
+[x]     GT2G WITHDRAWN 31 Oct: U28 closed single-stock futures shorts on 10 Oct
+             (your call; R15).  Reopens past Rs 2 crore, as a market-neutral spread.
+[!] P2  INT1 Intraday programme (your amendment U37; plan 5av).  Starts after GT2B's
+             verdict and GT2H.  Your call left: minute-data vendor and budget.  The
+             2008 exception is granted (U38).
+             INT1A Data: minute_store, NIFTY and BANKNIFTY futures first (no dead
+               names), every session checked against the bhavcopy.  Prompt: do INT1A
+             INT1B Simulator: next-bar fills, real spreads, flat by 15:15,
+               look-ahead traps.                             Prompt: do INT1B
+             INT1C At most 3 pre-registered ideas, net; the §5.1 gate.  None pass:
+               the family closes, no code.                   Prompt: do INT1C
+             INT1D Session-long runner and 60 paper sessions; proves the machine,
+               not the edge.                                 Prompt: do INT1D
+             INT1E Live from at most 5% of capital, daily loss stop, allow-list
+               lifts NI1's refusal for that stream only.     Prompt: do INT1E
+[x]     GT2H DONE 31 Oct (section 8).
+[x]     GT2I DONE 31 Oct: Rs 3 lakh canary, CUSUM, GO on fills (section 8).
  GOAL  the best LIVE CAGR / Sharpe / Calmar.  Ranked by expected effect on
    the live book, largest first.  Backtest today (cost model 4, RR2): E4
    23.6% / 1.14 / Calmar 0.93; deployed 23.1% / 1.16 / 0.97.  Live
@@ -849,14 +838,14 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
  DEAD MAN'S SWITCH (your ask 10 Oct): alert-only, external (healthchecks.io,
  AL2); no broker action from the watcher (it would need your daily login),
  no separate operator check-in (the daily Kite login is one).
-#1  [ ] P1  D3   Go live on schedule: Rs 6L rung ~mid Dec, once paper G4
+#1  [ ] P1  D3   Go live on schedule: Rs 3L canary (GT2I) ~mid Dec, once paper G4
                  PASS at 60 sessions + 5 clean dry runs + the sell path
                  recorded (ST2 step 3, LN-T2) (set
-                 CENTURION_LIVE_CAPITAL=600000, CENTURION_LIVE_MODE=live).
+                 CENTURION_LIVE_CAPITAL=300000, CENTURION_LIVE_MODE=live).
                  Every live session is the only data that moves the live
                  metrics; the ladder's auto step-down guards Calmar.
-                 Fund the account with the rung's Rs 6L in cash before
-                 that first session: dry runs plan the book's Rs 6L
+                 Fund the account with the rung's Rs 3L in cash before
+                 that first session: dry runs plan the book's Rs 3L
                  whatever the account holds (LN-T35), so a shortfall
                  shows only then (an alert; it buys less).
         Until then: G4 verdicts from session 30 (~late Oct) in every daily
@@ -1282,6 +1271,162 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  8. DONE — most recent first (full notes in git history of this file)
 --------------------------------------------------------------------------------
+31 Oct  GT2H Live safety.  Built: orders held to 10 a second in place_order, cancel
+             and modify, SEBI's retail algo limit (one process; the options
+             broker's own cancels stay outside it, dormant).  Emergency exit
+             runbook in the README.  Corrected: a second broker cannot sell
+             shares held in your Zerodha demat, so the runbook is Kite app, then
+             Call & Trade.  Already done: limits inside the band (LN-T14), locked
+             bars (RB8).  Measured, no code: days to exit at 5% of ADV, worst
+             holding of 2008-25: 0.35 days at Rs 6 lakh, 1.74 at Rs 30 lakh, none
+             over a day in practice, so no cap.  A -13% no-exit day costs at most
+             13% unlevered, inside the 15% limit; only gross above about 1.15x
+             breaks it, which backs "no structural leverage".  Real days: 23 Mar
+             2020 -1.25%, 4 Jun 2024 -7.59%.  Open: market_protection awaits
+             Zerodha.  464 tests (414 plus 50 skips core-only), 6 of 6 breakages.
+31 Oct  GT2I Go-live ramp: built (plan 5at, Phase E; uncommitted).  Look: one-year books
+             2013-25 by capital.  Rs 1.5L holds 12 names, 74% invested, -10 to +8 pt a
+             year against Rs 30L: a different book.  Rs 3L 17 names, 85%, mean +0.5;
+             Rs 6L 18, 87%, +0.4.  So the canary is 10%, not 5%.  Rungs Rs 3 / 6 / 12 /
+             21 / 30L, the first added under U6's ladder; first session refused at any
+             other rung (the override still works).  Canary at least 60 sessions, later
+             rungs 20: about six months to full, was three.  GO also needs costs
+             measured and PASS, volatility and turnover 0.7-1.3x the backtest; no
+             profit read.  Reconciliation alerts nightly and does not block GO.  CUSUM
+             on the paired daily gap, k 0.25, h 12 sd: 0.6% false alarms in 60 sessions,
+             4.6% in 250; a -0.5 sd gap in a median of 38 sessions.  An alarm steps down
+             one rung; at the canary it alerts.  Outside G4's five checks, so RA1 stands.
+             Output change: manual F&O with no capital set reads Rs 3L, not Rs 6L.
+             Lean plan's Rs 0.8L funding buffer was sized at Rs 6L: re-size with the
+             funding choice.  Checks: 474 fast, 424 plus 50 skips core-only, the ladder
+             step exercised once with stubs.  Before go-live set the variable
+             CENTURION_LIVE_CAPITAL=300000 and fund Rs 3L.
+             Results: data/nse_engine/gt2i/capital_look.json.
+31 Oct  GT2D Look at 30-40 names (plan 5at; a look: nothing recorded, no trial, no
+             parameter chosen).  18 fixed-settings books, live-like 2008-25.  Dilution
+             has not gone: of ten comparisons at 30 and 40 names, one clears the rule,
+             delivery at 30 names, Sharpe 0.750 -> 0.775, 2008-12 +0.007, CAGR 16.01% ->
+             15.03%.  Not new: the delivery tilt closed 17 Sep at +0.06.  No January
+             slot, a judgment beyond the rule.  Low vol costs most: 15.48% / 0.697 ->
+             10.71% / 0.426 at 20 names.  Width on trend alone 20 / 30 / 40 names:
+             0.697 / 0.750 / 0.768, CAGR 15.48 / 16.01 / 16.32, but that is the exit
+             rank widening with it: 20 names at exit rank 60 read 17.4% / 0.82 in GT2A,
+             and exit rank 60 failed walk-forward in GT2B.  Results:
+             data/nse_engine/gt2d/results.json.
+31 Oct  GT2E Metals cap: FAIL, not adopted, no code stays (plan 5at, N = 1, overlay
+             arithmetic).  Reshaped before any run: gilts (Bonds N = 3 of 3) and MCX
+             (closed, last slot for a new source) cannot be retested, and gold and
+             silver are the only commodity classes among NSE ETFs, so a rule returns
+             the same two.  Cap 35% of capital, from the 10% bounded tail / gold's
+             -27.3% worst drawdown.  Live-like 2008-25, base -> cap: 13.04% / 0.600 ->
+             12.58% / 0.581; 2008-12 Sharpe -0.242 -> -0.381: both conditions fail.
+             bootstrap_p 0.75.  2013-25 Sharpe 0.879 -> 0.882.  MaxDD -29.5% -> -27.4%.
+             Damage in 2009 (18.3% -> 12.8%) and 2011 (7.4% -> 4.6%).  The hindsight
+             risk stays, knowingly: about a third of return comes from metals.
+             Results: data/nse_engine/gt2e/results.json.
+31 Oct  GT2C Idle capital: FAIL, not adopted, no code stays (plan 5at, one rule, N = 1,
+             overlay arithmetic on the recorded walk-forward).  Target 100% in risk_on,
+             80% in neutral, the gap in NIFTYBEES, 5% band, nothing added in risk_off
+             or when the drawdown rule is not normal.  Gate 2, live-like 2008-25, base
+             -> GT2C: 13.04% / 0.600 / alpha 5.70% -> 12.63% / 0.525 / 5.16%; 2008-12
+             Sharpe -0.242 -> -0.241 holds; bootstrap_p 0.93.  2013-25 16.87% / 0.88 ->
+             16.37% / 0.77.  MaxDD -29.5% -> -28.2%, but 2013-25 -20.9% -> -24.9%.  It
+             held 10% on average, a third of the 30% idle: most idle money sits in
+             risk_off.  Cost 0.34 pt a year, not the cause: NIFTY did not beat the
+             liquid rate in the states it was held, as GT2A warned.  The +2 to +3 pt
+             estimate was wrong.  Not re-tuned.  The idle-capital gain that does exist
+             is LN-T29: 13.0% credits a free sweep; paper and live earn nothing on idle
+             cash (LN-T29d: no sweep 10.9% / 0.43, realistic sweep 12.4% / 0.54).
+             Results: data/nse_engine/gt2c/results.json.
+31 Oct  GT2B Slower core: FAIL, deployed book unchanged (plan 5at, the core's last
+             configuration before January; Kaggle, 18 folds, 594 runs, same data
+             hash and cost model as the base).  Exit rank 40 -> 60, fast spans
+             (8,32), (16,64) -> (16,64), (32,128).  Live-like 2008-25, base -> GT2B:
+             13.04% / 0.600 / -29.5% -> 13.19% / 0.593 / -31.2%, bootstrap_p 0.55,
+             2008-12 Sharpe -0.24 -> -0.32: all three pass conditions fail.  By
+             period: 2013-19 0.64 -> 0.45, 2020-25 1.13 -> 1.40, 2013-25 0.88 -> 0.91,
+             2017-25 0.92 -> 1.04.  Trades a year 340 -> 264.  GT2A's in-sample
+             gain from exit rank 60 did not survive walk-forward: it pays in one
+             era and costs in the other.  Not re-tuned.  Recorded in runs,
+             wf_stitched_gt2b.json.  No core configuration left before January.
+31 Oct  MO2  Manual F&O limit (your call, option A).  F&O by hand is no longer
+             held to MO1's Rs 2 lakh: a new position's stress loss must stay within
+             15% of live capital, at -17% on an index future, -26% on a stock
+             future, and the premium on a bought option.  One NIFTY or BANKNIFTY
+             lot passes from the Rs 21 lakh rung; stock lots up to Rs 3.5 lakh at
+             Rs 6 lakh, 6.9 at 12, 12.1 at 21.  A new short option is refused: no
+             defined loss.  So is a contract it cannot identify.  Capital reads
+             CENTURION_LIVE_CAPITAL, else the first rung, which can only tighten
+             it.  Exits have no limit.  456 tests (407 plus 49 skips core-only), 7
+             of 7 deliberate breakages caught.
+31 Oct  MO1  Manual order limit (your call, Rs 2 lakh).  New risk on /kite/orders
+             (Quick Trade) above Rs 2 lakh is refused, 422.  Exits have no limit:
+             any CNC sell, and an F&O sell within a verified long.  MARKET orders
+             are valued at the last price; a buy that cannot be valued is refused.
+             Automated books do not pass this route.  F&O: see MO2.  437 tests (388 plus 49 skips core-only),
+             6 of 6 deliberate breakages caught.
+31 Oct  RB8  Robustness audit against ricequant/rqalpha (your ask).  Licence: not
+             plain Apache.  Non-commercial use only; commercial use, including
+             products that borrow its features, needs Ricequant's permission.
+             Nothing copied, and the one change uses a general idea.  One real
+             gap, closed: the backtest filled at the open even when a stock was
+             frozen at a circuit.  Over 2008-25 the book made 23 trades on
+             no-range days; CASTEXTECH was sold at -5% in Jul 2015, then stayed locked 54
+             sessions and opened 94% lower, on 3.59% of the book.  New
+             portfolio.respect_circuit_locks: no sell on a lower lock, no buy on
+             an upper one; the free side fills; a blocked stop retries the next
+             session.  Default off, hash-neutral, so results do not move until
+             you switch it on.  Fixed settings, live-like, 2008-25: off 15.59% /
+             0.704 / -28.3%; on 15.29% / 0.687 / -28.3%; 2013-25 19.58% / 0.934 /
+             -25.0% -> 19.16% / 0.912 / -26.3%.  87 blocked orders, 7 names.
+             Switch on at the next re-baseline, not before GT2B's verdict.
+             Already present: tick grid, config typos refused, buy limit inside
+             bands, stops rescaled on splits, delisted exits, idempotent tags.
+             Skipped: open-auction volume cap (no need at this size), receivable
+             dividends (about 0.05% a year), self-trade check (engine never buys
+             and sells a name together).  426 tests (378 plus 48 skips core-only),
+             8 of 8 deliberate breakages caught, canary ok with the flag off.
+31 Oct  VP2  Volume profile rotation plan (your ask, a transcript; plan 5au,
+             pre-registered, N = 4, 2013-25): all FAIL, no code.  The video is
+             intraday index futures; adapted to a 60-session daily profile, long
+             only, with an uptrend filter.  20-session net excess: VAL reclaim
+             -0.55% (t -3.05, the wrong way), resistance becomes support -0.36%
+             (t -1.84), POC holds -0.00%.  Full plan (stop at the dip's low, half
+             at POC, rest at VAH): -0.78% against the universe (t -9.16), 71%
+             stopped, 30% hit rate.  The trend filter and waiting for a reaction
+             do not rescue it.  With OF1 and WV1, volume profile on daily bars
+             is closed.  The video's own minute-level form stays untested.
+31 Oct  GT2A Diagnostics, one look each, nothing recorded, no parameter chosen
+             (plan 5at; to 2025; results in data/nse_engine/gt2a/results.json).
+             Stop test passed: stock-only alpha net of costs and D2, against
+             NIFTY plus gold, on total capital, 2013-25 +6.0% a year (t 2.03);
+             2008-25 +3.6% (t 1.38); 2008-12 -5.8% (t -1.24).  The whole book
+             against NIFTY plus gold 2008-25: +3.2% (t 1.13).  IC against alpha
+             settled: 2020-25 the whole universe beat NIFTY plus gold by 11.3%,
+             so the spread was narrow (IC 0.021) while alpha was high; top 20
+             less universe 19.7 points a year in 2013-19, 8.3 in 2020-25.  In
+             2008-12 ranks gave no alpha at all.  Ranks 21-40 match the top 20
+             (+13.7% against +13.2%, gross).  Metals out (liquid instead):
+             10.8% / 0.46 / -22.4% against 13.0% / 0.60 / -29.5%; 2008 -18.7%
+             against -26.4%; NIFTY's 30 worst weeks -1.12% against -0.99%.  So
+             metals gave return, not crash defence: cash and the regime exit do
+             that.  Sleeve alpha beyond plain gold +0.5% (t 0.7).  Exits, fixed
+             settings, live-like, base 15.6% / 0.70 / -28.3%: no regime exit 14.9
+             / 0.64 / -40.1; no ATR stop 16.4 / 0.74 / -28.1; no rank exit 15.4 /
+             0.70; exit rank 60 17.4 / 0.82 / -27.5; exit rank 100 16.6 / 0.77; no
+             trims 15.0 / 0.68; monthly rebalance 14.8 / 0.71 / -25.7.  In-sample
+             settings, not a selection; R12's walk-forward did not favour exit
+             rank 60 over 2017-25.  Sold names keep beating the universe over
+             63 sessions: rank exits +2.57% (t 4.6), rebalance +3.09% (t 3.2),
+             against buys +3.80%; regime +0.88% (t 0.6); stops -1.07% (t -0.6),
+             not significant, correcting "only stops clearly remove losers".
+             DSR: walk-forward 0.60 at N 61 independent trials 0.42, 1,000 0.13,
+             7,000 0.05; recorded 0.94-0.96 is the 2013-25 backtest; clustered N
+             1 gives 1.0.  Effective N decides it and is unknown.  PBO 29.2% is
+             the right basis: selection is on excess Sharpe.  Range markets, a
+             third of days: stocks 4.3 points at 39% weight, metals 6.1, costs
+             -3.0 (the worst state), regime flips 8.1 a year against 3.9 in
+             bulls, 27 regime sells a year against 6.
 31 Oct  GT2  Golden target review (your ask; plan 5at, pre-registered, nothing run
              yet).  Verdict: Sharpe 1.4 and 35% are not a sustained outcome for a
              positional Indian book; perfect foresight of every bear on NIFTY

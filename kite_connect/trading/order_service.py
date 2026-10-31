@@ -16,8 +16,10 @@ import logging
 import math
 import os
 import re
+import threading
 import time
 import types
+from collections import deque
 from typing import Optional
 
 from kite_connect.trading.public_log import book_detail
@@ -51,6 +53,10 @@ except ImportError:  # core-only environment: see _fallback_kite_exceptions
 
 # Retry configuration
 _MAX_RETRIES = 3
+#: SEBI's retail algo rule (in force 1 Apr 2026): above 10 orders a second an algo needs exchange registration.
+ORDERS_PER_SECOND = 10
+_order_times: deque = deque(maxlen=ORDERS_PER_SECOND)
+_order_pace_lock = threading.Lock()
 _BACKOFF_SECONDS = [1, 2, 4]  # 1s, 2s, 4s
 
 # ── Circuit breaker (3 consecutive failures → halt for 10 min) ──
@@ -105,6 +111,16 @@ def is_kill_switch_active() -> bool:
         return True
 
 
+def _pace_orders(clock=time.monotonic, sleep=time.sleep) -> None:
+    """Hold a send until it is at most the ``ORDERS_PER_SECOND``-th in any second (one process, GT2H)."""
+    with _order_pace_lock:
+        if len(_order_times) == ORDERS_PER_SECOND:
+            wait = _order_times[0] + 1.0 - clock()
+            if wait > 0:
+                sleep(wait)
+        _order_times.append(clock())
+
+
 def _long_quantity(kite, symbol, exchange, product):
     """Quantity currently held long for ``symbol`` (holdings + net positions)."""
     qty = 0
@@ -150,6 +166,84 @@ def kill_switch_refusal(kite, symbol, exchange, transaction_type, quantity, prod
     allowed, reason = _kill_switch_allows(kite, symbol, exchange, transaction_type, quantity, product,
                                           is_exit=str(transaction_type or "").upper() == "SELL")
     return None if allowed else reason
+
+
+#: The largest cash order placed by hand that adds risk (your decision, 31 Oct 2026).  Exits have no limit.
+MANUAL_ORDER_MAX_VALUE_INR = 200_000.0
+#: F&O placed by hand scales with live capital: the stress loss stays within this share of it (MO2).
+MANUAL_FO_MAX_LOSS_SHARE = 0.15
+#: One-day stress on a contract's value: index futures' worst settle-to-settle day (BANKNIFTY, 23 Mar 2020,
+#: -16.8%), and stock futures' 1-in-10,000 day (-25.9%, 2013-25).
+MANUAL_INDEX_STRESS, MANUAL_STOCK_STRESS = 0.17, 0.26
+FO_EXCHANGES = frozenset({"NFO", "BFO", "MCX", "CDS", "BCD"})
+INDEX_UNDERLYINGS = ("BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTY", "SENSEX", "BANKEX")
+
+
+def manual_fo_capital() -> float:
+    """The live capital the F&O limit reads: ``CENTURION_LIVE_CAPITAL``, else the ladder's first rung.  A host
+    without the setting, or a bad value, can only make the limit tighter."""
+    from nse_engine.capital_ladder import RUNGS
+
+    raw = os.environ.get("CENTURION_LIVE_CAPITAL", "")
+    try:
+        capital = float(raw)
+    except ValueError:
+        capital = 0.0
+    if not math.isfinite(capital) or capital <= 0:
+        if raw:
+            logger.warning("CENTURION_LIVE_CAPITAL %r is not a capital; using the first rung", raw)
+        return RUNGS[0]
+    return capital
+
+
+def _manual_fo_refusal(symbol, side, value) -> Optional[str]:
+    """Why new F&O risk of ``value`` rupees is too large for live capital, or None."""
+    name = str(symbol or "").upper()
+    capital = manual_fo_capital()
+    budget = MANUAL_FO_MAX_LOSS_SHARE * capital
+    if name.endswith(("CE", "PE")):
+        if side != "BUY":
+            return f"{name}: a new short option has no defined loss, so it cannot be placed by hand"
+        loss = value                                      # a bought option can lose its premium, no more
+    elif name.endswith("FUT"):
+        loss = value * (MANUAL_INDEX_STRESS if name.startswith(INDEX_UNDERLYINGS) else MANUAL_STOCK_STRESS)
+    else:
+        return f"{name}: not a known F&O contract, so its risk cannot be measured"
+    if loss > budget:
+        return (f"{name}: a stress loss of Rs {loss:,.0f} is above {MANUAL_FO_MAX_LOSS_SHARE:.0%} of live capital "
+                f"Rs {capital:,.0f} (Rs {budget:,.0f})")
+    return None
+
+
+def manual_value_refusal(kite, symbol, exchange, transaction_type, quantity, order_type, price, trigger_price,
+                         product) -> Optional[str]:
+    """Why a hand-placed order is too large, or None.  Only new risk is limited: a CNC sell cannot open a short,
+    and a sell within a verified long is an exit, which is always tried.  Cash has a rupee limit; F&O a stress
+    loss against live capital.  A MARKET order is valued at the last price; if that cannot be read, new risk is
+    refused rather than guessed."""
+    side, kind = str(transaction_type or "").upper(), str(order_type or "").upper()
+    if side == "SELL" and str(product).upper() == "CNC":
+        return None
+    if side == "SELL":
+        try:
+            if int(quantity) <= _long_quantity(kite, symbol, exchange, product):
+                return None
+        except Exception as exc:
+            logger.warning("manual order: cannot read the long quantity of %s (%s); limited as new risk", symbol, exc)
+    if kind == "MARKET":
+        try:
+            key = f"{exchange}:{symbol}"
+            unit = float(kite.ltp([key])[key]["last_price"])
+        except Exception as exc:
+            return f"cannot value this MARKET order against the manual limit ({exc})"
+    else:
+        unit = float(trigger_price if kind == "SL-M" else price or 0.0)
+    value = unit * float(quantity)
+    if str(exchange or "").upper() in FO_EXCHANGES:
+        return _manual_fo_refusal(symbol, side, value)
+    if value > MANUAL_ORDER_MAX_VALUE_INR:
+        return f"order value Rs {value:,.0f} is above the manual limit of Rs {MANUAL_ORDER_MAX_VALUE_INR:,.0f}"
+    return None
 
 
 AMO_VARIETY = "amo"          # after-market order: accepted while the market is closed, sent at the next open
@@ -408,6 +502,7 @@ def place_order(kite, symbol, exchange, transaction_type, quantity,
             if order_type in ("SL", "SL-M") and trigger_price is not None:
                 params["trigger_price"] = float(trigger_price)
 
+            _pace_orders()
             order_id = kite.place_order(**params)
             result = {"success": True, "order_id": order_id, "variety": variety}
 
@@ -635,6 +730,7 @@ def get_account_equity(kite, fallback=None):
 def cancel_order(kite, order_id, variety="regular"):
     """Cancel a pending order."""
     try:
+        _pace_orders()
         kite.cancel_order(variety=variety, order_id=order_id)
         return {"success": True}
     except Exception as e:
@@ -697,6 +793,7 @@ def modify_order(kite, order_id, trigger_price=None, price=None, variety="regula
             params["trigger_price"] = float(trigger_price)
         if price is not None:
             params["price"] = float(price)
+        _pace_orders()
         kite.modify_order(**params)
         return {"success": True}
     except Exception as e:

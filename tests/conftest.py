@@ -76,6 +76,14 @@ def synthetic_panel(n_days: int = 900, n_symbols: int = 40, seed: int = 7,
     return data
 
 
+@pytest.fixture(autouse=True)
+def _fresh_order_pace():
+    """Each test starts with no recent orders, so the limiter's real waits do not pile up across tests."""
+    from kite_connect.trading import order_service
+
+    order_service._order_times.clear()
+
+
 @pytest.fixture
 def panel() -> MarketData:
     return synthetic_panel()
