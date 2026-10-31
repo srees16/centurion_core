@@ -367,7 +367,7 @@ async def kite_place_order(order: KiteOrderRequest):
         place_order, kite, symbol=order.tradingsymbol, exchange=order.exchange,
         transaction_type=order.transaction_type, quantity=order.quantity, order_type=order.order_type,
         product=order.product, price=order.price, trigger_price=order.trigger_price, validity=order.validity,
-        tag=order.tag, variety=order.variety, dedupe=True)
+        tag=order.tag, variety=order.variety, dedupe=True, is_exit=order.transaction_type.upper() == "SELL")
     if result.get("success"):
         return {"order_id": str(result.get("order_id")), "duplicate": bool(result.get("duplicate"))}
     raise HTTPException(status_code=409 if result.get("status") == "UNKNOWN" else 422,

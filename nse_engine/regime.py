@@ -103,6 +103,18 @@ def raw_regime_state(trend_up: pd.Series, breadth: pd.Series, vix: pd.Series, cf
     return pd.Series(state, index=trend_up.index, dtype=object)
 
 
+def require_index_from(index_close: pd.DataFrame, start: str, cfg: RegimeConfig) -> None:
+    """Refuse a run that starts before its regime index: the trend vote would be blank and the book would run
+    another rule without a word (the default store's NIFTY 50 starts in 2012; crash tests use ``store_ext2006``)."""
+    if cfg.index_symbol not in index_close.columns:
+        return
+    sessions = index_close.index[index_close.index >= pd.Timestamp(start)]
+    first = index_close[cfg.index_symbol].first_valid_index()
+    if len(sessions) and (first is None or first > sessions[0]):
+        raise ValueError(f"regime index {cfg.index_symbol} starts {first}, after the run's first session "
+                         f"{sessions[0].date()}: use a store that holds it (pre-2012: store_ext2006)")
+
+
 def compute_regime(
     index_close: pd.DataFrame, close: pd.DataFrame, universe_mask: pd.DataFrame, cfg: RegimeConfig
 ) -> RegimePanel:

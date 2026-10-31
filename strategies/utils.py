@@ -13,7 +13,6 @@ import io
 import json
 from typing import Any, Optional
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -74,6 +73,8 @@ def matplotlib_to_base64(
     
     # Optionally close figure to free memory
     if close_fig:
+        import matplotlib.pyplot as plt
+
         plt.close(fig)
     
     # Return with data URI prefix for direct embedding
@@ -279,6 +280,28 @@ def calculate_rsi(prices: pd.Series, period: int = 14) -> pd.Series:
     rsi = 100 - (100 / (1 + rs))
     
     return rsi.fillna(50)
+
+
+def volume_anchors(volume: pd.Series, vol_pctile: float) -> pd.Series:
+    """Bars whose volume reaches the percentile of the year before them: known that day, never from later bars."""
+    return volume >= volume.rolling(252, min_periods=60).quantile(vol_pctile / 100.0).shift(1)
+
+
+def running_avwap(df: pd.DataFrame, anchors: pd.Series) -> pd.Series:
+    """VWAP from the latest anchor at or before each bar, restarting at every anchor; NaN before the first."""
+    typical = ((df["High"] + df["Low"] + df["Close"]) / 3).to_numpy(dtype=float)
+    volume = (df["Volume"] if "Volume" in df.columns else pd.Series(1.0, index=df.index)).to_numpy(dtype=float)
+    out = np.full(len(df), np.nan)
+    started, value, shares = False, 0.0, 0.0
+    for i, anchor in enumerate(anchors.to_numpy(dtype=bool)):
+        if anchor:
+            started, value, shares = True, 0.0, 0.0
+        if started and np.isfinite(volume[i]) and volume[i] > 0:
+            value += typical[i] * volume[i]
+            shares += volume[i]
+        if shares > 0:
+            out[i] = value / shares
+    return pd.Series(out, index=df.index)
 
 
 def calculate_max_drawdown(values: pd.Series) -> float:

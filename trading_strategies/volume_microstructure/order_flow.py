@@ -252,12 +252,12 @@ class OrderFlowStrategy(BaseStrategy):
         buy_score = bull_div.astype(int) + cvd_rising.astype(int) + mfi_oversold.astype(int)
         sell_score = bear_div.astype(int) + cvd_falling.astype(int) + mfi_overbought.astype(int)
 
-        signals["positions"] = 0
+        signals["positions"] = np.nan                     # 1 at a buy, 0 at a sell, unset where neither happens
         signals.loc[buy_score >= 2, "positions"] = 1
         signals.loc[sell_score >= 2, "positions"] = 0
 
-        # Forward-fill positions
-        signals["positions"] = signals["positions"].replace(0, np.nan).ffill().fillna(0).astype(int)
+        # Each decision holds until the next one
+        signals["positions"] = signals["positions"].ffill().fillna(0).astype(int)
         signals["signals"] = signals["positions"].diff().fillna(0)
         return signals
 

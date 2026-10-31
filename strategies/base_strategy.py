@@ -11,6 +11,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
+import numpy as np
 import pandas as pd
 
 from strategies.utils import calculate_max_drawdown
@@ -293,7 +294,7 @@ class BaseStrategy(ABC):
         portfolio: pd.DataFrame,
         signals: pd.DataFrame,
         capital: float,
-        risk_free_rate: float = 0.02
+        risk_free_rate: Optional[float] = None
     ) -> dict[str, Any]:
         """
         Calculate standard performance metrics.
@@ -302,22 +303,28 @@ class BaseStrategy(ABC):
             portfolio: DataFrame with portfolio values over time
             signals: DataFrame with trading signals
             capital: Initial capital
-            risk_free_rate: Annual risk-free rate for Sharpe ratio
+            risk_free_rate: Annual risk-free rate for Sharpe ratio (default: the market's, 2% when it is not known)
         
         Returns:
             Dictionary of performance metrics
         """
         metrics = {}
+        if risk_free_rate is None:
+            risk_free_rate = self._risk_free_rate(signals)
         
         try:
             if 'total_value' in portfolio.columns:
                 values = portfolio['total_value']
             elif 'asset' in portfolio.columns:
                 values = portfolio['asset']
+            elif 'equity' in portfolio.columns:
+                values = portfolio['equity']
             else:
-                # Try to find any value-like column
+                # Never a price column: its return is the stock's, not the strategy's
                 value_cols = [c for c in portfolio.columns if 'value' in c.lower() or 'asset' in c.lower()]
-                values = portfolio[value_cols[0]] if value_cols else portfolio.iloc[:, 0]
+                if not value_cols:
+                    raise ValueError(f"no portfolio value column in {list(portfolio.columns)}")
+                values = portfolio[value_cols[0]]
             
             returns = values.pct_change().dropna()
             
@@ -325,6 +332,7 @@ class BaseStrategy(ABC):
             metrics['total_return'] = float((values.iloc[-1] / capital - 1) * 100)
             metrics['final_value'] = float(values.iloc[-1])
             metrics['initial_capital'] = float(capital)
+            metrics['costs_included'] = 'cumulative_cost' in portfolio.columns
             
             # Return statistics
             metrics['mean_return'] = float(returns.mean() * 100)
@@ -349,6 +357,13 @@ class BaseStrategy(ABC):
         
         return metrics
     
+    @staticmethod
+    def _risk_free_rate(signals: pd.DataFrame) -> float:
+        """The annual risk-free rate of the market the bars came from; 2% when they carry no market."""
+        from config import Config
+
+        return {'IND': Config.RISK_FREE_RATE_IND, 'US': Config.RISK_FREE_RATE_US}.get(signals.attrs.get('market'), 0.02)
+
     def _calculate_sharpe(
         self,
         returns: pd.Series,
@@ -382,6 +397,83 @@ class BaseStrategy(ABC):
         """Calculate maximum drawdown percentage."""
         return calculate_max_drawdown(values)
     
+    def _trade_cost(self, value: float, side: str, date, market: str) -> float:
+        """What a fill of ``value`` costs: the statutory charges at that date's rates, plus the market's slippage."""
+        from config import Config
+        from nse_engine.costs import statutory_cost
+
+        slippage_bps = Config.SLIPPAGE_MODEL_US_BPS if market == "US" else Config.SLIPPAGE_MODEL_IND_BPS
+        return float(statutory_cost(value, side, date, market="US" if market == "US" else "NSE")
+                     + value * slippage_bps / 10_000.0)
+
+    def _fill_positions(
+        self,
+        signals: pd.DataFrame,
+        positions: pd.Series,
+        capital: float,
+        risk: 'RiskParams'
+    ) -> pd.DataFrame:
+        """
+        Turn a strategy's decisions into a portfolio, the way a broker would (tracker BT1).
+
+        A position decided on a close fills at the next session's open: never at the close that produced the
+        decision.  The share count comes from the equity and the open of that morning, never from later prices, so
+        ``max_position_size`` is a share of the equity at the time and gains compound.  Each fill pays
+        ``_trade_cost``.  An open that is missing holds the change back to the next session.  The last close's
+        decision has no open to fill at, so it stays unfilled.
+
+        Args:
+            signals: DataFrame with 'Open' and 'Close' columns
+            positions: The position wanted at each close (1 long, -1 short, 0 flat)
+            capital: Initial capital
+            risk: Risk management parameters
+
+        Returns:
+            DataFrame with the held position, shares, holdings, cash, total value, returns and cumulative costs
+
+        Raises:
+            ValueError: If 'Open' is missing: the fills would have no honest price
+        """
+        if 'Open' not in signals.columns:
+            raise ValueError("a backtest needs Open prices: a decision fills at the next open")
+        market = signals.attrs.get('market', 'IND')
+        wanted = positions.fillna(0).to_numpy(dtype=float)
+        opens = signals['Open'].to_numpy(dtype=float)
+        closes = signals['Close'].ffill().to_numpy(dtype=float)
+        dates = signals.index
+        share = max(0.0, min(float(risk.max_position_size), 1.0))
+        cash, spent, qty, filled = float(capital), 0.0, 0, 0.0
+        rows = []
+        for i in range(len(signals)):
+            want = wanted[i - 1] if i else 0.0
+            price = opens[i]
+            if want != filled and np.isfinite(price) and price > 0:
+                if qty:
+                    fee = self._trade_cost(abs(qty) * price, 'SELL' if qty > 0 else 'BUY', dates[i], market)
+                    cash += qty * price - fee
+                    spent += fee
+                    qty = 0
+                if want:
+                    side = 'BUY' if want > 0 else 'SELL'
+                    count = int(cash * share * abs(want) // price)
+                    # A price above the position cap still buys one share while the cash covers it
+                    count = max(count, 1)
+                    while count and count * price + self._trade_cost(count * price, side, dates[i], market) > cash:
+                        count -= 1
+                    if count:
+                        fee = self._trade_cost(count * price, side, dates[i], market)
+                        qty = count if want > 0 else -count
+                        cash -= qty * price + fee
+                        spent += fee
+                filled = want
+            rows.append((np.sign(qty), qty, qty * closes[i] if qty else 0.0, cash, spent))
+        portfolio = pd.DataFrame(rows, index=signals.index,
+                                 columns=['positions', 'shares', 'holdings', 'cash', 'cumulative_cost'])
+        portfolio['Close'] = signals['Close']
+        portfolio['total_value'] = portfolio['holdings'] + portfolio['cash']
+        portfolio['returns'] = portfolio['total_value'].pct_change().fillna(0)
+        return portfolio
+
     def _calculate_portfolio(
         self,
         signals: pd.DataFrame,
@@ -390,50 +482,19 @@ class BaseStrategy(ABC):
     ) -> pd.DataFrame:
         """
         Default portfolio calculation for standard long/short strategies.
-        
-        Computes holdings, cash, total value, and returns based on positions
-        and trading signals. Override in subclasses for custom portfolio logic
-        (e.g., short-only, pairs trading).
-        
+
+        Override in subclasses for custom portfolio logic (e.g., short-only, pairs trading).
+
         Args:
-            signals: DataFrame with 'Close', 'positions', and 'signals' columns
+            signals: DataFrame with 'Open', 'Close' and 'positions' columns
             capital: Initial capital
             risk: Risk management parameters
-        
+
         Returns:
-            DataFrame with portfolio values over time
+            DataFrame with portfolio values over time (see ``_fill_positions``)
         """
-        portfolio = pd.DataFrame(index=signals.index)
-        
-        max_position_value = capital * risk.max_position_size
-        close_max = signals['Close'].dropna().max()
-        shares = int(max_position_value / close_max) if close_max > 0 else 0
-        # Guarantee at least 1 share so high-priced stocks still trade
-        if shares == 0 and close_max > 0 and close_max <= capital:
-            shares = 1
-        
-        portfolio['positions'] = signals['positions']
-        portfolio['Close'] = signals['Close']
-        portfolio['holdings'] = signals['positions'] * signals['Close'] * shares
+        return self._fill_positions(signals, signals['positions'], capital, risk)
 
-        # ── Slippage deduction (#3) ───────────────────────────
-        # On every trade (signal != 0), deduct slippage from cash
-        # in addition to the position cost.
-        try:
-            from config import Config
-            slippage_bps = getattr(Config, 'SLIPPAGE_MODEL_IND_BPS', 0.0)
-        except Exception:
-            slippage_bps = 0.0
-        slippage_frac = slippage_bps / 10_000.0
-        trade_cost = signals['signals'].abs() * signals['Close'] * shares
-        slippage_cost = (trade_cost * slippage_frac).cumsum()
-
-        portfolio['cash'] = capital - (signals['signals'] * signals['Close'] * shares).cumsum() - slippage_cost
-        portfolio['total_value'] = portfolio['holdings'] + portfolio['cash']
-        portfolio['returns'] = portfolio['total_value'].pct_change().fillna(0)
-        
-        return portfolio
-    
     def _calculate_portfolio_long_only(
         self,
         signals: pd.DataFrame,
@@ -443,52 +504,19 @@ class BaseStrategy(ABC):
         """
         Portfolio calculation for strategies with bidirectional signals
         that should only track long positions.
-        
-        Filters positions and signals to long-only (>= 0) before computing
-        holdings and cash flow. Used by RSI, Support/Resistance, and
-        Bollinger strategies.
-        
+
+        Used by RSI, Support/Resistance, and Bollinger strategies.
+
         Args:
-            signals: DataFrame with 'Close', 'positions', and 'signals' columns
+            signals: DataFrame with 'Open', 'Close' and 'positions' columns
             capital: Initial capital
             risk: Risk management parameters
-        
+
         Returns:
-            DataFrame with portfolio values over time
+            DataFrame with portfolio values over time (see ``_fill_positions``)
         """
-        portfolio = pd.DataFrame(index=signals.index)
-        
-        long_positions = signals['positions'].clip(lower=0)
-        # Recompute signals from clipped positions so sells (10) restore cash
-        long_signals = long_positions.diff().fillna(0)
-        
-        max_position_value = capital * risk.max_position_size
-        close_max = signals['Close'].dropna().max()
-        shares = int(max_position_value / close_max) if close_max > 0 else 0
-        # Guarantee at least 1 share so high-priced stocks still trade
-        if shares == 0 and close_max > 0 and close_max <= capital:
-            shares = 1
-        
-        portfolio['positions'] = long_positions
-        portfolio['Close'] = signals['Close']
-        portfolio['holdings'] = long_positions * signals['Close'] * shares
+        return self._fill_positions(signals, signals['positions'].clip(lower=0), capital, risk)
 
-        # ── Slippage deduction (#3) ───────────────────────────
-        try:
-            from config import Config
-            slippage_bps = getattr(Config, 'SLIPPAGE_MODEL_IND_BPS', 0.0)
-        except Exception:
-            slippage_bps = 0.0
-        slippage_frac = slippage_bps / 10_000.0
-        trade_cost = long_signals.abs() * signals['Close'] * shares
-        slippage_cost = (trade_cost * slippage_frac).cumsum()
-
-        portfolio['cash'] = capital - (long_signals * signals['Close'] * shares).cumsum() - slippage_cost
-        portfolio['total_value'] = portfolio['holdings'] + portfolio['cash']
-        portfolio['returns'] = portfolio['total_value'].pct_change().fillna(0)
-        
-        return portfolio
-    
     # --- Sentiment adjustment helpers ---
     
     def _sentiment_scale_indicator(

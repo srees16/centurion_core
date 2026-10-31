@@ -54,7 +54,7 @@ from nse_engine.portfolio import (
     stop_fill_price,
     trailing_stop,
 )
-from nse_engine.regime import compute_regime
+from nse_engine.regime import compute_regime, require_index_from
 from nse_engine.signals import compute_signal_panels, daily_returns, realised_vol
 from nse_engine.sleeves import compute_sleeve_panels, sleeve_weights
 from nse_engine.types import DATA_HASH_VERSION, BacktestResult, Holding, MarketData, TargetPortfolio, Trade
@@ -130,6 +130,7 @@ class EngineCache:
         self.combined = self.signals.combined.to_numpy()
         self.warmup = self.signals.warmup.to_numpy()
 
+        require_index_from(data.index_close, config.start, config.regime)
         self.regime = compute_regime(data.index_close, close_df, self.universe.mask, config.regime)
         self.regime_state = self.regime.state.to_numpy()
         self.regime_scale = self.regime.scale.to_numpy()

@@ -18,6 +18,18 @@ from strategies.utils import calculate_rsi
 logger = logging.getLogger(__name__)
 
 
+#: NSE's widest price band: an overnight move beyond it on raw prices was a corporate action on all 236 such
+#: member-days of 2012-25, and a real move on none.
+RAW_GAP_LIMIT = 0.20
+
+
+def raw_price_jump(df: pd.DataFrame) -> Optional[pd.Timestamp]:
+    """The first session whose open is beyond ``RAW_GAP_LIMIT`` from the previous close, or None."""
+    gap = (df["Open"] / df["Close"].shift(1) - 1).abs()
+    hit = gap[gap > RAW_GAP_LIMIT]
+    return None if hit.empty else hit.index[0]
+
+
 class DataService:
     """
     Centralized data service for fetching and managing market data.
@@ -134,6 +146,7 @@ class DataService:
         # rate-limits cloud hosts, which surfaced as "No valid data for any
         # ticker" on every backtest — Sentry 147505613), Yahoo as the fallback.
         df = None
+        from_bhavcopy = False
         if interval == "1d":
             try:
                 from utils import _is_indian_ticker, download_ind_ohlcv
@@ -141,11 +154,14 @@ class DataService:
                     df = download_ind_ohlcv(ticker, start=start_date, end=end_date)
                     if df is not None and df.empty:
                         df = None
+                    from_bhavcopy = df is not None
             except Exception as exc:                      # noqa: BLE001 - fall back to Yahoo
                 logger.debug("bhavcopy path failed for %s: %s", ticker, exc)
                 df = None
         if df is None:
             df = self._fetch_from_yfinance(ticker, start_date, end_date, interval)
+        if from_bhavcopy:
+            df = self._adjusted_or_refused(df, ticker, start_date, end_date)
 
         # ── Survivorship bias check ────────────────────────────
         # Reject delisted / suspended tickers early so strategies
@@ -174,6 +190,10 @@ class DataService:
             except Exception:
                 pass  # degrade gracefully
 
+        if df is not None and not df.empty:
+            from utils import _is_indian_ticker
+            df.attrs["market"] = "IND" if _is_indian_ticker(ticker) else "US"   # sets the costs and risk-free rate
+
         # Cache result
         if use_cache and df is not None and not df.empty:
             self._cache[cache_key] = df.copy()
@@ -181,6 +201,29 @@ class DataService:
         
         return df
     
+    def _adjusted_or_refused(self, df: pd.DataFrame, ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """Raw bhavcopy prices, or Yahoo's adjusted ones when a split or bonus sits in the window (tracker BT1).
+
+        Bhavcopy prices are as printed, so a 1:1 bonus reads as a fall of half and no backtest through it means
+        anything.  Inferring the ratio from prices got 24% of names wrong against NSE's records, so it is not
+        guessed: with no adjusted source the ticker is refused.
+
+        Raises:
+            ValueError: If a corporate action sits in the window and no adjusted prices can be had
+        """
+        day = raw_price_jump(df)
+        if day is None:
+            return df
+        try:
+            adjusted = self._fetch_from_yfinance(ticker, start_date, end_date, "1d")
+        except Exception as exc:                          # noqa: BLE001 - reported in the refusal below
+            logger.warning("adjusted prices for %s unavailable: %s", ticker, exc)
+            adjusted = None
+        if adjusted is None or adjusted.empty or raw_price_jump(adjusted) is not None:
+            raise ValueError(f"{ticker}: prices jump more than {RAW_GAP_LIMIT:.0%} overnight on {day.date()}, a split or "
+                             "bonus NSE's raw prices do not adjust for, and no adjusted prices are available: refused")
+        return adjusted
+
     def _fetch_from_yfinance(
         self,
         ticker: str,
