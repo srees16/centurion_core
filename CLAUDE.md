@@ -26,7 +26,10 @@ data and coding assistants". Read it before changing code. The essentials:
   - delete temporary scripts;
   - do not commit or push unless asked;
   - ask before creating any new `.md` file.
-- **Trading:** swing and positional only, never intraday. Research follows
+- **Trading:** swing and positional by default. Intraday is allowed only where the
+  evidence shows it adds to CAGR and Sharpe (owner's amendment, 31 Oct 2026), and
+  `order_service.intraday_refusal` stays on until a stream has passed its gates.
+  Research follows
   `docs/research_protocol.md`: pre-register first; every trial counts;
   2026 is the sealed holdout.
 - **Ind vs US stocks:**

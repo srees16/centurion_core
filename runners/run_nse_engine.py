@@ -82,6 +82,26 @@ def _load_data(cfg: EngineConfig, warmup_years: int = 2, data_start: str = None)
     )
 
 
+def cmd_for_cause_exits(args) -> None:
+    """Rewrite config/nse_for_cause_exits.json from the raw archive (tracker SB3), at January's window roll."""
+    from nse_engine.data.reference import FOR_CAUSE_EXITS
+    from nse_engine.data.store import FOR_CAUSE_SERIES, FOR_CAUSE_SESSIONS, for_cause_exits, restricted_prints
+    from nse_engine.deployment import load_deployment
+
+    cfg = load_deployment().reference_config().replace(**{"start": args.start, "end": args.end, "data.store_dir": args.store})
+    data = _load_data(cfg, data_start=args.start)
+    close = (data.close_unadj if data.close_unadj is not None else data.close).astype("float64")
+    last_day = close.apply(pd.Series.last_valid_index).dropna()
+    gone = last_day[last_day < pd.Timestamp(args.end) - pd.Timedelta(days=10)]
+    last = pd.DataFrame({"date": gone, "close": [close.at[d, s] for s, d in gone.items()]})
+    ratios = for_cause_exits(restricted_prints(args.archive, args.end), last)
+    Path(FOR_CAUSE_EXITS).write_text(json.dumps({
+        "built_to": args.end, "sessions": FOR_CAUSE_SESSIONS, "series": list(FOR_CAUSE_SERIES),
+        "note": "exit price / last EQ or BE close; run_nse_engine for-cause-exits writes this",
+        "ratios": dict(sorted(ratios.items()))}, indent=1) + "\n")
+    _print_json({"left": len(gone), "for_cause": len(ratios), "median": float(pd.Series(ratios).median())})
+
+
 def _print_json(obj) -> None:
     print(json.dumps(obj, indent=2, default=str))
 
@@ -802,6 +822,14 @@ def main(argv=None) -> None:
     p.add_argument("--skip-registry-check", action="store_true",
                    help="do not compare the rebuilt store's fingerprint with the trial registry")
     p.set_defaults(func=cmd_build_store)
+
+    p = sub.add_parser("for-cause-exits", help="what a holder got for stocks that left EQ / BE for a restricted "
+                                               "series (config/nse_for_cause_exits.json)")
+    p.add_argument("--start", default="2006-01-02")
+    p.add_argument("--end", default=CANARY_WINDOW[1], help="never past the sealed holdout")
+    p.add_argument("--store", default="data/nse_engine/store_ext2006")
+    p.add_argument("--archive", default="data/nse_engine/archive")
+    p.set_defaults(func=cmd_for_cause_exits)
 
     p = sub.add_parser("backtest", help="run and record a backtest")
     add_config_args(p)

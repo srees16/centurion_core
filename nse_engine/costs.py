@@ -29,7 +29,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -100,6 +100,8 @@ IDLE_CASH_YIELD_ANNUAL = 0.0
 # of those at the day's high or low, while gold's close-to-close move passed 2.95%
 # on 1% of days.  Shares open in the call auction and keep their open.
 ETF_OPEN_BAND = 0.03
+#: Relative high-low gap under which a bar has no range (float32 prices).
+LOCK_TOLERANCE = 1e-6
 
 
 @dataclass(frozen=True)
@@ -304,6 +306,21 @@ def buy_cash_needed(value_inr: float, adv_value_inr: float, date: DateLike, cfg:
     return value_inr * (1 + impact_bps(value_inr, adv_value_inr, cfg) / 1e4) + statutory_cost(
         value_inr, "BUY", date, cfg.dp_charge_inr, symbol=symbol, market=cfg.market
     ) + commission(value_inr, cfg)
+
+
+def circuit_locks(high: np.ndarray, low: np.ndarray, close: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """(locked down, locked up) per bar: no range at all on a day the close moved (tracker RB8).
+
+    The store has no circuit limits, but a stock frozen at its band prints one price all day.  Sellers cannot
+    get out of a lower lock, nor buyers into an upper one; the other side of each fills freely, so it is not
+    locked.  A missing bar or missing previous close is not a lock.  The previous close is the last known one.
+    """
+    h, l, c = (np.asarray(x, dtype="float64") for x in (high, low, close))
+    prev = np.full_like(c, np.nan)
+    prev[1:] = pd.DataFrame(c).ffill().to_numpy()[:-1]
+    with np.errstate(invalid="ignore"):
+        flat = np.abs(h - l) <= LOCK_TOLERANCE * c
+        return flat & (c < prev), flat & (c > prev)
 
 
 def fillable_open(open_: pd.DataFrame, close: pd.DataFrame, etfs) -> pd.DataFrame:

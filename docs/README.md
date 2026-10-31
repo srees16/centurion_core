@@ -1229,7 +1229,17 @@ orders start at go-live (section 1.4).
    - the kill switch refuses new buys and cancels those already queued at
      the broker, while exits and stops still go
      (`kite_connect/trading/kill_switch.py`);
-   - no path places intraday orders (MIS is refused).
+   - no path places intraday orders (MIS is refused);
+   - orders are held to 10 a second, the limit in SEBI's retail algo rule.
+
+**If Centurion or the Kite API is down.** Your shares sit in your Zerodha demat, so
+only Zerodha can sell them; a second broker cannot.
+1. Run the Kill switch workflow with `on`, if GitHub is up. It stops new buys.
+2. Sell in the Kite app or kite.zerodha.com. Your login does not need Centurion.
+3. If Kite itself is down, use Zerodha's Call & Trade desk. Save its number now.
+4. Stop GTTs live at Zerodha and keep working without Centurion. One that gapped
+   may not have filled, so check them in Kite.
+5. When Centurion is back, its next session reports your sale as external.
 
 **Modules the live book uses:**
 - `live_session.py` and `nse_engine_executor.py`: targets to CNC orders and
@@ -1673,7 +1683,8 @@ centurion_core/
 ├── config/                       # Approved book configurations and the canary's expected values
 │   ├── nse_engine_deployed.json  # The deployed book (679cbd0c) with its drawdown overlay
 │   ├── nse_engine_candidate.json · nse_engine_e4.json   # Trial paper books
-│   └── canary_expected.json      # Expected backtest statistics and data fingerprints
+│   ├── canary_expected.json      # Expected backtest statistics and data fingerprints
+│   └── nse_for_cause_exits.json  # What a holder got for stocks that left EQ / BE for a restricted series
 │
 ├── us_engine/                    # US stocks (in research; documented here once tuned)
 │
@@ -2351,7 +2362,7 @@ python -m cloud.kaggle_local run --task walk-forward --args "..."   # then: watc
 python -m cloud.wf_stitch import-runs --src <pulled dir> --dest data/nse_engine/runs
 
 # Live book (needs today's Kite login)
-python -m kite_connect.trading.live_session --dry-run --capital 600000
+python -m kite_connect.trading.live_session --dry-run --capital 300000
 python -m kite_connect.trading.kill_switch status
 python -m kite_connect.trading.kill_switch check     # reads each book, cancels nothing
 

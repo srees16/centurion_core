@@ -1,28 +1,31 @@
 """
 Capital ladder for the live book (tracker D3, decisions U6 and U22).
 
-Live capital grows in four rungs of the Rs 30 lakh decided in U6, each held
-for at least a month, and falls back automatically when the book stops
-behaving like its backtest:
+Live capital grows in five rungs of the Rs 30 lakh decided in U6, the canary
+held for at least three months and each later rung for at least a month, and
+falls back automatically when the book stops behaving like its backtest:
 
     rung   capital       share
-    1      Rs  6,00,000   20%
-    2      Rs 12,00,000   40%
-    3      Rs 21,00,000   70%
-    4      Rs 30,00,000  100%
+    1      Rs  3,00,000   10%   the canary (GT2I; at Rs 1.5 lakh whole shares hold 12 names, not 18)
+    2      Rs  6,00,000   20%
+    3      Rs 12,00,000   40%
+    4      Rs 21,00,000   70%
+    5      Rs 30,00,000  100%
 
 Every live session evaluates the ladder on the live book's own paper gate
 (G4 against its same-period backtest), the drawdown rule, and NIFTY:
 
 * STEP DOWN (automatic, one rung, applied before tonight's orders): after at
-  least ``MIN_SESSIONS_PER_RUNG`` sessions at the rung, any G4 check at FAIL.
-  G4 compares the book with a backtest of the same days, so a market-wide
-  crash that the backtest also suffers is not a reason (U22); behaving unlike
-  the backtest is.
-* GO (one rung up, only when you ask): at least ``MIN_SESSIONS_PER_RUNG``
-  sessions at the rung, tracking error, daily gap, drawdown and regime-break
-  checks all PASS (or not measurable yet), the drawdown rule "normal", no
-  kill criterion.  Adding capital means adding money, so the step happens
+  least ``MIN_SESSIONS_PER_RUNG`` sessions at the rung, any G4 check at FAIL or
+  the CUSUM alarm on the daily gap (``gap_cusum``, sessions at this rung only,
+  not one of G4's checks: RA1 reads G4 and stays as fixed).  G4 compares the
+  book with a backtest of the same days, so a market-wide crash that the
+  backtest also suffers is not a reason (U22); behaving unlike the backtest is.
+* GO (one rung up, only when you ask): ``sessions_needed`` at the rung, tracking
+  error, daily gap, drawdown and regime-break checks all PASS (or not measurable
+  yet), measured costs PASS, volatility and turnover near the backtest's
+  (``ramp_checks``), the drawdown rule "normal", no kill criterion.  None of
+  this reads profit.  Adding capital means adding money, so the step happens
   only when ``CENTURION_LIVE_CAPITAL`` is set to the next rung (after the
   money is in the account); the email says when that is allowed.
 * HOLD otherwise.  Setting ``CENTURION_LIVE_CAPITAL`` to a lower rung steps
@@ -43,9 +46,10 @@ deposit never as a gain (drawdown rule, G4, max drawdown).
 Go-live (``readiness``): the first real session is refused unless the
 configuration about to trade has a paper G4 PASS with >= 60 sessions,
 >= 5 scheduled dry runs finished clean (no alert: token, tunnel, egress IP,
-broker reads and order building all worked), and the account has shown it
-can sell unattended (``sell_path_check``: DDPI, a supervised AMO sell and a
-triggered GTT sell on this Kite user, tracker LN-T2).  The paper record is the
+broker reads and order building all worked), the account has shown it can
+sell unattended (``sell_path_check``: DDPI, a supervised AMO sell and a
+triggered GTT sell on this Kite user, tracker LN-T2), and the capital is the
+canary (GT2I).  The paper record is the
 deployed book's own, or, after a promotion, the trial book's that traded
 the same configuration (``go_live_evidence``, tracker V5), so promoting a
 trial that cleared the forward gate does not restart the go-live clock.
@@ -70,8 +74,13 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-RUNGS: Tuple[float, ...] = (600_000.0, 1_200_000.0, 2_100_000.0, 3_000_000.0)
+RUNGS: Tuple[float, ...] = (300_000.0, 600_000.0, 1_200_000.0, 2_100_000.0, 3_000_000.0)
 MIN_SESSIONS_PER_RUNG = 20            # about one month of sessions
+CANARY_SESSIONS = 60                  # about three months at the first rung (GT2I)
+# The daily gap's alarm, fixed before the first live session (GT2I, plan 5at).  In units of the gap's sd, simulated
+# on t(4) days: 0.6% false alarms in 60 sessions, 4.6% in 250; a -0.5 sd gap caught in a median of 38 sessions.
+CUSUM_K, CUSUM_H = 0.25, 12.0
+RAMP_RATIO_LOW, RAMP_RATIO_HIGH = 0.7, 1.3    # live over backtest: volatility and rupees traded (GT2I)
 KILL_DD_MULTIPLE = 1.5
 # MaxDD of the deployed configuration's backtest, 2013-25 (679cbd0c, cost model 4;
 # tracker IC1b, was 0.247 from cost model 1): the fallback of backtest_maxdd_for,
@@ -87,6 +96,11 @@ SELL_PATH_KEY = "live_sell_path"
 LIVE_CONFIG_KEY = "live_config"       # {"config_hash", "since"}: what the live book trades, since when (V5)
 GO, HOLD, STEP_DOWN = "GO", "HOLD", "STEP DOWN"
 GO_CHECKS = ("tracking error", "daily gap", "drawdown", "regime break")
+
+
+def sessions_needed(rung: int) -> int:
+    """Sessions at ``rung`` before GO can be allowed."""
+    return CANARY_SESSIONS if rung == 0 else MIN_SESSIONS_PER_RUNG
 
 
 def rung_of(capital: float) -> Optional[int]:
@@ -174,11 +188,12 @@ def backtest_maxdd_for(config_hash: str) -> float:
 def evaluate(state: LadderState, session: str, *, gate: Optional[Dict[str, Any]], drawdown_state: str,
              book_dd: float, nifty_dd: float, shift_multipliers: Sequence[float],
              requested_capital: Optional[float], backtest_maxdd: Optional[float] = None,
-             capital_setting: str = "CENTURION_LIVE_CAPITAL") -> LadderDecision:
+             capital_setting: str = "CENTURION_LIVE_CAPITAL", ramp: Optional[Dict[str, Any]] = None) -> LadderDecision:
     """Tonight's ladder decision; ``state`` is updated in place (call once per session).
 
     ``capital_setting`` names where the capital is set, in the advice (a
-    family account's is on the Fly Kite page, tracker FA2).
+    family account's is on the Fly Kite page, tracker FA2).  ``ramp`` comes
+    from :func:`ramp_checks`, over the sessions at this rung.
     """
     backtest_maxdd = float(backtest_maxdd if backtest_maxdd is not None
                            else os.environ.get("CENTURION_BACKTEST_MAXDD", BACKTEST_MAXDD_DEFAULT))
@@ -187,6 +202,8 @@ def evaluate(state: LadderState, session: str, *, gate: Optional[Dict[str, Any]]
         state.last_session = session
     checks = (gate or {}).get("checks", [])
     fails = [f"{c['name']} {c.get('display', '')}".strip() for c in checks if c.get("status") == "FAIL"]
+    if ramp and ramp["cusum"]["alarm"]:
+        fails.append(f"daily gap CUSUM {ramp['cusum']['low']:.1f} sd (alarm at -{CUSUM_H:g})")
 
     kill: List[str] = []
     if book_dd > KILL_DD_MULTIPLE * backtest_maxdd and book_dd > nifty_dd:
@@ -232,13 +249,20 @@ def evaluate(state: LadderState, session: str, *, gate: Optional[Dict[str, Any]]
         return d
 
     blockers = []
-    if state.sessions < MIN_SESSIONS_PER_RUNG:
-        blockers.append(f"{state.sessions} of {MIN_SESSIONS_PER_RUNG} sessions at this rung")
+    needed = sessions_needed(state.rung)
+    if state.sessions < needed:
+        blockers.append(f"{state.sessions} of {needed} sessions at this rung")
     bad = [n for n in GO_CHECKS if _status(gate, n) not in (None, "PASS", "n/a")]
+    if gate is not None and _status(gate, "costs") != "PASS":
+        bad.append("costs")
     if gate is None:
         blockers.append("no live G4 report yet")
     if bad:
         blockers.append("G4 not PASS: " + ", ".join(bad))
+    for name in ("volatility", "turnover"):
+        if ramp and not ramp[name]["ok"]:
+            blockers.append(f"{name} {ramp[name]['display']} of the backtest "
+                            f"(needs {RAMP_RATIO_LOW:g} to {RAMP_RATIO_HIGH:g})")
     if drawdown_state != "normal":
         blockers.append(f"drawdown rule {drawdown_state}")
     if kill:
@@ -251,7 +275,7 @@ def evaluate(state: LadderState, session: str, *, gate: Optional[Dict[str, Any]]
         elif blockers:
             d.alerts.append(f"requested Rs {RUNGS[req]:,.0f} refused for now: " + "; ".join(blockers))
         else:
-            move(req, GO, f"GO: {MIN_SESSIONS_PER_RUNG}+ sessions, G4 and the drawdown rule clear")
+            move(req, GO, f"GO: {needed}+ sessions, G4 and the drawdown rule clear")
             return d
     if top:
         d.reasons.append("top rung")
@@ -265,6 +289,52 @@ def evaluate(state: LadderState, session: str, *, gate: Optional[Dict[str, Any]]
             d.alerts.append(f"Capital ladder: GO to Rs {nxt:,.0f} is allowed. Add the money to the account, "
                             f"then set {capital_setting}={nxt:.0f}.")
     return d
+
+
+# ── the ramp's evidence: fills and behaviour, never profit (GT2I) ──
+
+def gap_cusum(gap: pd.Series) -> Dict[str, Any]:
+    """One-sided CUSUM of the daily gap (live less the same days' backtest), in units of the gap's own sd.
+
+    Paired, so the market's own moves cancel and a real break shows sooner than in
+    ``distribution_shift``'s unpaired test.  ``low`` is the path's lowest point; it alarms at ``-CUSUM_H``, and
+    reads nothing below ``MIN_SESSIONS_PER_RUNG`` sessions, where the sd means little.
+    """
+    g = pd.Series(gap, dtype="float64").dropna()
+    sd = float(g.std(ddof=1)) if len(g) >= MIN_SESSIONS_PER_RUNG else 0.0
+    if sd <= 1e-12:
+        return {"low": 0.0, "alarm": False, "sessions": int(len(g))}
+    s, low = 0.0, 0.0
+    for z in (g / sd).to_numpy():
+        s = min(0.0, s + float(z) + CUSUM_K)
+        low = min(low, s)
+    return {"low": low, "alarm": low <= -CUSUM_H, "sessions": int(len(g))}
+
+
+def _ratio_check(value: Optional[float]) -> Dict[str, Any]:
+    ok = value is not None and RAMP_RATIO_LOW <= value <= RAMP_RATIO_HIGH
+    return {"value": value, "ok": ok, "display": "not measurable" if value is None else f"{value:.2f}x"}
+
+
+def ramp_checks(equity: pd.Series, reference_returns: pd.Series, fills: Optional[pd.DataFrame],
+                reference_trades: Optional[pd.DataFrame]) -> Dict[str, Any]:
+    """The ladder's own evidence, from the sessions in ``equity`` against the same days' backtest."""
+    from nse_engine import paper_gate as pg
+
+    both = pd.concat({"live": pg._dated(equity).pct_change(), "ref": pg._dated(reference_returns)},
+                     axis=1, join="inner").dropna()
+    ref_sd = float(both["ref"].std(ddof=1)) if len(both) >= 2 else 0.0
+    volatility = float(both["live"].std(ddof=1)) / ref_sd if ref_sd > 1e-12 else None
+    turnover = None
+    if len(both) and fills is not None and not fills.empty and reference_trades is not None:
+        lo, hi = both.index[0], both.index[-1]
+        d = pd.to_datetime(fills["session_date"].astype(str).str[:10], errors="coerce")
+        live_value = pg._fill_costs(fills[(d >= lo) & (d <= hi)])[1]
+        rd = pd.to_datetime(reference_trades["date"], errors="coerce")
+        ref_value = float(pd.to_numeric(reference_trades.loc[(rd >= lo) & (rd <= hi), "value_inr"]).sum())
+        turnover = live_value / ref_value if ref_value > 0 else None
+    return {"cusum": gap_cusum(both["live"] - both["ref"]), "volatility": _ratio_check(volatility),
+            "turnover": _ratio_check(turnover)}
 
 
 # ── flows: deposits and withdrawals are not returns ───────────────
@@ -372,10 +442,11 @@ def sell_path_check(record: Optional[Dict[str, Any]], user_id: Optional[str]) ->
 
 
 def readiness(paper_gate: Optional[Dict[str, Any]], dry_runs: Sequence[Dict[str, Any]],
-              source: str = "deployed paper book", sell_path: Optional[Tuple[bool, str]] = None
-              ) -> List[Tuple[str, bool, str]]:
+              source: str = "deployed paper book", sell_path: Optional[Tuple[bool, str]] = None,
+              capital: Optional[float] = None) -> List[Tuple[str, bool, str]]:
     """Go-live checks: (name, ok, detail).  ``paper_gate`` comes from :func:`go_live_evidence`;
-    ``sell_path`` from :func:`sell_path_check` (missing counts as not shown)."""
+    ``sell_path`` from :func:`sell_path_check` (missing counts as not shown); ``capital`` is the
+    first session's, checked when given."""
     out = []
     v, n = (paper_gate or {}).get("verdict"), _gate_sessions(paper_gate)
     out.append(("paper book G4", v == "PASS" and n >= GO_LIVE_MIN_PAPER_SESSIONS,
@@ -385,4 +456,7 @@ def readiness(paper_gate: Optional[Dict[str, Any]], dry_runs: Sequence[Dict[str,
                 f"{len(clean)} clean of {len(dry_runs)} scheduled dry runs ({GO_LIVE_MIN_DRY_RUNS} needed)"))
     ok, detail = sell_path if sell_path is not None else (False, "not checked")
     out.append(("sell path", ok, detail))
+    if capital is not None:
+        out.append(("canary", rung_of(capital) == 0,
+                    f"starts at Rs {float(capital):,.0f} (the canary is Rs {RUNGS[0]:,.0f})"))
     return out
