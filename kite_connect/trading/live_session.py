@@ -1239,6 +1239,39 @@ def _equity_and_flows(snaps: Optional[pd.DataFrame]) -> Tuple[pd.Series, pd.Seri
     return eq, flows
 
 
+def go_live_status(book=None, paper_book=None, trial_gates: Optional[Dict[str, dict]] = None) -> Dict[str, Any]:
+    """What stands between the book and its first real session, and where it stands on the ladder once live.  Read
+    only, for the web page: the same checks the first real session runs (``capital_ladder.readiness``), so the page
+    cannot call a book ready that the session would refuse.  The sell path is checked against the Kite user it was
+    recorded for: the session checks it against whoever is logged in.  The capital check appears only where
+    ``CENTURION_LIVE_CAPITAL`` is set; on the web server it may not be, and the check still runs at the session."""
+    from nse_engine import capital_ladder as cl
+    from nse_engine.deployment import load_deployment
+
+    dep = load_deployment()
+    book = book if book is not None else live_book()
+    state = book.read_state()
+    try:
+        own_gate = json.loads(_paper_state(paper_book).get("paper_gate") or "null")
+    except ValueError:
+        own_gate = None
+    gates = trial_gates if trial_gates is not None else _trial_gates(dep)
+    gate, source = cl.go_live_evidence(own_gate, dep.engine.config_hash(), gates)
+    record = json.loads(state.get(cl.SELL_PATH_KEY) or "null")
+    sell_path = cl.sell_path_check(record, (record or {}).get("user_id"))
+    capital = os.environ.get(ENV_LIVE_CAPITAL)
+    checks = cl.readiness(gate, json.loads(state.get(cl.DRY_RUNS_KEY) or "[]"), source=source, sell_path=sell_path,
+                          capital=float(capital) if capital else None)
+    ladder = None
+    if state.get(cl.STATE_KEY):
+        lstate = cl.LadderState.load(state[cl.STATE_KEY], 0.0, "")
+        ladder = {"rung": lstate.rung + 1, "rungs": len(cl.RUNGS), "capital": lstate.capital,
+                  "sessions": lstate.sessions, "sessions_needed": cl.sessions_needed(lstate.rung),
+                  "since": lstate.since}
+    return {"ready": all(ok for _, ok, _ in checks), "live": bool(state.get(LIVE_LEDGER_KEY)), "ladder": ladder,
+            "canary_capital": cl.RUNGS[0], "checks": [{"name": n, "ok": ok, "detail": d} for n, ok, d in checks]}
+
+
 def _trial_gates(dep) -> Dict[str, dict]:
     """Stored G4 reports of the trial books that paper-trade the deployed configuration (tracker V5)."""
     try:

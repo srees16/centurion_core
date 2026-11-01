@@ -1288,6 +1288,20 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              breaks it, which backs "no structural leverage".  Real days: 23 Mar
              2020 -1.25%, 4 Jun 2024 -7.59%.  Open: market_protection awaits
              Zerodha.  464 tests (414 plus 50 skips core-only), 6 of 6 breakages.
+1 Nov   RQ1  Attention BiLSTM on gold and bitcoin, Ge et al. 2022 (plan 5az; uncommitted).  Fails.
+             Naive tomorrow = today beats its best bitcoin row on all four measures, RMSE 1,364 against
+             1,479.  My rebuild is far worse than naive; the paper gives no layer sizes, so its network
+             is not replicated; leakage not shown.  NIFTY yearly refits: levels 7.56% / 0.136, returns
+             12.31% / 0.416, buy-and-hold 14.76% / 0.547.  The returns model scored R-squared 0.9996 on
+             levels, -0.002 on returns: it learned "up".  After 4 falls NIFTY rises 41% of days against
+             53%, against averaging down.  Built: a protocol line only; no forecaster exists to check.
+1 Nov   UI2  Backend work on the web pages (your ask; uncommitted, both repos).  Trade Center's
+             Paper Validation said "VERDICT: PASS - Ready for live trading" on Sharpe and MaxDD alone:
+             removed; the real checks now show there, from GET /kite/go-live, owner only
+             (live_session.go_live_status, the same capital_ladder.readiness the first real session
+             runs), and the rung once live.  Accounts panel and Quick Trade state the canary and
+             manual limits.  Journal tab: 7 rows added (GT2B to OPS1), it stopped at 27 Oct.
+             Left off the pages: CUSUM, timing skill, cost margin, partial adjustments, order pacing.
 1 Nov   OPS1 Online portfolio selection, NYU Glucksman paper (plan 5ay; uncommitted).  Long-only,
              daily, frictionless, NASDAQ 100 1998-2010.  Replicated on 39 survivors: PAMR 788x to
              1,115x, CRP 12.2x to 14.0x; break-even 13.4 bp a side, 0.28x at 25 bp; its OLMAR never

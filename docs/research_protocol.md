@@ -146,6 +146,8 @@ stay as risk control if the gates say so, but no exposure is added on it and no 
 **A high-turnover rule** reports its break-even cost, on point-in-time names with next-day fills, before any gross figure is quoted: a rule that wins gross and loses at 15 bp a side has not won
 (tracker OPS1). Bad prices are refused, never replaced with a small number: one such fill turned 1,115x into 4.5 billion x on the paper's own method.
 
+**A price forecast** is scored against tomorrow = today and on returns, out of sample, never by R-squared, RMSE or MAPE on price levels: a model that learned only "up" scored 0.9996 on levels and -0.002 on returns on NIFTY (tracker RQ1).
+
 ### 5.1 The diversifier gate (your decision, 19 Oct 2026; settles OX6; amended 25 Oct 2026, GT13)
 
 For a stream added beside the book to diversify it, this gate replaces

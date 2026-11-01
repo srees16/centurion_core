@@ -5131,6 +5131,17 @@ No code published. Sizing, VaR and the greedy step are not specified well enough
 - Q3 Eqs 4-8: compute the adds, and test whether runs of rises and falls differ from coin flips (its Apriori step), on gold, bitcoin and NIFTY.
 - Q4 India: the same model on NIFTY, refit each year 2012-25, on levels and on returns, 18.5 bp a round trip. Read: reaches January's queue only if it beats the naive forecast, beats buy-and-hold on net Sharpe and has rotation p <= 0.05.
 
+**Result (1 Nov 2026).**
+- Q1 On Yahoo closes the naive forecast, tomorrow = today, beats the paper's best bitcoin row on all four measures: RMSE 1,364 against 1,479, MAE 812 against 906, MAPE 2.83 against 2.88, R-squared 0.9942 against 0.9929. On gold the paper's 19.01 beats naive's 21.54, but its LSTM, GRU, BiLSTM, ARIMA, Holt-Winters, HMM and XGBoost rows (27.8-40.0) are all worse than naive, so its gold data or its fit differs from mine.
+  My rebuild is much worse than naive on both (gold 79-524, bitcoin 3,754-8,605), clean or on all the data. The paper gives no layer sizes, so this is not a replication of its network; the naive comparison needs none. Sect. 2's "all the data" did not reproduce its table, so leakage is not shown.
+- Q2 Test window, net of fees, three seeds: gold 0.80-1.05x against buy-and-hold 1.18x; bitcoin 0.60-2.39x against 5.67x. The $216,133 could not be rebuilt: sizing, VaR and the greedy step are not specified.
+- Q3 Runs of rises and falls match coin flips on gold and bitcoin (p 0.24-0.55), so the Apriori step found nothing there. NIFTY differs (p about 0.003) with longer runs than chance, and after 4 falls the next day rises 41% of the time against 53% overall: falls persist, against adding on them. The adds from (5)-(6) are not a growing martingale: 1, 1.17, 0.01 on gold, then almost nothing; my statement before the run was wrong.
+- Q4 NIFTY, refit yearly 2012-25, 18.5 bp: on levels R-squared 0.969, RMSE 1,071 against naive's 127, 7.56% / 0.136. On returns, R-squared 0.9996 on levels and -0.002 on returns, in the market 99% of days: it learned "up". 12.31% / 0.416. Buy-and-hold 14.76% / 0.547. Rotation p 0.62 and 1.00. Fails.
+
+**Built.** A protocol line only: Centurion has no price forecaster and reports no level R-squared, averaging down is absent (weights come from targets, capped at 8%), and CVaR is in the scorecard. A forecast-skill module would have no caller, so none was added.
+
+**Flagged.** (4) divides by the current price, not the previous one. (5)-(6) put Mu on all terms but the first, and (7) calls an exponential fit linear regression. (8) leaves PRO undefined and says x where it sums to u_n. Sect. 2 says all the data trains the model; Sect. 2's comparison says the test set does not. RMSprop is called an activation function; it is an optimiser. Viterbi is said to estimate the transition matrix; it decodes states. XGBoost does not use a random forest. "The average predicted increase of gold is 0.43%, and the average predicted value of the increase is 0.41%" says one thing twice. VaR and the greedy step have no formula. The end date prints as 9/10/202.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast

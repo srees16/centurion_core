@@ -4,6 +4,7 @@ while a read that fails adds no new risk (RB6); getting out is always possible (
 would, on prices that mean something (BT1)."""
 from __future__ import annotations
 
+import json
 import logging
 
 import numpy as np
@@ -1767,4 +1768,57 @@ def test_vol_target_is_the_books_ratio_and_only_scales_down():
     assert _apply_vol_target(1.0, 0.0, 0.20, 0.0, cfg, [])[0] == pytest.approx(0.10 / 0.20)      # Eq. 6.5's w
     assert _apply_vol_target(1.0, 0.0, 0.05, 0.0, cfg, [])[0] == 1.0                             # never up
     assert _apply_vol_target(1.0, 0.0, 0.80, 0.0, cfg, [])[0] == pytest.approx(0.3)              # the floor
+
+
+# ---- what the web page shows before go-live (Trade Center > Paper Validation)
+class _StatusBook:
+    def __init__(self, state):
+        self.state = state
+
+    def read_state(self):
+        return self.state
+
+
+def _go_live_state(**extra):
+    from nse_engine.capital_ladder import DRY_RUNS_KEY, SELL_PATH_KEY
+
+    sell = {"user_id": "AB1234", "ddpi_confirmed_on": "2026-11-02", "amo_status": "COMPLETE", "amo_side": "SELL",
+            "gtt_status": "triggered", "gtt_order_status": "COMPLETE", "verified_at": "2026-11-03"}
+    return {DRY_RUNS_KEY: json.dumps([{"session": str(i), "clean": True} for i in range(5)]),
+            SELL_PATH_KEY: json.dumps(sell), **extra}
+
+
+def _go_live(monkeypatch, state, gate):
+    from kite_connect.trading import live_session as ls
+
+    monkeypatch.delenv("CENTURION_LIVE_CAPITAL", raising=False)
+    return ls.go_live_status(_StatusBook(state), _StatusBook({"paper_gate": json.dumps(gate)}), trial_gates={})
+
+
+def test_go_live_status_says_ready_only_when_every_real_check_passes(monkeypatch):
+    done = _go_live(monkeypatch, _go_live_state(), {"verdict": "PASS", "sessions": 60})
+    assert done["ready"] and not done["live"] and done["ladder"] is None
+    assert [c["name"] for c in done["checks"]] == ["paper book G4", "live dry runs", "sell path"]
+    early = _go_live(monkeypatch, _go_live_state(), {"verdict": "PASS", "sessions": 59})
+    assert not early["ready"] and not early["checks"][0]["ok"]              # a fine Sharpe is not a check
+
+
+def test_go_live_status_holds_a_start_above_the_canary(monkeypatch):
+    from kite_connect.trading import live_session as ls
+
+    monkeypatch.setenv("CENTURION_LIVE_CAPITAL", "600000")
+    got = ls.go_live_status(_StatusBook(_go_live_state()),
+                            _StatusBook({"paper_gate": json.dumps({"verdict": "PASS", "sessions": 60})}), trial_gates={})
+    assert not got["ready"] and got["checks"][-1]["name"] == "canary"
+
+
+def test_go_live_status_shows_the_rung_once_live(monkeypatch):
+    from kite_connect.trading.live_session import LIVE_LEDGER_KEY
+    from nse_engine.capital_ladder import STATE_KEY, LadderState
+
+    state = _go_live_state(**{STATE_KEY: LadderState(rung=0, since="2026-12-15", sessions=12).dump(), LIVE_LEDGER_KEY: "{}"})
+    got = _go_live(monkeypatch, state, {"verdict": "PASS", "sessions": 60})
+    assert got["live"]
+    assert got["ladder"] == {"rung": 1, "rungs": 5, "capital": 300_000.0, "sessions": 12, "sessions_needed": 60,
+                             "since": "2026-12-15"}
 
