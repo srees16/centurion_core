@@ -271,6 +271,14 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      2027).  ACCEPT: live may start at Rs 3 lakh (GT2I's canary; the rule itself stands as
      fixed, it read Rs 6 lakh) after 5 clean dry runs, on
      your go-ahead.  REJECT: no live capital; 679cbd0c is not re-tuned.
+ >>> AFTER YOU MERGE KES1 (plan 5be)
+     1. GitHub > centurion_core > Settings > Secrets and variables > Actions >
+        Variables: add CENTURION_SKIP_DONE_RUNS = true.  Backup runs then stop
+        on a finished night, about 70 GB a month less cache egress.  Until
+        then nothing changes.  To undo: delete the variable.
+     2. Put the Kite Connect app's expiry date in your calendar, a week early,
+        and renew from it.  Its console shows the date; no code tracks it, and
+        it lapsed unnoticed on 17 Oct.
  >>> MON 2 NOV - YOUR ACTIONS (a trading day)
      1. Kite login, as every trading day.
      2. Then run the Kill switch check, read only, it cancels nothing.  GitHub >
@@ -1288,6 +1296,38 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              breaks it, which backs "no structural leverage".  Real days: 23 Mar
              2020 -1.25%, 4 Jun 2024 -7.59%.  Open: market_protection awaits
              Zerodha.  464 tests (414 plus 50 skips core-only), 6 of 6 breakages.
+1 Nov   HAN1 Sparse autoencoders paper (plan 5bg): nothing adopted, no code.  Ledoit-Wolf weights on the
+             book's names lower Sharpe 0.704 to 0.647, half and half 0.679, for 2-3% less volatility; held
+             names are already less correlated than the universe, 0.18 against 0.23.  Replicated on NSE,
+             point in time: volatility 13-20% ABOVE PCA, all folds of all 8 settings; the paper's equity
+             check was 10-19% below, on survivors.  Random baskets beat every model on volatility, so
+             low volatility alone proves nothing.  70-80% daily turnover: net Sharpe about -15.
+1 Nov   KOH1 Decorrelating the Advice Layer paper (plan 5bf): nothing adopted, no code.  Table 1 reproduced.
+             Three rules set first, all failed.  Volatility-scaled impact: 0.10 points at Rs 30 lakh, needed
+             0.25; the shape holds on NSE (Amihud 2.62x in stress) but the book is 0.013% of daily value.
+             Stop clusters do not rebound (t 0.15).  Fragility index on FII positions: out-of-sample R2
+             nil, VIX 0.04.  Staged cuts: the drawdown rule sells nothing.  The paper's R2 0.56 is its
+             simulator against itself, and elasticity 0.47 is its input.  Found: block_bootstrap in
+             monte_carlo_risk never samples the last trade (legacy path, not changed).
+1 Nov   KES1 Generalised Kessler Syndrome paper (plan 5be; uncommitted).  Prop. 3 reproduced (-1.513 at
+             t 0.05).  Nothing applies to the book, returns add.  Applied to operations: a stock with a
+             persistent deficit fails with no warning in today's flow (Neon 20-21 Oct, Kite app 17 Oct,
+             cache egress 30 Oct).  Backups moved 802 MB a run for nothing on finished nights: no store
+             rebuilt, the 19 plans of 26-30 Oct the same on all 7 paper books (counts).  Built, OFF by
+             default: tools.paper_heartbeat --session-finished, engine-window job, variable
+             CENTURION_SKIP_DONE_RUNS.  Fails open; never gates a dispatch.  Replay 26-30 Oct: 19 of
+             25 runs stopped, the 30 Oct failure among them, 26 Oct's emailing backup kept.  Not run
+             against real Neon: no local URL, Monday's backups are its first real test.  Also fixed
+             RQ1, FF1, YZ1, IMG1, JAC1 journal rows: event and verdict were swapped.  472 tests (core
+             only, 50 skips), canary ok.
+1 Nov   JAC1 Strict local martingale Euler paper (plan 5bd): does not fit, no code.  Centurion simulates no SDE.
+             Table 3.1's slopes reproduced in scratch.  Audit of its one link, implied volatility: theory.py
+             correct; option_chain.compute_iv's 0.0 is filtered before use, though the Options page can show
+             an IV of 0 for an unsolvable quote.
+1 Nov   IMG1 MBS negative convexity paper (plan 5bc): does not fit, no code.  US mortgage pass-throughs under
+             Hull-White; Centurion holds none and Indian markets offer no such exposure.  My rebuild of its
+             Monte Carlo at the printed Table 1 does not match Table 2 (1.337 against 1.171 at R = 0); T = 10
+             fits far better; unresolved, not pursued.  Book's own market convexity: curvature -0.32, t -1.03.
 1 Nov   YZ1  Yang-Zhang volatility (plan 5bb): not adopted, no code.  Reproduced by simulation: k0 0.1327,
              efficiency 7.56, peak 14.08.  On NSE it forecasts worse than close-to-close: QLIKE 0.782
              against 0.425, t -11.3.  Overnight and intraday moves correlate -0.19 where the proof needs 0,

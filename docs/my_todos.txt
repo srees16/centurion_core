@@ -209,35 +209,52 @@ Rules:
 
 ~~~~~~~~~~~~
 
-Implement ideas from the file to make centurion application more robust.
+DOC: ProjectX/centurion_core/research_inbox/<filename>
 
-File location: ProjectX/centurion_core/research_inbox/<pdf>
+Read doc in full. Extract the ideas that fit centurion_core (Indian stocks module) and use them to make it more robust. Depending on the content, that means implementing a method, replicating a result, auditing existing code against it, or adding validation. Skip what doesn't fit, and say why.
 
-Task: Derive the results from the file from the specified file location, then code the implementation of them to verify it. Validate the ideas discussed if they fit into centurion_core and enhance the existing workflow.
+## Steps
 
-GOAL: implement the methods or replicate a result or audit my code against it or add checks/validation as applicable and relevant to centurion_core. Use the ideas discussed in the file, turn them into rules, add more robustness where required to ensure the strategies discussed add value to the workflow of centurion Ind stocks module
+1. **Map the codebase first.** Before changing anything, find the relevant modules, data flow, conventions, libraries and test setup.
 
-Do this:
-1. Extract the core contribution: the method, model, or algorithm; its equations and pseudocode; and the claimed results. Cite section/equation numbers. Summarize in your own words.
-2. List every assumption (distributional, stationarity, data frequency, market structure, costs, liquidity) and every condition from its theorems/proofs. Mark which ones hold for my app's data and markets, and which don't.
-3. Turn the theory into checks: convert theorem conditions and model constraints into runtime assertions and input validation (e.g. positive-definite covariance, bounded parameters, convergence criteria).
-4. Audit my app: Idea → Present? (yes / partial / wrong / no) → Where → Risk if missing (high/med/low, with the concrete failure).
-5. Implement in priority order, in my code's style and libraries. Make all parameters configurable, use Decimal for money, use timezone-aware timestamps, and add explicit numerical tolerances and convergence handling.
-6. Validate:
-   - Replication test: reproduce a key table/figure from the thesis on its data or a synthetic equivalent, with stated tolerance
-   - Known-answer and property-based tests for invariants
-   - Out-of-sample and walk-forward checks; don't trust in-sample results alone
-   - Robustness: parameter sensitivity, different periods/regimes, transaction costs added
-   - Overfitting checks: multiple-testing adjustment, deflated Sharpe, data-snooping awareness
-7. Summarize: what was implemented, files touched, replication results (thesis vs mine), output changes (old vs new on a sample), and ideas skipped with reasons.
+2. **Extract.** In your own words, summarize the core contribution: the method, model or algorithm, its key equations and pseudocode, and its claimed results. Cite section, equation or page numbers (or timestamps for transcripts).
 
-Rules:
-- Academic results often don't survive real-world costs, liquidity, or regime changes. Say plainly where this method is likely to fail in production.
-- If an equation looks mistranscribed or notation is ambiguous, flag it and state your assumption.
-- If the thesis has published code, note it, but reimplement in my codebase and respect its license.
-- Never silently change calculation results. Fail loudly on bad data. No placeholders or "TODO: implement."
-- Keep explanations short. Code and tests first.
-- Highlight any useful new findings from the transcript which was not implemented earlier.
+3. **Check assumptions.** List every assumption and every theorem or proof condition: distribution, stationarity, data frequency, market structure, costs, liquidity, data availability. Mark each one *holds*, *fails* or *unknown* for our data and for Indian markets.
+
+4. **Audit.** Produce a table with columns: Idea | Present? (yes / partial / wrong / no) | Location (file:line) | Risk if missing (high / med / low, plus the concrete failure).
+
+5. **Turn theory into checks.** Convert theorem conditions and model constraints into runtime assertions and input validation, for example:
+   - positive-definite covariance
+   - bounded parameters
+   - convergence criteria
+   - minimum sample size
+
+6. **Implement** in priority order (risk × value ÷ effort), in the existing style and libraries.
+   - Make all parameters configurable.
+   - Use Decimal for money and timezone-aware timestamps.
+   - Set explicit numerical tolerances and handle non-convergence.
+   - Put any change that alters existing outputs behind a config flag that defaults to current behavior.
+
+7. **Validate.**
+   - Replication: reproduce a key table or figure from DOC, on its data or a synthetic equivalent, with a stated tolerance.
+   - Known-answer and property-based tests for invariants.
+   - Out-of-sample and walk-forward checks. Don't trust in-sample results alone.
+   - Robustness: parameter sensitivity, different periods and regimes, transaction costs included.
+   - Overfitting: multiple-testing adjustment, deflated Sharpe, data-snooping awareness.
+
+8. **Report.**
+   - What was implemented and which files were touched.
+   - Replication results (DOC vs ours).
+   - Output changes (old vs new on a sample).
+   - Ideas skipped, with reasons.
+   - New findings from DOC not covered by any earlier implementation.
+
+## Rules
+- Say plainly where the method is likely to fail in production. Common causes are costs, liquidity, regime change and capacity.
+- If an equation looks mistranscribed or the notation is ambiguous, flag it and state your assumption.
+- If DOC links to published code, note it and its license, then reimplement natively in our codebase.
+- Never silently change calculation results. Fail loudly on bad data. No placeholders, stubs or TODOs.
+- Code and tests first. Keep explanations short.
 
 ~~~~~~~~~~~~~
 

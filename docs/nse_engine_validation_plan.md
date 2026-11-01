@@ -5186,6 +5186,193 @@ No code published. Sizing, VaR and the greedy step are not specified well enough
 
 **Flagged.** Eq. 7's optimality rests on independence the data does not have. p. 486 prints the drift parameter as mu sigma / sqrt(T) where p. 481 has mu sqrt(T) / sigma; the second is taken as meant. No code was published.
 
+## 5bc. IMG1: Imagawa, "Negative Convexity in Pass-Through MBS" (arXiv 2610.38275, 1 Nov 2026; your ask): does not fit, no code
+
+**What it is.** A pricing paper on US fixed-rate mortgage pass-throughs: price split exactly into three parts (eq. 26), closed form by cumulant expansion under one-factor Hull-White (eq. 32), convexity split by part, and phase diagrams of its sign. No backtest, no market data, no published code.
+
+**Why nothing is taken.** Centurion holds no MBS, Kite offers none, and the mechanism needs a borrower's option to refinance a fixed-rate loan; Indian home loans are mostly floating, and no Indian market gives that exposure. Its Hull-White and prepayment machinery has no input here. Forcing it in would add code with no caller.
+
+**Checked.** Rebuilt its Monte Carlo at the parameters of Table 1 (page read directly: T = 30). It does not reproduce Table 2: 1.337 against 1.171 at R = 0, 0.737 against 0.850 at R = 0.07, 0.992 against 0.998 at R = m. T = 10 fits far better (1.158, 0.864, 1.000), so either the rebuild differs somewhere or the table used other settings; not settled, and not worth settling. Its claim that a second cumulant beats a first is therefore not verified here.
+One idea was worth a look, a book's own convexity: monthly excess returns on NIFTY's and its square, 2008-25, live-like. Deployed curvature -0.32, t -1.03, beta 0.20, up capture 0.42, down capture 0.18. With a1, -0.32, t -1.05. No reliable sign, and capture favours the downside. Not a test of a1's tail: a1's weight is small in this composite.
+
+## 5bd. JAC1: Jacquier, "Strong rate for one-dimensional driftless continuous strict local martingales" (arXiv 2610.39896, 1 Nov 2026; your ask): does not fit, no code
+
+**What it is.** A numerical-analysis proof: an Euler scheme killed at R_h = h^-alpha converges in L1 at rate min(theta alpha, 1/2) for dX = sigma(X) dW when X is a strict local martingale (Theorem 2.10), worked for CEV (Prop. 3.1). No code published, no market data.
+
+**Why nothing is taken.** Centurion simulates no SDE: its Monte Carlo is a bootstrap of real days (`mc_bands`, `services/risk/monte_carlo_risk.py`) and option pricing is Black-Scholes. It has no CEV, SABR or local-volatility model, so the failure the paper repairs cannot occur.
+
+**Audited, the one link.** The paper notes that under such models a call can price below intrinsic and implied volatility is undefined. `theory.implied_volatility` is right: None below intrinsic or above the bound, ValueError on NaN and on a zero spot; covered by tests. `option_chain.compute_iv` returns 0.0 on failure; `compute_atm_iv` filters zeros and `enrich_chain_with_greeks` skips Greeks, so nothing is averaged wrongly. The one blemish: the Options page can show an IV of 0 for an unsolvable quote. Left as it is.
+
+**Replication, by scratch code, 20,000 paths, same grid.** E[X_T] for gamma = 1: 0.684 against the exact 0.683. L1 slopes, mine against the paper's observed: 1/4 0.51 and 0.55; 3/4 0.50 and 0.48; 1 0.485 and 0.50; 3/2 0.42 and 0.43; 1/2 0.44 and 0.46. Plain Euler at gamma = 1: 0.67 at h = 2^-2, 1e18 at 2^-3, overflow at 2^-5, as Sect. 3.2 reports.
+
+**Flagged.** Sect. 3.2 sets R_h = h^-alpha, Table 3.1's caption 2 h^-alpha; the second was used. Prop. 3.1(iv) with Table 3.1 gives alpha = 1 at gamma = 1/4, where Sect. 3.2's list omits that case.
+
+## 5be. KES1: Meister, "The Generalised Kessler Syndrome and the Persian Gulf" (arXiv 2610.40129, 1 Nov 2026; your ask)
+
+**Rule, set before the code.** Applied to operations, not to the book. Prop. 1: a stock V with a persistent deficit e ends at T = V(0)/e, whatever today's flow shows. Centurion's own stocks are the Actions cache egress, Neon's compute and the Kite Connect subscription. Adopt a gate for the backup runs only if (a) October's logs show the backups do no work on a finished night, (b) every act they did do stays covered, (c) the gate fails open, so any doubt runs as before, (d) it sits behind a repository variable that is off by default.
+
+**What it is.** A 10-page q-fin.PM note: output is a minimum across inputs (eq. 1), repair is itself a minimum (eq. 3), damage is reversible only if restoring takes less time than the buffers last (eq. 4), and with a persistent deficit the visible flow says nothing until the stock runs out (Prop. 1). Prop. 2 is water-filling on known needs; Prop. 3 a two-input binary Kelly problem. No published code.
+
+**Replication, by scratch code.** Prop. 3's example (q 0.4, B 0.2, p 0.9 and 0.5): growth -1.513 at t = 0.05, the paper's -1.513 at 0.05; equal split -1.578; water-filling on means -1.553. Prop. 2's Z* = (S_K + B)/K checked against a numerical optimum.
+
+**Assumptions.** Min payoff: fails for the book (returns add, so neither proposition sizes a position) and holds for operations (a live session needs every one of data, broker, database, secrets). Persistent deficit: holds for cache egress at the old rate, fails for Neon since NEO1's fix, unknown for the egress limit, which GitHub does not publish. Known reserves: fails for egress, holds for Neon (console) and Kite (expiry in its console, read by hand).
+
+**Audit.**
+
+| Idea | Present? | Location | Risk if missing |
+|---|---|---|---|
+| Weakest link at go-live (eq. 1) | yes | `capital_ladder.readiness`, `go_live_status` | high: a book called ready that cannot sell. The sell path is required, and `record-sell-path` has never run |
+| Reversibility (eq. 4) | yes | save on `always()`, four more attempts, window to 05:59 IST | med: a refused cache took more than the 150 minute sync limit on 30 Oct, the next run recovered |
+| Reserves, not flows (Prop. 1): Neon | partial | NEO1's 6-hour `/health`; no runway check | med: suspended 20-21 Oct, after 17 days at 6 CU-hours a day against 100 a month |
+| Prop. 1: Kite Connect app | no | nothing tracks it | high once live: lapsed 17 Oct unnoticed, no warning before the login fails |
+| Prop. 1: cache egress | no | every run restores | high: refused 30 Oct, and it can refuse the first run of a night |
+| Kelly on the book (Prop. 3) | not applicable | | none: additive returns, no min payoff |
+
+**Measured, October's logs, all 100 runs.** A run transfers 802 MB (652 store, 150 pip); the cache holds 11.35 GB in 17 entries. On finished nights backups rebuilt nothing, bar the 15 years the refusal itself forced. On 26-30 Oct all 19 backups that reached planning matched the first run on all 7 paper books (sells, buys, stops, skips, shift, drawdown, counts only: the contents are not in the logs). The one act that mattered: the 26 Oct email went from a backup. The 30 Oct failure was a backup on a finished night.
+
+**Built, off by default.** `tools/paper_heartbeat.py` `session_finished` and `--session-finished`; the `engine-window` job calls it when the repository variable `CENTURION_SKIP_DONE_RUNS` is `true`, and a positive answer stops a scheduled run before its cache restore. Finished means all started books at the last completed session, the live session run (a no-login skip does not count), the email gone. Neon unreadable, a failed step, or a book behind: the run goes ahead. Dispatches are never gated, so the 19:00 IST run and any manual run are untouched. Variable unset: nothing changes but the window job's time limit, 2 to 8 minutes.
+
+**Replay, 26-30 Oct (25 runs).** 19 stopped, including the 30 Oct failure; 26 Oct's emailing backup kept. 15 GB of 20 saved. A month of 22 sessions: about 88 GB down to 18 on nights without a login gap. Before 26 Oct the replay says nothing: the nightly email did not exist, and 20-23 Oct were Neon-down nights, which the gate lets through.
+
+**Where it fails.** Not yet run against real Neon: this machine has no URL for it, so the first real test is the first backup after the variable is set. A key missing there only keeps the runs going. A fix merged after 19:00 no longer reaches tonight's plan by itself: dispatch by hand. If a first run does the work but fails afterwards, no run pings the dead man's switch and it alarms by 23:00 IST: loud, and false. A no-login night still costs five restores. GitHub's limit is unpublished, so this widens the margin and proves no number. Neon's 0.5 CU-hours a day is the NEO1 estimate, not measured here; the gate adds a few short reads to it and removes about 40 minutes of database use a night.
+
+**Skipped.** Gulf analysis and satellite plume data (no use). Water-filling and Kelly on the book (additive returns). Labour dynamics. Deleting old cache entries (storage is not the limit: egress is). A code register of expiry dates: Kite's date lives in its console and renews monthly, a calendar reminder does the job with less to break.
+
+## 5bf. KOH1: Kohli, "Decorrelating the Advice Layer" (arXiv 2610.37705, 1 Nov 2026; your ask)
+
+**Result: nothing adopted, no code.** All three rules below failed, so no variant ran and the trial registry is unchanged. 2026 stayed sealed.
+
+**What it is.** A 30-page agent-based simulation of AI wealth platforms, on 20 US large caps 1990-2022. Prop. 1: views behave like about 2.0 independent investors however many clients there are. Prop. 2: loop gain, finite iff kappa < 1. Prop. 3: correlation measurable from noisy sums. Prop. 4: spreading execution. Eq. 1: impact = Y sigma sqrt(F), with F decaying. Eq. 3: SLaR99. Eq. 5: fragility index. Table 6: dispersing overlays, staged execution and a participation breaker cut SLaR99 63%. The paper says its code is released, but the PDF has no repository link, so licence and code are unknown; nothing was taken from it.
+
+**Replication, by scratch code.** Table 1, tolerance 0.1 on Neff and 0.01 on the rest:
+
+| Quantity | Paper | Ours |
+|---|---|---|
+| Neff, H 0.66 / 0.28 / 0.20 (theory) | 2.01 / 2.65 / 2.85 | 2.01 / 2.65 / 2.85 |
+| Neff, Monte Carlo | 1.98 / 2.68 / 2.94 | 2.06 / 2.61 / 2.90 |
+| Cascade at kappa 0.20 / 0.50 / 0.80 / 0.95 | 1.25 / 2.00 / 5.00 / 19.89 | 1.25 / 2.00 / 5.00 / 19.81 |
+| Prop. 3 rel. s.e., four cases | 0.050 / 0.051 / 0.054 / 0.064 | 0.050 / 0.055 / 0.052 / 0.061 |
+| Prop. 4 ratio, H 2 / 5 / 10 | 0.50 / 0.20 / 0.10 | 0.50 / 0.20 / 0.10 |
+
+The agent-based Tables 2-9 were not rebuilt: nothing here would use them.
+
+**Results.**
+
+- **KOH1a fails: 0.10 points, not 0.25.** At Rs 30 lakh, volatility-scaled impact costs 0.10 of CAGR up only (cap 3 the same) and adds 0.04 both ways; Rs 3 lakh 0.06. The shape of eq. 1 is right on NSE: in stress, against calm, Amihud illiquidity is 2.62 times, volatility 1.58, value traded 0.67, and sigma / value gives 2.36. The book is too small for it to matter: median participation 0.013% at Rs 30 lakh, mean impact 7.5 bp. It is first order, on fills as simulated.
+- **KOH1b fails.** 281 stop sells on 184 days, 15 cluster days. Cluster minus isolated, 10 sessions: +0.40%, t 0.15; 2008-19 -0.79, 2020-25 +5.54 on 3 days.
+- **KOH1c fails.** Out-of-sample 2018-25, 91 rows: FI -0.002 against volatility -0.032 at 252 sessions (gain 0.03), -0.035 against -0.021 at 63. Nothing forecasts: VIX alone 0.04, and that is all 2022-25. FII loop gain: median 0.04, 5th-95th percentile -0.12 to 0.13. FII positions rise with same-day returns (0.44) but do not follow yesterday's (-0.02).
+- **Base.** Raw 16.87% / 0.791 / -31.6%. Live-like by my approximate invested weight 15.59% / 0.704 / -28.3%, against the recorded 15.48% / 0.697 / -28.6%.
+- **Described, not a rule.** Regime exits are the book's real synchronized act: 19 days, median 48% of equity in one session, largest 99.6%. NIFTY after them: +0.1% in 5 sessions, +1.4% in 21, so no sign of selling lows, on 19 cases. Fixed settings, raw, through six falls: NIFTY -59.9 / -27.7 / -21.7 / -38.4 / -17.0 / -15.8, book -29.4 / -4.0 / -13.0 / -10.3 / -6.2 / -3.9. The fast one, 2020, did not hurt the book most. In-sample, not evidence of skill.
+
+**Assumptions.**
+
+| Assumption | For Centurion |
+|---|---|
+| Book's flow moves prices (eq. 1, Prop. 2) | fails: 0.013% of daily value at Rs 30 lakh, so kappa is nil |
+| Square-root impact, scaled by volatility | holds on NSE, by Amihud |
+| 20 equal-cap US large caps, 1990-2022 | fails: NSE universe, 3,000 names |
+| 7% market-wide breaker | fails: NSE has 10 / 15 / 20% index breakers and stock bands |
+| Many agents on one model; views from an LLM | fails: no LLM in the engine's path; legacy `auto_executor` only |
+| Agentic flow q is observable | fails: FII futures position change is a stand-in, an assumption of this test |
+| SLaR's d, the agent-induced move | fails: unobservable in real prices, so total NIFTY tails stand in |
+| Stationary bootstrap, 20 days | unknown for NSE; ours already resamples this way |
+
+**Audit.**
+
+| Idea | Present? | Location | Risk if missing |
+|---|---|---|---|
+| Square-root impact | yes | `costs.py:238` | none |
+| Volatility in impact (eq. 1) | no | `costs.py:245` | low: 0.10 points at Rs 30 lakh |
+| Participation cap (M6) | yes | `costs.py:248`, 5% of ADV | none |
+| Effective bets (Prop. 1) | yes | tracker: PCA ENB 1.4-1.8; `dsr.py:274` for trials | none |
+| Paired resampling (Sect. 3.4) | yes | `diversifier_gate.py:113` | none |
+| Stationary bootstrap | yes | `mc_bands.py:79` | none |
+| Dispersed stops (M5) | no | `config.py:153`, one 3 ATR | low: clusters do not rebound |
+| Staged drawdown cuts (Sect. 8.2) | not applicable | `drawdown.py`: halts entries only, sells nothing | none |
+| Shared feed (Sect. 6.3) | partial | `store.py:110`, `:504`: bad bars, prev_close against stored close | low: the exchange's own file, one source for all 7 books |
+| Monoculture of LLM views | not applicable | no LLM in the engine | none |
+| Differential privacy | not applicable | one owner, no platform to pool | none |
+
+**Where the method fails.** In the paper, FI is scored on the simulator that its formula came from: hold-out R2 0.56 is the model checked against itself, and on real NIFTY tails it is nil. Its loop gain adds nothing there either (0.56 with and without), and eq. 4's correlation term scores 0.01. Elasticity 0.47 is the input: with the impact exponent set to 0.5, 0.7 and 1.0, a rule-driven flow returned 0.5, 0.7 and 1.0. The mitigations act through a layer's own impact, which this book does not have, so they are the wrong tool at any rung on the ladder.
+
+**Flagged.** Sect. 5 gives real index volatility 18.3%, Table 3 18.9%; stress correlation 0.49 and 0.48. Sect. 7 calls selling after declines b < 0, but with eq. 1's buy-positive flow that is b > 0; kappa is unchanged by the sign, buy-positive assumed. Fig. 12 cites Section 6 for the slopes, which are in Section 7.
+
+**New finding, nothing changed.** `monte_carlo_risk.block_bootstrap` never samples the last trade: `randint` excludes its high, so a block ends at n - 2. Its docstring cites the stationary bootstrap and the code uses fixed blocks. Only the legacy `carver_pipeline` imports it, not the engine.
+
+**Rules, set before any test.** All on 2008-25 at most, 2026 stays sealed. No book changes unless a rule passes and a variant then clears the usual gates.
+
+- **KOH1a, stress costs (eq. 1, Table 9).** Impact scales with current volatility; `costs.impact_bps` does not. Rescale the book's fills by each name's volatility against its own past year, capped at 2, as Table 9 caps it, then at 3. A config flag is built only if this costs 0.25 points of CAGR or more at the capital the ladder reaches (Rs 30 lakh).
+- **KOH1b, synchronized exits (Sect. 8.2).** Stops share one rule (3 ATR). Cluster days are the top decile of days by stop sells, with at least 3. Sold names' 10-session return over NIFTY, cluster minus isolated: a dispersal variant is tried only if the gap is positive, t >= 3 with dates clustered, and has the same sign in 2008-19 and 2020-25.
+- **KOH1c, fragility index (eq. 5).** With FII index-futures position changes as q: does walk-forward FI beat volatility alone at forecasting the next 63 sessions' 5th percentile 5-day NIFTY return, 2013-25? Adopted as a context line only if out-of-sample R2 gains 0.05 or more and both halves agree. Never scored.
+
+## 5bg. HAN1: Han and Qu, "Sparse Autoencoders as Implicit Diversification Regularisers" (arXiv 2610.39205, 1 Nov 2026; your ask)
+
+**Result: nothing adopted, no code.** HAN1a and HAN1b failed; HAN1c could not be applied, because NSE showed no reduction to explain. Nothing passed, so no variant goes to January, and 2026 stayed sealed.
+
+**What it is.** An 8-page ICAIF paper. A tied, ReLU autoencoder with an L1 penalty on the code (eq. 1-2), on cross-sectional rank scores (eq. 3), 433 crypto pairs 2019-24, with 200 S&P stocks as a secondary check. Ranks by reconstruction, long the bottom quintile, short the top. Claims: 20-26% lower long-short volatility than matched PCA, five of five folds, at K 128; within-basket correlation 0.008 against 0.039. Its own limits: no Sharpe gain over a naive contrarian, factors not reproducible across seeds, equity Sharpe does not transfer, and a Ledoit-Wolf overlay recovers about 73% of the volatility gap. Entry at the signal's own close, pre-cost; the authors call it not executable. Paper CC BY 4.0; no code link.
+
+**Results.**
+
+- **HAN1a fails.** Live-like, fixed settings:
+
+| | Sharpe | Vol | 2008-12 | 2013-19 | 2020-25 | 2x costs | Turnover |
+|---|---|---|---|---|---|---|---|
+| Base | 0.704 | 12.9 | -0.009 | 0.541 | 1.381 | 0.487 | 13.2 |
+| Minimum variance | 0.647 | 12.4 | -0.063 | 0.593 | 1.169 | 0.38 | 16.4 |
+| Half and half | 0.679 | 12.6 | 0.051 | 0.483 | 1.320 | 0.446 | 14.2 |
+
+  1,573 solves, no failures, covariance positive definite throughout, condition number at most 63. The book does not need it: held names' 60-session correlation is 0.18 against 0.23 for the universe, because forecast / vol with caps already spreads them.
+- **HAN1b fails, and reverses.** 825 names, about 297 valid a day, folds October 2020 to December 2025. Autoencoder volatility against PCA, by setting:
+
+| Training | K 64 | K 128 | Hoyer (paper 0.497) |
+|---|---|---|---|
+| Batch 64 | +12.8% | +12.8% | 0.18 |
+| Batch 256 | +17.0% | +15.9% | 0.35 |
+| Full batch, 50 epochs | +19.1% | +18.8% | 0.47 |
+| Full batch, 100 epochs | +20.4% | +19.2% | 0.45 |
+
+  Higher in every fold of all eight settings, Sharpe lower by 0.24 to 0.96. The paper's equity panel: 10-19% lower, on survivors. Ours is point-in-time. Six of the eight were added after the first run, because the paper does not state a batch size; none changes the reading.
+- **HAN1c.** Not applied. But the control still teaches: PCA with rising noise falls from 13.4 to 5.9 volatility while its return moves toward zero, and random baskets sit at 5.6, under every model. So lower volatility alone says nothing; the paper needs this control and has none. Its SAE earns less than its PCA (13.9 against 18.1).
+- **Naive contrarian on NSE.** Direction checked: next-day rank IC -0.007 close to close, t -2.3, and -0.023 open to open, t -7.3. Sharpe -0.83 close to close, +0.96 open to open, before costs. Turnover is 78% a day, so at 25 bp a side both end near -16. Ledoit-Wolf on its legs: 12.2 volatility against 13.1.
+
+**Assumptions.**
+
+| Assumption | For Centurion |
+|---|---|
+| Long and short legs | fails: no short delivery; the long leg alone is also negative |
+| Daily rebalance, 70-80% turnover | fails: 25 bp a side makes net Sharpe about -15 |
+| Entry at the signal's close | fails: we fill next open |
+| Pre-cost, no capacity | fails: costs are charged, and decide this |
+| Static or ex-post universe | fails in the paper; ours is point-in-time |
+| 24/7, 433 pairs, mostly weak common factors | fails: NSE, about 300 names, strong market factor |
+| Stationary factors across folds | unknown; here more stable than the paper's (matched cosine 0.30, random 0.09) |
+| Ledoit-Wolf on 60 sessions, N 30 | holds: positive definite, condition at most 63 |
+
+**Audit.**
+
+| Idea | Present? | Location | Risk if missing |
+|---|---|---|---|
+| Missing returns masked, not zeroed | yes | `signals.py:58`, NaN stays NaN | none |
+| Average ranks on the observed set | yes | `signals.py:161`, `:162` | none |
+| Next-open entry | yes | `engine.py:106` | none |
+| Point-in-time universe | yes | `universe_mask` | none |
+| Paired stationary bootstrap | yes | `diversifier_gate.py:113` | none |
+| Selection strictly before test | yes | pre-registration, WF, sealed 2026 | none |
+| False discovery control | partial | `aronson_validator.py:233`, legacy; the engine uses DSR and PBO | low |
+| Covariance in weights | no | `portfolio.py:206`, forecast / vol | none: tested, lowers Sharpe |
+| Latent factor model | no | none | none: reverses on NSE |
+| Solver and seed noise | not applicable | no PCA or random fit in the engine | none |
+
+**Where the method fails.** Costs first: a daily quintile turns over 70-80% a day. Then shorts, then the same-close entry. Its volatility edge reversed on the one market we can test. Torch is not in the core install, for good reason.
+
+**Flagged.** Eq. 3 divides by N_t and calls it van der Waerden, whose form is r / (N + 1); the clip makes that harmless, and winsorising before ranking only adds ties. Batch size is unstated: 64, 256 and full batch tried, and full batch comes closest on Hoyer. Reconstruction MSE 1.043-1.047 (Sect. 4.3) is above the 0.96 that predicting zero scores on eq. 3's scale, if the crypto scale matches NSE's, and the authors say loss was still falling; ours reached 0.83 with the Hoyer near theirs. Without their code I cannot say why. Table 2's means and the equity reductions recompute correctly.
+
+**Rules, set before any test.** All on data to 2025, 2026 stays sealed.
+
+- **HAN1a, covariance in the book (Sect. 4.4).** The paper's control: Ledoit-Wolf minimum variance on 60 sessions. Two variants on the names the book picks, fixed settings: pure, and half and half with today's weights. Taken to January's queue only if Sharpe rises 0.05 or more over 2008-25, is not lower in 2008-12, and is higher in 2013-19, 2020-25 and at twice the costs.
+- **HAN1b, replication on NSE (Sect. 4.5).** Tied ReLU autoencoder, K 64 and K 128, on the point-in-time universe, five expanding folds over the last 40% of 2013-25, five seeds. Replicated if long-short volatility is below matched PCA in 5 of 5 folds and 10% or more lower on average, the paper's equity range.
+- **HAN1c, what the volatility is (not in the paper).** Controls the paper lacks: random baskets, and PCA's signal degraded with noise. If either matches the autoencoder's volatility at the same or better return, the reduction is a weaker signal, not diversification.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast
