@@ -22,6 +22,7 @@ composes them.
 from __future__ import annotations
 
 import logging
+import math
 from typing import Dict, Iterable, List, Mapping, Optional, Set
 
 import numpy as np
@@ -35,6 +36,7 @@ EXIT_STOP = "stop"
 EXIT_FORECAST = "forecast_exit"
 EXIT_RANK = "rank_exit"
 WEIGHT_CAP_MAX_ITER = 100
+BOOK_WEIGHT_TOLERANCE = 1e-9
 
 
 def atr_panel(high: pd.DataFrame, low: pd.DataFrame, close: pd.DataFrame, lookback: int) -> pd.DataFrame:
@@ -186,6 +188,19 @@ def capped_weights(
     if w.sum() > 1.0:
         w /= w.sum()
     return w
+
+
+def check_book_weights(weights: Mapping[str, float], max_gross: float,
+                       tolerance: float = BOOK_WEIGHT_TOLERANCE) -> None:
+    """Refuse a book no long-only account can hold: every weight finite and not negative, and the sum within
+    ``max_gross`` (Kakushadze & Serur 2018, Eq. 3.6, with cash taking up the rest).  A NaN passes any ``>`` test
+    and would reach order sizing, so it stops here."""
+    bad = sorted(s for s, w in weights.items() if not math.isfinite(w) or w < -tolerance)
+    if bad:
+        raise ValueError(f"book weights not finite or negative for {len(bad)} name(s), first {bad[0]}")
+    gross = math.fsum(weights.values())
+    if gross > max_gross + tolerance:
+        raise ValueError(f"book weights sum to {gross:.6f}, above max_gross {max_gross:.6f}")
 
 
 def core_weights(

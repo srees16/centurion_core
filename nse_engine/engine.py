@@ -47,6 +47,7 @@ from nse_engine.metrics import compute_metrics
 from nse_engine.portfolio import (
     EXIT_RANK,
     apply_no_trade_buffer,
+    check_book_weights,
     atr_panel,
     core_weights,
     exit_reason,
@@ -425,6 +426,7 @@ def generate_targets(
         k = config.allocator.max_gross / gross
         weights = {s: w * k for s, w in weights.items()}
         notes.append("weights scaled to max_gross")
+    check_book_weights(weights, config.allocator.max_gross)
     stops = {s: v for s, v in stops.items() if s in weights and s not in sleeve_set}
 
     forecasts = {s: float(fc[cache.sym_index[s]]) for s in rank_syms}

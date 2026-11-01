@@ -4979,6 +4979,169 @@ stop of 1% of the book (suggestion, stricter than the 10-15% overlay cap, since 
 kill switch and the 10 orders a second limiter from GT2H. It scales on measured fills, never on profit, as
 GT2I. CUSUM alarm cuts it. SEBI's retail algo rules are confirmed with Zerodha first.
 
+## 5aw. S151: "151 Trading Strategies" (Kakushadze and Serur, 2018; your ask, looks declared 01 Nov 2026, 10:38 IST, before any run)
+
+**What the book is.** A catalogue. By its own preface it holds no backtests or empirical results, so there is no
+published table to replicate: replication here means reproducing its formulas in tests. Appendix A is intraday,
+dollar-neutral R code under a no-warranty disclaimer; nothing is copied from it.
+
+**Looks, not trials.** Fixed settings, the deployed rules with the drawdown rule, 20 names, live-like, 2008-25.
+Nothing recorded, no parameter chosen, no change to any book. Each group is added at a third.
+- L1 Residual momentum as the book writes it: (3.13)-(3.17), market factor only, no intercept in the residuals,
+  regression ending before the skip month. Against Centurion's form, which subtracts the intercept.
+- L2a, L2b Sector momentum (4.1), a sector's equal-weight return over 126 and 252 sessions.
+- L3 Within-sector momentum (3.38)-(3.44): 12-1 return less its sector's mean.
+- L4 The sector cap on 2008-25, a measurement: SB2 took it out of history, so no recorded backtest has it and live
+  does. Bias stated: L2, L3 and L4 use today's map, so names that later dropped out carry no sector.
+- L5 IBS (4.10) on NIFTYBEES and GOLDBEES, buying below 0.2, next open to the following open, net of costs.
+
+**How they are read.** L1-L3 reach January's queue only if Sharpe beats the trend book by 0.05 or more over 2008-25,
+is not lower in 2008-12, and is higher in both 2013-19 and 2020-25, and also at twice the costs. L5 only at t >= 3
+net. L4 is a measurement with no pass. Anything that clears is a candidate for a dated walk-forward, not a result.
+
+**Result (1 Nov 2026).** Fixed settings, live-like 2008-25, in-sample by design; base 15.48% / 0.697 / -28.6%, 2008-12
+0.037, 2013-19 0.516, 2020-25 1.354, and 0.461 at twice the costs.
+
+| Look | CAGR | Sharpe | 2008-12 | 2013-19 | 2020-25 | At 2x costs | Read |
+|---|---|---|---|---|---|---|---|
+| L1 Residual momentum, book's form | 15.37% | 0.698 | -0.010 | 0.480 | 1.411 | 0.497 | Fails |
+| L2a Sector momentum, 126 days | 16.43% | 0.746 | 0.030 | 0.556 | 1.439 | 0.526 | Fails: +0.049, lower in 2008-12 |
+| L2b Sector momentum, 252 days | 16.65% | 0.764 | 0.065 | 0.589 | 1.434 | 0.550 | Clears the read rule |
+| L3 Within-sector momentum | 17.44% | 0.809 | 0.013 | 0.573 | 1.596 | 0.597 | Fails: lower in 2008-12 |
+| L4 Sector cap, a measurement | 15.78% | 0.717 | 0.049 | 0.531 | 1.390 | 0.478 | The cap costs nothing |
+
+- L5 IBS below 0.2: NIFTYBEES -5.9 bp net a trade (t -0.66), GOLDBEES +3.7 bp (t 0.54, on an assumed 8 bp round trip). Fails.
+- L2b, checked after it cleared: 63 / 126 / 189 / 252 / 378 days read 0.726 / 0.746 / 0.702 / 0.764 / 0.823, all at or above
+  the base but not smooth. Unmapped names at a neutral score: 16.48% / 0.756, 2008-12 0.034, so that one condition slips by
+  0.003. Five placebos with shuffled sector labels: 0.607-0.635, all below the base, so the gain is not map membership.
+  `bootstrap_p` against the base 0.24; DSR 0.60 at N 61 against the base's 0.51, far under 0.95. Walk-forward not run: the
+  core has no configuration before January. A candidate only, and only after the map covers the names that dropped out.
+- L4: the cap binds little, a sector above 25% on 11% of days without it and 4% with it, so live's cap does not undermine
+  the live-like figures. 24% of the book's stock weight has no sector on today's map, so this reads the mapped names only.
+- L3's p is 0.051, the best here, and its failure is 2008-12 by 0.024. It stays failed; no re-reading.
+
+**Built.** `portfolio.check_book_weights` refuses a NaN, negative or over-gross book each decision; a NaN passed the old
+`>` test. `compute_signal_panels` refuses negative, NaN or all-zero group weights. `newey_west_cov` refuses collinear
+designs (scaled condition number above 1e8), so a flat benchmark gives an error, not a t-stat. No output changed: the base
+run before and after the checks is identical, canary ok. New money code: none, so nothing to move to Decimal.
+
+**Book's maths reproduced, 11 of 11:** (3.30)-(3.33), (3.41), (3.44)-(3.46), (3.48)-(3.53), (3.85), (3.93), (4.13),
+(10.16)-(10.18). Centurion's matches (3.2), (3.11), (3.55), (3.85) on a diagonal covariance, (6.5)'s ratio and the FDM.
+`capped_weights` held every cap on 60,000 random books, largest shortfall 0.0006%.
+
+**Notation flagged.** (3.48) lacks its "= 0". (4.7)-(4.9) sum over stocks i where the serial regression needs dates t. (3.66)
+needs <= and >=: P rarely equals a past extreme exactly. (4.10) is undefined at H = L, a locked day. (19.1) returns 100%
+commodities on a negative headline inflation with HI = -1, CI = +1, and is undefined at HI = 0. Time in (3.1) runs backwards.
+Sect. 3.20's combination needs far more alphas than periods; at Centurion's 2-7 groups it reduces to inverse-volatility weights.
+
+## 5ax. MIT1: Aiuchi, "An Empirical Analysis of Quantitative Trading Strategies" (MIT Sloan MBA thesis, 2008; your ask, declared 01 Nov 2026, 10:58 IST, before any run)
+
+**What it is.** Long-only timing rules on the S&P 500, 1998-2007, closing prices, no costs, cash at zero. Its "best
+strategies" are grid-search winners over the same ten years; it has no out-of-sample test. Its lasting part is the
+evaluation: the signal split (Sect. 4.1), the upper and lower boundaries (4.2, 4.3), the random-signal test (Table 5.5).
+
+**Declared before any run.** Nothing here is a trial on any Centurion family; no parameter is chosen.
+- R1 Replication: buy-and-hold (Table 5.3), Table 5.5's random signals, and his best rules at his printed parameters on
+  S&P data, with stated assumptions where the text is silent. Tolerance: return within 1.5 points, in-market share within 0.05.
+- R2 Out of sample: the same rules, parameters unchanged, on the S&P 2008-25 and NIFTY 2008-25, with 2 bp and 18.5 bp round
+  trips and cash at the T-bill or liquid rate. A rule survives only if it beats buy-and-hold on net Sharpe in both.
+- R3 Boundary check: his printed (4.3) against his Figure 5-48, and a corrected boundary with the factor (1 - p_in).
+- R4 Centurion's regime gate, the one timing rule it runs, on NIFTY 2008-25: timing excess, share of the perfect-timing
+  boundary captured, and every circular rotation of the real signal as the null, which keeps its persistence.
+  Read: p <= 0.05 is skill at picking days; above that, the gate is judged only as crash protection, which is a different claim.
+
+- R5, added 11:02 IST on 1 Nov, after R4 and before this run: the metal sleeves with their trend filter off, fixed settings, live-like
+  2008-25, a look. Read as for S151: Sharpe up 0.05 or more, not lower in 2008-12, higher in 2013-19, 2020-25 and at 2x costs.
+
+**Result (1 Nov 2026).**
+- R1 Replication on S&P closes (Yahoo). Table 5.3: all ten annual returns and the 18.02% volatility exact; 4.23% exact as a
+  compound rate. Table 5.5, 20,000 draws a row: means within 0.12 points, sd within 0.07, and sd = sqrt(p(1-p) sum r^2) / T in closed
+  form. Rules, return thesis to mine: MACD(25,280,0.02) 8.37 to 8.37, 0.74 in market both; Contrarian weekly 7.53 to 7.28; NN(14,50,0)
+  8.86 to 7.98. Not reproduced, outside tolerance: TBR(8,100,0.5) 7.59 to 3.77; TBR with volume 11.75 to 3.79; CPT 10.71 to 4.98;
+  Momentum on the VIX 8.21 to 5.36; on the T-bill 5.97 to 3.52; Contrarian on volume 7.72 to 6.09. The text does not fix their
+  history windows or how a change is measured, and the assumptions were not tuned to close the gaps, so these stay unexplained.
+- R2 Out of sample, parameters unchanged, net of costs; buy-and-hold Sharpe 0.456 on the S&P and 0.266 on NIFTY. S&P: Contrarian
+  0.477, the rest 0.00-0.45. NIFTY: MACD 0.121, Contrarian 0.038, TBR -0.016, CPT -0.087, Momentum on VIX -0.098, NN -0.740. The two
+  VIX rules are partial: India VIX starts in 2014 in the store. No rule survives: Contrarian beat buy-and-hold only on the S&P.
+- R3 Printed (4.3) gives 13.5% at p_in = 1; Figure 5-48 shows about 4.7%, which is annual volatility with daily N, so the plotted band is too narrow by
+  sqrt(252). "All the best strategies are above the 5% boundary" rests on that. With the correct units and (1 - p_in): 6.6-7.2% at his
+  strategies' p_in, and Voting 3.37% and Best Performer 3.80% fall below it. Against the grids alone, at least 2,904 rules, Bonferroni z is 4.14; his best is 3.41.
+- R4 The regime gate on NIFTY 2008-25, lag 2: in the market 79% of days, NIFTY 7.6% a year in, 27.0% out, capture -3.8%, rotation p 0.94. It
+  does not pick days. Out-of-market days ran at 33.9% volatility against 15.0%; NIFTY's 30 worst weeks -7.12% to -2.29%. So it stands as risk
+  control, as GT2A found on the book (no exit: 14.9% / 0.64 / -40.1%). It curtails rebounds, as U22 records; R11's faster re-entry failed. Gold's filter: p 0.27.
+- R5 Metal sleeves unfiltered: 14.05% / 0.687 / -17.1%, Calmar 0.82, against 15.48% / 0.697 / -28.6%, 0.54. 2008-12 Sharpe 0.04 to 0.51, 2013-19 0.52 to 0.28,
+  2020-25 1.35 to 1.19, 2x costs 0.46 to 0.53; mean metals 29% to 39%; `bootstrap_p` 0.51, DSR 0.59 at N 61. Fails its read rule. Not queued; your call 1 Nov: the filter stays on.
+
+**Built.** `nse_engine/validation/timing.py` and `run_nse_engine timing-skill`; a line in the protocol's gates. No output changed: no engine code touched.
+
+**Flagged.** (4.3) omits (1 - p_in). Sect. 4.4 says Sharpe is return over volatility, but Table 5.27's do not match: 7.53 / 13.76 is 0.55, printed 0.63; 8.86 / 12.73 is 0.70, printed 0.53.
+Table 5.27 prints the hedge fund index at 9.46%, Table 5.4 at 9.25%. Sect. 3.2.3 defines the moving averages on returns; only prices reproduce 8.37%. Sect. 3.3.1's |rho| counts a mirror-image
+pattern as a neighbour, which its arithmetic-average forecast then reads with the wrong sign.
+
+**S151A look (1 Nov 2026, 11:20 IST, before this run).** L2b and the sector cap again, on today's map plus `config/nse_sector_backfill.json`. A look, nothing recorded.
+Read: the January configuration stays queued only if L2b still clears 5aw's rule on the fuller map.
+
+**S151A result (1 Nov 2026): FAIL, the January configuration is dropped.** 574 of the 1,016 universe names had no sector (54% of the universe in 2008, 4% in 2025). 262 were labelled from
+company knowledge, uncertain names left out; 57 of 59 matched NSE on a blind sample of current names, which are easier than these. Names without a sector fell to 15% in 2008 and 2% in 2025. On the fuller map:
+sector momentum 15.89% / 0.702 / -29.6% against the base 15.48% / 0.697 / -28.6%; 2008-12 -0.036 against 0.037; 2013-19 0.505 against 0.516; 2020-25 1.432 against 1.354; 2x costs 0.498 against 0.461;
+`bootstrap_p` 0.47, DSR 0.54 at N 61. It fails: Sharpe up 0.005, not 0.05, and lower in two periods. The earlier 0.764 was mostly survivorship.
+Correction to 5aw: the placebo shuffled labels among surviving names only, so it could not detect this, and "the gain is not map membership" was wrong. L3 used the same map and is not to be trusted either.
+The sector cap holds up: 15.70% / 0.711 / -28.8% against 15.48% / 0.697 / -28.6%, a sector above 25% on 7% of days against 19%, so it still costs nothing. Labels kept locally in `data/nse_engine/s151/sector_backfill.json`; no code stays.
+
+## 5ay. OPS1: Lahanis, Liu and Zhou, "Online Quantitative Trading Strategies" (NYU Stern Glucksman Fellowship; your ask, declared 01 Nov 2026, 11:28 IST, before any run)
+
+**What it is.** Online portfolio selection: long-only simplex weights, rebalanced daily, on NASDAQ 100 stocks 1998-2010, frictionless by its own
+Sect. 6.4. Headlines: CWMR 1,590x, Sharpe 1.75; PAMR 788x, 1.63; CRP 12.16x, 0.76; buy-and-hold 9.17x, 0.58. Its repository is public; it is not cloned or copied.
+
+**Declared before any run.** Looks only: nothing recorded, no parameter chosen, no change to any book.
+- G1 Replication: PAMR, OLMAR, EG, CRP and buy-and-hold at Exhibit A's parameters on Yahoo data for stocks that were NASDAQ 100 names and still trade: survivors only,
+  so a higher level than the paper is expected. Read: same order and same scale of PAMR over CRP. Plus known-answer checks on synthetic data.
+- G2 India: PAMR and OLMAR on the 100 most liquid point-in-time names 2008-25, daily and weekly, at a 15 bp cost a side, with next-day fills as Centurion's orders have. CWMR is
+  left out: the paper's (13) omits its constraint, so there is nothing to implement from it. Read: reaches January's queue only if net CAGR and Sharpe beat both equal-weight on the same names and the base book (15.48% / 0.697).
+- G3 EG across Centurion's streams, the book, gilts, MCX-B and liquid, monthly, at 5 bp a side. Read: the diversifier gate of 5.1, against the book.
+- G4 The paper's cleaning, non-positive prices set to a small positive number, on PAMR, with one bad print. A measurement.
+- G5 The book's own cost margin: how many times its modelled costs it can bear before it falls to passive NIFTY and gold. A measurement.
+
+**Result (1 Nov 2026).**
+- G1 Replication on 39 survivors, not its members; thesis to mine: PAMR 788x to 1,115x (Sharpe 1.63 to 1.44), CRP 12.16x to 14.03x (0.76 to 0.69), buy-and-hold 9.17x to 8.61x. Same order and scale. Not its data, so no closer
+  tolerance applies. PAMR breaks even with CRP at 13.4 bp a side; at 25 bp, 0.28x. OLMAR at Exhibit A's parameters moved on 0 of 3,272 sessions, so its 12.1584x is CRP's, not a result. EG at its parameters differs from CRP by 1.8% here, so the paper's exact tie on wealth, Sharpe and drawdown is
+  unexplained. CWMR not run: (13) omits its constraint. One day's lag: PAMR 204x, Sharpe 1.10.
+- G2 India, 100 most liquid point-in-time names 2008-25. Equal-weight 7.48% gross, 6.39% net, Sharpe 0.11. PAMR(0.9, 10): -30.5% a year gross, -52.3% net, MaxDD -100%, at 50% turnover a day. PAMR(0.5) and OLMAR(5, 10) worse. Weekly, net: PAMR -8.5%, OLMAR -38.3%. All fail.
+  Weekly rows at a one-day lag are dropped: the simulator's turnover there is wrong; zero lag already fails. I expected survivorship to explain the gap with the US; a control on 40 Indian survivors explains only part: PAMR 0.50x gross, zero lag, 18 years; 4.8x at one day's lag; net of 15 bp it is nil. The effect did not carry over.
+- G3 EG across the book, gilts, MCX-B and liquid, monthly: 9.38% / 0.478 at eta 0.05, the same as a fixed quarter each (9.37% / 0.480); worse as eta rises; `bootstrap_p` 0.68 and up. Fails 5.1. Learning added nothing to a fixed mix.
+- G4 One bad print set to a small positive number, as Sect. 3.1 does: PAMR 1,115x to 4.5 billion x. Centurion leaves it NaN and never clips.
+- G5 Cost margin, `run_nse_engine cost-margin`: modelled costs 2.28 points a year on the walk-forward book. It reaches passive NIFTY and gold's 12.4% at 1.25x costs; 1.5x gives 11.76%, 2x 10.49%. These sit on top of D2's haircut; if that gap is all costs the ceiling is 1.92x. G4 passes costs up to 1.5x and RA1 reads G4, so
+  this is not changed. It does mean a costs reading of 1.5x is not comfortable: the first real fills matter more than any research item.
+- Found by the audit: 14 corporate actions with a partial factor, 4 inside the universe: ADANIENT 2015-06-03 (raw -83%, factor 0.9, adjusted -81%), HINDZINC 2011-03-07, ZEENEWS 2010-04-15, TRIVENI 2011-05-03. No warning fired, because an event is on record. Repairing the four: 15.48% / 0.697 / -28.6% to 15.55% / 0.699 / -29.3%, fixed settings.
+  Left as is until the next re-baseline: a repair moves the data hash.
+
+**Built.** `validation/cost_margin.py` and `run_nse_engine cost-margin`; `panel.partial_adjustments`, a warning at load, numbers unchanged; a protocol line. Results in `data/nse_engine/gl/`.
+
+**Flagged in the paper.** Tables are the grid's in-sample winners: 5.1.2 describes walk-forward validation but reports no out-of-sample figure. (2) defines Best Stock as yesterday's winner, yet the text calls it a hindsight upper bound; its 0.0153x shows which was run. Table 2 prints two exponential growth rates for the same 36.88x. (22) is (6). (23) has no projection to the simplex.
+Exhibit A gives Anticor alpha 2.5, outside Table 2's grid. (12) and (13) are incomplete as stated.
+
+## 5az. RQ1: Ge et al., "Research on Quantitative Trading Model" (BCP Business & Management 26, 2022; your ask, declared 01 Nov 2026, 11:53 IST, before any run)
+
+**What it is.** An attention BiLSTM forecasting gold and bitcoin price levels, 7:3 split, plus position sizing that adds on falls. Claims: gold R-squared 0.94, bitcoin 0.99, $1,000 to $216,133 in five years.
+No code published. Sizing, VaR and the greedy step are not specified well enough to rebuild exactly.
+
+**Declared before any run.** Looks only: nothing recorded, no parameter chosen.
+- Q1 Rebuild the model on Yahoo gold and bitcoin, 2016-09 to 2021-09, trained two ways: clean, on the first 70% with scaling from it alone; and on all the data, as Sect. 2 says. Against tomorrow = today. Read: the model has skill only if it beats that naive forecast on RMSE, clean.
+- Q2 Trading: long or cash from the sign of the forecast, the test window, 1% gold and 2% bitcoin fees, against buy-and-hold.
+- Q3 Eqs 4-8: compute the adds, and test whether runs of rises and falls differ from coin flips (its Apriori step), on gold, bitcoin and NIFTY.
+- Q4 India: the same model on NIFTY, refit each year 2012-25, on levels and on returns, 18.5 bp a round trip. Read: reaches January's queue only if it beats the naive forecast, beats buy-and-hold on net Sharpe and has rotation p <= 0.05.
+
+**Result (1 Nov 2026).**
+- Q1 On Yahoo closes the naive forecast, tomorrow = today, beats the paper's best bitcoin row on all four measures: RMSE 1,364 against 1,479, MAE 812 against 906, MAPE 2.83 against 2.88, R-squared 0.9942 against 0.9929. On gold the paper's 19.01 beats naive's 21.54, but its LSTM, GRU, BiLSTM, ARIMA, Holt-Winters, HMM and XGBoost rows (27.8-40.0) are all worse than naive, so its gold data or its fit differs from mine.
+  My rebuild is much worse than naive on both (gold 79-524, bitcoin 3,754-8,605), clean or on all the data. The paper gives no layer sizes, so this is not a replication of its network; the naive comparison needs none. Sect. 2's "all the data" did not reproduce its table, so leakage is not shown.
+- Q2 Test window, net of fees, three seeds: gold 0.80-1.05x against buy-and-hold 1.18x; bitcoin 0.60-2.39x against 5.67x. The $216,133 could not be rebuilt: sizing, VaR and the greedy step are not specified.
+- Q3 Runs of rises and falls match coin flips on gold and bitcoin (p 0.24-0.55), so the Apriori step found nothing there. NIFTY differs (p about 0.003) with longer runs than chance, and after 4 falls the next day rises 41% of the time against 53% overall: falls persist, against adding on them. The adds from (5)-(6) are not a growing martingale: 1, 1.17, 0.01 on gold, then almost nothing; my statement before the run was wrong.
+- Q4 NIFTY, refit yearly 2012-25, 18.5 bp: on levels R-squared 0.969, RMSE 1,071 against naive's 127, 7.56% / 0.136. On returns, R-squared 0.9996 on levels and -0.002 on returns, in the market 99% of days: it learned "up". 12.31% / 0.416. Buy-and-hold 14.76% / 0.547. Rotation p 0.62 and 1.00. Fails.
+
+**Built.** A protocol line only: Centurion has no price forecaster and reports no level R-squared, averaging down is absent (weights come from targets, capped at 8%), and CVaR is in the scorecard. A forecast-skill module would have no caller, so none was added.
+
+**Flagged.** (4) divides by the current price, not the previous one. (5)-(6) put Mu on all terms but the first, and (7) calls an exponential fit linear regression. (8) leaves PRO undefined and says x where it sums to u_n. Sect. 2 says all the data trains the model; Sect. 2's comparison says the test set does not. RMSprop is called an activation function; it is an optimiser. Viterbi is said to estimate the transition matrix; it decodes states. XGBoost does not use a random forest. "The average predicted increase of gold is 0.43%, and the average predicted value of the increase is 0.41%" says one thing twice. VaR and the greedy step have no formula. The end date prints as 9/10/202.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast
