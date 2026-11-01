@@ -60,6 +60,10 @@ class InstrumentResolver:
             raise KeyError(f"no options for {underlying!r} in the instruments dump")
         return sub
 
+    def lists(self, underlying: str) -> bool:
+        """Whether the underlying has options in the dump."""
+        return bool((self._df["name"] == underlying.upper()).any())
+
     def expiries(self, underlying: str) -> List[date]:
         return sorted(self._of(underlying)["expiry"].unique())
 

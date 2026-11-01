@@ -271,6 +271,19 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      2027).  ACCEPT: live may start at Rs 3 lakh (GT2I's canary; the rule itself stands as
      fixed, it read Rs 6 lakh) after 5 clean dry runs, on
      your go-ahead.  REJECT: no live capital; 679cbd0c is not re-tuned.
+ >>> OPTIONS PAGE (OPT1, uncommitted)
+     1. After merging, open Ind Stocks > Options with Kite logged in, on a trading
+        day: Option Chain tab, then Scan Overlay Strategies.  Not yet seen on
+        live quotes or in a browser.
+     2. Every month: python -m kite_connect.options.cli iv-snapshot, after
+        "refresh", then commit config/iv30_history.csv.gz.  After 45 days the
+        scan refuses a stale rank and says so in its log.
+ >>> INT1A MINUTE DATA (budget Rs 50,000 approved 1 Nov, all in)
+     1. Email TrueData and Global Datafeeds; the text is in chat, 1 Nov.
+     2. Forward Claude the replies and sample files.  They are checked against
+        the bhavcopy before you pay anything.
+     3. Buy from the one confirmed, then say "do INT1A".  What the budget buys,
+        in order: expired futures, then their bid/ask, then expired options.
  >>> AFTER YOU MERGE KES1 (plan 5be)
      1. GitHub > centurion_core > Settings > Secrets and variables > Actions >
         Variables: add CENTURION_SKIP_DONE_RUNS = true.  Backup runs then stop
@@ -777,8 +790,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 [x]     GT2G WITHDRAWN 31 Oct: U28 closed single-stock futures shorts on 10 Oct
              (your call; R15).  Reopens past Rs 2 crore, as a market-neutral spread.
 [!] P2  INT1 Intraday programme (your amendment U37; plan 5av).  Starts after GT2B's
-             verdict and GT2H.  Your call left: minute-data vendor and budget.  The
-             2008 exception is granted (U38).
+             verdict and GT2H.  Budget: Rs 50,000 approved by you 1 Nov, all in
+             (GST, exchange fees).  Your call left: the vendor, after samples.
+             The 2008 exception is granted (U38).
              INT1A Data: minute_store, NIFTY and BANKNIFTY futures first (no dead
                names), every session checked against the bhavcopy.  Prompt: do INT1A
              INT1B Simulator: next-bar fills, real spreads, flat by 15:15,
@@ -1296,6 +1310,38 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              breaks it, which backs "no structural leverage".  Real days: 23 Mar
              2020 -1.25%, 4 Jun 2024 -7.59%.  Open: market_protection awaits
              Zerodha.  464 tests (414 plus 50 skips core-only), 6 of 6 breakages.
+1 Nov   OPT1 Options page rebuilt on real data (your three calls after the Natenberg review; uncommitted).
+             Chain: /options/chain and /options/expiries now serve live_chain as the page's rows, ISO
+             expiries, one IV a strike, dashes not zeros, errors shown; ATM is the nearest strike.
+             The old path always failed (wrong argument), and the page hid it.  dOI column removed:
+             Kite quotes carry no previous OI.  Overlay scan: new overlay_scan.py, owner only, read
+             only.  Real holdings and cash, listed strikes and expiries, bid and ask premiums, live
+             30-day IV ranked on a one-year snapshot (config/iv30_history.csv.gz, data/ is not
+             deployed).  Nothing defaults: a symbol with no quote or history is named in the log.
+             Gone: every-F&O-stock-is-held, forecast 10.0, rank 55, the invented expiry, short
+             strangles (check_limits refuses them), the fake regime, and run_overlay's feed of
+             hypothetical premium into VolatilityTarget (the API no longer calls it; carver still
+             does).  theory.py: days_per_year required on realised volatility.
+1 Nov   DYN1 Dynamic Strategy Selection paper (plan 5bj): nothing adopted, no code.  Fitted Q is RL, closed by
+             you, so it ran only on the paper's synthetic process.  Oracle exact; simulation within 0.06
+             on signals.  At 216 rows, our months, RL 0.465, Greedy 0.451, oracle 0.753: backs the
+             no-RL call.  Its Greedy cannot switch by construction (gain 80 bp, penalty 120), and its
+             RL lead shrinks by half or more off GCV.  Fixed rotation among book, gold, gilt by 12-month
+             trend fails: Sharpe 0.589 against 0.822 for holding the book, timing excess -8%.  So the
+             book and the passive mix taking turns cannot be caught from trend.
+1 Nov   REG1 Regime NCO paper (plan 5bi; protocol line uncommitted): nothing adopted, no code.  Reproduced
+             to the decimal on its own data, and that exposed the error: its optimiser stops at the
+             start, so "NCO" is equal weight across clusters.  Solved properly, static NCO is 22.69%, not
+             29.97%, and below cash.  Regime NCO swings -1.8% to 28.2% across 20 seeds; noise gives as
+             many switches.  Our gate: confirm_days 1 gives Sharpe 0.768 against 0.704 but misses on
+             2008-12 by 0.038, so it stays at 3; a lead, needs its own rule and walk-forward.  NCO on
+             NIFTY, gold, gilt, liquid loses to 1/N (-0.22).  New: equal NIFTY, gold, gilt, before
+             costs, matches the walk-forward book's Sharpe over 2008-25 (0.59 against 0.57).
+1 Nov   ESG1 ESG preference paper (plan 5bh): does not fit, no code.  Reinforcement learning (closed by
+             you 11 Oct, so PPO not run), simulated ESG ratings, no ESG mandate here.  Eq. 2 checked
+             numerically.  Audit clean: gates are thresholds, no LLM in the decision path.  Flagged: its
+             agency disagreement needs pillars built to conflict, and its Sharpe drops sit inside their
+             own spread.
 1 Nov   HAN1 Sparse autoencoders paper (plan 5bg): nothing adopted, no code.  Ledoit-Wolf weights on the
              book's names lower Sharpe 0.704 to 0.647, half and half 0.679, for 2-3% less volatility; held
              names are already less correlated than the universe, 0.18 against 0.23.  Replicated on NSE,

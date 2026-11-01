@@ -104,6 +104,9 @@ python -m kite_connect.options.cli context --underlying RELIANCE --live
 # Bring the local data up to date: archive, equity store (with the registry check), F&O store, IV histories
 python -m kite_connect.options.cli refresh
 
+# Monthly, after refresh, then commit it: the year of 30-day IV the app's overlay scan ranks against
+python -m kite_connect.options.cli iv-snapshot
+
 # Strategy selector, offline; --underlying reads the IV level from history instead of --iv-level
 python -m kite_connect.options.cli select --view moderate_bull --dte 6 --underlying NIFTY
 python -m kite_connect.options.cli select --view moderate_bull --dte 6

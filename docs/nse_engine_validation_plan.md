@@ -4938,7 +4938,7 @@ costs, and stop cheaply if none does. This section is the programme. Each idea s
 pre-registration before any result is read.
 
 **Starts when.** GT2B has its verdict and GT2H (live safety) is done. The rest of GT2 does not block it.
-Your call first: the data vendor and budget.
+Your call first: the data vendor. Budget: Rs 50,000 all in, approved by you 1 Nov 2026.
 
 **Rules for every step.**
 - Its own family, `data/nse_engine/runs_intraday`, at most 3 configurations a source; failures stay
@@ -5372,6 +5372,190 @@ The agent-based Tables 2-9 were not rebuilt: nothing here would use them.
 - **HAN1a, covariance in the book (Sect. 4.4).** The paper's control: Ledoit-Wolf minimum variance on 60 sessions. Two variants on the names the book picks, fixed settings: pure, and half and half with today's weights. Taken to January's queue only if Sharpe rises 0.05 or more over 2008-25, is not lower in 2008-12, and is higher in 2013-19, 2020-25 and at twice the costs.
 - **HAN1b, replication on NSE (Sect. 4.5).** Tied ReLU autoencoder, K 64 and K 128, on the point-in-time universe, five expanding folds over the last 40% of 2013-25, five seeds. Replicated if long-short volatility is below matched PCA in 5 of 5 folds and 10% or more lower on average, the paper's equity range.
 - **HAN1c, what the volatility is (not in the paper).** Controls the paper lacks: random baskets, and PCA's signal degraded with noise. If either matches the autoencoder's volatility at the same or better return, the reduction is a weaker signal, not diversification.
+
+## 5bh. ESG1: Dispoto, Restelli and Ventre, "Eliciting ESG Preferences for Reinforcement Learning-Based Portfolio Optimization" (arXiv 2609.02677, 1 Nov 2026; your ask): does not fit, no code
+
+**What it is.** An 8-page q-fin.PM paper. PPO conditioned on a preference vector, reward = lambda-weighted differential Sharpe plus ESG scores over equal weight (eq. 1-4). A pairwise probit Gaussian process with qEUBO then picks the vector from 28 comparisons (Sect. 4.3, 5.2). The comparisons come from LLM personas. Ten survivor US stocks, 2009 to mid-2016, three synthetic ESG agencies, frictionless. Table 3: Europe persona gains 17 / 32 / 58% in agency scores for a Sharpe drop of 0.023. No code link.
+
+**Why nothing is taken.** The core method is reinforcement learning, closed by your decision of 11 Oct, so PPO and Table 3 were not run. Its data is synthetic, and Centurion has no ESG mandate, no ratings and no ESG code. Nothing was tested on NSE, because the paper offers nothing to test. The gates are thresholds, never a weighted sum, so linear scalarization's blind spot does not arise, and the owner states objectives outright, so there is no one to elicit from.
+
+**Assumptions.**
+
+| Assumption | For Centurion |
+|---|---|
+| Markov decision process, daily rebalance | fails: rules, 5-session rebalance, no RL |
+| Frictionless | fails: costs decide most of our results |
+| Ten large caps picked in hindsight | fails: point-in-time universe |
+| ESG ratings exist per name per day | fails: none held; the paper's are simulated |
+| Linear scalarization spans the frontier | not applicable: no scalar objective |
+| A portfolio manager to elicit from | fails: one owner, explicit targets |
+| LLM stands in for a human | unknown, and the paper shows it sensitive to wording |
+
+**Audit.**
+
+| Idea | Present? | Location | Risk if missing |
+|---|---|---|---|
+| Disjoint chronological stages | yes | backtest, WF, OOS, paper, sealed 2026 | none |
+| Selection on one metric, not a blend | yes | `walk_forward.py:168`; gates are thresholds | none |
+| Live drift check | yes | `capital_ladder.py:296`, CUSUM | none: differential Sharpe adds nothing |
+| Identifiability of weights | yes | tracker: PBO note on near-ties | none |
+| LLM kept out of decisions | yes | RAG layer disabled, `integrated_scorer.py:1126`; only the legacy `auto_executor` calls it, no workflow does | low |
+| ESG objective | no | none | none: no mandate |
+| RL policy | no, by your decision | `services/rl_bot` untouched | none |
+
+**Replication, scratch.** Eq. 2 against a numerical derivative of the moving Sharpe: median relative error 4e-11, maximum 3e-7. Tables 2 and 3 cannot be rebuilt: the data process is not given.
+
+**Where the method fails.** Costs ignored on a daily rebalance. Survivors. Agency numbers that only exist in the simulator. Table 3's Sharpe drops sit inside their own spread (mean over s.d. 0.15 to 0.94), and the 20 episodes share one 18-month window, where a single Sharpe's standard error is about 0.8. So the persona ordering shows nothing about Sharpe.
+
+**Flagged.** Table 2's disagreement is put down to pillar weights, which differ by at most 0.15. Independent pillars give correlations of 0.94-0.97. To reach -0.43, 0.57 and -0.14 with these weights alone, assuming linear scores of equal spread, pillars must be 5-10 times as dispersed as any agency score, with S and G correlated -0.91 and E and G -0.82: possible, but built in, not a product of weights. As I recall, Berg et al., which the paper cites, report positive correlations. Table 2 averages 3,780 days, yet 2009 to mid-2016 is about 1,890. Sect. 2.1 sets horizon H and sums to T. Eq. 1 adds a differential Sharpe to rating differences with no stated scaling, so lambda is not comparable across terms, and lambda-1 and lambda-3 near zero for every persona may be that, not preference.
+
+**One thing worth keeping, no code.** Sect. 5.3's prompt sensitivity is a reason to keep any LLM out of the decision path, as now.
+
+## 5bi. REG1: Supriadi and Siswoyo, "Market Regime-Based Multi-Asset Portfolio Optimization Using Nested Clustered Optimization" (arXiv 2610.27751, 1 Nov 2026; your ask)
+
+**Result: nothing adopted, no code.** REG1a replicated, and showed the paper's NCO never optimised. REG1b: noise gives as many switches. REG1c and REG1d failed. One protocol line added. 2026 stayed sealed.
+
+**What it is.** A 12-page q-fin.PM paper on 5 Indonesian assets, monthly, 56 months out of sample. A rolling 3-state Gaussian HMM (eq. 2-4) filters a 24-month window; covariance on the filtered rows, shrunk toward the full window (eq. 5-6); average-linkage clustering (eq. 7); minimum variance inside and across clusters (eq. 8-10); rebalance on a regime change or drift over 0.05. Claims: static NCO 29.97% / MaxDD 2.18% / Calmar 2.65, regime NCO 1.60% / 9.99%, Sharpe gap z 2.68, p 0.0073. Code: github.com/obo-cloud/nco-regime-taa, MIT, read as data, never run.
+
+**Replication, on its own dataset, rebuilt natively.**
+
+| | Paper | Ours, repo's solver | Ours, solved properly |
+|---|---|---|---|
+| Static NCO, CR / MaxDD / turnover | 29.97 / 2.18 / 5.41 | 29.97 / 2.18 / 5.41 | 22.69 / 2.53 / 4.09 |
+| Minimum variance | 18.45 / 4.75 / 1.36 | 18.45 / 4.75 / 1.36 | 16.77 / 3.06 / 2.49 |
+| Regime NCO, seed 42 | 1.60 / 9.99 / 24.58 | 1.61 / 9.99 / 24.62 | 1.41 / 7.81 / 20.89 |
+| 1/N | 76.70 / 15.27 | 76.70 / 15.27 | same |
+| Eq. 13, static, Ann / MaxDD | 7.01 / 4.68 | 7.01 / 4.69 | 6.27 / 4.69 |
+
+**The paper's NCO never optimises.** SLSQP at default tolerance on raw monthly variances stops at once: the cluster step takes 1.0 iterations on average and moves 0.0 from equal, 45% above the true variance; minimum variance stops 82% above. So "NCO" is equal weight across clusters, and "minimum variance" has more volatility than the real minimum (4.70 against 3.62). Solved properly, static NCO returns 4.48% a year against a 5.75% risk-free rate, so its excess Sharpe is negative, not +0.006. Static still beats regime.
+
+**Other results.**
+
+- **REG1b, met: labels not shown to carry information.** Noise through the same pipeline, 200 draws: 33 switches, 5th-95th 26-40. The paper's 26 is at the 6th percentile, so slightly stickier than noise, not distinguishable at 5%.
+- **One seed is one draw.** Repo solver, 20 seeds: regime NCO -1.8% to 28.2%, median 14.3%; the paper's 1.60 sits near the bottom. All 20 are below static, so the direction survives, but the gap is about half the reported one, and p 0.0073 ignores this.
+- **REG1c fails, narrowly at one end.** Fixed settings, live-like:
+
+| `confirm_days` | Sharpe | 2008-12 | 2013-19 | 2020-25 | 2x costs | Switches |
+|---|---|---|---|---|---|---|
+| 1 | 0.768 | -0.047 | 0.592 | 1.535 | 0.512 | 284 |
+| 3 (today) | 0.704 | -0.009 | 0.541 | 1.381 | 0.487 | 109 |
+| 5 | 0.649 | -0.151 | 0.471 | 1.397 | 0.439 | 77 |
+| 10 | 0.613 | -0.234 | 0.634 | 1.168 | 0.409 | 55 |
+
+  1 misses only on 2008-12, by 0.038, so it stays as it is. It is a lead, not a result: in-sample, three variants looked at, and it needs its own rule and walk-forward. It runs against the paper's advice: here, more persistence does worse. 49% of switches reverse within 21 sessions, but the gate's exits are 2.9% of traded value and 2.8% of costs, so whipsaw is cheap.
+- **Turnover by trigger.** Rebalance 6.35x a year, 42% of costs; rank exits 3.5x, 24%; metals sleeve 2.7x, 28%; stops 0.5x, 3%; regime 0.4x, 3%. Costs 2.77% a year. No buffer test: R7 already found a wider buffer takes 5% off turnover with CAGR flat.
+- **REG1d fails.** 2010-25, monthly, 15 bp: NCO 7.25% / Sharpe 0.459 against 1/N 9.72% / 0.679, gap -0.22, p 0.89; without liquid 0.575 against 0.678, p 0.86. 1,235 solves, no failures. No stream-allocator study.
+- **New: passive mix against the book.** Equal NIFTY, gold, gilt, before costs: Sharpe 0.590 over 2008-25 against the walk-forward book's 0.569, monthly, with 10.9% against 13.0%. The book leads 2010-17, 0.835 against 0.346; the mix leads 2018-25, 0.992 against 0.763. Correlation 0.38. The book earns more, not better per unit of risk. Tax not included in either.
+
+**Assumptions.**
+
+| Assumption | For Centurion |
+|---|---|
+| Monthly, 5 assets | fails: daily, about 300 names; holds for sleeves only |
+| HMM stationary in 24 rows | fails: 32 parameters on 24 rows, shown as noise |
+| Gaussian emissions | fails: fat tails; ours is rule-based |
+| Bond series is a return | fails in the paper: it is a yield change; ours is a total-return index |
+| 10 bp flat, no impact | fails: costs 2.77% a year here |
+| Long-only, fully invested | partly: long-only; the gate holds cash |
+| Tk >= N + 5 for a covariance | not applicable: no regime covariance |
+
+**Audit.**
+
+| Idea | Present? | Location | Risk if missing |
+|---|---|---|---|
+| Persistence before a regime switch | yes | `regime.py`, `config.py:183`, 3 days | none: more makes it worse |
+| Regime or drift rebalance split | yes | `engine.py:325`, `:376`, 5 sessions plus buffer | none |
+| Bond series a true total return | yes | `bond_stream.py:129`, NSE TR indices | none |
+| Causal regime, no refit | yes | `regime.py`, rules, no fit | none: no label switching |
+| No numerical optimiser in the live path | yes | none in `nse_engine`, `kite_connect/trading`, `services/risk` | none |
+| Rolling HMM | legacy only | `regime_hmm.py:169`, full covariance, seed 42; `carver_pipeline.py:911` | low: not the engine |
+| Sharpe difference test | yes | `diversifier_gate.py:124`, paired bootstrap, safer than eq. 12 | none |
+| Solver and seed checks in research | no, until now | `research_protocol.md` | med: this paper's error, unnoticed |
+
+**Where the method fails.** The headline is a stopped solver on a yield mislabelled as a return. Monthly HMMs on 24 rows hold more parameters than data rows. Costs of 10 bp on Bitcoin and sovereign paper are low. Regime change is the paper's own finding.
+
+**Flagged.** Eq. 12 prints 2(1 - rho^2); Memmel's term, and the repo's code, is 2(1 - rho); assumed the latter. The abstract's "turnover erodes" cannot be right: its own 29.5 bp a year explains little of a 544 bp gap, and the repo's table shows 5.2 points at zero cost; Sect. VI.C says whipsaw. Code differs from the paper: inverse variance inside clusters, not eq. 8; a 60% cap and M at most 3 that the paper omits; 3-month features; diagonal covariance. Eq. 11 charges full change, the code half. 1/N is shown with zero turnover because the code compares the target with itself; charged, it is 76.45% and 2.56%. "Drift" compares against a moved target, not market drift. Headline bond series is a yield change; on eq. 13 the regime gap shrinks. Sect. V.C invokes the DSR, no figure given. Table V shows z 0.612 for HRP though its Sharpe is lower than regime NCO's.
+
+**Rules, set before any test.** All on data to 2025, 2026 stays sealed. Published code (MIT): data read, code never run, everything rebuilt natively.
+
+- **REG1a, replication.** From the paper's own dataset: 1/N, minimum variance, static NCO and regime NCO. Within 1 point of cumulative return, 0.5 of MaxDD and 1 of monthly turnover counts as reproduced.
+- **REG1b, are the switches information?** The same rolling 3-state HMM on pure noise of the same shape (24 rows, 4 features, 56 steps). If noise gives 20 or more switches against the paper's 26, its regime labels are not shown to carry information.
+- **REG1c, our gate.** Turnover and cost split by trigger (paper's Table VI). Then `confirm_days` 1, 5 and 10 against today's 3, fixed settings. Taken to January's queue only if Sharpe rises 0.05 or more over 2008-25, is not lower in 2008-12, and is higher in 2013-19, 2020-25 and at twice the costs.
+- **REG1d, NCO on Indian assets.** Monthly, W 24, NIFTY TRI, gold, gilt, liquid: static NCO against 1/N, inverse volatility, minimum variance and passive 60/40. Worth a stream-allocator study only if Sharpe beats 1/N by 0.10 or more, one-sided p at most 0.10 on a paired bootstrap, and both halves agree.
+
+## 5bj. DYN1: Cordoni, Sancetta and Zhao, "Dynamic Strategy Selection" (arXiv 2307.04754v3, 1 Nov 2026; your ask)
+
+**Result: nothing adopted, no code.** DYN1a replicated; DYN1b failed. The method is reinforcement learning, closed by your decision, and the replication backs that decision at our sample size. 2026 stayed sealed.
+
+**What it is.** An 83-page paper with supplement. Monthly choice among 4 long-short US factors, 1963-2025, with state = trends, market cycle, macro, plus the strategy held. Reward is utility of return less a switching penalty (eq. 4), larger than real costs on purpose, as a regulariser. Fitted Q-iteration: ridge on quadratic features, GCV, Q capped, actions simulated (Sect. 3, Alg. S.1). Greedy is one iteration, gamma 0. Headline: Trend + Cycle, 120 bp, eta 3: Sharpe 0.715 against Greedy 0.511 and momentum 0.445. Theorem 1: the policy's value converges to the optimum. No code link.
+
+**Replication, scratch, on the paper's own process; 60 replications, 4 action draws, 40 iterations.**
+
+| | Paper | Ours |
+|---|---|---|
+| Oracle policy, eta bound | strategy 1 or 2, eta <= 164 | same; holds at 164, fails at 165 |
+| Oracle / strategy 1, % a step | 0.80 / 0.46 | 0.80 / 0.45 |
+| RL, signals, n 240 / 600 / 1,200 | 0.56 / 0.70 / 0.78 | 0.55 / 0.73 / 0.77 |
+| Greedy, same | 0.46 / 0.47 / 0.47 | 0.49 / 0.53 / 0.51 |
+| RL, 8 noise, n 240 / 1,200 | 0.43 / 0.74 | 0.31 / 0.78 |
+
+Paper values are read off Figure S.5. Signals-only sits within 0.06; the noise rows run up to 0.12 lower at n 240: the paper's noise basis is unstated, linear assumed (quadratic was worse). Fixed: **n 216, Centurion's months: RL 0.465, Greedy 0.451, oracle 0.753**, standard error about 0.03. With a 4-state process and clean signals, 216 rows capture about a tenth of the oracle's edge and nothing over Greedy. That matches why you closed RL.
+
+**Greedy loses by construction in the simulation.** The one-period gain from switching is at most 80 bp and the penalty is 120 bp, so a myopic rule cannot switch: 0.8% of months at n 1,200, and it tracks strategy 1. "RL beats Greedy" there restates the design.
+
+**Other results.**
+
+- **The headline gap leans on the ridge choice.** Table S.1, RL less Greedy, monthly reward: under GCV 0.148 (eta 0) and 0.082 (eta 3); at fixed degrees of freedom about 0.04. GCV gives Greedy its lowest of the four results in 7 of 9 eta 0 cells. RL still wins 41 of 54 fixed cells, so it survives, at a third to a half the size. At df 8, Trend + Cycle, 120 bp, eta 0, Greedy beats RL 0.701 to 0.636.
+- **Multiple testing.** Table 1 has 18 RL-Greedy comparisons, 8 starred at 10% or better, none adjusted, and the headline is the best cell. In Table 1 itself Greedy wins eta 3, Trend, 80 bp, Sharpe 0.684 to 0.564.
+- **DYN1b fails.** 2009-25, walk-forward book, live-like, monthly:
+
+| | CAGR | Sharpe | MaxDD | 2009-16 | 2017-25 |
+|---|---|---|---|---|---|
+| Book held | 15.92 | 0.822 | -17.8 | 0.686 | 0.948 |
+| Equal book, gold, gilt | 11.85 | 0.817 | -6.7 | 0.514 | 1.132 |
+| Rotate, 20 bp | 14.62 | 0.637 | -20.3 | 0.312 | 0.980 |
+| Rotate, 80 bp | 15.26 | 0.672 | -19.9 | 0.327 | 1.031 |
+| Rotate, 120 bp | 13.86 | 0.589 | -20.9 | 0.393 | 0.789 |
+
+  p against the book 0.74-0.83. `timing_skill`: timing excess -8.0% a year, 0.45 switches a year. So REG1's finding, that the book and the passive mix take turns, cannot be caught from trailing trend. Next month's book-less-gold return against the trend gap: correlation 0.17, too weak net of a slow signal. Equal mix of the three matches the book on Sharpe here too, with a third of the drawdown (monthly, gross for the sleeves): that is a diversification fact, not a rotation one.
+
+**Assumptions and theorem conditions.**
+
+| Assumption | For Centurion |
+|---|---|
+| Raw state exogenous to the choice | holds: 0.013% of value traded (KOH1) |
+| Strictly stationary, exponentially beta-mixing Markov state | fails: a 12-month mean is not first-order Markov; regimes shift (2008-12 Sharpe near 0, 2020-25 1.35) |
+| Finite second moments of reward | holds |
+| Gram matrix positive definite | holds with ridge |
+| Zero approximation error (Theorem 1) | unknown, untestable |
+| r_n = sqrt(K ln K ln n / n) -> 0 | fails in practice: K 15, n 216 gives r_n about 1.0; 0.64 at the paper's 629 |
+| Bound's constant | 2 sqrt(4) / (0.25 x 0.01) = 1,600 at gamma 0.9, so the theorem says nothing at these sizes |
+| Long-short factor legs, monthly | fails: no short delivery; only long sleeves |
+| A switch costs less than the penalty | unknown: 60 bp assumed for a whole-book switch, before tax, not measured |
+| 629 monthly rows | fails: 216 |
+
+**Audit.**
+
+| Idea | Present? | Location | Risk if missing |
+|---|---|---|---|
+| Hysteresis on exits | yes | `exit_rank`, `config.py:147`, 40 | none |
+| Band around targets | yes | `no_trade_buffer`, `config.py:150`; R7 tested wider | none |
+| Re-entry delay | yes | `stop_cooldown_days`, `config.py:155` | none |
+| Regime and sleeve confirmation | yes | `config.py:183`, `:210`; more made it worse (REG1) | none |
+| Penalty above real costs | partial, in effect | those four rules | low |
+| Real switching cost in tests | yes | `costs.py`, D2 haircut | none |
+| Timing skill test | yes | `validation/timing.py:95` | none |
+| Learned selection among strategies | no, by your decision | none | none |
+| Fitted Q on any Centurion data | no, by your decision | none | none: not run |
+
+**Where the method fails.** Short data first. Regime shifts break the stationary Markov condition the theorem needs. Costs and tax on whole-book switches. The paper's factors are gross of their own trading, so "conservative" holds only against the penalty, not against reality; no shorts here. Each penalty, eta and state set is a trial.
+
+**Flagged.** Sect. 4.1 starts out of sample in July 1973 after 120 complete months, yet data begins July 1963 and trends need 12 months, which points to mid-1974; assumed the shorter burn-in was meant, and 629 decisions fits July 1973. Lemma S.9 states m of order n^-1 ln n, and uses it again, where the proof needs n / ln n. The simulation's noise basis is unstated. "Actions" drawn per replication, 10 in the paper, 4 here.
+
+**Rules, set before any test.** No learned policy touches the book: reinforcement learning is closed by your decision of 11 Oct, so fitted Q runs only on the paper's own synthetic process, as a replication. All on data to 2025, 2026 stays sealed.
+
+- **DYN1a, replication (Sect. S.6).** The 16-state oracle and the Monte Carlo at 240, 600 and 1,200 rows, 0 to 8 noise variables, with a row at 216, the months Centurion has. Oracle within 1% of the exact Bellman solution; simulation read against Figure S.5.
+- **DYN1b, fixed rule, no fitting: is relative performance predictable from trend?** Each month hold the best of walk-forward book, gold and gilt by 12-month mean return, switching only when the gap beats a penalty of 20, 80 or 120 bp a month (the paper's states and penalties; primary 120). Charged real costs of 60 bp a switch. Against the book held throughout and the equal mix. Worth a study only if Sharpe beats the book by 0.10 or more, one-sided p at most 0.10 on a paired bootstrap, both halves agree, and it passes `timing_skill` as a timing rule.
 
 ## 6. Stage D — Paper trading (60–90 trading days)
 

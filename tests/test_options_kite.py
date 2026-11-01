@@ -2,6 +2,7 @@
 
 import io
 import json
+import math
 from datetime import date, datetime
 
 import pytest
@@ -297,3 +298,226 @@ def test_demo_spread_from_the_selector():
     bear = next(c for c in select(MarketContext(view="moderate_bear", days_to_expiry=6)) if c.strategy == "Bear Put Spread")
     (b_side, _, hi, _), (s_side, _, lo, _) = cli.vertical_spec(bear, SPOT, strikes, OptionsConfig().selector)
     assert (b_side, s_side) == ("BUY", "SELL") and hi > lo
+
+
+# ---- the app's Options page (chain adapter, overlay scan)
+class ScanKite(FakeKite):
+    """FakeKite with a month-out expiry, a stock with options, an account and India VIX."""
+
+    MONTH, RELIANCE = date(2026, 11, 3), 1400.0
+
+    def __init__(self, vix=14.0, wide=()):
+        super().__init__()
+        self.vix, self.wide = vix, set(wide)
+        for name, spot, step, lot in (("NIFTY", SPOT, 50, LOT), ("RELIANCE", self.RELIANCE, 20, 500)):
+            for i in range(-70, 71):
+                k = round(spot / step) * step + i * step
+                for t in ("CE", "PE"):
+                    sym = f"{name}{self.MONTH:%y%m%d}{k}{t}"
+                    row = {"instrument_token": len(self.instruments_dump) + 1, "tradingsymbol": sym, "name": name,
+                           "expiry": self.MONTH, "strike": float(k), "tick_size": 0.05, "lot_size": lot,
+                           "instrument_type": t, "segment": "NFO-OPT", "exchange": "NFO"}
+                    self.instruments_dump.append(row)
+                    self.by_symbol[sym] = row
+
+    def quote(self, keys):
+        out = {}
+        for key in keys:
+            if key in ("NSE:NIFTY 50", "NSE:RELIANCE", "NSE:INDIA VIX"):
+                out[key] = {"last_price": {"NSE:NIFTY 50": SPOT, "NSE:RELIANCE": self.RELIANCE}.get(key, self.vix)}
+                continue
+            i = self.by_symbol[key.split(":", 1)[1]]
+            spot = SPOT if i["name"] == "NIFTY" else self.RELIANCE
+            px = black_scholes(i["instrument_type"], spot, i["strike"], days_to_expiry(i["expiry"], NOW), RATE, 0.40).price
+            half = px * 0.4 if i["name"] in self.wide else min(0.25, px * 0.02)
+            out[key] = {"last_price": px, "oi": 5000.0, "volume": 10.0,
+                        "depth": {"buy": [{"price": px - half}], "sell": [{"price": px + half}]}}
+        return out
+
+    def basket_order_margins(self, orders, consider_positions=True):
+        return {"final": {"total": 90000.0}}
+
+
+def _scan(kite, held=None, wanted=(), capital=1_000_000.0, ranks=60.0, cfg=None, tmp=None):
+    import pandas as pd
+
+    from kite_connect.options.overlay_scan import scan
+
+    cfg = cfg or OptionsConfig()
+    dates = pd.bdate_range(end=NOW.date(), periods=252)
+    # a two-level history around today's 40% IV puts its rank where ``ranks`` says
+    history = pd.concat([pd.DataFrame({"date": dates, "symbol": s,
+                                       "iv30": 0.40 + 0.10 * (0.5 - ranks / 100.0) + 0.10 * (dates.dayofyear % 2 - 0.5)})
+                         for s in ("NIFTY", "BANKNIFTY", "RELIANCE")])
+    return scan(Broker(kite, clock=Clock(), sleep=lambda s: None, order_log=tmp / "o.jsonl"),
+                InstrumentResolver(pd.DataFrame(kite.instruments("NFO"))), held or {}, wanted, capital, history, NOW, cfg)
+
+
+def test_chain_rows_are_one_per_strike_for_the_page(tmp_path):
+    from kite_connect.options.chain import chain_rows
+    from kite_connect.options.live_chain import fetch_chain
+
+    kite = FakeKite()
+    broker = _broker(tmp_path, kite)
+    chain, spot = fetch_chain(broker, InstrumentResolver(broker.instruments()), "NIFTY", EXPIRY, NOW, RATE, 3)
+    rows = chain_rows(chain, spot, days_to_expiry(EXPIRY, NOW), RATE)
+    assert [r["strike"] for r in rows] == [24850.0, 24900.0, 24950.0, 25000.0, 25050.0, 25100.0, 25150.0]
+    by = {r["strike"]: r for r in rows}
+    assert by[25000.0]["moneyness"] == "ATM" and by[24900.0]["moneyness"] == "ITM" and by[25100.0]["moneyness"] == "OTM"
+    assert by[25000.0]["ce_iv"] == approx(IV * 100, abs=1.0) and by[25000.0]["ce_iv"] == by[25000.0]["pe_iv"]
+    assert by[25000.0]["ce_delta"] > 0 > by[25000.0]["pe_delta"]
+    json.dumps(rows, allow_nan=False)                     # the API's JSON has no NaN
+
+
+def test_chain_rows_show_none_for_a_contract_with_no_quote(tmp_path):
+    from kite_connect.options.chain import chain_rows
+    from kite_connect.options.live_chain import fetch_chain
+
+    class Silent(FakeKite):
+        def quote(self, keys):
+            out = super().quote(keys)
+            return {k: ({} if k.endswith("24950CE") or k.endswith("24950PE") else v) for k, v in out.items()}
+
+    broker = _broker(tmp_path, Silent())
+    chain, spot = fetch_chain(broker, InstrumentResolver(broker.instruments()), "NIFTY", EXPIRY, NOW, RATE, 3)
+    row = next(r for r in chain_rows(chain, spot, 6.0, RATE) if r["strike"] == 24950.0)
+    assert row["ce_iv"] is None and row["pe_delta"] is None and row["ce_ltp"] is None
+    json.dumps(row, allow_nan=False)
+
+
+def test_expiries_are_iso_and_an_unknown_expiry_is_refused(monkeypatch):
+    import kite_connect.options.chain as ch
+
+    monkeypatch.setattr(ch, "_cached", None)
+    kite = FakeKite()
+    assert set(ch.get_expiry_dates(kite, "NIFTY")) <= {EXPIRY.isoformat(), NEXT.isoformat()}
+    with pytest.raises(KeyError, match="no 2026-10-14 expiry"):
+        ch.get_option_chain(kite, "NIFTY", "2026-10-14")
+    with pytest.raises(ValueError):
+        ch.get_option_chain(kite, "NIFTY", "26OCT")
+
+
+def test_a_covered_call_is_a_listed_contract_at_the_bid_on_shares_really_held(tmp_path):
+    out = _scan(ScanKite(), held={"RELIANCE": 1000, "INFY": 500}, tmp=tmp_path)
+    calls = out["covered_calls"]
+    assert [c["symbol"] for c in calls] == ["RELIANCE"]    # INFY has no options in the dump, so it is not scanned
+    c = calls[0]
+    assert c["lots"] == 2 and c["lot_size"] == 500 and c["expiry"] == ScanKite.MONTH.isoformat()
+    assert (c["strike"] - 1400) % 20 == 0 and c["tradingsymbol"].endswith("CE")
+    assert abs(c["delta"] - 0.30) < 0.05
+    q = ScanKite().quote([f"NFO:{c['tradingsymbol']}"])[f"NFO:{c['tradingsymbol']}"]
+    assert c["premium"] == approx(q["depth"]["buy"][0]["price"], abs=0.01)
+    assert c["total_premium"] == approx(c["premium"] * 1000, abs=0.01)
+
+
+def test_shares_below_a_lot_write_nothing_and_say_why(tmp_path):
+    out = _scan(ScanKite(), held={"RELIANCE": 499}, tmp=tmp_path)
+    assert out["covered_calls"] == [] and any("below one lot" in x for x in out["log"])
+
+
+def test_a_symbol_with_no_history_is_left_out_and_named_never_defaulted(tmp_path):
+    import pandas as pd
+
+    from kite_connect.options.overlay_scan import scan
+
+    kite = ScanKite()
+    empty = pd.DataFrame({"date": pd.to_datetime([]), "symbol": [], "iv30": []})
+    out = scan(Broker(kite, clock=Clock(), sleep=lambda s: None, order_log=tmp_path / "o.jsonl"),
+               InstrumentResolver(pd.DataFrame(kite.instruments("NFO"))), {"RELIANCE": 1000}, ["RELIANCE"], 1e7, empty, NOW)
+    assert out["covered_calls"] == [] == out["cash_secured_puts"] == out["iron_condors"]
+    assert "RELIANCE: no IV history" in out["log"]
+
+
+def test_stale_history_gives_no_rank():
+    import pandas as pd
+
+    from kite_connect.options.overlay_scan import iv_rank_of
+
+    h = pd.DataFrame({"date": pd.to_datetime(["2026-01-01"]), "symbol": ["NIFTY"], "iv30": [0.2]})
+    rank, why = iv_rank_of(h, "NIFTY", 0.2, date(2026, 10, 7), OptionsConfig())
+    assert math.isnan(rank) and "days old" in why
+
+
+def test_low_iv_rank_stands_down(tmp_path):
+    out = _scan(ScanKite(), held={"RELIANCE": 1000}, wanted=["RELIANCE"], ranks=-200.0, tmp=tmp_path)
+    assert out["covered_calls"] == [] and any("no covered call" in x for x in out["log"])
+
+
+def test_a_wide_spread_is_not_offered(tmp_path):
+    out = _scan(ScanKite(wide=["RELIANCE"]), held={"RELIANCE": 1000}, tmp=tmp_path)
+    assert out["covered_calls"] == [] and any("two-sided" in x for x in out["log"])
+
+
+def test_cash_secured_puts_are_fully_secured_and_held_names_are_not_doubled(tmp_path):
+    kite = ScanKite()
+    assert _scan(kite, wanted=["RELIANCE"], capital=100_000.0, tmp=tmp_path)["cash_secured_puts"] == []
+    puts = _scan(kite, wanted=["RELIANCE"], capital=2_000_000.0, tmp=tmp_path)["cash_secured_puts"]
+    assert len(puts) == 1 and puts[0]["lots"] == 1 and puts[0]["strike"] < ScanKite.RELIANCE
+    assert puts[0]["strike"] * 500 <= 2_000_000.0 * 0.6
+    assert _scan(kite, held={"RELIANCE": 500}, wanted=["RELIANCE"], capital=2e6, tmp=tmp_path)["cash_secured_puts"] == []
+
+
+def test_a_condor_has_ordered_strikes_and_a_limited_loss(tmp_path):
+    from dataclasses import replace
+
+    cfg = replace(OptionsConfig(), limits=LimitsConfig(max_loss_per_trade_inr=1e9))
+    out = _scan(ScanKite(), capital=1e7, cfg=cfg, tmp=tmp_path)
+    ic = next(c for c in out["iron_condors"] if c["underlying"] == "NIFTY")
+    k = {(l["type"], l["side"]): l["strike"] for l in ic["legs"]}
+    assert k[("PE", "BUY")] < k[("PE", "SELL")] < SPOT < k[("CE", "SELL")] < k[("CE", "BUY")]
+    assert ic["max_loss"] > 0 and ic["net_credit"] > 0 and 0 < ic["pop"] < 100 and ic["margin_required"] == 90000.0
+    assert _scan(ScanKite(), capital=1e7, tmp=tmp_path)["iron_condors"] == []     # above the real limit, Rs 25,000
+
+
+@pytest.mark.parametrize("vix", [35.0, 60.0, 0.0])
+def test_condors_stand_down_at_extreme_or_unreadable_vix(tmp_path, vix):
+    from dataclasses import replace
+
+    cfg = replace(OptionsConfig(), limits=LimitsConfig(max_loss_per_trade_inr=1e9))
+    out = _scan(ScanKite(vix=vix), capital=1e7, cfg=cfg, tmp=tmp_path)
+    assert out["iron_condors"] == [] and any("stand down" in x for x in out["log"])
+
+
+def test_the_scan_offers_no_naked_short_and_places_nothing(tmp_path):
+    kite = ScanKite()
+    out = _scan(kite, held={"RELIANCE": 1000}, wanted=["RELIANCE"], tmp=tmp_path)
+    assert "strangles" not in out and kite.placed == []
+
+
+def test_only_the_owner_can_scan_and_kite_must_be_connected(monkeypatch):
+    import asyncio
+
+    HTTPException = pytest.importorskip("fastapi").HTTPException   # CI installs the core only
+    from api.routers.v1 import kite_accounts, options
+
+    monkeypatch.setattr(kite_accounts, "_owner", lambda user: "someone")
+    with pytest.raises(HTTPException) as e:
+        asyncio.run(options.options_overlay_scan(user={"r": "user", "u": "x"}))
+    assert e.value.status_code == 403
+
+    monkeypatch.setattr(kite_accounts, "_owner", lambda user: "")
+    monkeypatch.setattr(options, "get_kite_session", lambda: None)
+    with pytest.raises(HTTPException) as e:
+        asyncio.run(options.options_overlay_scan(user={"r": "admin", "u": "me"}))
+    assert e.value.status_code == 503
+    with pytest.raises(HTTPException) as e:
+        asyncio.run(options.options_chain("NIFTY", "2026-11-27"))
+    assert e.value.status_code == 503
+
+
+def test_snapshot_round_trip_and_a_short_history_is_left_out(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    import pandas as pd
+
+    from kite_connect.options import iv_history as ivh
+    from kite_connect.options.options_config import OverlayConfig
+
+    cfg = replace(OptionsConfig(), overlay=OverlayConfig(history_path=str(tmp_path / "iv.csv.gz")))
+    dates = pd.bdate_range(end="2026-10-30", periods=300)
+    long = pd.DataFrame({"date": dates, "iv30": 0.2})
+    monkeypatch.setattr(ivh, "underlying_prices", lambda s, c, start: (pd.Series(dtype=float), None))
+    monkeypatch.setattr(ivh, "compute_history", lambda s, c, y, spot: long if s == "NIFTY" else long.tail(10))
+    ivh.write_snapshot(["NIFTY", "NEWLY"], cfg)
+    back = ivh.load_snapshot(cfg)
+    assert set(back["symbol"]) == {"NIFTY"} and len(back) == cfg.data.lookback_sessions

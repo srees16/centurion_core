@@ -199,6 +199,15 @@ def cmd_refresh(args, cfg: OptionsConfig) -> int:
     return 0
 
 
+def cmd_iv_snapshot(args, cfg: OptionsConfig) -> int:
+    """The year of 30-day IV the app's overlay scan ranks against (run after ``refresh``, then commit it)."""
+    from kite_connect.options.iv_history import stock_option_symbols, write_snapshot
+
+    symbols = args.symbols or ["NIFTY", "BANKNIFTY", *stock_option_symbols(cfg)]
+    print(f"written: {write_snapshot(symbols, cfg)}")
+    return 0
+
+
 def cmd_select(args, cfg: OptionsConfig) -> int:
     iv_level = args.iv_level
     if args.underlying:
@@ -310,6 +319,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     r.add_argument("--days", type=int, default=14, help="archive days to (re)check")
     r.add_argument("--symbols", nargs="*", default=["NIFTY", "BANKNIFTY"], help="IV histories to update")
 
+    v = sub.add_parser("iv-snapshot", help="write the year of 30-day IV the app's overlay scan ranks against")
+    v.add_argument("--symbols", nargs="*", help="default: the indices and every stock with options in the store")
+
     s = sub.add_parser("select", help="rank Module 6 strategies for a view (no Kite needed)")
     s.add_argument("--view", required=True, choices=VIEWS)
     s.add_argument("--dte", type=int, required=True, help="days to expiry")
@@ -353,6 +365,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return cmd_context(args, cfg)
     if args.cmd == "refresh":
         return cmd_refresh(args, cfg)
+    if args.cmd == "iv-snapshot":
+        return cmd_iv_snapshot(args, cfg)
     if args.cmd in ("report", "trade"):
         return cmd_report_or_trade(args, cfg, trade=args.cmd == "trade")
     if args.cmd == "monitor":

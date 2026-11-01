@@ -157,6 +157,38 @@ class DataConfig:
 
 
 @dataclass(frozen=True)
+class OverlayConfig:
+    """The app's Options page: the chain's width and the read-only overlay scan (``overlay_scan``)."""
+
+    chain_strikes_each_side: int = 15
+    # The expiry nearest target_dte inside this window, so a monthly-only stock always has one.
+    target_dte: int = 30
+    min_dte: int = 21
+    max_dte: int = 56
+    call_delta: float = 0.30
+    put_delta: float = 0.25
+    condor_short_delta: float = 0.15
+    condor_wing_delta: float = 0.05
+    min_rank_call: float = 50.0
+    min_rank_put: float = 40.0
+    min_rank_condor: float = 50.0
+    min_premium_pct: float = 0.015
+    # A leg whose bid-ask spread is wider than this share of its mid is not offered.
+    max_spread_pct: float = 0.10
+    # Share of capital that may secure puts, and that condors' margin may use.
+    max_put_capital_pct: float = 0.60
+    max_condor_capital_pct: float = 0.15
+    max_puts_per_sector: int = 2
+    # Strikes quoted around spot, and underlyings scanned; the rest are named in the scan's log.
+    strike_band: float = 0.25
+    max_symbols: int = 40
+    # One year of 30-day IV per symbol (``iv_history.write_snapshot``): data/ is not deployed.
+    history_path: str = "config/iv30_history.csv.gz"
+    history_max_age_days: int = 45
+    history_min_sessions: int = 120
+
+
+@dataclass(frozen=True)
 class OptionsConfig:
     market: MarketConfig = field(default_factory=MarketConfig)
     charges: ChargesConfig = field(default_factory=ChargesConfig)
@@ -164,6 +196,7 @@ class OptionsConfig:
     limits: LimitsConfig = field(default_factory=LimitsConfig)
     selector: SelectorConfig = field(default_factory=SelectorConfig)
     data: DataConfig = field(default_factory=DataConfig)
+    overlay: OverlayConfig = field(default_factory=OverlayConfig)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
