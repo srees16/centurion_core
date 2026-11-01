@@ -40,7 +40,7 @@ from typing import List, Optional, Sequence, Tuple
 from kite_connect.options.basket_executor import BasketExecutor, ExecutionReport
 from kite_connect.options.broker import Broker, connect
 from kite_connect.options.instruments import InstrumentResolver
-from kite_connect.options.iv_history import iv_context, iv_history, live_iv30
+from kite_connect.options.iv_history import iv_context, iv_history, live_iv30, live_iv_points, skew_warning
 from kite_connect.options.live_chain import IST, chain_summary, days_to_expiry, fetch_chain
 from kite_connect.options.options_config import OptionsConfig, SelectorConfig, load_config
 from kite_connect.options.position_monitor import PositionLedger, monitor
@@ -76,8 +76,13 @@ def prepare(broker: Broker, resolver: InstrumentResolver, underlying: str, expir
     except Exception as exc:                              # noqa: BLE001 - reported, the model's charges remain
         logger.warning("Kite basket margin unavailable: %s", exc)
         margins = None
-    return build_report(legs, spot, days_to_expiry(expiry, now), chain_summary(chain, spot)["atm_iv"], lots,
-                        now.date(), cfg, margins)
+    report = build_report(legs, spot, days_to_expiry(expiry, now), chain_summary(chain, spot)["atm_iv"], lots,
+                          now.date(), cfg, margins)
+    try:
+        report.event_skew = skew_warning(underlying, live_iv_points(broker, resolver, underlying, now, cfg), cfg)
+    except Exception as exc:                              # noqa: BLE001 - a note, never a reason to stop the report
+        logger.warning("IV skew unavailable: %s", exc)
+    return report
 
 
 def market_context(underlying: str, cfg: OptionsConfig, broker: Optional[Broker] = None,
@@ -199,6 +204,15 @@ def cmd_refresh(args, cfg: OptionsConfig) -> int:
     return 0
 
 
+def cmd_iv_snapshot(args, cfg: OptionsConfig) -> int:
+    """The year of 30-day IV the app's overlay scan ranks against (run after ``refresh``, then commit it)."""
+    from kite_connect.options.iv_history import stock_option_symbols, write_snapshot
+
+    symbols = args.symbols or ["NIFTY", "BANKNIFTY", *stock_option_symbols(cfg)]
+    print(f"written: {write_snapshot(symbols, cfg)}")
+    return 0
+
+
 def cmd_select(args, cfg: OptionsConfig) -> int:
     iv_level = args.iv_level
     if args.underlying:
@@ -310,6 +324,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     r.add_argument("--days", type=int, default=14, help="archive days to (re)check")
     r.add_argument("--symbols", nargs="*", default=["NIFTY", "BANKNIFTY"], help="IV histories to update")
 
+    v = sub.add_parser("iv-snapshot", help="write the year of 30-day IV the app's overlay scan ranks against")
+    v.add_argument("--symbols", nargs="*", help="default: the indices and every stock with options in the store")
+
     s = sub.add_parser("select", help="rank Module 6 strategies for a view (no Kite needed)")
     s.add_argument("--view", required=True, choices=VIEWS)
     s.add_argument("--dte", type=int, required=True, help="days to expiry")
@@ -353,6 +370,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return cmd_context(args, cfg)
     if args.cmd == "refresh":
         return cmd_refresh(args, cfg)
+    if args.cmd == "iv-snapshot":
+        return cmd_iv_snapshot(args, cfg)
     if args.cmd in ("report", "trade"):
         return cmd_report_or_trade(args, cfg, trade=args.cmd == "trade")
     if args.cmd == "monitor":

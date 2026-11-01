@@ -7,8 +7,9 @@ volatility, expected ranges and the ch. 18 applications (15 to 18, 20).
 
 Conventions (CONCEPTS.md § Conventions): P&L per unit of underlying, + = money
 in; T = calendar days / 365; theta per calendar day, vega per volatility
-point, rho per rate point; rates and volatilities as decimals.  All functions
-are pure and take no broker objects.
+point, rho per rate point; rates and volatilities as decimals.  Annualising a
+realised volatility takes the series' own ``days_per_year`` (no default).  All
+functions are pure and take no broker objects.
 """
 
 from __future__ import annotations
@@ -252,11 +253,13 @@ def daily_volatility(prices: Sequence[float], ddof: int = 1) -> float:
     return float(np.std(log_returns(prices), ddof=ddof))
 
 
-def annualize_vol(sigma_daily: float, days_per_year: int = 365) -> float:
+def annualize_vol(sigma_daily: float, days_per_year: int) -> float:
+    """``days_per_year`` is the number of price changes a year in the series: about 252 for trading-day closes.
+    Required, so no caller inherits sqrt 365, which overstates trading-day volatility by 20%."""
     return sigma_daily * math.sqrt(days_per_year)
 
 
-def deannualize_vol(sigma_annual: float, days_per_year: int = 365) -> float:
+def deannualize_vol(sigma_annual: float, days_per_year: int) -> float:
     return sigma_annual / math.sqrt(days_per_year)
 
 
@@ -265,8 +268,8 @@ def period_vol(sigma_daily: float, days: float) -> float:
     return sigma_daily * math.sqrt(days)
 
 
-def historical_volatility(prices: Sequence[float], days_per_year: int = 365, ddof: int = 1) -> float:
-    """Annualised SD of daily log returns."""
+def historical_volatility(prices: Sequence[float], days_per_year: int, ddof: int = 1) -> float:
+    """Annualised SD of daily log returns (``days_per_year`` as in :func:`annualize_vol`)."""
     return annualize_vol(daily_volatility(prices, ddof), days_per_year)
 
 
@@ -338,8 +341,8 @@ def cone_stats(window_vols: Sequence[float], ddof: int = 1) -> Dict[str, float]:
             "minus1": mean - sd, "minus2": mean - 2 * sd, "min": float(a.min())}
 
 
-def volatility_cone(prices: Sequence[float], windows: Sequence[int] = (10, 20, 30, 45, 60, 90),
-                    days_per_year: int = 365, ddof: int = 1) -> Dict[int, Dict[str, float]]:
+def volatility_cone(prices: Sequence[float], windows: Sequence[int] = (10, 20, 30, 45, 60, 90), *,
+                    days_per_year: int, ddof: int = 1) -> Dict[int, Dict[str, float]]:
     """Ch. 20: annualised realised volatility over rolling windows, summarised per window.
 
     Each row also carries ``current``, the latest window's value, to compare

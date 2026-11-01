@@ -15,8 +15,13 @@ the run left the books healthy (``nightly_health``), and otherwise sends its
 ``/fail`` ping with the reason, so a run that finished without doing its job
 is reported from outside GitHub too.
 
-    python -m tools.paper_heartbeat            # exits 1 when stale
-    python -m tools.paper_heartbeat --ping     # the nightly job's dead man's switch ping
+``--session-finished`` is the backup runs' gate (tracker KES1): it writes
+``session_finished=true`` to ``GITHUB_OUTPUT`` when tonight's work is all done
+(``session_finished``), so a backup run skips its 800 MB of cache transfers.
+
+    python -m tools.paper_heartbeat                     # exits 1 when stale
+    python -m tools.paper_heartbeat --ping              # the nightly job's dead man's switch ping
+    python -m tools.paper_heartbeat --session-finished  # the backup runs' gate
 """
 from __future__ import annotations
 
@@ -124,6 +129,41 @@ def nightly_health(now: Optional[datetime] = None) -> Tuple[bool, str]:
     return True, f"session {expected} done"
 
 
+def session_finished(now: Optional[datetime] = None) -> Tuple[bool, str]:
+    """(finished, why): is anything left for tonight's backup runs? (tracker KES1)
+
+    Stricter than ``nightly_health``, where a no-login skip passes.  Finished
+    means every started book reached the last completed NSE session, the live
+    session ran for it (a no-login skip is not finished: a later login can still
+    run it) and the nightly email went.  Anything unreadable is not finished, so
+    the run goes ahead as it always did.  ``why`` reaches a public log: counts only.
+    """
+    from database.connection import get_db_manager
+    from database.paper_cloud import PaperCloudSync
+    from kite_connect.trading.live_session import LIVE_DRY_LAST_SESSION_KEY, LIVE_LAST_SESSION_KEY, live_schema
+    from nse_engine.books import DAILY_STATE_KEY, DEPLOYED, discover_books
+    from services.execution.carver_pipeline import last_completed_nse_session
+
+    expected = last_completed_nse_session(now)
+    session = expected.isoformat()
+    live_on = (os.environ.get("CENTURION_LIVE_MODE") or "").strip().lower() in ("dry_run", "live")
+    try:
+        mgr = get_db_manager()
+        states = {b.name: PaperCloudSync(mgr, schema=b.schema).read_state() or {}
+                  for b in discover_books() if b.deployment.paper_start_date <= expected}
+        live = PaperCloudSync(mgr, schema=live_schema()).read_state() or {} if live_on else {}
+    except Exception as exc:                              # noqa: BLE001 - unreadable is not finished
+        return False, f"Neon unreadable: {type(exc).__name__}"
+    behind = sum(str(s.get("engine_last_session") or "") < session for s in states.values())
+    if DEPLOYED not in states or behind:
+        return False, f"{behind} of {len(states)} books behind {session}"
+    if live_on and max(str(live.get(k) or "") for k in (LIVE_LAST_SESSION_KEY, LIVE_DRY_LAST_SESSION_KEY)) < session:
+        return False, f"the live session has not run for {session}"
+    if states[DEPLOYED].get(DAILY_STATE_KEY) != session:
+        return False, f"the nightly email for {session} has not gone"
+    return True, f"session {session} finished"
+
+
 def ping(url: str, healthy: bool, why: str) -> bool:
     """Ping healthchecks.io: success, or ``/fail``, with ``why`` as the body.  Never logs the URL."""
     import urllib.request
@@ -169,6 +209,13 @@ def main() -> int:
         sent = ping(url, healthy, why)
         logger.info("dead man's switch: %s (%s)%s", "healthy" if healthy else "FAIL", why,
                     "" if sent else " - ping not delivered")
+        return 0
+    if "--session-finished" in sys.argv[1:]:              # KES1: only a positive answer stops a run
+        finished, why = session_finished()
+        logger.info("session finished: %s (%s)", finished, why)
+        if finished and os.environ.get("GITHUB_OUTPUT"):
+            with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+                fh.write("session_finished=true\n")
         return 0
     if os.environ.get("CENTURION_HEARTBEAT_TEST_EMAIL", "").lower() in ("true", "1", "yes"):
         return send_test_email()

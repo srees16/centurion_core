@@ -316,17 +316,83 @@ def iv_context(symbol: str, cfg: OptionsConfig, live_iv: Optional[float] = None)
                      premium_record(history, prices, percentile, cfg), pd.Timestamp(history["date"].iloc[0]).date())
 
 
-def live_iv30(broker, resolver, underlying: str, now: datetime, cfg: OptionsConfig) -> Optional[float]:
-    """The 30-day ATM IV from live quotes, built as the history is (two expiries, total variance)."""
-    from kite_connect.options.live_chain import chain_summary, days_to_expiry, fetch_chain
-
+def iv30_expiries(dtes: Dict[date, float], cfg: OptionsConfig) -> List[date]:
+    """The expiries around the IV tenor: the last inside it (``iv_min_dte`` or more away), the first beyond it."""
     d = cfg.data
-    dtes = {e: days_to_expiry(e, now) for e in resolver.expiries(underlying)}
     near = [e for e in sorted(dtes, key=lambda e: -dtes[e]) if d.iv_min_dte <= dtes[e] <= d.iv_tenor_days][:1]
     far = [e for e in sorted(dtes, key=lambda e: dtes[e]) if dtes[e] > d.iv_tenor_days][:1]
+    return near + far
+
+
+def skew_warning(underlying: str, points: Sequence[Tuple[float, Optional[float]]], cfg: OptionsConfig) -> Optional[str]:
+    """A line when the nearer expiry's IV stands ``overlay.event_skew`` above the farther one's: something is
+    expected before the near expiry (Jabbour & Budwick p. 94).  ``points``: (days, IV) of the two expiries."""
+    pts = sorted((d, iv) for d, iv in points if iv)
+    if len(pts) < 2 or pts[0][1] - pts[-1][1] < cfg.overlay.event_skew:
+        return None
+    (near_days, near), (far_days, far) = pts[0], pts[-1]
+    return (f"{underlying}: {near_days:.0f}-day IV {near:.1%} stands above {far_days:.0f}-day {far:.1%}: "
+            f"check for an event before that expiry")
+
+
+def live_iv_points(broker, resolver, underlying: str, now: datetime, cfg: OptionsConfig
+                   ) -> List[Tuple[float, Optional[float]]]:
+    """(days, ATM IV) of the two expiries around the tenor, from live quotes."""
+    from kite_connect.options.live_chain import chain_summary, days_to_expiry, fetch_chain
+
+    dtes = {e: days_to_expiry(e, now) for e in resolver.expiries(underlying)}
     points = []
-    for e in near + far:
+    for e in iv30_expiries(dtes, cfg):
         chain, spot = fetch_chain(broker, resolver, underlying, e, now, cfg.market.risk_free_rate, 1)
         atm_iv = chain_summary(chain, spot)["atm_iv"]
         points.append((dtes[e], atm_iv if np.isfinite(atm_iv) else None))
-    return constant_maturity(points, d.iv_tenor_days)
+    return points
+
+
+def live_iv30(broker, resolver, underlying: str, now: datetime, cfg: OptionsConfig) -> Optional[float]:
+    """The 30-day ATM IV from live quotes, built as the history is (two expiries, total variance)."""
+    return constant_maturity(live_iv_points(broker, resolver, underlying, now, cfg), cfg.data.iv_tenor_days)
+
+
+# ── the deployed snapshot ────────────────────────────────────────────────
+
+def stock_option_symbols(cfg: OptionsConfig) -> List[str]:
+    """The stocks with options in the store's latest year."""
+    years = _option_years("RELIANCE", cfg)
+    if not years:
+        raise FileNotFoundError(f"no stock options in {cfg.data.fo_store} (build the store, OD3)")
+    path = Path(cfg.data.fo_store) / "stock_options" / f"{years[-1]}.parquet"
+    return sorted(str(s) for s in pd.read_parquet(path, columns=["symbol"])["symbol"].unique())
+
+
+def write_snapshot(symbols: Sequence[str], cfg: OptionsConfig) -> Path:
+    """The last ``lookback_sessions`` of 30-day IV per symbol, as ``overlay.history_path``.  The app's server
+    has no F&O store, so this file is what its IV rank reads.  Only the years that holds are computed, past the
+    per-symbol caches; a symbol that fails, or has too short a year to rank against, is logged and left out."""
+    from_year, rows = date.today().year - 1, []
+    for symbol in symbols:
+        try:
+            spot = underlying_prices(symbol, cfg, start=f"{from_year}-01-01")[0]
+            history = compute_history(symbol, cfg, from_year, spot)
+        except (FileNotFoundError, ValueError, KeyError) as exc:
+            logger.warning("IV snapshot: %s left out: %s", symbol, exc)
+            continue
+        tail = history[["date", "iv30"]].tail(cfg.data.lookback_sessions)
+        if len(tail) < cfg.overlay.history_min_sessions:
+            logger.warning("IV snapshot: %s left out: %d sessions", symbol, len(tail))
+            continue
+        rows.append(tail.assign(symbol=symbol.upper()))
+    if not rows:
+        raise ValueError("no IV history for any symbol")
+    out = pd.concat(rows, ignore_index=True)
+    out["date"] = pd.to_datetime(out["date"]).dt.date
+    out["iv30"] = out["iv30"].round(5)
+    path = Path(cfg.overlay.history_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    out[["date", "symbol", "iv30"]].to_csv(path, index=False, compression="gzip")
+    return path
+
+
+def load_snapshot(cfg: OptionsConfig) -> pd.DataFrame:
+    """The snapshot (date, symbol, iv30); raises when the file is missing."""
+    return pd.read_csv(cfg.overlay.history_path, parse_dates=["date"])

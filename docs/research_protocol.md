@@ -150,6 +150,8 @@ stay as risk control if the gates say so, but no exposure is added on it and no 
 
 **Before a signal takes a core slot,** `run_nse_engine signal-slopes` shows, cheaply, whether it adds to the forecast with beta, size and earnings yield held fixed (tracker FF1). It is a look: a weak slope saves the slot, a strong one earns nothing but the test.
 
+**A numerical optimiser or a seeded model** reports its iterations and how far it moved from its start, and a seeded result its spread over 20 seeds. A solution equal to its start is a failure, however good the result: a published NCO that never left equal weight read as an optimum, and one HMM seed gave 1.6% where 20 gave -1.8% to 28.2% (tracker REG1).
+
 ### 5.1 The diversifier gate (your decision, 19 Oct 2026; settles OX6; amended 25 Oct 2026, GT13)
 
 For a stream added beside the book to diversify it, this gate replaces

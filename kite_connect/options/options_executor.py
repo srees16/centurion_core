@@ -7,6 +7,9 @@ PutSellingStrategy into actual Kite Connect order placement.
 Handles:
   - NFO instrument lookup (symbol → tradingsymbol mapping)
   - SELL LIMIT orders for covered calls and cash-secured puts
+  - LIMIT orders on every path: a market order in options can slip badly
+    (Cordier & Gross ch. 11, 12), so buys and closes cross the spread by at
+    most ``limit_slippage_cap``, and no quote means no order
   - BUY orders for tail risk hedges (NIFTY puts)
   - SQLite options journal for P&L tracking
   - Order tagging for lifecycle management
@@ -15,6 +18,7 @@ Handles:
 from __future__ import annotations
 
 import logging
+import math
 import os
 import sqlite3
 import time
@@ -161,6 +165,7 @@ def _refresh_nfo_instruments(kite) -> Dict[str, dict]:
                 "strike": inst.get("strike"),
                 "expiry": str(inst.get("expiry", "")),
                 "lot_size": inst.get("lot_size", 1),
+                "tick_size": inst.get("tick_size", 0.05),
                 "instrument_type": inst.get("instrument_type", ""),
                 "name": inst.get("name", ""),
             }
@@ -183,6 +188,25 @@ def _find_nfo_symbol(nfo_cache: dict, underlying: str, strike: float,
                 and expiry in str(info.get("expiry", ""))):
             return ts
     return None
+
+
+def _marketable_limit(kite, tradingsymbol: str, side: str, nfo_cache: dict) -> Optional[float]:
+    """The far side of the quote moved at most ``limit_slippage_cap``, on the tick; None when it is not quoted."""
+    from kite_connect.options.live_chain import quote_prices
+    from kite_connect.options.options_config import LimitsConfig
+    from kite_connect.options.pretrade import limit_price
+
+    key = f"NFO:{tradingsymbol}"
+    quote = quote_prices((kite.quote([key]) or {}).get(key))
+    reference = quote["ask"] if side == "BUY" else quote["bid"]
+    if not (math.isfinite(reference) and reference > 0):
+        return None
+    tick = float((nfo_cache.get(tradingsymbol) or {}).get("tick_size") or 0.05)
+    return limit_price(reference, side, LimitsConfig().limit_slippage_cap, tick)
+
+
+#: How long a close waits for its fill before it is cancelled, and how often it looks.
+CLOSE_WAIT_SECONDS, CLOSE_POLL_SECONDS = 5.0, 1.0
 
 
 # ── Order Execution ────────────────────────────────────────────
@@ -335,16 +359,24 @@ class OptionsExecutor:
         if not ts:
             return {"success": False, "error": f"NIFTY {strike} PE not found in NFO"}
 
-        qty = recommendation.lots * 25  # NIFTY lot size = 25
-        logger.info("Tail hedge: BUY %s x%d (lots=%d)", ts, qty, recommendation.lots)
+        lot_size = int(nfo_cache[ts].get("lot_size") or 0)
+        if lot_size < 1:
+            return {"success": False, "error": f"no lot size for {ts}"}
+        # The recommendation sized its notional in its own lot; keep that notional on the contract's real lot.
+        lots = max(1, round(recommendation.lots * recommendation.lot_size / lot_size))
+        qty = lots * lot_size
+        logger.info("Tail hedge: BUY %s x%d (lots=%d)", ts, qty, lots)
 
         if dry_run:
             return {"success": True, "dry_run": True, "symbol": ts, "qty": qty}
 
+        price = _marketable_limit(self.kite, ts, "BUY", nfo_cache)
+        if price is None:
+            return {"success": False, "error": f"no ask quoted for {ts}: no order sent"}
         result = place_order(
             self.kite, symbol=ts, exchange="NFO",
             transaction_type="BUY", quantity=qty,
-            order_type="MARKET", product="NRML",
+            order_type="LIMIT", product="NRML", price=price,
         )
 
         if result.get("success"):
@@ -354,7 +386,7 @@ class OptionsExecutor:
                 "quantity": qty,
                 "entry_premium": recommendation.premium_per_lot,
                 "order_id": result.get("order_id"),
-                "strike": strike, "lot_size": 25,
+                "strike": strike, "lot_size": lot_size,
                 "tag": "TAIL_HEDGE",
             })
 
@@ -362,27 +394,49 @@ class OptionsExecutor:
 
     def close_option_position(self, journal_id: int, tradingsymbol: str,
                               side: str, quantity: int) -> dict:
-        """Close an open options position (buy-to-close or sell-to-close)."""
+        """Close an open options position (buy-to-close or sell-to-close) with a marketable limit.
+
+        The journal closes only on a fill, at its price.  An order not filled in ``CLOSE_WAIT_SECONDS`` is
+        cancelled and reported as failed, so the next pass does not stack a second one on it.
+        """
         from kite_connect.trading.order_service import place_order
 
         close_side = "BUY" if side == "SELL" else "SELL"
-
-        # Get current premium
+        nfo_cache = _refresh_nfo_instruments(self.kite)
         try:
-            ltp_data = self.kite.ltp([f"NFO:{tradingsymbol}"])
-            current_premium = ltp_data.get(f"NFO:{tradingsymbol}", {}).get("last_price", 0)
-        except Exception:
-            current_premium = 0
+            price = _marketable_limit(self.kite, tradingsymbol, close_side, nfo_cache)
+        except Exception as exc:
+            return {"success": False, "error": f"no quote for {tradingsymbol}: {exc}"}
+        if price is None:
+            return {"success": False, "error": f"no {close_side} side quoted for {tradingsymbol}: no order sent"}
 
         result = place_order(
             self.kite, symbol=tradingsymbol, exchange="NFO",
             transaction_type=close_side, quantity=quantity,
-            order_type="MARKET", product="NRML",
+            order_type="LIMIT", product="NRML", price=price, is_exit=True,
         )
+        if not result.get("success"):
+            return result
 
-        if result.get("success"):
-            close_position(journal_id, current_premium,
-                           close_order_id=str(result.get("order_id", "")))
-            logger.info("Closed option position: %s (journal_id=%d)", tradingsymbol, journal_id)
+        order_id = result.get("order_id")
+        filled = self._await_fill(order_id)
+        if filled is None:
+            self.kite.cancel_order("regular", order_id)
+            logger.warning("Close of %s not filled at %.2f: cancelled (journal_id=%d)", tradingsymbol, price, journal_id)
+            return {"success": False, "error": f"not filled at {price:.2f}: cancelled", "order_id": order_id}
 
-        return result
+        close_position(journal_id, filled, close_order_id=str(order_id))
+        logger.info("Closed option position: %s at %.2f (journal_id=%d)", tradingsymbol, filled, journal_id)
+        return {**result, "average_price": filled}
+
+    def _await_fill(self, order_id, sleep=time.sleep) -> Optional[float]:
+        """The average fill price of a completed order, or None when it did not complete in time."""
+        for _ in range(int(CLOSE_WAIT_SECONDS / CLOSE_POLL_SECONDS)):
+            history = self.kite.order_history(order_id) or []
+            status = str((history[-1] if history else {}).get("status", "")).upper()
+            if status == "COMPLETE":
+                return float(history[-1].get("average_price") or 0.0)
+            if status in ("REJECTED", "CANCELLED"):
+                return None
+            sleep(CLOSE_POLL_SECONDS)
+        return None
