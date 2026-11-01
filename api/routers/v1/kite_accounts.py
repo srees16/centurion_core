@@ -94,6 +94,19 @@ def _refuse(exc: Exception):
     raise HTTPException(status_code=503, detail="account store unavailable: try again shortly")
 
 
+@router.get("/kite/go-live")
+async def go_live(user: dict = Depends(require_session)):
+    """The real go-live checks and the ladder (Trade Center > Paper Validation).  The owner's book, so the owner's."""
+    from kite_connect.trading.live_session import go_live_status
+
+    if _owner(user):
+        raise HTTPException(status_code=403, detail="The go-live status is the owner's.")
+    try:
+        return await asyncio.to_thread(go_live_status)
+    except Exception as exc:                              # noqa: BLE001
+        _refuse(exc)
+
+
 @router.get("/kite/accounts")
 async def list_accounts(request: Request, user: dict = Depends(require_session)):
     """Every account with today's login state and its login link, plus what a new account's app needs."""

@@ -139,6 +139,15 @@ A low-Sharpe uncorrelated sleeve can fail gate 1 at a large N even when it
 would help the book. Judging overlays on gate 2 plus a significance test is
 your decision, parked at OX6.
 
+**A rule that takes capital in and out of the market** also reports `validation.timing.timing_skill`: the rotation p, the
+capture and the corrected lower boundary (tracker MIT1). A rotation p above 0.05 means it is not picking days: it may
+stay as risk control if the gates say so, but no exposure is added on it and no gain is credited to skill.
+
+**A high-turnover rule** reports its break-even cost, on point-in-time names with next-day fills, before any gross figure is quoted: a rule that wins gross and loses at 15 bp a side has not won
+(tracker OPS1). Bad prices are refused, never replaced with a small number: one such fill turned 1,115x into 4.5 billion x on the paper's own method.
+
+**A price forecast** is scored against tomorrow = today and on returns, out of sample, never by R-squared, RMSE or MAPE on price levels: a model that learned only "up" scored 0.9996 on levels and -0.002 on returns on NIFTY (tracker RQ1).
+
 ### 5.1 The diversifier gate (your decision, 19 Oct 2026; settles OX6; amended 25 Oct 2026, GT13)
 
 For a stream added beside the book to diversify it, this gate replaces

@@ -471,6 +471,8 @@ def compute_signal_panels(
         returns = daily_returns(close)
     daily_vol = ewm_daily_vol(returns, cfg.vol_span, cfg.ewm_memory_spans)
     weights = cfg.weights()
+    if not all(np.isfinite(w) and w >= 0 for w in weights.values()) or sum(weights.values()) <= 0:
+        raise ValueError(f"signal group weights must be finite, not negative, and not all zero: {weights}")
 
     def _delivery():
         if delivery_pct is None:

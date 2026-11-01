@@ -22,6 +22,8 @@ from scipy import stats as sp_stats
 from .dsr import daily_rf, excess_sharpe, performance_summary
 from .trials import to_jsonable
 
+MAX_DESIGN_CONDITION = 1e8
+
 logger = logging.getLogger(__name__)
 
 
@@ -61,9 +63,21 @@ def aronson_detrended_sharpe(strategy_returns: pd.Series, exposure: pd.Series,
     }
 
 
+def _require_full_rank(x: np.ndarray) -> None:
+    """Refuse a design matrix whose columns are collinear (a flat benchmark, say): inverting it gives a number
+    that looks like a t-stat and means nothing.  Columns are scaled first, so this reads collinearity, not units."""
+    norms = np.linalg.norm(x, axis=0)
+    if not np.isfinite(x).all() or (norms <= 0).any():
+        raise ValueError("regression design matrix has a non-finite or all-zero column")
+    condition = float(np.linalg.cond(x / norms))
+    if not math.isfinite(condition) or condition > MAX_DESIGN_CONDITION:
+        raise ValueError(f"regression design matrix is collinear (condition number {condition:.3g})")
+
+
 def newey_west_cov(x: np.ndarray, resid: np.ndarray, lags: int) -> np.ndarray:
     """HAC (Newey-West, Bartlett kernel) covariance of OLS coefficients."""
     n = x.shape[0]
+    _require_full_rank(x)
     xtx_inv = np.linalg.inv(x.T @ x)
     u = x * resid[:, None]
     s = u.T @ u

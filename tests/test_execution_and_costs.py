@@ -4,6 +4,7 @@ while a read that fails adds no new risk (RB6); getting out is always possible (
 would, on prices that mean something (BT1)."""
 from __future__ import annotations
 
+import json
 import logging
 
 import numpy as np
@@ -1710,3 +1711,114 @@ def test_go_live_refuses_any_start_but_the_canary():
     assert dict((n, ok) for n, ok, _ in readiness({}, [], capital=300_000))["canary"]
     assert not dict((n, ok) for n, ok, _ in readiness({}, [], capital=600_000))["canary"]
     assert "canary" not in dict((n, ok) for n, ok, _ in readiness({}, []))
+
+
+# ---- the book's conditions on weights (151 Trading Strategies, plan 5aw)
+def test_capped_weights_keep_every_cap_on_random_books():
+    from nse_engine.portfolio import capped_weights
+
+    rng = np.random.default_rng(11)
+    for _ in range(3_000):
+        n = int(rng.integers(1, 45))
+        raw = pd.Series(rng.lognormal(0.0, rng.uniform(0.2, 2.5), n), index=[f"S{i}" for i in range(n)])
+        max_weight, sector_cap = float(rng.choice([0.02, 0.05, 0.08, 0.2])), float(rng.choice([0.1, 0.25, 0.6]))
+        sectors = {s: f"X{rng.integers(1, 8)}" for s in raw.index if rng.random() > 0.1}
+        w = capped_weights(raw, max_weight, sector_cap, sectors)
+        by_sector = pd.Series({s: sectors.get(s) for s in w.index}, dtype=object)
+        assert (w >= 0).all() and (w <= max_weight + 1e-9).all() and w.sum() <= 1.0 + 1e-9
+        if by_sector.notna().any():
+            assert (w.groupby(by_sector).sum() <= sector_cap + 1e-9).all()
+        known = pd.Series(sectors, dtype=object).reindex(raw.index)
+        room = sum(min(sector_cap, max_weight * (known == x).sum()) for x in known.dropna().unique())
+        assert w.sum() == pytest.approx(min(1.0, room + max_weight * known.isna().sum()), abs=1e-4)      # nothing idle
+
+
+def test_core_weights_are_the_books_sharpe_weights_on_a_diagonal_covariance():
+    from nse_engine.config import PortfolioConfig
+    from nse_engine.portfolio import core_weights
+
+    forecast = pd.Series({"A": 4.0, "B": 8.0, "C": 2.0, "D": 6.0})
+    vol = pd.Series({"A": 0.2, "B": 0.4, "C": 0.1, "D": 0.3})
+    got = core_weights(forecast, vol, PortfolioConfig(max_weight=1.0, sector_cap=None))
+    expected = forecast * vol / vol ** 2                   # Eq. 3.85 with C = diag(vol^2), E = forecast x vol
+    assert got.reindex(forecast.index).to_numpy() == pytest.approx((expected / expected.sum()).to_numpy())
+
+
+@pytest.mark.parametrize("weights,why", [({"A": float("nan")}, "not finite"), ({"A": float("inf")}, "not finite"),
+                                         ({"A": -0.01, "B": 0.5}, "negative"), ({"A": 0.7, "B": 0.4}, "above max_gross")])
+def test_a_book_no_account_can_hold_is_refused(weights, why):
+    from nse_engine.portfolio import check_book_weights
+
+    with pytest.raises(ValueError, match=why):
+        check_book_weights(weights, 1.0)
+
+
+def test_a_full_or_empty_book_passes():
+    from nse_engine.portfolio import check_book_weights
+
+    check_book_weights({}, 1.0)
+    check_book_weights({"A": 0.6, "B": 0.4 + 1e-12}, 1.0)
+
+
+def test_vol_target_is_the_books_ratio_and_only_scales_down():
+    from nse_engine.allocator import _apply_vol_target
+    from nse_engine.config import AllocatorConfig
+
+    cfg = AllocatorConfig(target_vol_annual=0.10, vol_target_min_scale=0.3)
+    assert _apply_vol_target(1.0, 0.0, 0.20, 0.0, cfg, [])[0] == pytest.approx(0.10 / 0.20)      # Eq. 6.5's w
+    assert _apply_vol_target(1.0, 0.0, 0.05, 0.0, cfg, [])[0] == 1.0                             # never up
+    assert _apply_vol_target(1.0, 0.0, 0.80, 0.0, cfg, [])[0] == pytest.approx(0.3)              # the floor
+
+
+# ---- what the web page shows before go-live (Trade Center > Paper Validation)
+class _StatusBook:
+    def __init__(self, state):
+        self.state = state
+
+    def read_state(self):
+        return self.state
+
+
+def _go_live_state(**extra):
+    from nse_engine.capital_ladder import DRY_RUNS_KEY, SELL_PATH_KEY
+
+    sell = {"user_id": "AB1234", "ddpi_confirmed_on": "2026-11-02", "amo_status": "COMPLETE", "amo_side": "SELL",
+            "gtt_status": "triggered", "gtt_order_status": "COMPLETE", "verified_at": "2026-11-03"}
+    return {DRY_RUNS_KEY: json.dumps([{"session": str(i), "clean": True} for i in range(5)]),
+            SELL_PATH_KEY: json.dumps(sell), **extra}
+
+
+def _go_live(monkeypatch, state, gate):
+    from kite_connect.trading import live_session as ls
+
+    monkeypatch.delenv("CENTURION_LIVE_CAPITAL", raising=False)
+    return ls.go_live_status(_StatusBook(state), _StatusBook({"paper_gate": json.dumps(gate)}), trial_gates={})
+
+
+def test_go_live_status_says_ready_only_when_every_real_check_passes(monkeypatch):
+    done = _go_live(monkeypatch, _go_live_state(), {"verdict": "PASS", "sessions": 60})
+    assert done["ready"] and not done["live"] and done["ladder"] is None
+    assert [c["name"] for c in done["checks"]] == ["paper book G4", "live dry runs", "sell path"]
+    early = _go_live(monkeypatch, _go_live_state(), {"verdict": "PASS", "sessions": 59})
+    assert not early["ready"] and not early["checks"][0]["ok"]              # a fine Sharpe is not a check
+
+
+def test_go_live_status_holds_a_start_above_the_canary(monkeypatch):
+    from kite_connect.trading import live_session as ls
+
+    monkeypatch.setenv("CENTURION_LIVE_CAPITAL", "600000")
+    got = ls.go_live_status(_StatusBook(_go_live_state()),
+                            _StatusBook({"paper_gate": json.dumps({"verdict": "PASS", "sessions": 60})}), trial_gates={})
+    assert not got["ready"] and got["checks"][-1]["name"] == "canary"
+
+
+def test_go_live_status_shows_the_rung_once_live(monkeypatch):
+    from kite_connect.trading.live_session import LIVE_LEDGER_KEY
+    from nse_engine.capital_ladder import STATE_KEY, LadderState
+
+    state = _go_live_state(**{STATE_KEY: LadderState(rung=0, since="2026-12-15", sessions=12).dump(), LIVE_LEDGER_KEY: "{}"})
+    got = _go_live(monkeypatch, state, {"verdict": "PASS", "sessions": 60})
+    assert got["live"]
+    assert got["ladder"] == {"rung": 1, "rungs": 5, "capital": 300_000.0, "sessions": 12, "sessions_needed": 60,
+                             "since": "2026-12-15"}
+

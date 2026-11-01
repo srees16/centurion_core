@@ -305,3 +305,177 @@ def test_market_average_compares_over_common_sessions():
     in_2023 = book.iloc[10:][book.index[10:].year == 2023]
     assert abs(out["by_year"]["2023"]["book"] - (float(np.prod(1 + in_2023.to_numpy())) - 1)) < 1e-12
     assert "error" in market_average(book.iloc[:30], avg, nifty, rf=0.0)
+
+
+def test_alpha_beta_recovers_a_known_line():
+    from nse_engine.validation.diagnostics import alpha_beta
+
+    index = pd.bdate_range("2020-01-01", periods=500)
+    bench = pd.Series(np.random.default_rng(2).normal(0.0005, 0.01, 500), index=index)
+    got = alpha_beta(0.0002 + 0.7 * bench, bench)
+    assert got["beta"] == pytest.approx(0.7)
+    assert got["alpha_annual"] == pytest.approx(0.0002 * 252, rel=0.02)
+
+
+@pytest.mark.parametrize("level", [0.0, 0.001])
+def test_a_flat_benchmark_has_no_alpha_to_report(level):
+    from nse_engine.validation.diagnostics import alpha_beta
+
+    index = pd.bdate_range("2020-01-01", periods=60)
+    returns = pd.Series(np.random.default_rng(3).normal(0.0, 0.01, 60), index=index)
+    with pytest.raises(ValueError, match="design matrix"):
+        alpha_beta(returns, pd.Series(level, index=index))
+
+
+# ---- market timing (Aiuchi 2008, Ch. 4; tracker MIT1)
+def _timing_days(n=2_520, seed=6):
+    index = pd.bdate_range("2010-01-01", periods=n)
+    return pd.Series(np.random.default_rng(seed).normal(0.0004, 0.01, n), index=index)
+
+
+def _timing_runs(index, seed=7, mean_run=60):
+    rng = np.random.default_rng(seed)
+    flips = rng.random(len(index)) < 1.0 / mean_run
+    return pd.Series((np.cumsum(flips) % 2).astype("float64"), index=index)
+
+
+def test_perfect_timing_reaches_the_upper_boundary():
+    from nse_engine.validation.timing import timing_skill
+
+    r = _timing_days()
+    got = timing_skill(r, (r > r.quantile(0.5)).astype("float64"))
+    assert got["capture"] == pytest.approx(1.0)
+    assert got["held"] == pytest.approx(got["upper"])
+    assert got["rotation_p"] <= 2.0 / got["rotations"]
+
+
+def test_timing_excess_is_the_theses_identity():
+    from nse_engine.validation.timing import timing_skill
+
+    r = _timing_days()
+    s = _timing_runs(r.index)
+    got = timing_skill(r, s)
+    p, r_in = float(s.mean()), float(r[s == 1].mean()) * 252
+    assert got["held"] == pytest.approx(p * r_in)                                 # Sect. 4.4, r_L
+    assert got["timing_excess"] == pytest.approx(p * r_in - float(r.mean()) * 252)
+    assert got["random_days"] + (1 - p) * float(r.mean()) * 252 == pytest.approx(got["buy_hold"])
+    assert got["timing_excess"] > 0 or r_in < float(r.mean()) * 252 / p           # beats the market only past r / p
+
+
+def test_lower_boundary_meets_buy_and_hold_at_full_exposure():
+    from nse_engine.validation.timing import lower_boundary
+
+    assert lower_boundary(0.001, 0.01, 1.0, 2_500) == pytest.approx(0.001)         # no choice, no band
+    assert lower_boundary(0.001, 0.01, 0.0, 2_500) == pytest.approx(0.0)
+    assert lower_boundary(0.0, 0.01, 0.5, 2_500) == pytest.approx(1.6449 * 0.01 * 0.5 / 50, rel=1e-3)
+
+
+def test_table_5_5_random_signals_on_a_synthetic_decade():
+    r = _timing_days().to_numpy()
+    rng = np.random.default_rng(1)
+    for p in (0.1, 0.5, 0.9, 0.99):
+        annual = ((rng.random((4_000, len(r))) < p) * r).sum(axis=1) / 10
+        assert annual.mean() == pytest.approx(p * r.sum() / 10, abs=0.002)
+        assert annual.std() == pytest.approx(np.sqrt(p * (1 - p) * (r ** 2).sum()) / 10, rel=0.05)
+
+
+def test_a_rule_with_no_skill_is_not_called_skilled():
+    from nse_engine.validation.timing import timing_skill
+
+    r = _timing_days()
+    values = [timing_skill(r, _timing_runs(r.index, seed=s))["rotation_p"] for s in range(200)]
+    assert 0.02 <= float(np.mean(np.array(values) <= 0.05)) <= 0.10                # about the 5% it claims
+
+
+def test_rotations_match_a_direct_count():
+    from nse_engine.validation.timing import TimingConfig, rotation_pvalue
+
+    r, s = _timing_days(300).to_numpy(), _timing_runs(_timing_days(300).index, mean_run=30).to_numpy()
+    cfg = TimingConfig(min_sessions=100)
+    got, used = rotation_pvalue(r, s, cfg)
+    shifts = range(cfg.min_rotation_gap, len(r) - cfg.min_rotation_gap + 1)
+    direct = sum(float(r @ np.roll(s, k)) >= float(r @ s) - cfg.tolerance for k in shifts)
+    assert used == len(shifts) and got == pytest.approx((1 + direct) / (1 + used))
+
+
+@pytest.mark.parametrize("change,why", [("flat", "never changes"), ("nan", "not finite"), ("half", "0 or 1"),
+                                        ("short", "aligned sessions"), ("few", "switches")])
+def test_a_signal_with_nothing_to_test_is_refused(change, why):
+    from nse_engine.validation.timing import timing_skill
+
+    r = _timing_days()
+    s = _timing_runs(r.index)
+    if change == "flat":
+        s = s * 0.0
+    elif change == "nan":
+        s.iloc[9] = np.nan
+    elif change == "half":
+        s.iloc[9] = 0.5
+    elif change == "short":
+        s = s.head(100)
+    elif change == "few":
+        s = pd.Series((np.arange(len(r)) > 1_000).astype("float64"), index=r.index)
+    with pytest.raises(ValueError, match=why):
+        timing_skill(r, s)
+
+
+# ---- cost margin (Lahanis, Liu and Zhou; tracker OPS1)
+def _margin_book(n=2_520, daily_cost=0.0001):
+    index = pd.bdate_range("2010-01-01", periods=n)
+    returns = pd.Series(np.random.default_rng(9).normal(0.0006, 0.008, n), index=index)
+    return returns, pd.Series(daily_cost, index=index)
+
+
+def test_cost_margin_lands_exactly_on_the_hurdle():
+    from nse_engine.validation.cost_margin import DAYS_PER_YEAR, _cagr, cost_margin
+
+    returns, costs = _margin_book()
+    hurdle = 0.08
+    got = cost_margin(returns, costs, hurdle)
+    assert got["converged"] and 1.0 < got["multiple"] < 20.0
+    at_root = (returns - (got["multiple"] - 1.0) * costs).to_numpy()
+    years = (returns.index[-1] - returns.index[0]).days / DAYS_PER_YEAR
+    assert _cagr(at_root, years) == pytest.approx(hurdle, abs=1e-6)
+    assert got["annual_cost"] == pytest.approx(costs.sum() / years)
+
+
+def test_cost_margin_rises_as_the_hurdle_falls_and_costs_shrink():
+    from nse_engine.validation.cost_margin import cost_margin
+
+    returns, costs = _margin_book()
+    high, low = cost_margin(returns, costs, 0.10)["multiple"], cost_margin(returns, costs, 0.05)["multiple"]
+    assert low > high
+    assert cost_margin(returns, costs * 0.5, 0.10)["multiple"] > high
+
+
+def test_cost_margin_edge_cases_are_explicit():
+    from nse_engine.validation.cost_margin import CostMarginConfig, cost_margin
+
+    returns, costs = _margin_book()
+    assert cost_margin(returns, costs, 0.90)["multiple"] == 1.0                      # already below
+    assert cost_margin(returns, costs, -0.90)["multiple"] == float("inf")            # no cost gets there
+    got = cost_margin(returns, costs, 0.08, 0.03)
+    assert got["multiple_within_haircut"] == pytest.approx(1.0 + 0.03 / got["annual_cost"])
+    with pytest.raises(ArithmeticError, match="not settled"):
+        cost_margin(returns, costs, 0.08, cfg=CostMarginConfig(max_iterations=2))
+
+
+@pytest.mark.parametrize("change,why", [("nan", "finite"), ("negative", "negative"), ("none", "no costs"),
+                                        ("gap", "finite"), ("short", "sessions")])
+def test_cost_margin_refuses_bad_input(change, why):
+    from nse_engine.validation.cost_margin import cost_margin
+
+    returns, costs = _margin_book()
+    if change == "nan":
+        costs.iloc[3] = np.nan
+    elif change == "negative":
+        costs.iloc[3] = -0.1
+    elif change == "none":
+        costs = costs * 0.0
+    elif change == "gap":
+        costs = costs.drop(costs.index[3])
+    elif change == "short":
+        returns, costs = returns.head(100), costs.head(100)
+    with pytest.raises(ValueError, match=why):
+        cost_margin(returns, costs, 0.08)
+

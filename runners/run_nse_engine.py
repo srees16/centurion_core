@@ -82,6 +82,45 @@ def _load_data(cfg: EngineConfig, warmup_years: int = 2, data_start: str = None)
     )
 
 
+def cmd_cost_margin(args) -> None:
+    """How far above the model costs can run before the recorded walk-forward book falls to a hurdle (tracker OPS1)."""
+    from nse_engine import bond_stream as bs
+    from nse_engine.diversifier_gate import LIVE_HAIRCUT, _live_book
+    from nse_engine.validation.cost_margin import cost_margin
+
+    base = bs.walk_forward_base(args.walk_forward)
+    sessions = base.returns.index
+    costs = []
+    for fold in json.loads(Path(args.walk_forward).read_text())["folds"]:
+        run = Path(bs.BOOK_RUNS) / fold["test_run_id"]
+        trades = pd.read_csv(run / "trades.csv")
+        dates = pd.to_datetime(trades["date"])
+        keep = (dates >= fold["test_start"]) & (dates <= fold["test_end"])
+        equity = pd.read_csv(run / "equity.csv", index_col=0).squeeze("columns")
+        equity.index = pd.DatetimeIndex(equity.index)
+        cost = pd.to_numeric(trades.loc[keep, "cost_inr"]).groupby(dates[keep]).sum()
+        costs.append(cost / equity.reindex(cost.index).ffill())
+    book = _live_book(base, bs.bond_returns(sessions, bs.BondConfig())["liquid"], sessions)
+    cost = pd.concat(costs).sort_index().reindex(sessions).fillna(0.0)
+    print(json.dumps(cost_margin(book, cost, args.hurdle, LIVE_HAIRCUT * float(base.invested.mean())), indent=2))
+
+
+def cmd_timing_skill(args) -> None:
+    """Does the regime gate pick days, or only sit out risk (tracker MIT1)?  Research data only, 2008 onward."""
+    from nse_engine.bond_stream import nifty_tri
+    from nse_engine.deployment import load_deployment
+    from nse_engine.engine import EngineCache
+    from nse_engine.validation.timing import timing_skill
+
+    cfg = load_deployment().reference_config().replace(**{"start": args.start, "end": args.end,
+                                                          "data.store_dir": args.store})
+    data = _load_data(cfg, data_start=args.data_start)
+    state = EngineCache(data, cfg).regime.state
+    sessions = state.loc[args.start:args.end].index
+    held = (state != "risk_off").astype("float64").shift(args.lag).reindex(sessions)
+    print(json.dumps(timing_skill(nifty_tri(sessions, args.store), held), indent=2, default=float))
+
+
 def cmd_for_cause_exits(args) -> None:
     """Rewrite config/nse_for_cause_exits.json from the raw archive (tracker SB3), at January's window roll."""
     from nse_engine.data.reference import FOR_CAUSE_EXITS
@@ -822,6 +861,19 @@ def main(argv=None) -> None:
     p.add_argument("--skip-registry-check", action="store_true",
                    help="do not compare the rebuilt store's fingerprint with the trial registry")
     p.set_defaults(func=cmd_build_store)
+
+    p = sub.add_parser("cost-margin", help="how far above the model costs can run before the book falls to a hurdle")
+    p.add_argument("--walk-forward", default="data/nse_engine/wf_stitched_r4b.json")
+    p.add_argument("--hurdle", type=float, default=0.124, help="CAGR of passive 60 NIFTY / 40 gold, 2008-25")
+    p.set_defaults(func=cmd_cost_margin)
+
+    p = sub.add_parser("timing-skill", help="the regime gate's skill at picking days, against every rotation of itself")
+    p.add_argument("--start", default="2008-01-01")
+    p.add_argument("--end", default="2025-12-31")
+    p.add_argument("--data-start", default="2006-01-02")
+    p.add_argument("--store", default="data/nse_engine/store_ext2006")
+    p.add_argument("--lag", type=int, default=2, help="sessions from the close that decides to the first return held")
+    p.set_defaults(func=cmd_timing_skill)
 
     p = sub.add_parser("for-cause-exits", help="what a holder got for stocks that left EQ / BE for a restricted "
                                                "series (config/nse_for_cause_exits.json)")
