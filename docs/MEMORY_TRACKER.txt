@@ -1314,6 +1314,46 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              breaks it, which backs "no structural leverage".  Real days: 23 Mar
              2020 -1.25%, 4 Jun 2024 -7.59%.  Open: market_protection awaits
              Zerodha.  464 tests (414 plus 50 skips core-only), 6 of 6 breakages.
+1 Nov   LIQ1 Impermanent-loss hedging paper, Lipton, Lucic and Sepp (plan 5bo): nothing adopted, no code.  DeFi liquidity
+             positions: Centurion holds none and has no non-linear payoff to replicate.  Printed figures reproduced
+             (residual 0.0245% against 0.025%).  Its Lipton-Lewis formula checked theory.black_scholes independently: 400
+             random cases, largest gap 7.7e-9.  Code MIT, not used.  CADENCE, sent again, stays closed in 5bn.
+1 Nov   VOL1 CAD1 FinBERT volatility paper and CADENCE (plan 5bn): nothing adopted, no code.  Lis et al.: its target, a future
+             average of a trailing 252-session estimate, correlates 0.99 with naive; losses about 140-8,000x smaller than on
+             the true target, so its tests have little left to predict.  But naive still wins 9 of 15 cells on the
+             true target, so not purely an artefact.  HAR against the book's 60-day: QLIKE 0.285 / 0.318, t 1.09,
+             needed 3, and it ranks stocks worse (0.59 / 0.67): keep 60-day.  HAR-VIX on NIFTY fails: t -3.57 / 1.38 /
+             0.36.  CADENCE is credit underwriting; its one transferable rule passes: GT7's 126 sessions clears the
+             on-schedule 99th percentile of 94 (63 sessions would clip 42%).  Found, not changed: analyzer.py:101 turns
+             a failed classification into neutral (legacy path only).  The 252-day lead, tested on your go, set first,
+             forecast only, no core trial: QLIKE 0.293 / 0.319 against 60-day, t 1.66, needed 3, FAIL; lower in both
+             halves, ranks better (0.694 / 0.668), late in a spike (Mar 2020: truth 0.87, 60-day 0.48, 252-day 0.37).
+             No core trial spent.  Book stays on 60-day.
+1 Nov   TRA1 Rule-following trading agents paper, Hygentra (plan 5bm; uncommitted, both repos).  Vendor crypto report, no
+             trade data linked; tables re-derived.  Its headline is an identity: expectancy = margin x (win + loss).
+             Its audit battery run on ours: core passes all (99.9% of loss inside the opening stop, no escalation
+             after losses, best name 2.3% of profit, margin +8.4 points); that leaves no code.  One real gap: go-live
+             never said which controls had run.  Deployed paper, 31 sessions: regime exit 0, drawdown rule 0.
+             Built capital_ladder.control_coverage, `coverage` on /kite/go-live, a line on Trade Center's panel.
+             Read only: `ready` cannot move, no gate added.  Noted: open_positions counts lots (29 rows, 19 names,
+             no limit reads it); closed-trade hit rate runs low in a young book.  567 tests (516 plus 51 skips
+             core-only), 6 of 6 breakages, canary ok, tsc clean.
+1 Nov   PIM1 Passive market impact paper, Hafsi, Lillo and Szymanski (plan 5bl): nothing adopted, no code.  ES futures
+             order-book messages: we hold none, and engine orders are AMO LIMIT for the open, not trades against a queue.
+             Theory checked on synthetic data (kappa1 by eq. 18 within 0.2%).  Its regressions explain same-interval
+             moves, so no signal.  My first rule cleared at 0.76 points but compared thin with thick; corrected before
+             the next run: Table 5's thin/average/thick multiples give -0.04 points at Rs 30 lakh, ceiling 0.23, under
+             the 0.25 bar.  Thin sessions carry 32% of impact.  Reopen before Rs 3 crore, with canary fills.  Flagged:
+             delta 116 s against 212 s, Table 1's s.e., kappa fitted on the best queue but used at 101 AES.  Found, not
+             changed: order_service.py:528 and auto_executor's slippage take abs(), so price improvement logs as cost;
+             legacy log only, live_session's G4 reading is signed.
+1 Nov   TDA1 Quantum topological data analysis paper (plan 5bk): nothing adopted, no code.  Quantum stage does not
+             apply; classical beta-1 tested as a crash warning.  Tables I and IV replicated exactly (AUC 0.818).  Its
+             lead is a dating effect: at the window's end beta-1 reached 7 on 8 Apr 2008, after Bear Stearns.  Its
+             test decisions start 29 Dec 2008.  Shuffling each window's days scores 0.96, so time order does no work.
+             NIFTY 2008-25, set first: AUC 0.496, 2 of 6 periods, -0.174 against volatility: all three fail.  2020
+             AUC 0.031; beta-1 >= 7 fires only after the crash, precision 2.3% against a 15.1% base rate.  Repo has no
+             licence: read, not run or copied.  Volatility is under 0.5 in 3 of 6 periods too, so neither warns reliably.
 1 Nov   MV1C Minervini review, your three calls (plan 5aa clarification, uncommitted; no code, no run).  MV1 rule 2
              is now a resting order at the pivot, limit pivot x 1.03, breakout volume dropped as look-ahead.  Rule 1
              gains the deceleration test (smoothed growth fell twice and halved).  Rule 5 gains the step-down: under
