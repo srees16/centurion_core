@@ -12,6 +12,8 @@ import json
 from dataclasses import asdict, dataclass, replace
 from typing import Dict, Tuple
 
+import pandas as pd
+
 from kite_connect.options.fno_costs import FNO_COST_MODEL_VERSION
 
 #: Union Budget and general-election result days (M5 ch. 18: no writing across events).
@@ -19,8 +21,14 @@ EVENT_DATES: Tuple[str, ...] = (
     "2013-02-28", "2014-02-17", "2014-05-16", "2014-07-10", "2015-02-28", "2016-02-29",
     "2017-02-01", "2018-02-01", "2019-02-01", "2019-05-23", "2019-07-05", "2020-02-01",
     "2021-02-01", "2022-02-01", "2023-02-01", "2024-02-01", "2024-06-04", "2024-07-23",
-    "2025-02-01", "2026-02-01",
+    "2025-02-01", "2026-02-01", "2027-02-01",    # 2027: the customary Budget date, correct it if announced otherwise
 )
+
+
+def events_ahead(day) -> bool:
+    """Whether ``EVENT_DATES`` still holds a date on or after ``day``.  It is filled by hand, so once it runs out a
+    sleeve skips nothing and opens across the next Budget, unlike the rule that was tested."""
+    return any(pd.Timestamp(e) >= pd.Timestamp(day) for e in EVENT_DATES)
 
 
 @dataclass(frozen=True)

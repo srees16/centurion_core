@@ -109,6 +109,14 @@ class Broker:
         """The account's net positions."""
         return (self.kite.positions() or {}).get("net", [])
 
+    def holdings(self) -> List[dict]:
+        """The account's delivery holdings."""
+        return self.kite.holdings() or []
+
+    def available_cash(self) -> float:
+        """The equity segment's net available margin."""
+        return float((self.kite.margins("equity") or {}).get("net") or 0.0)
+
     # ── orders ──────────────────────────────────────────────────
     def place_limit(self, tradingsymbol: str, side: str, quantity: int, price: float,
                     tag: Optional[str] = None) -> SliceResult:

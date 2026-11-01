@@ -68,7 +68,7 @@ import json
 import logging
 import os
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import pandas as pd
 
@@ -96,6 +96,10 @@ SELL_PATH_KEY = "live_sell_path"
 LIVE_CONFIG_KEY = "live_config"       # {"config_hash", "since"}: what the live book trades, since when (V5)
 GO, HOLD, STEP_DOWN = "GO", "HOLD", "STEP DOWN"
 GO_CHECKS = ("tracking error", "daily gap", "drawdown", "regime break")
+#: Each control and the ``exit_reason`` text that proves it ran in a paper record (TRA1).
+CONTROL_PATHS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
+    ("rebalance", ("REBALANCE",)), ("rank exit", ("RANK_EXIT",)), ("stop", ("GTT_SL", "EXIT:STOP")),
+    ("sleeve exit", ("SLEEVE",)), ("regime exit", ("REGIME",)))
 
 
 def sessions_needed(rung: int) -> int:
@@ -459,4 +463,15 @@ def readiness(paper_gate: Optional[Dict[str, Any]], dry_runs: Sequence[Dict[str,
     if capital is not None:
         out.append(("canary", rung_of(capital) == 0,
                     f"starts at Rs {float(capital):,.0f} (the canary is Rs {RUNGS[0]:,.0f})"))
+    return out
+
+
+def control_coverage(exit_reasons: Iterable[Any], drawdown_states: Iterable[Any]) -> List[Dict[str, Any]]:
+    """How often each control has run in a paper record, exits by reason and the drawdown rule in sessions off
+    normal (TRA1).  Not a go-live check: G4 can pass on 60 quiet sessions, and a control at 0 is untested, not
+    passed."""
+    reasons = [r.upper() for r in exit_reasons if isinstance(r, str)]
+    out: List[Dict[str, Any]] = [{"path": name, "count": sum(any(m in r for m in marks) for r in reasons)}
+                                 for name, marks in CONTROL_PATHS]
+    out.append({"path": "drawdown rule", "count": sum(isinstance(s, str) and s != "normal" for s in drawdown_states)})
     return out

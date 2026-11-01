@@ -184,8 +184,8 @@ WIPRO = [558.75, 570.9, 576.85, 551.05, 557.05, 550.75, 544.4, 536, 548.65, 549.
 def test_m5_16_log_returns_and_annualisation():
     r = t.log_returns(WIPRO) * 100                                                            # M5.16.1
     assert list(np.round(r, 2)) == approx([2.15, 1.04, -4.58, 1.08, -1.14, -1.16, -1.56, 2.33, 0.16, 0.34, 0.23, -0.84, -0.93])
-    assert t.annualize_vol(0.0147) == approx(0.2808, abs=5e-5)                                # M5.16.2
-    assert t.deannualize_vol(0.255) == approx(0.0133, abs=5e-5)                              # M5.16.3
+    assert t.annualize_vol(0.0147, 365) == approx(0.2808, abs=5e-5)                                # M5.16.2
+    assert t.deannualize_vol(0.255, 365) == approx(0.0133, abs=5e-5)                              # M5.16.3
 
 
 def test_m5_17_lognormal_ranges():
@@ -240,7 +240,7 @@ def test_m5_20_3_directional_properties():
 def test_m5_20_volatility_cone_from_prices():
     rng = np.random.default_rng(7)
     prices = 100 * np.exp(np.cumsum(rng.normal(0, 0.01, 400)))
-    cone = t.volatility_cone(prices, windows=(10, 30, 90))
+    cone = t.volatility_cone(prices, windows=(10, 30, 90), days_per_year=365)
     assert set(cone) == {10, 30, 90}
     for row in cone.values():
         assert row["min"] <= row["mean"] <= row["max"] and row["minus1"] < row["mean"] < row["plus1"]

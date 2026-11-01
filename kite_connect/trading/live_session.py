@@ -1269,7 +1269,8 @@ def go_live_status(book=None, paper_book=None, trial_gates: Optional[Dict[str, d
                   "sessions": lstate.sessions, "sessions_needed": cl.sessions_needed(lstate.rung),
                   "since": lstate.since}
     return {"ready": all(ok for _, ok, _ in checks), "live": bool(state.get(LIVE_LEDGER_KEY)), "ladder": ladder,
-            "canary_capital": cl.RUNGS[0], "checks": [{"name": n, "ok": ok, "detail": d} for n, ok, d in checks]}
+            "canary_capital": cl.RUNGS[0], "checks": [{"name": n, "ok": ok, "detail": d} for n, ok, d in checks],
+            "coverage": _control_coverage(paper_book)}
 
 
 def _trial_gates(dep) -> Dict[str, dict]:
@@ -1293,17 +1294,35 @@ def _trial_gates(dep) -> Dict[str, dict]:
         return {}
 
 
+def _deployed_paper_book():
+    from database.connection import get_db_manager
+    from database.paper_cloud import PaperCloudSync
+    return PaperCloudSync(get_db_manager(), schema=None)
+
+
 def _paper_state(paper_book=None) -> Dict[str, str]:
     """State of the deployed paper book (default schema): its G4 report."""
-    if paper_book is None:
-        from database.connection import get_db_manager
-        from database.paper_cloud import PaperCloudSync
-        paper_book = PaperCloudSync(get_db_manager(), schema=None)
     try:
-        return paper_book.read_state()
+        return (paper_book if paper_book is not None else _deployed_paper_book()).read_state()
     except Exception as exc:                              # noqa: BLE001
         logger.warning("paper book state unavailable: %s", exc)
         return {}
+
+
+def _control_coverage(paper_book=None) -> Optional[List[Dict[str, Any]]]:
+    """Which controls the deployed paper book's record has run, or None when no record can be read: an unread
+    record must not read as every control at 0."""
+    from nse_engine.capital_ladder import control_coverage
+
+    try:
+        book = paper_book if paper_book is not None else _deployed_paper_book()
+        positions, sessions = book.read_positions(), book.read_sessions()
+    except Exception as exc:                              # noqa: BLE001 - the page then says nothing
+        logger.warning("paper record unavailable: %s", exc)
+        return None
+    if "exit_reason" not in positions or "drawdown_state" not in sessions:
+        return None
+    return control_coverage(positions["exit_reason"], sessions["drawdown_state"])
 
 
 def _ladder_step(ex, data, view, dep, ledger: dict, state: Dict[str, str], book, session, history: pd.Series,

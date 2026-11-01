@@ -17,7 +17,10 @@ quotes and reports:
   daily sigma x sqrt(days held)), against the position's delta, with the
   daily sigma from the entry ATM IV;
 * **max loss**: the loss has reached ``MAX_LOSS_ALERT`` of the basket's
-  maximum loss.
+  maximum loss;
+* **200% rule and 10% rule** (Cordier & Gross ch. 12), on a basket opened for
+  a net credit: closing it now costs ``STOP_MULTIPLE`` times the credit or
+  more (buy it back), or ``TAKE_FRACTION`` of it or less (take the profit).
 
 It alerts; it never trades.
 """
@@ -43,6 +46,8 @@ from kite_connect.options.theory import (BUY, CALL, PUT, SELL, black_scholes, im
 DEFAULT_LEDGER = Path("data/options/positions.json")
 NEAR_BREAKEVEN = 0.005
 MAX_LOSS_ALERT = 0.8
+STOP_MULTIPLE = 2.0
+TAKE_FRACTION = 0.10
 
 
 @dataclass
@@ -187,6 +192,16 @@ def evaluate(pos: OptionsPosition, prices: Dict[str, float], spot: float, now: d
                           f"(entry {pos.entry_spot:,.2f}, {held:.0f} day(s), M5 ch. 18)")
     if pos.max_loss_inr and pnl <= -MAX_LOSS_ALERT * pos.max_loss_inr:
         alerts.append(f"loss Rs {-pnl:,.0f} is {-pnl / pos.max_loss_inr:.0%} of the maximum Rs {pos.max_loss_inr:,.0f}")
+    credit = -sum(l.sign * l.quantity * l.price for l in pos.legs)
+    marks = [prices.get(l.tradingsymbol, math.nan) for l in pos.legs]
+    if credit > 0 and all(math.isfinite(m) for m in marks):       # one unpriced leg would misstate the cost
+        to_close = -sum(l.sign * l.quantity * m for l, m in zip(pos.legs, marks))
+        if to_close >= STOP_MULTIPLE * credit:
+            alerts.append(f"200% rule: closing costs Rs {to_close:,.0f}, {to_close / credit:.1f}x the "
+                          f"Rs {credit:,.0f} credit: buy it back")
+        elif to_close <= TAKE_FRACTION * credit:
+            alerts.append(f"10% rule: closing costs Rs {max(to_close, 0.0):,.0f} of the Rs {credit:,.0f} credit: "
+                          f"take the profit")
     return PositionStatus(pos, spot, pnl, greeks, alerts, approximate=approximate and greeks is not None)
 
 

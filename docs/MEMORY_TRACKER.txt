@@ -271,6 +271,29 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      2027).  ACCEPT: live may start at Rs 3 lakh (GT2I's canary; the rule itself stands as
      fixed, it read Rs 6 lakh) after 5 clean dry runs, on
      your go-ahead.  REJECT: no live capital; 679cbd0c is not re-tuned.
+ >>> A1 EVENT LIST: sleeves.EVENT_DATES holds 2027-02-01, the customary Budget date (added 1 Nov at your call, not yet
+     announced).  Correct it if the date differs.  After it passes the nightly overlay alerts until the next is added.
+ >>> OPTIONS PAGE (OPT1, uncommitted)
+     1. After merging, open Ind Stocks > Options with Kite logged in, on a trading
+        day: Option Chain tab, then Scan Overlay Strategies.  Not yet seen on
+        live quotes or in a browser.
+     2. Every month: python -m kite_connect.options.cli iv-snapshot, after
+        "refresh", then commit config/iv30_history.csv.gz.  After 45 days the
+        scan refuses a stale rank and says so in its log.
+ >>> INT1A MINUTE DATA (budget Rs 50,000 approved 1 Nov, all in)
+     1. Email TrueData and Global Datafeeds; the text is in chat, 1 Nov.
+     2. Forward Claude the replies and sample files.  They are checked against
+        the bhavcopy before you pay anything.
+     3. Buy from the one confirmed, then say "do INT1A".  What the budget buys,
+        in order: expired futures, then their bid/ask, then expired options.
+ >>> AFTER YOU MERGE KES1 (plan 5be)
+     1. GitHub > centurion_core > Settings > Secrets and variables > Actions >
+        Variables: add CENTURION_SKIP_DONE_RUNS = true.  Backup runs then stop
+        on a finished night, about 70 GB a month less cache egress.  Until
+        then nothing changes.  To undo: delete the variable.
+     2. Put the Kite Connect app's expiry date in your calendar, a week early,
+        and renew from it.  Its console shows the date; no code tracks it, and
+        it lapsed unnoticed on 17 Oct.
  >>> MON 2 NOV - YOUR ACTIONS (a trading day)
      1. Kite login, as every trading day.
      2. Then run the Kill switch check, read only, it cancels nothing.  GitHub >
@@ -769,8 +792,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 [x]     GT2G WITHDRAWN 31 Oct: U28 closed single-stock futures shorts on 10 Oct
              (your call; R15).  Reopens past Rs 2 crore, as a market-neutral spread.
 [!] P2  INT1 Intraday programme (your amendment U37; plan 5av).  Starts after GT2B's
-             verdict and GT2H.  Your call left: minute-data vendor and budget.  The
-             2008 exception is granted (U38).
+             verdict and GT2H.  Budget: Rs 50,000 approved by you 1 Nov, all in
+             (GST, exchange fees).  Your call left: the vendor, after samples.
+             The 2008 exception is granted (U38).
              INT1A Data: minute_store, NIFTY and BANKNIFTY futures first (no dead
                names), every session checked against the bhavcopy.  Prompt: do INT1A
              INT1B Simulator: next-bar fills, real spreads, flat by 15:15,
@@ -1015,7 +1039,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              the core's N is at the PBO bar.  It adds the earnings screen
              from the book (pp. 127-158): >= 20% profit growth year on
              year in each of the last 2 quarters, revenue up, turnarounds
-             >= +100%.  It runs after V3, against the configuration V3
+             >= +100%.  1 Nov clarification (5aa): resting pivot entry,
+             deceleration test, losing-streak step-down, +/-3 swings at
+             the base's right edge.  It runs after V3, against the configuration V3
              leaves live.                                Prompt: do MV1
 [ ] P3  GT7  Earnings-drift overlay on the core ranking (needs GT1; core
              family: one configuration, after V3).  Pre-registered 11 Oct
@@ -1288,6 +1314,139 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              breaks it, which backs "no structural leverage".  Real days: 23 Mar
              2020 -1.25%, 4 Jun 2024 -7.59%.  Open: market_protection awaits
              Zerodha.  464 tests (414 plus 50 skips core-only), 6 of 6 breakages.
+1 Nov   GT3  Golden target rebuild review (your ask; docs/Golden target rebuild evidence.md; no code, no
+             trial).  No evidence for a sustained 1.4 / 35%.  One book, three bases: 13.0% / 0.60 free sweep, 12.4% / 0.54
+             realistic sweep, 10.9% / 0.43 as paper and live run today.  2013-25 already at the milestone; the shortfall
+             is 2008-12, where NSE's momentum index shows no alpha either.  Audit: bear legs lost half or less of NIFTY's
+             fall; rebounds lag (37% of 2008-10, 60% of 2016-20); range +2%.  Core budget is ZERO before January (GT2B spent
+             the last), so the lines above saying one is left are stale.  Plan: do-now controls and fills to 11 Dec, three
+             January core slots plus the half-step overlay, events later.  Eight decisions wait for you.
+1 Nov   LIQ1 Impermanent-loss hedging paper, Lipton, Lucic and Sepp (plan 5bo): nothing adopted, no code.  DeFi liquidity
+             positions: Centurion holds none and has no non-linear payoff to replicate.  Printed figures reproduced
+             (residual 0.0245% against 0.025%).  Its Lipton-Lewis formula checked theory.black_scholes independently: 400
+             random cases, largest gap 7.7e-9.  Code MIT, not used.  CADENCE, sent again, stays closed in 5bn.
+1 Nov   VOL1 CAD1 FinBERT volatility paper and CADENCE (plan 5bn): nothing adopted, no code.  Lis et al.: its target, a future
+             average of a trailing 252-session estimate, correlates 0.99 with naive; losses about 140-8,000x smaller than on
+             the true target, so its tests have little left to predict.  But naive still wins 9 of 15 cells on the
+             true target, so not purely an artefact.  HAR against the book's 60-day: QLIKE 0.285 / 0.318, t 1.09,
+             needed 3, and it ranks stocks worse (0.59 / 0.67): keep 60-day.  HAR-VIX on NIFTY fails: t -3.57 / 1.38 /
+             0.36.  CADENCE is credit underwriting; its one transferable rule passes: GT7's 126 sessions clears the
+             on-schedule 99th percentile of 94 (63 sessions would clip 42%).  Found, not changed: analyzer.py:101 turns
+             a failed classification into neutral (legacy path only).  The 252-day lead, tested on your go, set first,
+             forecast only, no core trial: QLIKE 0.293 / 0.319 against 60-day, t 1.66, needed 3, FAIL; lower in both
+             halves, ranks better (0.694 / 0.668), late in a spike (Mar 2020: truth 0.87, 60-day 0.48, 252-day 0.37).
+             No core trial spent.  Book stays on 60-day.
+1 Nov   TRA1 Rule-following trading agents paper, Hygentra (plan 5bm; uncommitted, both repos).  Vendor crypto report, no
+             trade data linked; tables re-derived.  Its headline is an identity: expectancy = margin x (win + loss).
+             Its audit battery run on ours: core passes all (99.9% of loss inside the opening stop, no escalation
+             after losses, best name 2.3% of profit, margin +8.4 points); that leaves no code.  One real gap: go-live
+             never said which controls had run.  Deployed paper, 31 sessions: regime exit 0, drawdown rule 0.
+             Built capital_ladder.control_coverage, `coverage` on /kite/go-live, a line on Trade Center's panel.
+             Read only: `ready` cannot move, no gate added.  Noted: open_positions counts lots (29 rows, 19 names,
+             no limit reads it); closed-trade hit rate runs low in a young book.  567 tests (516 plus 51 skips
+             core-only), 6 of 6 breakages, canary ok, tsc clean.
+1 Nov   PIM1 Passive market impact paper, Hafsi, Lillo and Szymanski (plan 5bl): nothing adopted, no code.  ES futures
+             order-book messages: we hold none, and engine orders are AMO LIMIT for the open, not trades against a queue.
+             Theory checked on synthetic data (kappa1 by eq. 18 within 0.2%).  Its regressions explain same-interval
+             moves, so no signal.  My first rule cleared at 0.76 points but compared thin with thick; corrected before
+             the next run: Table 5's thin/average/thick multiples give -0.04 points at Rs 30 lakh, ceiling 0.23, under
+             the 0.25 bar.  Thin sessions carry 32% of impact.  Reopen before Rs 3 crore, with canary fills.  Flagged:
+             delta 116 s against 212 s, Table 1's s.e., kappa fitted on the best queue but used at 101 AES.  Found, not
+             changed: order_service.py:528 and auto_executor's slippage take abs(), so price improvement logs as cost;
+             legacy log only, live_session's G4 reading is signed.
+1 Nov   TDA1 Quantum topological data analysis paper (plan 5bk): nothing adopted, no code.  Quantum stage does not
+             apply; classical beta-1 tested as a crash warning.  Tables I and IV replicated exactly (AUC 0.818).  Its
+             lead is a dating effect: at the window's end beta-1 reached 7 on 8 Apr 2008, after Bear Stearns.  Its
+             test decisions start 29 Dec 2008.  Shuffling each window's days scores 0.96, so time order does no work.
+             NIFTY 2008-25, set first: AUC 0.496, 2 of 6 periods, -0.174 against volatility: all three fail.  2020
+             AUC 0.031; beta-1 >= 7 fires only after the crash, precision 2.3% against a 15.1% base rate.  Repo has no
+             licence: read, not run or copied.  Volatility is under 0.5 in 3 of 6 periods too, so neither warns reliably.
+1 Nov   MV1C Minervini review, your three calls (plan 5aa clarification, uncommitted; no code, no run).  MV1 rule 2
+             is now a resting order at the pivot, limit pivot x 1.03, breakout volume dropped as look-ahead.  Rule 1
+             gains the deceleration test (smoothed growth fell twice and halved).  Rule 5 gains the step-down: under
+             1/3 winners in the last 20 closed trades halves new buys, twice at most.  Rule 2's base reads the right
+             edge with +/-3 swings after the latest +/-5 swing, behind a new setting off by default, so tight
+             final pauses count.  Still one bundled trial.
+             O9 reopens only on MV1's result.  If it does, one configuration (N = 2) with: the resting entry; a
+             shorter swing for the last contraction (71 of 80 trades showed only 2 contractions); pilot-size entries
+             while the gate is off; largest fall measured from the stage 2 start on heavy volume (p.90); the 50-day
+             exit marked (A), no such sell rule found in the book; idle cash credited.  O9's 20-day exit stays: 28 exits averaged
+             -4.5%, and holding to session 60 also gave -4.5%.  Review analysis stays in chat.
+1 Nov   OPT3 Option Trader Handbook review, your three calls (uncommitted).  Overlay scan back to about 30 days,
+             keeping delta 0.20, OI 500+ and the 50% cap: the two books disagree, and A1 at 15 days passed
+             where O5 at the second monthly did not.  Floor 0.75% now needs about 25% IV.  Skew line in the
+             scan's log and the pre-trade report: near IV 3 points or more above far.  Nightly alert while
+             sleeves.EVENT_DATES has no date ahead.  Debit exit plan left, as you said.
+1 Nov   OPT2 Cordier & Gross review, your four calls (uncommitted).  Overlay scan: delta 0.20, second monthly,
+             secured puts and condor margin together at most 50%, OI 500+, premium floor 0.75% of spot
+             (your call; 1.5% needed about 37% IV).  position_monitor: 200% and
+             10% alerts on credit baskets (alerts only).  options_executor (no callers): lot from the
+             contract with the hedge's notional kept, LIMIT on every path, a close journals only on
+             a fill and is cancelled if unfilled.  Plan 5x: the 1/3 wing rule is ours, not the book's.
+1 Nov   OPT1 Options page rebuilt on real data (your three calls after the Natenberg review; uncommitted).
+             Chain: /options/chain and /options/expiries now serve live_chain as the page's rows, ISO
+             expiries, one IV a strike, dashes not zeros, errors shown; ATM is the nearest strike.
+             The old path always failed (wrong argument), and the page hid it.  dOI column removed:
+             Kite quotes carry no previous OI.  Overlay scan: new overlay_scan.py, owner only, read
+             only.  Real holdings and cash, listed strikes and expiries, bid and ask premiums, live
+             30-day IV ranked on a one-year snapshot (config/iv30_history.csv.gz, data/ is not
+             deployed).  Nothing defaults: a symbol with no quote or history is named in the log.
+             Gone: every-F&O-stock-is-held, forecast 10.0, rank 55, the invented expiry, short
+             strangles (check_limits refuses them), the fake regime, and run_overlay's feed of
+             hypothetical premium into VolatilityTarget (the API no longer calls it; carver still
+             does).  theory.py: days_per_year required on realised volatility.
+1 Nov   DYN1 Dynamic Strategy Selection paper (plan 5bj): nothing adopted, no code.  Fitted Q is RL, closed by
+             you, so it ran only on the paper's synthetic process.  Oracle exact; simulation within 0.06
+             on signals.  At 216 rows, our months, RL 0.465, Greedy 0.451, oracle 0.753: backs the
+             no-RL call.  Its Greedy cannot switch by construction (gain 80 bp, penalty 120), and its
+             RL lead shrinks by half or more off GCV.  Fixed rotation among book, gold, gilt by 12-month
+             trend fails: Sharpe 0.589 against 0.822 for holding the book, timing excess -8%.  So the
+             book and the passive mix taking turns cannot be caught from trend.
+1 Nov   REG1 Regime NCO paper (plan 5bi; protocol line uncommitted): nothing adopted, no code.  Reproduced
+             to the decimal on its own data, and that exposed the error: its optimiser stops at the
+             start, so "NCO" is equal weight across clusters.  Solved properly, static NCO is 22.69%, not
+             29.97%, and below cash.  Regime NCO swings -1.8% to 28.2% across 20 seeds; noise gives as
+             many switches.  Our gate: confirm_days 1 gives Sharpe 0.768 against 0.704 but misses on
+             2008-12 by 0.038, so it stays at 3; a lead, needs its own rule and walk-forward.  NCO on
+             NIFTY, gold, gilt, liquid loses to 1/N (-0.22).  New: equal NIFTY, gold, gilt, before
+             costs, matches the walk-forward book's Sharpe over 2008-25 (0.59 against 0.57).
+1 Nov   ESG1 ESG preference paper (plan 5bh): does not fit, no code.  Reinforcement learning (closed by
+             you 11 Oct, so PPO not run), simulated ESG ratings, no ESG mandate here.  Eq. 2 checked
+             numerically.  Audit clean: gates are thresholds, no LLM in the decision path.  Flagged: its
+             agency disagreement needs pillars built to conflict, and its Sharpe drops sit inside their
+             own spread.
+1 Nov   HAN1 Sparse autoencoders paper (plan 5bg): nothing adopted, no code.  Ledoit-Wolf weights on the
+             book's names lower Sharpe 0.704 to 0.647, half and half 0.679, for 2-3% less volatility; held
+             names are already less correlated than the universe, 0.18 against 0.23.  Replicated on NSE,
+             point in time: volatility 13-20% ABOVE PCA, all folds of all 8 settings; the paper's equity
+             check was 10-19% below, on survivors.  Random baskets beat every model on volatility, so
+             low volatility alone proves nothing.  70-80% daily turnover: net Sharpe about -15.
+1 Nov   KOH1 Decorrelating the Advice Layer paper (plan 5bf): nothing adopted, no code.  Table 1 reproduced.
+             Three rules set first, all failed.  Volatility-scaled impact: 0.10 points at Rs 30 lakh, needed
+             0.25; the shape holds on NSE (Amihud 2.62x in stress) but the book is 0.013% of daily value.
+             Stop clusters do not rebound (t 0.15).  Fragility index on FII positions: out-of-sample R2
+             nil, VIX 0.04.  Staged cuts: the drawdown rule sells nothing.  The paper's R2 0.56 is its
+             simulator against itself, and elasticity 0.47 is its input.  Found: block_bootstrap in
+             monte_carlo_risk never samples the last trade (legacy path, not changed).
+1 Nov   KES1 Generalised Kessler Syndrome paper (plan 5be; uncommitted).  Prop. 3 reproduced (-1.513 at
+             t 0.05).  Nothing applies to the book, returns add.  Applied to operations: a stock with a
+             persistent deficit fails with no warning in today's flow (Neon 20-21 Oct, Kite app 17 Oct,
+             cache egress 30 Oct).  Backups moved 802 MB a run for nothing on finished nights: no store
+             rebuilt, the 19 plans of 26-30 Oct the same on all 7 paper books (counts).  Built, OFF by
+             default: tools.paper_heartbeat --session-finished, engine-window job, variable
+             CENTURION_SKIP_DONE_RUNS.  Fails open; never gates a dispatch.  Replay 26-30 Oct: 19 of
+             25 runs stopped, the 30 Oct failure among them, 26 Oct's emailing backup kept.  Not run
+             against real Neon: no local URL, Monday's backups are its first real test.  Also fixed
+             RQ1, FF1, YZ1, IMG1, JAC1 journal rows: event and verdict were swapped.  472 tests (core
+             only, 50 skips), canary ok.
+1 Nov   JAC1 Strict local martingale Euler paper (plan 5bd): does not fit, no code.  Centurion simulates no SDE.
+             Table 3.1's slopes reproduced in scratch.  Audit of its one link, implied volatility: theory.py
+             correct; option_chain.compute_iv's 0.0 is filtered before use, though the Options page can show
+             an IV of 0 for an unsolvable quote.
+1 Nov   IMG1 MBS negative convexity paper (plan 5bc): does not fit, no code.  US mortgage pass-throughs under
+             Hull-White; Centurion holds none and Indian markets offer no such exposure.  My rebuild of its
+             Monte Carlo at the printed Table 1 does not match Table 2 (1.337 against 1.171 at R = 0); T = 10
+             fits far better; unresolved, not pursued.  Book's own market convexity: curvature -0.32, t -1.03.
 1 Nov   YZ1  Yang-Zhang volatility (plan 5bb): not adopted, no code.  Reproduced by simulation: k0 0.1327,
              efficiency 7.56, peak 14.08.  On NSE it forecasts worse than close-to-close: QLIKE 0.782
              against 0.425, t -11.3.  Overnight and intraday moves correlate -0.19 where the proof needs 0,
@@ -1516,7 +1675,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              Gold alone 13.8%, 60/40 NIFTY and gold 12.4%, the book 13.0%: its
              edge is risk, +0.12 to +0.17 Sharpe.  Your call: the golden target
              stays the aspiration; Sharpe about 0.8, 17-18% CAGR is the first
-             milestone.  Report in ProjectX/reports/.
+             milestone.  Report in docs/.
 31 Oct  SB3  Survivorship audit and fixes (your ask).  The core was already
              clean: 1,038 names passed through the universe, 291 (28%) are gone
              and stay in the data, 17% of member-days; a survivors-only run
@@ -3605,7 +3764,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              registry runs_sepa, N = 1; pre-registered plan 5x, 23:25 IST
              10 Oct): CLOSED.  Trend Template + VCP bases from confirmed
              swing points + pivot breakouts, 7.5% stops, 10 slots.  Kaggle
-             2013-25: 80 trades (47 more missed on gap-ups), hit 30%,
+             2013-25: 80 trades (47 more missed above the limit; corrected
+             1 Nov: 33 of them had closed > 3% above the pivot, not gapped), hit 30%,
              win/loss 2.39, but only 4% invested on average: CAGR 0.05%,
              Sharpe -2.24 (vs 6.5% rf), DSR 0.00.  0.25 of the book in it:
              CAGR 23.1% -> 17.1%, Sharpe 1.16 -> 0.98.  Its rules for the

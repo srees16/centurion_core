@@ -1781,3 +1781,43 @@ def test_go_live_status_shows_the_rung_once_live(monkeypatch):
     assert got["live"]
     assert got["ladder"] == {"rung": 1, "rungs": 5, "capital": 300_000.0, "sessions": 12, "sessions_needed": 60,
                              "since": "2026-12-15"}
+
+
+def test_control_coverage_counts_only_what_the_paper_record_ran():
+    from nse_engine.capital_ladder import control_coverage
+
+    got = control_coverage(["REBALANCE", "EXIT:RANK_EXIT", "GTT_SL", "GTT_SL_GAP", "EXIT:STOP", "EXIT:SLEEVE_TREND_EXIT",
+                            None, float("nan")], ["normal", "half", "risk_off", None])
+    assert {r["path"]: r["count"] for r in got} == {"rebalance": 1, "rank exit": 1, "stop": 3, "sleeve exit": 1,
+                                                    "regime exit": 0, "drawdown rule": 2}
+    assert [r["count"] for r in control_coverage(["exit:regime"], [])][4] == 1
+
+
+class _RecordBook(_StatusBook):
+    def __init__(self, state, reasons, drawdown):
+        super().__init__(state)
+        self.positions, self.sessions = pd.DataFrame(reasons), pd.DataFrame(drawdown)
+
+    def read_positions(self):
+        return self.positions
+
+    def read_sessions(self):
+        return self.sessions
+
+
+def test_coverage_informs_the_go_live_page_and_never_moves_ready(monkeypatch):
+    from kite_connect.trading import live_session as ls
+
+    monkeypatch.delenv("CENTURION_LIVE_CAPITAL", raising=False)
+    gate = {"paper_gate": json.dumps({"verdict": "PASS", "sessions": 60})}
+    quiet = _RecordBook(gate, {"exit_reason": ["REBALANCE"]}, {"drawdown_state": ["normal"]})
+    got = ls.go_live_status(_StatusBook(_go_live_state()), quiet, trial_gates={})
+    assert got["ready"]                                                     # a control at 0 holds nothing back ...
+    assert {r["path"]: r["count"] for r in got["coverage"]}["regime exit"] == 0    # ... and the page says so
+
+
+@pytest.mark.parametrize("book", [_StatusBook({}), _RecordBook({}, {}, {}), _RecordBook({}, {"exit_reason": []}, {})])
+def test_coverage_stays_silent_when_no_record_can_be_read(book):
+    from kite_connect.trading import live_session as ls
+
+    assert ls._control_coverage(book) is None              # an unread record is not every control at 0

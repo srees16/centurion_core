@@ -147,9 +147,10 @@ jobs:
   engine-window:
     if: vars.CENTURION_NSE_ENGINE == 'true' && github.event.schedule != '' && github.event.schedule != '0 2 * * 6' 
     runs-on: ubuntu-24.04   # pinned: ubuntu-latest becomes Ubuntu 26 from 19 Oct 2026
-    timeout-minutes: 2
+    timeout-minutes: 8
     outputs:
       in_window: ${{ steps.clock.outputs.in_window }}
+      session_finished: ${{ steps.finished.outputs.session_finished }}
     steps:
       - id: clock
         run: |
@@ -160,6 +161,27 @@ jobs:
             echo "in_window=false" >> "$GITHUB_OUTPUT"
             echo "::notice::scheduled run started at $now IST, outside 18:30-05:59 IST - skipped (it would plan on stale data)"
           fi
+      # Tracker KES1: a backup run on a finished night transfers ~800 MB of cache and re-plans to the same plan.
+      # With the repository variable CENTURION_SKIP_DONE_RUNS=true it stops here instead.  Off by default.  No
+      # pip cache (that is 150 MB of the same egress), and any failure here lets the run go ahead as before.
+      - uses: actions/checkout@v4
+        if: steps.clock.outputs.in_window == 'true' && vars.CENTURION_SKIP_DONE_RUNS == 'true'
+        continue-on-error: true
+      - uses: actions/setup-python@v5
+        if: steps.clock.outputs.in_window == 'true' && vars.CENTURION_SKIP_DONE_RUNS == 'true'
+        continue-on-error: true
+        with:
+          python-version: "3.11"
+      - id: finished
+        if: steps.clock.outputs.in_window == 'true' && vars.CENTURION_SKIP_DONE_RUNS == 'true'
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          CENTURION_DATABASE_URL: ${{ secrets.CENTURION_DATABASE_URL }}
+          CENTURION_LIVE_MODE: ${{ vars.CENTURION_LIVE_MODE }}
+        run: |
+          pip install --quiet -r requirements-core.txt
+          python -m tools.paper_heartbeat --session-finished
 
   # NSE engine paper trading (CENTURION_NSE_ENGINE == 'true'): once per
   # trading day after the bhavcopy is published.  Triggered, in order of
@@ -189,7 +211,8 @@ jobs:
       !cancelled() && github.ref == 'refs/heads/main' && vars.CENTURION_NSE_ENGINE == 'true'
       && (github.event_name == 'workflow_dispatch'
           || (github.event.schedule != '' && github.event.schedule != '0 2 * * 6'
-              && needs.engine-window.outputs.in_window == 'true'))
+              && needs.engine-window.outputs.in_window == 'true'
+              && needs.engine-window.outputs.session_finished != 'true'))
     runs-on: ubuntu-24.04   # pinned: ubuntu-latest becomes Ubuntu 26 from 19 Oct 2026
     timeout-minutes: 180
     env:
