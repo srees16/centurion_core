@@ -77,56 +77,10 @@ def test_low_beta_prefers_low_beta_names(panel):
     assert last["SYM01"] > last["SYM00"], "low-beta name should score above the high-beta one"
 
 
-# ---- formulas against "151 Trading Strategies" (Kakushadze & Serur 2018), plan 5aw
-def test_momentum_is_the_books_cumulative_return_after_the_skip():
-    from nse_engine.signals import momentum_raw
-
-    close = pd.DataFrame({"A": [100.0, 110.0, 121.0, 133.1, 90.0]})
-    s, t = 1, 3                                   # Eq. 3.2: P(S) / P(S + T) - 1, t counted back from today
-    assert momentum_raw(close, s + t, s).iloc[-1, 0] == pytest.approx(133.1 / 100.0 - 1.0)
-
-
-def test_centred_rank_is_the_books_demeaned_rank():
-    raw = pd.DataFrame([[5.0, 1.0, 3.0, 3.0, np.nan]], columns=list("ABCDE"))
-    mask = pd.DataFrame(True, index=raw.index, columns=raw.columns)
-    got = centred_rank(raw, mask).iloc[0].dropna()
-    ranks = raw.iloc[0].dropna().rank()
-    assert got.to_numpy() == pytest.approx(((ranks - ranks.mean()) / len(ranks)).to_numpy())      # Eq. 3.11
-    assert got.sum() == pytest.approx(0.0, abs=1e-12)
-
-
-def test_truncated_ewm_is_the_books_finite_ema():
-    from nse_engine.signals import _truncated_ewm
-
-    x = np.random.default_rng(4).normal(100.0, 5.0, 40)
-    span, memory = 9, 20
-    lam = 1.0 - 2.0 / (span + 1.0)
-    got = _truncated_ewm(pd.DataFrame({"A": x}), span, memory, 1).iloc[-1, 0]
-    recent = x[::-1][:memory]                     # Eq. 3.55: t = 1 is the most recent
-    weights = lam ** np.arange(memory)
-    assert got == pytest.approx((weights * recent).sum() / weights.sum(), rel=1e-12)
-    assert (1 - lam) / (1 - lam ** memory) == pytest.approx(1.0 / weights.sum(), rel=1e-12)
-
-
-def test_fdm_is_one_over_the_combined_forecasts_sd():
-    from nse_engine.signals import fdm_series
-
-    rng = np.random.default_rng(8)
-    n, m, rho = 400, 300, 0.4
-    a = rng.normal(size=(n, m))
-    b = rho * a + np.sqrt(1 - rho ** 2) * rng.normal(size=(n, m))
-    index = pd.bdate_range("2020-01-01", periods=n)
-    groups = {"x": pd.DataFrame(a, index=index), "y": pd.DataFrame(b, index=index)}
-    mask = pd.DataFrame(True, index=index, columns=range(m))
-    cfg = SignalConfig(fdm_lookback_days=300, fdm_refresh_every_n_days=1, normalizer_min_obs=60)
-    fdm = fdm_series(groups, {"x": 0.5, "y": 0.5}, mask, cfg)
-    assert fdm.iloc[-1] == pytest.approx(1.0 / np.sqrt(0.5 * (1 + rho)), abs=0.01)
-
-
+# ---- a group weight no combination can use
 @pytest.mark.parametrize("weights", [(("fast_trend", -0.5), ("slow_trend", 1.5)),
                                      (("fast_trend", float("nan")), ("slow_trend", 1.0)),
                                      (("fast_trend", 0.0), ("slow_trend", 0.0))])
 def test_bad_group_weights_are_refused(panel, weights):
     with pytest.raises(ValueError, match="group weights"):
         compute_signal_panels(panel.close, _mask(panel), SignalConfig(group_weights=weights))
-

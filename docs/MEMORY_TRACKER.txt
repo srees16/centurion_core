@@ -1288,6 +1288,26 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              breaks it, which backs "no structural leverage".  Real days: 23 Mar
              2020 -1.25%, 4 Jun 2024 -7.59%.  Open: market_protection awaits
              Zerodha.  464 tests (414 plus 50 skips core-only), 6 of 6 breakages.
+1 Nov   YZ1  Yang-Zhang volatility (plan 5bb): not adopted, no code.  Reproduced by simulation: k0 0.1327,
+             efficiency 7.56, peak 14.08.  On NSE it forecasts worse than close-to-close: QLIKE 0.782
+             against 0.425, t -11.3.  Overnight and intraday moves correlate -0.19 where the proof needs 0,
+             and VRS runs 22% above VC, so it sits 39% above close-to-close: noisy opens, not information.
+             Sizing on it: Sharpe 0.694 against 0.697.  Gaps above 3% reverse 206 bp intraday: evidence for
+             INT1C's gap idea on minute data, possibly stray first prints.  Results: data/nse_engine/yz/.
+1 Nov   R1X  Your rule: a paper's ideas that are not adopted after testing are recorded, and their test code goes.
+             Applied to S151, S151A, MIT1, OPS1, RQ1 and FF1.  Removed: the tests that only compared Centurion
+             with a source's formulas, and leftover study data.  Records stay here, in the plan, on the Journal
+             tab and as result files under data/nse_engine/.  Kept, because the workflow uses them: the book-
+             weight, group-weight and regression checks, the partial-adjustment warning, and timing-skill,
+             cost-margin and signal-slopes with their protocol lines and tests.  No strategy from any of these
+             sources ever entered the code.
+1 Nov   FF1  Fama and French 1992 (plan 5ba; uncommitted).  Replicated on French's data: Table V size column
+             10 of 10 within 0.15 pt, book-to-market 9 of 10.  SMB -0.02 (t -0.13) in 2008-25.  India, 155
+             months 2013-25: size t 0.10, beta -0.55, E/P 0.28; nothing reaches t 3; cheapest decile 15.19% /
+             0.409 against equal weight 14.50% / 0.443.  BE/ME not testable: filings have no balance sheet
+             until 2022, and today's price-to-book would be hindsight.  Centurion's forecast: t 2.76 alone,
+             3.61 with beta, size and E/P held fixed.  Dimson beta takes 0.15-0.46 pt off book alpha.
+             Built: fama_macbeth, run_nse_engine signal-slopes, a protocol line.  Data: data/nse_engine/ff/.
 1 Nov   RQ1  Attention BiLSTM on gold and bitcoin, Ge et al. 2022 (plan 5az; uncommitted).  Fails.
              Naive tomorrow = today beats its best bitcoin row on all four measures, RMSE 1,364 against
              1,479.  My rebuild is far worse than naive; the paper gives no layer sizes, so its network
@@ -1319,8 +1339,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              2013-19 0.505 against 0.516; p 0.47; DSR 0.54.  The earlier 0.764 was mostly
              survivorship.  Correction: S151's placebo shuffled survivors only and could not see
              this; within-sector's 0.809 used the same map and is not to be trusted.  Sector cap on
-             the fuller map 15.70% / 0.711: it still costs nothing.  No code stays; labels in
-             data/nse_engine/s151/sector_backfill.json.
+             the fuller map 15.70% / 0.711: it still costs nothing.  No code stays; labels discarded.
 1 Nov   MIT1 Aiuchi thesis, MIT 2008 (plan 5ax; uncommitted).  S&P timing rules, 1998-2007.
              Replicated on real S&P data: Table 5.3 exact, Table 5.5, MACD 8.37 to 8.37,
              Contrarian 7.53 to 7.28, NN 8.86 to 7.98; six rules not reproduced.  His 5%

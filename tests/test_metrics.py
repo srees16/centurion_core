@@ -307,16 +307,6 @@ def test_market_average_compares_over_common_sessions():
     assert "error" in market_average(book.iloc[:30], avg, nifty, rf=0.0)
 
 
-def test_alpha_beta_recovers_a_known_line():
-    from nse_engine.validation.diagnostics import alpha_beta
-
-    index = pd.bdate_range("2020-01-01", periods=500)
-    bench = pd.Series(np.random.default_rng(2).normal(0.0005, 0.01, 500), index=index)
-    got = alpha_beta(0.0002 + 0.7 * bench, bench)
-    assert got["beta"] == pytest.approx(0.7)
-    assert got["alpha_annual"] == pytest.approx(0.0002 * 252, rel=0.02)
-
-
 @pytest.mark.parametrize("level", [0.0, 0.001])
 def test_a_flat_benchmark_has_no_alpha_to_report(level):
     from nse_engine.validation.diagnostics import alpha_beta
@@ -368,15 +358,6 @@ def test_lower_boundary_meets_buy_and_hold_at_full_exposure():
     assert lower_boundary(0.001, 0.01, 1.0, 2_500) == pytest.approx(0.001)         # no choice, no band
     assert lower_boundary(0.001, 0.01, 0.0, 2_500) == pytest.approx(0.0)
     assert lower_boundary(0.0, 0.01, 0.5, 2_500) == pytest.approx(1.6449 * 0.01 * 0.5 / 50, rel=1e-3)
-
-
-def test_table_5_5_random_signals_on_a_synthetic_decade():
-    r = _timing_days().to_numpy()
-    rng = np.random.default_rng(1)
-    for p in (0.1, 0.5, 0.9, 0.99):
-        annual = ((rng.random((4_000, len(r))) < p) * r).sum(axis=1) / 10
-        assert annual.mean() == pytest.approx(p * r.sum() / 10, abs=0.002)
-        assert annual.std() == pytest.approx(np.sqrt(p * (1 - p) * (r ** 2).sum()) / 10, rel=0.05)
 
 
 def test_a_rule_with_no_skill_is_not_called_skilled():
@@ -479,3 +460,66 @@ def test_cost_margin_refuses_bad_input(change, why):
     with pytest.raises(ValueError, match=why):
         cost_margin(returns, costs, 0.08)
 
+
+# ---- Fama-MacBeth (Fama and French 1992; tracker FF1)
+def _fm_panel(months=330, names=200, premium=(-0.11, 0.35), seed=4, sigma=4.0):
+    rng = np.random.default_rng(seed)
+    panel = {}
+    for day in pd.date_range("1963-07-31", periods=months, freq="ME"):
+        stocks = [f"S{i}" for i in range(names)]
+        x = pd.DataFrame(rng.normal(size=(names, 2)), index=stocks, columns=["ln_me", "ln_bm"])
+        monthly = rng.normal(0.0, 1.0)                                  # a common shock, so slopes vary by month
+        returns = 1.0 + monthly + premium[0] * x["ln_me"] + premium[1] * x["ln_bm"] + rng.normal(0, sigma, names)
+        panel[day] = (returns, x)
+    return panel
+
+
+def test_fama_macbeth_recovers_known_premiums():
+    from nse_engine.validation.fama_macbeth import fama_macbeth
+
+    got = fama_macbeth(_fm_panel(), ["ln_me", "ln_bm"])
+    assert got["periods"] == 330 and got["skipped"] == 0
+    assert got["ln_me"]["mean"] == pytest.approx(-0.11, abs=0.05)       # two standard errors at these sizes
+    assert got["ln_bm"]["mean"] == pytest.approx(0.35, abs=0.05)
+    assert got["ln_bm"]["t"] > 10.0
+
+
+def test_fama_macbeth_t_is_the_mean_of_the_slopes_over_its_error():
+    from nse_engine.validation.fama_macbeth import fama_macbeth
+
+    got = fama_macbeth(_fm_panel(months=60), ["ln_me", "ln_bm"])
+    slopes = got["slopes"]["ln_bm"]
+    assert got["ln_bm"]["t"] == pytest.approx(slopes.mean() / (slopes.std(ddof=1) / np.sqrt(60)))
+
+
+def test_fama_macbeth_is_not_fooled_by_no_premium():
+    from nse_engine.validation.fama_macbeth import fama_macbeth
+
+    hits = [abs(fama_macbeth(_fm_panel(months=60, names=60, premium=(0.0, 0.0), seed=s), ["ln_me", "ln_bm"])["ln_bm"]["t"]) > 2.0
+            for s in range(120)]
+    assert 0.0 <= float(np.mean(hits)) <= 0.12                          # about the 5% a t of 2 claims
+
+
+def test_fama_macbeth_skips_a_thin_month_and_refuses_too_many():
+    from nse_engine.validation.fama_macbeth import FamaMacBethConfig, fama_macbeth
+
+    panel = _fm_panel(months=40)
+    days = sorted(panel)
+    panel[days[0]] = (panel[days[0]][0].head(5), panel[days[0]][1].head(5))
+    assert fama_macbeth(panel, ["ln_me"])["skipped"] == 1
+    for day in days[:10]:
+        panel[day] = (panel[day][0].head(5), panel[day][1].head(5))
+    with pytest.raises(ValueError, match="under 30 names"):
+        fama_macbeth(panel, ["ln_me"])
+    with pytest.raises(ValueError, match="usable periods"):
+        fama_macbeth(_fm_panel(months=10), ["ln_me"], FamaMacBethConfig(min_periods=24))
+
+
+def test_fama_macbeth_refuses_a_variable_with_no_variation():
+    from nse_engine.validation.fama_macbeth import fama_macbeth
+
+    panel = _fm_panel(months=30)
+    day = sorted(panel)[3]
+    panel[day][1]["ln_me"] = 1.0
+    with pytest.raises(ValueError, match="collinear"):
+        fama_macbeth(panel, ["ln_me"])

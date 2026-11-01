@@ -148,6 +148,8 @@ stay as risk control if the gates say so, but no exposure is added on it and no 
 
 **A price forecast** is scored against tomorrow = today and on returns, out of sample, never by R-squared, RMSE or MAPE on price levels: a model that learned only "up" scored 0.9996 on levels and -0.002 on returns on NIFTY (tracker RQ1).
 
+**Before a signal takes a core slot,** `run_nse_engine signal-slopes` shows, cheaply, whether it adds to the forecast with beta, size and earnings yield held fixed (tracker FF1). It is a look: a weak slope saves the slot, a strong one earns nothing but the test.
+
 ### 5.1 The diversifier gate (your decision, 19 Oct 2026; settles OX6; amended 25 Oct 2026, GT13)
 
 For a stream added beside the book to diversify it, this gate replaces

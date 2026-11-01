@@ -82,6 +82,63 @@ def _load_data(cfg: EngineConfig, warmup_years: int = 2, data_start: str = None)
     )
 
 
+def _slope_panel(args) -> dict:
+    """Month-end cross-sections (next month's return, then beta, size, earnings yield and the combined forecast), each
+    known at that month's close: market cap and earnings as GT4 reads them, its mis-scaling guard included."""
+    import numpy as np
+
+    from nse_engine import value as v
+    from nse_engine.deployment import load_deployment
+    from nse_engine.engine import EngineCache
+
+    cfg = load_deployment().reference_config().replace(**{"start": args.start, "end": args.end,
+                                                          "data.store_dir": args.store})
+    data = _load_data(cfg, data_start=args.data_start)
+    cache = EngineCache(data, cfg)
+    close, unadjusted, mask = data.close.astype("float64"), data.close_unadj.astype("float64"), cache.universe.mask
+    forecast = pd.DataFrame(cache.combined, index=close.index, columns=close.columns)
+    quarters = v.quarterly_results(pd.read_parquet(Path(v.FUNDAMENTALS_DIR) / "results.parquet"))
+    events = v.ShareEvents(data.corporate_events)
+    returns = close.pct_change(fill_method=None)
+    market = returns.where(mask.shift(1, fill_value=False)).mean(axis=1)
+    lagged = market.shift(1)
+    beta = sum(returns.rolling(252, min_periods=200).cov(m).div(m.rolling(252, min_periods=200).var(), axis=0)
+               for m in (market, lagged))                 # Dimson's sum: thin names react a day late
+    last = close.ffill(limit=25)                          # a name that stops pays its last close
+    months = close.index.to_period("M")
+    ends = [t for t in np.flatnonzero(np.r_[months[1:] != months[:-1], True])
+            if pd.Timestamp(args.start) <= close.index[t] <= pd.Timestamp(args.end)]
+    panel = {}
+    for t, following in zip(ends, ends[1:]):
+        day = close.index[t]
+        table = v.ttm_table(quarters, day, list(mask.columns[mask.iloc[t].to_numpy()]), events)
+        if table.empty:
+            continue
+        price = unadjusted.iloc[t].reindex(table.index).to_numpy()
+        divisor = np.array([events.factor(s, a, day) for s, a in zip(table.index, table["shares_as_of"])])
+        cap = pd.Series(table["shares"].to_numpy(dtype="float64") / divisor * price, index=table.index)
+        earnings_yield = table["ttm_profit"] / cap
+        agree = (earnings_yield / (table["ttm_eps"] / price)).between(1 / v.EP_AGREEMENT, v.EP_AGREEMENT) & (cap > 0)
+        yields, cap = earnings_yield[agree], cap[agree]
+        panel[day] = ((last.iloc[following] / close.iloc[t] - 1.0).reindex(cap.index) * 100.0, pd.DataFrame({
+            "beta": beta.iloc[t].reindex(cap.index), "ln_me": np.log(cap),
+            "ep_pos": yields.clip(lower=0.0).clip(upper=yields.quantile(0.995)), "ep_neg": (yields <= 0).astype(float),
+            "forecast": forecast.iloc[t].reindex(cap.index) / cfg.signals.target_abs_forecast}))
+    return panel
+
+
+def cmd_signal_slopes(args) -> None:
+    """Does the forecast add to beta, size and earnings yield?  Monthly Fama-MacBeth, the cheap look before a signal
+    takes a core slot (tracker FF1).  Slopes are percent a month per unit; forecast is in units of the target."""
+    from nse_engine.validation.fama_macbeth import fama_macbeth
+
+    panel = _slope_panel(args)
+    names = ["beta", "ln_me", "ep_pos", "ep_neg", "forecast"]
+    result = fama_macbeth(panel, names)
+    print(json.dumps({k: (result[k] if k != "slopes" else None) for k in ("periods", "skipped", "mean_names", *names)},
+                     indent=2))
+
+
 def cmd_cost_margin(args) -> None:
     """How far above the model costs can run before the recorded walk-forward book falls to a hurdle (tracker OPS1)."""
     from nse_engine import bond_stream as bs
@@ -861,6 +918,13 @@ def main(argv=None) -> None:
     p.add_argument("--skip-registry-check", action="store_true",
                    help="do not compare the rebuilt store's fingerprint with the trial registry")
     p.set_defaults(func=cmd_build_store)
+
+    p = sub.add_parser("signal-slopes", help="monthly Fama-MacBeth: what the forecast adds to beta, size and earnings yield")
+    p.add_argument("--start", default="2013-01-01")
+    p.add_argument("--end", default="2025-12-31")
+    p.add_argument("--data-start", default="2006-01-02")
+    p.add_argument("--store", default="data/nse_engine/store_ext2006")
+    p.set_defaults(func=cmd_signal_slopes)
 
     p = sub.add_parser("cost-margin", help="how far above the model costs can run before the book falls to a hurdle")
     p.add_argument("--walk-forward", default="data/nse_engine/wf_stitched_r4b.json")
