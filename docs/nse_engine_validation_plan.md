@@ -5086,7 +5086,7 @@ company knowledge, uncertain names left out; 57 of 59 matched NSE on a blind sam
 sector momentum 15.89% / 0.702 / -29.6% against the base 15.48% / 0.697 / -28.6%; 2008-12 -0.036 against 0.037; 2013-19 0.505 against 0.516; 2020-25 1.432 against 1.354; 2x costs 0.498 against 0.461;
 `bootstrap_p` 0.47, DSR 0.54 at N 61. It fails: Sharpe up 0.005, not 0.05, and lower in two periods. The earlier 0.764 was mostly survivorship.
 Correction to 5aw: the placebo shuffled labels among surviving names only, so it could not detect this, and "the gain is not map membership" was wrong. L3 used the same map and is not to be trusted either.
-The sector cap holds up: 15.70% / 0.711 / -28.8% against 15.48% / 0.697 / -28.6%, a sector above 25% on 7% of days against 19%, so it still costs nothing. Labels kept locally in `data/nse_engine/s151/sector_backfill.json`; no code stays.
+The sector cap holds up: 15.70% / 0.711 / -28.8% against 15.48% / 0.697 / -28.6%, a sector above 25% on 7% of days against 19%, so it still costs nothing. No code stays, and the labels were discarded (your rule, 1 Nov).
 
 ## 5ay. OPS1: Lahanis, Liu and Zhou, "Online Quantitative Trading Strategies" (NYU Stern Glucksman Fellowship; your ask, declared 01 Nov 2026, 11:28 IST, before any run)
 
@@ -5141,6 +5141,50 @@ No code published. Sizing, VaR and the greedy step are not specified well enough
 **Built.** A protocol line only: Centurion has no price forecaster and reports no level R-squared, averaging down is absent (weights come from targets, capped at 8%), and CVaR is in the scorecard. A forecast-skill module would have no caller, so none was added.
 
 **Flagged.** (4) divides by the current price, not the previous one. (5)-(6) put Mu on all terms but the first, and (7) calls an exponential fit linear regression. (8) leaves PRO undefined and says x where it sums to u_n. Sect. 2 says all the data trains the model; Sect. 2's comparison says the test set does not. RMSprop is called an activation function; it is an optimiser. Viterbi is said to estimate the transition matrix; it decodes states. XGBoost does not use a random forest. "The average predicted increase of gold is 0.43%, and the average predicted value of the increase is 0.41%" says one thing twice. VaR and the greedy step have no formula. The end date prints as 9/10/202.
+
+## 5ba. FF1: Fama and French, "The Cross-Section of Expected Stock Returns" (Journal of Finance, 1992; your ask, declared 01 Nov 2026, 12:23 IST, before any run)
+
+**What it is.** NYSE, AMEX and NASDAQ, July 1963 to December 1990. Monthly Fama-MacBeth regressions: ln(ME) -0.15 (t -2.58) alone; beta 0.15 (t 0.46); ln(ME) -0.11 (t -1.99) with ln(BE/ME) 0.35 (t 4.43) together. Table V: average monthly return rises from 0.64% to 1.63% across book-to-market.
+
+**Declared before any run.** Looks only: nothing recorded, no parameter chosen; the value family is closed at N = 2 and its third slot is reserved.
+- F1 Replication: Table V's All row and column from Ken French's 100 size and book-to-market portfolios, equal-weighted, July 1963 to December 1990. Tolerance 0.15 points a month: his data is revised since 1992.
+- F2 Out of sample: SMB and HML by period, 1963-90, 1991-2007, 2008-25.
+- F3 India: monthly Fama-MacBeth on the point-in-time universe 2013-25, on beta, ln(ME), ln(BE/ME), and Centurion's combined forecast; book values lagged to `available_from`. Read: size or book-to-market is worth a January look only at t >= 3 over the period and the same sign in 2013-19 and 2020-25, and only then if the top decile, long only, beats equal weight net of 15 bp a side.
+- F4 Whether Centurion's own forecast keeps its slope once size, value and beta are controlled.
+- F5 Beta on the book: simple against Dimson's sum with a lag (the paper's p. 431). If they differ, alpha is misstated.
+
+**Result (1 Nov 2026).** The paper is a scan; pages 427, 431, 438, 446 and 448 were read directly, with the slopes cited from those.
+- F1 Table V on French's 100 portfolios, 330 months as in the paper, tolerance 0.15 points. Size column 10 of 10 within it, largest gap 0.07. Book-to-market row 9 of 10: 0.73 against 0.64 low, 1.36 against 1.63 high. French sorts the two independently, the paper one within the other, and my All row averages cells, not stocks, so the corner differs. Same shape.
+- F2 Monthly factor means, percent (t): SMB 0.23 (1.46) in 1963-90, 0.18 (0.72) in 1991-2007, -0.02 (-0.13) in 2008-25. HML by period is in `data/nse_engine/ff/factors.txt`. The size premium in the paper's own span is weaker on this factor than its regressions suggest, and is gone since 2008.
+- F3 India, 155 months 2013-25, 241 names a month, Dimson beta. Alone: ln(ME) 0.012 (t 0.10), beta -0.24 (t -0.55), E/P 0.68 (t 0.28). Together: ln(ME) -0.11 (t -1.14), beta -0.42 (t -1.03), E/P 1.52 (t 0.69). Nothing reaches t 3. Decile portfolios net of 15 bp a side, against equal weight 14.50% / 0.443: smallest 6.74% / 0.173, cheapest 15.19% / 0.409. Fails.
+  **BE/ME could not be tested:** quarterly filings carry no balance sheet: `reserves` is nearly empty, `equity` starts in 2022 at about 28% of filings. Today's price-to-book would be hindsight, so it was not used. E/P stands in, and the paper itself finds BE/ME absorbs E/P, so this is not its test.
+- F4 Centurion's forecast, slope per target unit, percent a month: 0.448 (t 2.76) alone; with beta, size and E/P held fixed, 0.475 (t 3.61, HAC 3.81), 0.428 (t 2.44) in 2013-19 and 0.527 (t 2.6) in 2020-25. It carries information they do not explain. Settings were chosen on overlapping data, so this is support, not proof.
+- F5 Book beta: simple 0.173, Dimson 0.203, alpha 5.70% to 5.55%; 2013-25 0.312 to 0.372, alpha 7.59% to 7.13%. Non-synchronous trading flatters alpha by 0.15-0.46 points. Not changed: gate 2 compares like with like.
+
+**Built.** `validation/fama_macbeth.py` and `run_nse_engine signal-slopes` (forecast slope 0.478, t 3.63: the small gap to F4 is the deployment config against the run's), a protocol line. No engine code touched.
+
+**Limits.** No costs or shorting limits in the paper; US data 1963-90; three sorted corners carry much of it. Fama-MacBeth treats each month's stocks equally, so small names weigh as much as large.
+
+## 5bb. YZ1: Yang and Zhang, "Drift-Independent Volatility Estimation" (Journal of Business, 2000; your ask, declared 01 Nov 2026, 12:43 IST, before any run)
+
+**What it is.** A variance estimator from open, high, low and close, eq. 7: V = VO + k VC + (1 - k) VRS, k from eq. 10, unbiased under any drift and opening jump, about 7.3 times as efficient as close-to-close at n = 10 and f = 0.25. Centurion sizes on 60-session close-to-close volatility (`realised_vol`).
+
+**Declared before any run.** Looks only: nothing recorded, no parameter chosen.
+- Y1 Replication by simulation: k0, efficiency, unbiasedness, drift independence against Garman-Klass, and the discreteness bias of Sect. III.
+- Y2 NSE: the opening-jump share f by eq. 8-9, against the paper's 0.18-0.30 for US stocks, and whether the OHLC data meets what the estimator assumes.
+- Y3 Forecasting: 60-session close-to-close against Yang-Zhang, at predicting the next 21 sessions' realised variance, point-in-time universe 2008-25.
+- Y4 Sizing: fixed settings, `vol_ann` from Yang-Zhang. Read: adopted for a January configuration only if Sharpe rises 0.05 or more over 2008-25, is not lower in 2008-12, and is higher in 2013-19, 2020-25 and at twice the costs. A better forecast that does not move the book is not adopted, and under your rule of 1 Nov its code goes.
+
+**Result (1 Nov 2026): not adopted, no code.**
+- Y1 Reproduced by simulation, n = 10, f = 0.25: k0 0.1327 against 0.13; efficiency formula 7.29 against 7.3, simulated 7.56; n = 10 maximum 8.54 against 8.5; n = 2 peak 14.08 against 14. Under drift of 3 sd a period, Yang-Zhang 0.95, close-to-close 0.99, Garman-Klass 2.11, Parkinson 2.58, true 1.00. Sect. III's downward bias shows: 0.84 at 50 steps, 0.92 at 200, 0.96 at 1,000.
+- Y2 NSE universe 2008-25: f median 0.195, quartiles 0.16-0.24, inside the paper's 0.18-0.30; RELIANCE 0.22, INFY 0.35; NIFTYBEES 0.47, GOLDBEES 0.49, SILVERBEES 0.49, because their markets trade overnight. OHLC is clean: of 1.3 million name-days none has a high below the open or close or a low above them, 87 lack an open, 1,960 have high = low, and no Yang-Zhang value is negative.
+- Y3 It forecasts worse than close-to-close. Next 21 sessions' variance, 60-session estimators: QLIKE 0.782 against 0.425, t -11.3; log-error MSE 0.829 against 0.609; rank correlation 0.557 against 0.582. Close-to-close wins 89% of months, least in 2020-25 (80%).
+  Why: two assumptions fail. The proof needs overnight and intraday moves independent; on NSE their median correlation is -0.19 (-0.31 in 2008-12, -0.11 in 2020-25), so VO + VC overstates variance by 18%. It needs E[VC] = E[VRS]; VRS runs 22% above VC. Together Yang-Zhang sits 39% above close-to-close. That reads as noisy opens and range noise, not more information.
+- Y4 Sizing on it, fixed settings: 15.59% / 0.694 / -29.5% against 15.48% / 0.697 / -28.6%; 2008-12 0.048 against 0.037; 2013-19 0.510 against 0.516; 2020-25 1.350 against 1.354; 2x costs 0.466 against 0.461. Fails: Sharpe does not rise. A scaled variant is identical, because sizing reads only relative volatility.
+
+**For later.** From 7 Dec 2026 the close can sit outside the day's range (CAS1), which breaks VRS; any range-based estimator would need a guard. Gaps above 3%: the rest of the day reverses 206 bp on average, 44,679 cases. It may be stray first prints that cannot be filled, so it is evidence for INT1C's gap idea to test on minute data, not a result. NSE opens being noisy also means open fills deserve the same doubt on gap days.
+
+**Flagged.** Eq. 7's optimality rests on independence the data does not have. p. 486 prints the drift parameter as mu sigma / sqrt(T) where p. 481 has mu sqrt(T) / sigma; the second is taken as meant. No code was published.
 
 ## 6. Stage D — Paper trading (60–90 trading days)
 
