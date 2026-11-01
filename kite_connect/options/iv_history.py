@@ -324,18 +324,34 @@ def iv30_expiries(dtes: Dict[date, float], cfg: OptionsConfig) -> List[date]:
     return near + far
 
 
-def live_iv30(broker, resolver, underlying: str, now: datetime, cfg: OptionsConfig) -> Optional[float]:
-    """The 30-day ATM IV from live quotes, built as the history is (two expiries, total variance)."""
+def skew_warning(underlying: str, points: Sequence[Tuple[float, Optional[float]]], cfg: OptionsConfig) -> Optional[str]:
+    """A line when the nearer expiry's IV stands ``overlay.event_skew`` above the farther one's: something is
+    expected before the near expiry (Jabbour & Budwick p. 94).  ``points``: (days, IV) of the two expiries."""
+    pts = sorted((d, iv) for d, iv in points if iv)
+    if len(pts) < 2 or pts[0][1] - pts[-1][1] < cfg.overlay.event_skew:
+        return None
+    (near_days, near), (far_days, far) = pts[0], pts[-1]
+    return (f"{underlying}: {near_days:.0f}-day IV {near:.1%} stands above {far_days:.0f}-day {far:.1%}: "
+            f"check for an event before that expiry")
+
+
+def live_iv_points(broker, resolver, underlying: str, now: datetime, cfg: OptionsConfig
+                   ) -> List[Tuple[float, Optional[float]]]:
+    """(days, ATM IV) of the two expiries around the tenor, from live quotes."""
     from kite_connect.options.live_chain import chain_summary, days_to_expiry, fetch_chain
 
-    d = cfg.data
     dtes = {e: days_to_expiry(e, now) for e in resolver.expiries(underlying)}
     points = []
     for e in iv30_expiries(dtes, cfg):
         chain, spot = fetch_chain(broker, resolver, underlying, e, now, cfg.market.risk_free_rate, 1)
         atm_iv = chain_summary(chain, spot)["atm_iv"]
         points.append((dtes[e], atm_iv if np.isfinite(atm_iv) else None))
-    return constant_maturity(points, d.iv_tenor_days)
+    return points
+
+
+def live_iv30(broker, resolver, underlying: str, now: datetime, cfg: OptionsConfig) -> Optional[float]:
+    """The 30-day ATM IV from live quotes, built as the history is (two expiries, total variance)."""
+    return constant_maturity(live_iv_points(broker, resolver, underlying, now, cfg), cfg.data.iv_tenor_days)
 
 
 # ── the deployed snapshot ────────────────────────────────────────────────

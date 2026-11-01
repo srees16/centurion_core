@@ -40,7 +40,7 @@ from typing import List, Optional, Sequence, Tuple
 from kite_connect.options.basket_executor import BasketExecutor, ExecutionReport
 from kite_connect.options.broker import Broker, connect
 from kite_connect.options.instruments import InstrumentResolver
-from kite_connect.options.iv_history import iv_context, iv_history, live_iv30
+from kite_connect.options.iv_history import iv_context, iv_history, live_iv30, live_iv_points, skew_warning
 from kite_connect.options.live_chain import IST, chain_summary, days_to_expiry, fetch_chain
 from kite_connect.options.options_config import OptionsConfig, SelectorConfig, load_config
 from kite_connect.options.position_monitor import PositionLedger, monitor
@@ -76,8 +76,13 @@ def prepare(broker: Broker, resolver: InstrumentResolver, underlying: str, expir
     except Exception as exc:                              # noqa: BLE001 - reported, the model's charges remain
         logger.warning("Kite basket margin unavailable: %s", exc)
         margins = None
-    return build_report(legs, spot, days_to_expiry(expiry, now), chain_summary(chain, spot)["atm_iv"], lots,
-                        now.date(), cfg, margins)
+    report = build_report(legs, spot, days_to_expiry(expiry, now), chain_summary(chain, spot)["atm_iv"], lots,
+                          now.date(), cfg, margins)
+    try:
+        report.event_skew = skew_warning(underlying, live_iv_points(broker, resolver, underlying, now, cfg), cfg)
+    except Exception as exc:                              # noqa: BLE001 - a note, never a reason to stop the report
+        logger.warning("IV skew unavailable: %s", exc)
+    return report
 
 
 def market_context(underlying: str, cfg: OptionsConfig, broker: Optional[Broker] = None,

@@ -117,6 +117,7 @@ class PreTradeReport:
     margins: Optional[dict] = None
     cost_model: Optional[Dict[str, object]] = None
     violations: List[str] = field(default_factory=list)
+    event_skew: Optional[str] = None             # ``iv_history.skew_warning``
 
     @property
     def ok(self) -> bool:
@@ -201,6 +202,8 @@ class PreTradeReport:
         kc = self.kite_charges()
         if kc:
             lines.append(f"Entry charges (Kite): {inr(kc.total)} (STT {inr(kc.stt)}, brokerage {inr(kc.brokerage)})")
+        if self.event_skew:
+            lines.append(f"IV skew: {self.event_skew}")
         lines.append("Limits: " + ("all within" if self.ok else "BREACHED: " + "; ".join(self.violations)))
         return "\n".join(lines)
 

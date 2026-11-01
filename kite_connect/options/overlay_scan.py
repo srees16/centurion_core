@@ -9,7 +9,9 @@ to buy.  Iron condors are looked at on ``limits.allowed_underlyings``.
 Strikes and expiries are listed contracts (``InstrumentResolver``), never a
 strike solved from a formula or a date 30 days out; lot sizes come from the
 same dump.  Premiums are quotes: the bid on a sale, the ask on a purchase, so a
-leg with no two-sided quote, or too wide a spread, is not offered.  IV is
+leg with no two-sided quote, too wide a spread or too little open interest is
+not offered.  Together secured puts and condor margin stay inside
+``overlay.max_capital_pct`` of the capital.  IV is
 solved from those quotes (``live_chain``), and the 30-day IV is built as its
 history is, then ranked against the deployed year of it (``iv_history``).  A
 symbol with no quote or no history is left out and named in the log: nothing
@@ -34,7 +36,7 @@ import numpy as np
 import pandas as pd
 
 from kite_connect.options.instruments import Contract, InstrumentResolver, spot_key
-from kite_connect.options.iv_history import constant_maturity, iv30_expiries, rank_and_percentile
+from kite_connect.options.iv_history import constant_maturity, iv30_expiries, rank_and_percentile, skew_warning
 from kite_connect.options.live_chain import IST, build_chain, chain_summary, days_to_expiry
 from kite_connect.options.options_config import OptionsConfig
 from kite_connect.options.theory import CALL, PUT, atm_strike, probability_itm
@@ -79,9 +81,10 @@ def iv_rank_of(history: pd.DataFrame, symbol: str, iv30: float, today: date, cfg
 
 def pick_leg(chain: pd.DataFrame, option_type: str, spot: float, delta: float,
              cfg: OptionsConfig) -> Optional[pd.Series]:
-    """The out-of-the-money listed option nearest ``delta`` (absolute) with a tight two-sided quote."""
+    """The out-of-the-money listed option nearest ``delta`` (absolute) with a tight two-sided quote and enough
+    open interest."""
     c = chain[(chain["option_type"] == option_type) & (chain["bid"] > 0) & (chain["ask"] > 0)
-              & np.isfinite(chain["delta"])]
+              & (chain["oi"] >= cfg.overlay.min_open_interest) & np.isfinite(chain["delta"])]
     c = c[c["strike"] > spot] if option_type == CALL else c[c["strike"] < spot]
     c = c[(c["ask"] - c["bid"]) <= cfg.overlay.max_spread_pct * (c["ask"] + c["bid"]) / 2.0]
     if c.empty:
@@ -114,7 +117,7 @@ def covered_calls(markets: Mapping[str, Market], held: Mapping[str, int], cfg: O
         else:
             leg = pick_leg(m.chain, CALL, m.spot, o.call_delta, cfg)
             if leg is None:
-                log.append(f"{symbol}: no call with a tight two-sided quote")
+                log.append(f"{symbol}: no call with a tight two-sided quote and OI {o.min_open_interest}+")
             elif leg["bid"] / m.spot < o.min_premium_pct:
                 log.append(f"{symbol}: call premium {leg['bid'] / m.spot:.2%} of spot, below {o.min_premium_pct:.1%}")
             else:
@@ -124,9 +127,9 @@ def covered_calls(markets: Mapping[str, Market], held: Mapping[str, int], cfg: O
 
 def cash_secured_puts(markets: Mapping[str, Market], wanted: Sequence[str], capital: float,
                       sectors: Mapping[str, str], cfg: OptionsConfig, log: List[str]) -> List[dict]:
-    """One lot each, fully secured: strike x lot out of the capital share puts may use."""
+    """One lot each, fully secured: strike x lot out of ``max_capital_pct`` of the capital."""
     o, out = cfg.overlay, []
-    room, per_sector = capital * o.max_put_capital_pct, Counter()
+    room, per_sector = capital * o.max_capital_pct, Counter()
     for symbol in wanted:
         m = markets.get(symbol)
         if m is None:
@@ -136,7 +139,7 @@ def cash_secured_puts(markets: Mapping[str, Market], wanted: Sequence[str], capi
         if m.rank < o.min_rank_put:
             log.append(f"{symbol}: IV rank {m.rank:.0f} below {o.min_rank_put:.0f}, no put")
         elif leg is None:
-            log.append(f"{symbol}: no put with a tight two-sided quote")
+            log.append(f"{symbol}: no put with a tight two-sided quote and OI {o.min_open_interest}+")
         elif leg["bid"] / m.spot < o.min_premium_pct:
             log.append(f"{symbol}: put premium {leg['bid'] / m.spot:.2%} of spot, below {o.min_premium_pct:.1%}")
         elif per_sector[sector] >= o.max_puts_per_sector:
@@ -160,9 +163,10 @@ def condor_margin(broker, m: Market, legs: Sequence[Tuple[pd.Series, str]]) -> f
     return float(((broker.basket_margins(orders) or {}).get("final") or {}).get("total") or math.nan)
 
 
-def iron_condor(broker, m: Market, capital: float, rate: float, now: datetime, cfg: OptionsConfig,
+def iron_condor(broker, m: Market, room: float, rate: float, now: datetime, cfg: OptionsConfig,
                 log: List[str]) -> Optional[dict]:
-    """Short ``condor_short_delta`` both sides, ``condor_wing_delta`` wings, one lot, inside the hard limits."""
+    """Short ``condor_short_delta`` both sides, ``condor_wing_delta`` wings, one lot, inside the hard limits and
+    with its margin inside ``room``."""
     o = cfg.overlay
     if m.rank < o.min_rank_condor:
         log.append(f"{m.symbol}: IV rank {m.rank:.0f} below {o.min_rank_condor:.0f}, no condor")
@@ -170,7 +174,7 @@ def iron_condor(broker, m: Market, capital: float, rate: float, now: datetime, c
     short_call, short_put = (pick_leg(m.chain, t, m.spot, o.condor_short_delta, cfg) for t in (CALL, PUT))
     long_call, long_put = (pick_leg(m.chain, t, m.spot, o.condor_wing_delta, cfg) for t in (CALL, PUT))
     if any(x is None for x in (short_call, short_put, long_call, long_put)):
-        log.append(f"{m.symbol}: no four legs with tight two-sided quotes")
+        log.append(f"{m.symbol}: no four legs with tight two-sided quotes and OI {o.min_open_interest}+")
         return None
     if long_call["strike"] <= short_call["strike"] or long_put["strike"] >= short_put["strike"]:
         log.append(f"{m.symbol}: wings not beyond the short strikes inside the quoted band")
@@ -187,8 +191,8 @@ def iron_condor(broker, m: Market, capital: float, rate: float, now: datetime, c
         return None
     legs = ((short_call, "SELL"), (long_call, "BUY"), (short_put, "SELL"), (long_put, "BUY"))
     margin = condor_margin(broker, m, legs)
-    if not math.isfinite(margin) or margin > capital * o.max_condor_capital_pct:
-        log.append(f"{m.symbol}: condor margin {margin:,.0f} above Rs {capital * o.max_condor_capital_pct:,.0f}")
+    if not math.isfinite(margin) or margin > room:
+        log.append(f"{m.symbol}: condor margin {margin:,.0f} above the Rs {room:,.0f} left")
         return None
     outside = sum(probability_itm(x["option_type"], m.spot, float(x["strike"]), m.dte, rate, float(x["iv"]))["n_d2"]
                   for x in (short_call, short_put))
@@ -234,6 +238,9 @@ def read_markets(broker, resolver: InstrumentResolver, symbols: Sequence[str], h
         for e in iv30_expiries(dtes, cfg):
             atm_iv = chain_summary(chains[e], spot)["atm_iv"]
             points.append((dtes[e], atm_iv if math.isfinite(atm_iv) else None))
+        warning = skew_warning(s, points, cfg)
+        if warning:
+            log.append(warning)
         iv30 = constant_maturity(points, cfg.data.iv_tenor_days)
         if iv30 is None:
             log.append(f"{s}: no live 30-day IV")
@@ -265,18 +272,24 @@ def scan(broker, resolver: InstrumentResolver, held: Mapping[str, int], wanted: 
     puts = cash_secured_puts(markets, [s for s in wanted if s not in held], capital, sectors or {}, cfg, log)
     vix = float((broker.quotes([VIX_KEY]).get(VIX_KEY) or {}).get("last_price") or math.nan)
     condors: List[dict] = []
+    o = cfg.overlay
+    room = min(capital * o.max_condor_capital_pct,
+               capital * o.max_capital_pct - sum(p["strike"] * p["lots"] * p["lot_size"] for p in puts))
     if not math.isfinite(vix) or vix >= RegimeConfig().vix_extreme:
         log.append(f"India VIX {vix:.1f}: condors stand down")
     else:
         for s in indices:
             if s in markets:
-                c = iron_condor(broker, markets[s], capital, cfg.market.risk_free_rate, now, cfg, log)
+                c = iron_condor(broker, markets[s], room, cfg.market.risk_free_rate, now, cfg, log)
                 if c:
                     condors.append(c)
-    overlay = sum(o["total_premium"] for o in calls + puts)
+                    room -= c["margin_required"]
+    overlay = sum(x["total_premium"] for x in calls + puts)
     multileg = sum(c["net_credit"] for c in condors)
     total = overlay + multileg
-    monthly = total / capital * 100.0 if capital > 0 else 0.0     # the expiries sit about a month out
+    # the premium is earned over the position's life, so a monthly figure spreads it over the average days held
+    days = np.mean([m.dte for m in markets.values()]) if markets else o.target_dte
+    monthly = total / capital * 100.0 * 30.0 / days if capital > 0 else 0.0
     log.append(f"Premiums at bid and ask, before charges.  India VIX {vix:.1f}.")
     return {"covered_calls": calls, "cash_secured_puts": puts, "iron_condors": condors,
             "summary": {"total_premium": round(total, 2), "overlay_premium": round(overlay, 2),

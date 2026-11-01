@@ -271,6 +271,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      2027).  ACCEPT: live may start at Rs 3 lakh (GT2I's canary; the rule itself stands as
      fixed, it read Rs 6 lakh) after 5 clean dry runs, on
      your go-ahead.  REJECT: no live capital; 679cbd0c is not re-tuned.
+ >>> A1 EVENT LIST: sleeves.EVENT_DATES holds 2027-02-01, the customary Budget date (added 1 Nov at your call, not yet
+     announced).  Correct it if the date differs.  After it passes the nightly overlay alerts until the next is added.
  >>> OPTIONS PAGE (OPT1, uncommitted)
      1. After merging, open Ind Stocks > Options with Kite logged in, on a trading
         day: Option Chain tab, then Scan Overlay Strategies.  Not yet seen on
@@ -1037,7 +1039,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              the core's N is at the PBO bar.  It adds the earnings screen
              from the book (pp. 127-158): >= 20% profit growth year on
              year in each of the last 2 quarters, revenue up, turnarounds
-             >= +100%.  It runs after V3, against the configuration V3
+             >= +100%.  1 Nov clarification (5aa): resting pivot entry,
+             deceleration test, losing-streak step-down, +/-3 swings at
+             the base's right edge.  It runs after V3, against the configuration V3
              leaves live.                                Prompt: do MV1
 [ ] P3  GT7  Earnings-drift overlay on the core ranking (needs GT1; core
              family: one configuration, after V3).  Pre-registered 11 Oct
@@ -1310,6 +1314,28 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              breaks it, which backs "no structural leverage".  Real days: 23 Mar
              2020 -1.25%, 4 Jun 2024 -7.59%.  Open: market_protection awaits
              Zerodha.  464 tests (414 plus 50 skips core-only), 6 of 6 breakages.
+1 Nov   MV1C Minervini review, your three calls (plan 5aa clarification, uncommitted; no code, no run).  MV1 rule 2
+             is now a resting order at the pivot, limit pivot x 1.03, breakout volume dropped as look-ahead.  Rule 1
+             gains the deceleration test (smoothed growth fell twice and halved).  Rule 5 gains the step-down: under
+             1/3 winners in the last 20 closed trades halves new buys, twice at most.  Rule 2's base reads the right
+             edge with +/-3 swings after the latest +/-5 swing, behind a new setting off by default, so tight
+             final pauses count.  Still one bundled trial.
+             O9 reopens only on MV1's result.  If it does, one configuration (N = 2) with: the resting entry; a
+             shorter swing for the last contraction (71 of 80 trades showed only 2 contractions); pilot-size entries
+             while the gate is off; largest fall measured from the stage 2 start on heavy volume (p.90); the 50-day
+             exit marked (A), no such sell rule found in the book; idle cash credited.  O9's 20-day exit stays: 28 exits averaged
+             -4.5%, and holding to session 60 also gave -4.5%.  Review analysis stays in chat.
+1 Nov   OPT3 Option Trader Handbook review, your three calls (uncommitted).  Overlay scan back to about 30 days,
+             keeping delta 0.20, OI 500+ and the 50% cap: the two books disagree, and A1 at 15 days passed
+             where O5 at the second monthly did not.  Floor 0.75% now needs about 25% IV.  Skew line in the
+             scan's log and the pre-trade report: near IV 3 points or more above far.  Nightly alert while
+             sleeves.EVENT_DATES has no date ahead.  Debit exit plan left, as you said.
+1 Nov   OPT2 Cordier & Gross review, your four calls (uncommitted).  Overlay scan: delta 0.20, second monthly,
+             secured puts and condor margin together at most 50%, OI 500+, premium floor 0.75% of spot
+             (your call; 1.5% needed about 37% IV).  position_monitor: 200% and
+             10% alerts on credit baskets (alerts only).  options_executor (no callers): lot from the
+             contract with the hedge's notional kept, LIMIT on every path, a close journals only on
+             a fill and is cancelled if unfilled.  Plan 5x: the 1/3 wing rule is ours, not the book's.
 1 Nov   OPT1 Options page rebuilt on real data (your three calls after the Natenberg review; uncommitted).
              Chain: /options/chain and /options/expiries now serve live_chain as the page's rows, ISO
              expiries, one IV a strike, dashes not zeros, errors shown; ATM is the nearest strike.
@@ -3691,7 +3717,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              registry runs_sepa, N = 1; pre-registered plan 5x, 23:25 IST
              10 Oct): CLOSED.  Trend Template + VCP bases from confirmed
              swing points + pivot breakouts, 7.5% stops, 10 slots.  Kaggle
-             2013-25: 80 trades (47 more missed on gap-ups), hit 30%,
+             2013-25: 80 trades (47 more missed above the limit; corrected
+             1 Nov: 33 of them had closed > 3% above the pivot, not gapped), hit 30%,
              win/loss 2.39, but only 4% invested on average: CAGR 0.05%,
              Sharpe -2.24 (vs 6.5% rf), DSR 0.00.  0.25 of the book in it:
              CAGR 23.1% -> 17.1%, Sharpe 1.16 -> 0.98.  Its rules for the

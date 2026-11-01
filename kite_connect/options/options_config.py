@@ -161,22 +161,28 @@ class OverlayConfig:
     """The app's Options page: the chain's width and the read-only overlay scan (``overlay_scan``)."""
 
     chain_strikes_each_side: int = 15
-    # The expiry nearest target_dte inside this window, so a monthly-only stock always has one.
+    # About a month (Jabbour & Budwick p. 41: sell 30 days or less, Cordier & Gross ch. 7 say 2-6 months; A1 at 15
+    # days passed its gates and O5 at the second monthly did not, plan 5x, so the data breaks the tie): the expiry
+    # nearest target_dte, in a window wider than a month so a monthly-only stock always has one.
     target_dte: int = 30
     min_dte: int = 21
     max_dte: int = 56
-    call_delta: float = 0.30
-    put_delta: float = 0.25
+    # Ch. 7: deltas under 20.
+    call_delta: float = 0.20
+    put_delta: float = 0.20
     condor_short_delta: float = 0.15
     condor_wing_delta: float = 0.05
     min_rank_call: float = 50.0
     min_rank_put: float = 40.0
     min_rank_condor: float = 50.0
-    min_premium_pct: float = 0.015
-    # A leg whose bid-ask spread is wider than this share of its mid is not offered.
+    # A 0.20-delta, 30-day option pays this at about 25% IV.
+    min_premium_pct: float = 0.0075
+    # A leg with less open interest (ch. 11: 500, 1,000 is better), or whose bid-ask spread is wider than this
+    # share of its mid, is not offered.
+    min_open_interest: int = 500
     max_spread_pct: float = 0.10
-    # Share of capital that may secure puts, and that condors' margin may use.
-    max_put_capital_pct: float = 0.60
+    # Secured puts and condor margin together (ch. 19: at most 50% of funds), and condors' own share.
+    max_capital_pct: float = 0.50
     max_condor_capital_pct: float = 0.15
     max_puts_per_sector: int = 2
     # Strikes quoted around spot, and underlyings scanned; the rest are named in the scan's log.
@@ -185,6 +191,8 @@ class OverlayConfig:
     # One year of 30-day IV per symbol (``iv_history.write_snapshot``): data/ is not deployed.
     history_path: str = "config/iv30_history.csv.gz"
     history_max_age_days: int = 45
+    # Near-month IV this far above the next (Jabbour & Budwick p. 94): the market expects an event.
+    event_skew: float = 0.03
     history_min_sessions: int = 120
 
 

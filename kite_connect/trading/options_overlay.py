@@ -19,7 +19,8 @@ A1's equity) with its maximum loss as a share of NAV: the margin the book must p
 
 The ledger appends one row per night and never rewrites one.  An alert is raised when:
 - a replay moves a recorded date by more than 0.1% of the book (NSE revised its data);
-- the F&O data falls more than four days behind (the nightly sync failing).
+- the F&O data falls more than four days behind (the nightly sync failing);
+- the hand-kept event list holds no date ahead (A1 would open across the next Budget).
 
 A1's paper fills are the simulator's (at the legs' closes, with ``fno_costs``): there is no broker paper for
 options, so real fills come with the dry runs.  The ledger is JSON in the book's ``paper_state`` (key
@@ -146,6 +147,7 @@ def run_session(ledger: Ledger, cfg: OverlayConfig, day: pd.Timestamp, share_equ
     """One night of the overlay; idempotent (a session already done returns its summary).  ``guarded``: for a
     candidate with a crash guard (A1G), the sessions on which it opens no spread (``sleeves.guarded_sessions``)."""
     from kite_connect.options.backtest import run_sleeve
+    from kite_connect.options.sleeves import EVENT_DATES, events_ahead
 
     key = day.date().isoformat()
     if ledger.last_session == key and ledger.history:
@@ -158,6 +160,9 @@ def run_session(ledger: Ledger, cfg: OverlayConfig, day: pd.Timestamp, share_equ
     capital = float(scfg.initial_capital)
     asof = eq.index[-1] if len(eq) else pd.Timestamp(ledger.start)
     alerts: List[str] = []
+    if not events_ahead(day):
+        alerts.append(f"the event list ends {EVENT_DATES[-1]}: add the next Budget or election date to "
+                      f"sleeves.EVENT_DATES, or {cfg.candidate} opens across it, unlike the rule that was tested")
     if len(eq) and (day - asof).days > STALE_DAYS:
         alerts.append(f"F&O data is stale: latest session {asof.date()} (the nightly F&O sync may be failing)")
     drift = max([abs(float(eq.get(pd.Timestamp(r["a1_asof"]), r["a1_equity"])) - r["a1_equity"]) / capital * cfg.weight

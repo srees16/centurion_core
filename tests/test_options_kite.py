@@ -5,6 +5,7 @@ import json
 import math
 from datetime import date, datetime
 
+import pandas as pd
 import pytest
 
 from kite_connect.options import cli
@@ -13,7 +14,7 @@ from kite_connect.options.broker import Broker
 from kite_connect.options.instruments import InstrumentResolver, spot_key
 from kite_connect.options.live_chain import IST, build_chain, chain_summary, days_to_expiry
 from kite_connect.options.options_config import LimitsConfig, OptionsConfig
-from kite_connect.options.position_monitor import PositionLedger, evaluate
+from kite_connect.options.position_monitor import OptionsPosition, PositionLedger, PositionLeg, evaluate
 from kite_connect.options.pretrade import check_limits, limit_price, parse_legs
 from kite_connect.options.selector import MarketContext, select
 from kite_connect.options.theory import black_scholes
@@ -304,21 +305,22 @@ def test_demo_spread_from_the_selector():
 class ScanKite(FakeKite):
     """FakeKite with a month-out expiry, a stock with options, an account and India VIX."""
 
-    MONTH, RELIANCE = date(2026, 11, 3), 1400.0
+    MONTH, FAR, RELIANCE = date(2026, 11, 3), date(2026, 12, 1), 1400.0
 
-    def __init__(self, vix=14.0, wide=()):
+    def __init__(self, vix=14.0, wide=(), thin=()):
         super().__init__()
-        self.vix, self.wide = vix, set(wide)
+        self.vix, self.wide, self.thin = vix, set(wide), set(thin)
         for name, spot, step, lot in (("NIFTY", SPOT, 50, LOT), ("RELIANCE", self.RELIANCE, 20, 500)):
-            for i in range(-70, 71):
-                k = round(spot / step) * step + i * step
-                for t in ("CE", "PE"):
-                    sym = f"{name}{self.MONTH:%y%m%d}{k}{t}"
-                    row = {"instrument_token": len(self.instruments_dump) + 1, "tradingsymbol": sym, "name": name,
-                           "expiry": self.MONTH, "strike": float(k), "tick_size": 0.05, "lot_size": lot,
-                           "instrument_type": t, "segment": "NFO-OPT", "exchange": "NFO"}
-                    self.instruments_dump.append(row)
-                    self.by_symbol[sym] = row
+            for expiry in (self.MONTH, self.FAR):
+                for i in range(-140, 141):
+                    k = round(spot / step) * step + i * step
+                    for t in ("CE", "PE"):
+                        sym = f"{name}{expiry:%y%m%d}{k}{t}"
+                        row = {"instrument_token": len(self.instruments_dump) + 1, "tradingsymbol": sym, "name": name,
+                               "expiry": expiry, "strike": float(k), "tick_size": 0.05, "lot_size": lot,
+                               "instrument_type": t, "segment": "NFO-OPT", "exchange": "NFO"}
+                        self.instruments_dump.append(row)
+                        self.by_symbol[sym] = row
 
     def quote(self, keys):
         out = {}
@@ -330,7 +332,7 @@ class ScanKite(FakeKite):
             spot = SPOT if i["name"] == "NIFTY" else self.RELIANCE
             px = black_scholes(i["instrument_type"], spot, i["strike"], days_to_expiry(i["expiry"], NOW), RATE, 0.40).price
             half = px * 0.4 if i["name"] in self.wide else min(0.25, px * 0.02)
-            out[key] = {"last_price": px, "oi": 5000.0, "volume": 10.0,
+            out[key] = {"last_price": px, "oi": 499.0 if i["name"] in self.thin else 5000.0, "volume": 10.0,
                         "depth": {"buy": [{"price": px - half}], "sell": [{"price": px + half}]}}
         return out
 
@@ -404,7 +406,7 @@ def test_a_covered_call_is_a_listed_contract_at_the_bid_on_shares_really_held(tm
     c = calls[0]
     assert c["lots"] == 2 and c["lot_size"] == 500 and c["expiry"] == ScanKite.MONTH.isoformat()
     assert (c["strike"] - 1400) % 20 == 0 and c["tradingsymbol"].endswith("CE")
-    assert abs(c["delta"] - 0.30) < 0.05
+    assert abs(c["delta"] - 0.20) < 0.05
     q = ScanKite().quote([f"NFO:{c['tradingsymbol']}"])[f"NFO:{c['tradingsymbol']}"]
     assert c["premium"] == approx(q["depth"]["buy"][0]["price"], abs=0.01)
     assert c["total_premium"] == approx(c["premium"] * 1000, abs=0.01)
@@ -448,12 +450,37 @@ def test_a_wide_spread_is_not_offered(tmp_path):
     assert out["covered_calls"] == [] and any("two-sided" in x for x in out["log"])
 
 
+def test_thin_open_interest_is_not_offered(tmp_path):
+    out = _scan(ScanKite(thin=["RELIANCE"]), held={"RELIANCE": 1000}, tmp=tmp_path)
+    assert out["covered_calls"] == [] and any("OI 500+" in x for x in out["log"])
+
+
+def test_the_target_is_about_a_month_and_monthlies_always_have_one():
+    from kite_connect.options.overlay_scan import target_expiry
+
+    dtes = {date(2026, 10, 13): 6.0, date(2026, 10, 27): 20.0, date(2026, 11, 3): 27.0, date(2026, 11, 24): 48.0}
+    assert target_expiry(dtes, OptionsConfig()) == date(2026, 11, 3)
+    assert target_expiry({date(2026, 11, 24): 48.0, date(2026, 12, 29): 83.0}, OptionsConfig()) == date(2026, 11, 24)
+    assert target_expiry({date(2026, 10, 13): 6.0}, OptionsConfig()) is None
+
+
+def test_puts_and_condors_share_the_fifty_percent(tmp_path):
+    from dataclasses import replace
+
+    cfg = replace(OptionsConfig(), limits=LimitsConfig(max_loss_per_trade_inr=1e9))
+    alone = _scan(ScanKite(), capital=1_400_000.0, cfg=cfg, tmp=tmp_path)
+    assert alone["iron_condors"]                          # the 90,000 margin fits 15% of the capital on its own
+    both = _scan(ScanKite(), wanted=["RELIANCE"], capital=1_400_000.0, cfg=cfg, tmp=tmp_path)
+    assert both["cash_secured_puts"] and both["iron_condors"] == []
+    assert any("left" in x and "condor margin" in x for x in both["log"])
+
+
 def test_cash_secured_puts_are_fully_secured_and_held_names_are_not_doubled(tmp_path):
     kite = ScanKite()
     assert _scan(kite, wanted=["RELIANCE"], capital=100_000.0, tmp=tmp_path)["cash_secured_puts"] == []
     puts = _scan(kite, wanted=["RELIANCE"], capital=2_000_000.0, tmp=tmp_path)["cash_secured_puts"]
     assert len(puts) == 1 and puts[0]["lots"] == 1 and puts[0]["strike"] < ScanKite.RELIANCE
-    assert puts[0]["strike"] * 500 <= 2_000_000.0 * 0.6
+    assert puts[0]["strike"] * 500 <= 2_000_000.0 * 0.5
     assert _scan(kite, held={"RELIANCE": 500}, wanted=["RELIANCE"], capital=2e6, tmp=tmp_path)["cash_secured_puts"] == []
 
 
@@ -521,3 +548,174 @@ def test_snapshot_round_trip_and_a_short_history_is_left_out(tmp_path, monkeypat
     ivh.write_snapshot(["NIFTY", "NEWLY"], cfg)
     back = ivh.load_snapshot(cfg)
     assert set(back["symbol"]) == {"NIFTY"} and len(back) == cfg.data.lookback_sessions
+
+
+# ---- position alerts: the 200% and 10% rules (Cordier & Gross ch. 12)
+def _credit_position():
+    return OptionsPosition("p1", "paper", NOW.isoformat(), "NIFTY", EXPIRY.isoformat(),
+                           [PositionLeg("S", "CE", 25100.0, "SELL", LOT, 60.0), PositionLeg("L", "CE", 25250.0, "BUY", LOT, 20.0)],
+                           SPOT, IV, 70000.0)
+
+
+@pytest.mark.parametrize("short,wing,rule", [
+    (100.0, 20.0, "200% rule"),      # 80 to close, double the 40 credit
+    (130.0, 45.0, "200% rule"),      # past it
+    (24.0, 20.0, "10% rule"),        # 4 to close, a tenth of the credit
+    (10.0, 12.0, "10% rule"),        # worth less than nothing to close
+])
+def test_a_credit_basket_alerts_on_the_two_rules(short, wing, rule):
+    out = evaluate(_credit_position(), {"S": short, "L": wing}, SPOT, NOW, RATE)
+    assert sum(a.startswith(rule) for a in out.alerts) == 1
+
+
+def test_between_the_rules_is_quiet_and_an_unpriced_leg_says_nothing():
+    calm = evaluate(_credit_position(), {"S": 60.0, "L": 20.0}, SPOT, NOW, RATE)
+    assert not any("% rule" in a for a in calm.alerts)
+    just = evaluate(_credit_position(), {"S": 99.0, "L": 20.0}, SPOT, NOW, RATE)      # 79 to close: not yet double
+    assert not any("% rule" in a for a in just.alerts)
+    assert not any("% rule" in a for a in evaluate(_credit_position(), {"S": 500.0}, SPOT, NOW, RATE).alerts)
+
+
+def test_a_debit_basket_has_no_credit_rules(tmp_path):
+    pos = _credit_position()
+    pos.legs[0].price, pos.legs[1].price = 20.0, 60.0
+    assert not any("% rule" in a for a in evaluate(pos, {"S": 200.0, "L": 60.0}, SPOT, NOW, RATE).alerts)
+
+
+# ---- the legacy executor: real lot sizes, no market orders
+class ExecKite:
+    def __init__(self, lot=75, bid=99.0, ask=101.0, statuses=("OPEN", "COMPLETE")):
+        self.lot, self.bid, self.ask, self.statuses, self.cancelled = lot, bid, ask, list(statuses), []
+
+    def instruments(self, exchange):
+        return [{"tradingsymbol": "NIFTY26NOV24000PE", "name": "NIFTY", "strike": 24000.0, "expiry": "2026-11-24",
+                 "lot_size": self.lot, "tick_size": 0.05, "instrument_type": "PE", "instrument_token": 1}]
+
+    def quote(self, keys):
+        buy = [{"price": self.bid}] if self.bid else []
+        sell = [{"price": self.ask}] if self.ask else []
+        return {k: {"last_price": 100.0, "depth": {"buy": buy, "sell": sell}} for k in keys}
+
+    def order_history(self, order_id):
+        status = self.statuses.pop(0) if self.statuses else "OPEN"
+        return [{"status": status, "average_price": 100.5}]
+
+    def cancel_order(self, variety, order_id):
+        self.cancelled.append(order_id)
+
+
+@pytest.fixture
+def executor(tmp_path, monkeypatch):
+    import kite_connect.options.options_executor as ex
+    import kite_connect.trading.order_service as os_
+
+    monkeypatch.setattr(ex, "_JOURNAL_DB", str(tmp_path / "journal.db"))
+    monkeypatch.setattr(ex, "_NFO_CACHE", {})
+    monkeypatch.setattr(ex, "CLOSE_POLL_SECONDS", 0.0001, raising=True)
+    monkeypatch.setattr(ex, "CLOSE_WAIT_SECONDS", 0.0005, raising=True)
+    placed = []
+
+    def fake(kite, **kw):
+        placed.append(kw)
+        return {"success": True, "order_id": "1"}
+
+    monkeypatch.setattr(os_, "place_order", lambda kite, symbol, exchange, transaction_type, quantity, **kw:
+                        fake(kite, symbol=symbol, side=transaction_type, quantity=quantity, **kw))
+    return ex, placed
+
+
+def _hedge(lots=6, lot_size=25):
+    from services.risk.tail_risk_hedge import HedgeRecommendation
+
+    return HedgeRecommendation(action="BUY_HEDGE", strike=24000.0, lots=lots, lot_size=lot_size, premium_per_lot=100.0)
+
+
+def test_a_tail_hedge_keeps_its_notional_on_the_real_lot_with_a_limit(executor):
+    ex, placed = executor
+    out = ex.OptionsExecutor(ExecKite(lot=75)).execute_tail_hedge(_hedge(6, 25), dry_run=True)
+    assert out["qty"] == 150 and placed == []             # 6 x 25 units is 2 real lots, not 6 x 75
+    assert ex.OptionsExecutor(ExecKite(lot=75)).execute_tail_hedge(_hedge(1, 25), dry_run=True)["qty"] == 75
+    ex.OptionsExecutor(ExecKite(lot=75)).execute_tail_hedge(_hedge(6, 25))
+    assert placed[0]["quantity"] == 150 and placed[0]["order_type"] == "LIMIT"
+    assert placed[0]["price"] == approx(103.05, abs=0.001)    # ask 101 + 2%, on the tick
+
+
+def test_no_ask_means_no_hedge_order(executor):
+    ex, placed = executor
+    out = ex.OptionsExecutor(ExecKite(ask=0)).execute_tail_hedge(_hedge())
+    assert out["success"] is False and "no ask" in out["error"] and placed == []
+
+
+def test_a_close_is_a_limit_and_the_journal_records_the_fill(executor, monkeypatch):
+    ex, placed = executor
+    closed = []
+    monkeypatch.setattr(ex, "close_position", lambda jid, px, close_order_id="": closed.append((jid, px)))
+    monkeypatch.setattr(ex, "CLOSE_WAIT_SECONDS", 0.01)
+    monkeypatch.setattr(ex, "CLOSE_POLL_SECONDS", 0.001)
+    out = ex.OptionsExecutor(ExecKite()).close_option_position(7, "NIFTY26NOV24000PE", "SELL", 75)
+    assert placed[0]["order_type"] == "LIMIT" and placed[0]["side"] == "BUY" and placed[0]["is_exit"] is True
+    assert out["success"] and closed == [(7, 100.5)]
+
+
+def test_an_unfilled_close_is_cancelled_and_the_journal_stays_open(executor, monkeypatch):
+    ex, placed = executor
+    closed = []
+    monkeypatch.setattr(ex, "close_position", lambda *a, **k: closed.append(a))
+    monkeypatch.setattr(ex, "CLOSE_WAIT_SECONDS", 0.002)
+    monkeypatch.setattr(ex, "CLOSE_POLL_SECONDS", 0.001)
+    kite = ExecKite(statuses=("OPEN",) * 10)
+    out = ex.OptionsExecutor(kite).close_option_position(7, "NIFTY26NOV24000PE", "SELL", 75)
+    assert out["success"] is False and kite.cancelled == ["1"] and closed == []
+
+
+def test_no_quote_means_no_close_order(executor):
+    ex, placed = executor
+    out = ex.OptionsExecutor(ExecKite(ask=0)).close_option_position(7, "NIFTY26NOV24000PE", "SELL", 75)
+    assert out["success"] is False and placed == []
+
+
+# ---- events: the near-month IV skew and the hand-kept event list
+@pytest.mark.parametrize("points,warns", [
+    ([(13.0, 0.20), (41.0, 0.16)], True),         # 4 points above: something is expected
+    ([(13.0, 0.19), (41.0, 0.16)], True),         # exactly the 3-point limit
+    ([(13.0, 0.18), (41.0, 0.16)], False),
+    ([(13.0, 0.16), (41.0, 0.20)], False),        # an upward curve is normal
+    ([(13.0, 0.30)], False),                      # one expiry compares with nothing
+    ([(13.0, None), (41.0, 0.20)], False),
+])
+def test_skew_warning(points, warns):
+    from kite_connect.options.iv_history import skew_warning
+
+    out = skew_warning("NIFTY", points, OptionsConfig())
+    assert bool(out) is warns
+    if warns:
+        assert out.startswith("NIFTY: 13-day IV") and "check for an event" in out
+
+
+def test_the_scan_logs_the_skew(tmp_path):
+    class Skewed(ScanKite):
+        def quote(self, keys):
+            out = super().quote(keys)
+            for k, v in out.items():
+                sym = k.split(":", 1)[1]
+                if sym.startswith(f"NIFTY{ScanKite.MONTH:%y%m%d}") and "depth" in v:   # the near expiry is rich
+                    i = self.by_symbol[sym]
+                    px = black_scholes(i["instrument_type"], SPOT, i["strike"], days_to_expiry(i["expiry"], NOW), RATE, 0.60).price
+                    v.update(last_price=px, depth={"buy": [{"price": px - 0.25}], "sell": [{"price": px + 0.25}]})
+            return out
+
+    assert any("check for an event" in x for x in _scan(Skewed(), tmp=tmp_path)["log"])
+    assert not any("check for an event" in x for x in _scan(ScanKite(), tmp=tmp_path)["log"])
+
+
+def test_the_pre_trade_report_prints_the_skew(tmp_path):
+    report = _report(_broker(tmp_path))
+    assert "IV skew" not in report.text()
+    report.event_skew = "NIFTY: 13-day IV 20.0% stands above 41-day 16.0%: check for an event before that expiry"
+    assert "IV skew: NIFTY: 13-day" in report.text()
+
+
+def test_the_event_list_says_when_it_has_run_out():
+    from kite_connect.options.sleeves import EVENT_DATES, events_ahead
+
+    assert events_ahead(EVENT_DATES[-1]) and not events_ahead(pd.Timestamp(EVENT_DATES[-1]) + pd.Timedelta(days=1))

@@ -1767,7 +1767,9 @@ rules).
 - **Expiry:** the second monthly.
 - **Short leg:** the traded strike with the largest |Δ| ≤ 0.20.
 - **Long leg:** the first further-OTM traded strike whose premium is ≤ 1/3
-  of the short's.
+  of the short's. *(Corrected 1 Nov 2026: this is our rule, not the book's. The
+  book gives no such limit; its nearest is one worked example, ch. 12: $600
+  sold, $200 paid. The rule as tested is unchanged.)*
 - **Entry filter:** credit ≥ 10% of (width − credit).
 - **Exits:** close when the spread's value is ≥ 2× the entry credit (the
   200% rule), or ≤ 10% of it (the 10% rule). Otherwise settle at expiry.
@@ -2563,6 +2565,82 @@ review expects +0.1 to +0.2 to the core.
    translation).
 6. **No topping up below entry:** a rebalance never adds to a position
    whose close is below its average entry price.
+
+**Clarification (1 Nov 2026, before any run; owner's decisions).** MV1 stays
+one bundled configuration, and a pass or fail is for the bundle. These replace
+rule 2 and add to rules 1 and 5. Page numbers are the book's printed pages.
+
+**Why.** O9-A's next-open entry is a day later than the book's: "the point at
+which you want to buy is when the stock moves above the pivot point on
+expanding volume" (p. 203; pp. 223–229). Of its 47 missed signals, 33 had
+closed more than 3% above the pivot on the signal day, and the median
+overnight gap was 0.8%.
+
+**Rule 2, replaced: a resting order at the pivot.**
+- **Eligible:** at a rebalance, a name the core would buy with a VCP base
+  (O9-A's swing, base, contraction and dry-up rules, `nse_engine.sepa`) whose
+  close is ≤ pivot × 1.03.
+- **Order:** a buy resting from the next session until the next rebalance,
+  trigger at the pivot, limit at pivot × 1.03 (p. 224).
+- **Fill:** on the first session whose high exceeds the pivot, at the higher
+  of the open and the pivot. An open above the limit cancels the order.
+- **Cost:** cost model 4 on that fill.
+- **Stop:** from the fill session. If that session's low reaches the initial
+  stop, the trade stops there **(A: the order within the bar is unknown, so
+  the worse case)**.
+- **Breakout volume is dropped (A).** The book's "expanding volume" needs a
+  day's final volume, which is not known at the fill, so using it would be
+  look-ahead. The base's dry-up test stays.
+- **Unfilled:** the slot waits for the next rebalance, as in rule 2. Names
+  already held are unaffected.
+- **Live:** a delivery order resting as a BUY GTT, not an intraday trade.
+  `gtt_stops` manages SELL stops only, so this is built only on a pass.
+
+**Rule 1, added: the deceleration test (pp. 133–134, 138).** The book calls
+"a material deceleration, with results trending sharply lower for several
+quarters or longer" a red flag, and says one quarter "may not be a big deal".
+- **Growth, smoothed as on p. 133:** G = profit of the latest two quarters ÷
+  the same two quarters a year earlier − 1, read on the basis in 5z.
+- **Fail:** G fell at each of the last two quarterly readings, and the latest
+  G is at most half the G two readings back **(A: two falls for "several
+  quarters", half from the book's cases of 50–60% to 20–30%, 80% to 28% and
+  41% to 11%)**.
+- **Scope:** new buys only; held names are never sold for it.
+- **Missing data:** it passes when any of the 8 quarters is missing, or when a
+  year-earlier sum or the G two readings back is not positive, as rule 1 does.
+
+**Rule 5, added: the step-down on losing streaks (pp. 304, 307).** "If you
+experience an abnormal losing streak, first scale down your exposure."
+- **Streak:** fewer than 1/3 of the last 20 closed core trades made a profit
+  net of costs **(A: 1/3 is the book's floor at 2:1, p. 301; 20 is the core's
+  target positions)**. Closed trades are full exits of any reason; trims and
+  sleeves do not count.
+- **Step:** s starts at 0 and is reassessed at every fifth closed trade once
+  20 have closed: in a streak s rises by 1, to at most 2; otherwise it falls
+  by 1, to at least 0 **(A)**.
+- **Size:** a new buy takes its target weight × ½^s, and keeps that scale
+  until it exits, so a rebalance does not top it up **(A: the book cuts in
+  stages, 5,000 to 2,000 to 1,000 shares)**. The money not used stays in cash.
+- **Scope:** new buys only; held names are not trimmed. It applies alongside
+  the 10-of-20 limit after the gate re-opens.
+
+**Rule 2's base, added: a shorter swing at the right edge (17:46 IST, owner's
+decision).** O9-A's ±5-session swings cannot confirm a final pause shorter
+than about 6–10 sessions, yet the book's pivot is the tightest part of the
+base (pp. 202, 227). If the stock breaks out first, the depth and dry-up tests
+fall on the contraction before it. In O9-A, 71 of 80 trades showed only 2
+contractions.
+- **Base:** its start and contractions are found with ±5 swings, as in O9-A.
+- **Right edge (A):** after the latest ±5 swing, ±3 swings
+  (`confirmed_swings(high, low, 3)`, usable 3 sessions after they print)
+  extend the same alternating sequence. The earliest final pause it can see
+  is about 4 sessions.
+- **Tests:** the contractions from that sequence count towards the 2–6 limit.
+  The no-deeper, last ≤ 10% and dry-up tests run on the extended list, and the
+  pivot is its latest swing high.
+- **Otherwise:** with no ±3 swing after the latest ±5 swing, the base is
+  O9-A's. O9-A's own configuration keeps ±5, and `SepaConfig` needs a new
+  setting that defaults to off, so its hash does not move.
 
 ## 5ab. CR1: crash-recovery capital advisory (pre-registered 11 Oct 2026, 21:17 IST)
 

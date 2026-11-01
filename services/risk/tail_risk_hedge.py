@@ -36,6 +36,7 @@ class HedgeRecommendation:
     instrument: str = ""      # e.g., "NIFTY 24000 PE"
     strike: float = 0.0
     lots: int = 0
+    lot_size: int = 25          # the lot ``lots`` was sized in: units = lots x lot_size
     premium_per_lot: float = 0.0
     total_cost: float = 0.0
     hedge_ratio_pct: float = 0.0  # % of portfolio hedged
@@ -146,6 +147,7 @@ class TailRiskHedge:
                 instrument=f"NIFTY {strike} PE",
                 strike=strike,
                 lots=lots,
+                lot_size=self.nifty_lot_size,
                 premium_per_lot=round(est_premium, 2),
                 total_cost=round(total_cost, 2),
                 hedge_ratio_pct=round(hedge_ratio_pct, 1),
