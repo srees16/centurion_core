@@ -1,4 +1,4 @@
-Golden target: Sharpe >= 1.4, CAGR >=30%, Calmar >= 1%, PBO <= 30% (post-tax)
+Golden target: Sharpe >= 1.4, CAGR >=30%, PBO <= 30%
 
 Realistically achievable target: Sharpe >= 1.2, CAGR >=35%, MaxDD<=35%, Calmar >= 1%, PBO <= 30%
 Goal is to have the best possible alpha, Sharpe and CAGR, lowest possible maxDD
@@ -96,13 +96,13 @@ R21A Full Period: Sharpe=1.181, CAGR=32.7%, MaxDD=29.6%, Calmar=1.1, PBO=27.1%
 
 You are the best quantitative trader, research analyst and strategist having 20+ years of experience in Renaissance Technologies and Jane Street, world's 2 of the top quant trading firms.
 
-1. with that experience & context, deeply study all available resources on the internet, github repos, PhD thesis, medium blogs, wikipedia, academic research papers on sites like arxiv.org etc., quant blogs and/or any other relevant media to perform deep research and understand the characteristics of trading systems that meet and even beat the golden target consistently
+1. with that experience & context, deeply study all available resources on the internet, github repos, PhD thesis, medium blogs, wikipedia, academic research papers on sites like arxiv.org etc., quant blogs and/or any other relevant media to perform deep research and understand the characteristics of trading systems that achieve and even beat the golden target consistently
 2. after the research and understanding how the best trading systems work, do a deep audit of centurion_core to compare & contrast performance of centurion_core's Ind stocks module for the realistic returns in Indian markets during bull, bear & range-bound regimes, alpha that it can generate, signal quality for buy/sell, risk management etc., and identify all the gaps and categorize them after assessing the value-add
 3. use the acquired knowledge to fundamentally rethink the approach, prepare a plan of action, backtests, forward walk OOS tests, paper trade as relevant for implementation to achieve the golden target
 4. if it requires genuinely new uncorrelated alpha sources, multi-timeframe diversification and any other methods/strategies, list them out crisp & clear
-5. skip audit of intraday and automatic order setup (for US stocks only) since centurion_core is for swing, positional trades. Automated trading enabled for Ind stocks via Zerodha Kite
+5. skip automatic order setup (for US stocks only) since automated trading is enabled for Ind stocks via Zerodha Kite
 6. ensure centurion_core is a statistically robust, evidence-based trading system with improved signal reliability and reduced overfitting in Indian market conditions during go-live
-7. ensure that centurion_core survives & even thrives in live trading and does NOT blow up. Be more aggressive in sustained uptrends, and more defensive in downtrends. Verify that while the backtest performance is great, it does not fail in live Ind markets and backtest CAGR does not lead to overfitting
+7. ensure that centurion_core survives & even thrives in live trading and does NOT blow up. Be more aggressive in sustained uptrends, and more defensive in downtrends. Verify that while the backtest performance is great, it does not fail in live Ind markets and does not lead to overfitting
 
 ~~~~~~
 

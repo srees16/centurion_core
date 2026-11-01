@@ -4948,7 +4948,7 @@ invested, mean gap +0.5; Rs 6 lakh 18, 87%, +0.4; Rs 30 lakh 18, 87%. So the can
 points, then at most 1.25-1.5x on index futures); permanent puts; naked short volatility; a fourth
 overlapping exit; intraday; earnings drift, bulk deals, index-inclusion longs and size alone.
 
-**Evidence.** `reports/Centurion golden target feasibility.md` in ProjectX, outside this repo.
+**Evidence.** `docs/Centurion golden target feasibility.md`.
 
 ## 5au. VP2: the value-area rotation plan, adapted to swing (India tracker VP2; your ask, pre-registered 31 Oct 2026, 20:51 IST)
 

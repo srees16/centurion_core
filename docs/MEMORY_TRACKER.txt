@@ -1314,6 +1314,13 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              breaks it, which backs "no structural leverage".  Real days: 23 Mar
              2020 -1.25%, 4 Jun 2024 -7.59%.  Open: market_protection awaits
              Zerodha.  464 tests (414 plus 50 skips core-only), 6 of 6 breakages.
+1 Nov   GT3  Golden target rebuild review (your ask; docs/Golden target rebuild evidence.md; no code, no
+             trial).  No evidence for a sustained 1.4 / 35%.  One book, three bases: 13.0% / 0.60 free sweep, 12.4% / 0.54
+             realistic sweep, 10.9% / 0.43 as paper and live run today.  2013-25 already at the milestone; the shortfall
+             is 2008-12, where NSE's momentum index shows no alpha either.  Audit: bear legs lost half or less of NIFTY's
+             fall; rebounds lag (37% of 2008-10, 60% of 2016-20); range +2%.  Core budget is ZERO before January (GT2B spent
+             the last), so the lines above saying one is left are stale.  Plan: do-now controls and fills to 11 Dec, three
+             January core slots plus the half-step overlay, events later.  Eight decisions wait for you.
 1 Nov   LIQ1 Impermanent-loss hedging paper, Lipton, Lucic and Sepp (plan 5bo): nothing adopted, no code.  DeFi liquidity
              positions: Centurion holds none and has no non-linear payoff to replicate.  Printed figures reproduced
              (residual 0.0245% against 0.025%).  Its Lipton-Lewis formula checked theory.black_scholes independently: 400
@@ -1668,7 +1675,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              Gold alone 13.8%, 60/40 NIFTY and gold 12.4%, the book 13.0%: its
              edge is risk, +0.12 to +0.17 Sharpe.  Your call: the golden target
              stays the aspiration; Sharpe about 0.8, 17-18% CAGR is the first
-             milestone.  Report in ProjectX/reports/.
+             milestone.  Report in docs/.
 31 Oct  SB3  Survivorship audit and fixes (your ask).  The core was already
              clean: 1,038 names passed through the universe, 291 (28%) are gone
              and stay in the data, 17% of member-days; a survivors-only run
