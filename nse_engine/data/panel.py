@@ -26,6 +26,7 @@ Pipeline (``load_market_data``):
 from __future__ import annotations
 
 import logging
+import math
 from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
@@ -62,6 +63,7 @@ SNAP_TOLERANCE_ISIN = 0.12
 MIN_INFER_PRICE = 1.0
 #: Dividends at or above this share of the prior close are treated as parse errors.
 MAX_DIVIDEND_YIELD = 0.5
+PARTIAL_ADJUSTMENT_GAP = 0.30       # an adjusted one-day move this large on a corporate action is reported
 #: Factor source codes (``adjustment_multipliers``).
 SOURCE_NAMES = {1: "ca_ratio", 2: "ca_rights_or_price", 3: "prev_close", 4: "inferred_snapped",
                 5: "inferred_unexplained", 6: "ca_ratio_from_prices"}
@@ -801,6 +803,25 @@ def etf_symbols(store_dir: PathLike, rows: pd.DataFrame, symbols: Sequence[str])
 
 
 # ------------------------------------------------------------------- main
+def partial_adjustments(close: pd.DataFrame, events: Optional[pd.DataFrame],
+                        gap: float = PARTIAL_ADJUSTMENT_GAP) -> pd.DataFrame:
+    """Corporate actions after which the adjusted close still moved by ``gap`` or more in a session: the factor
+    on record covers only part of the raw move (HINDZINC 2011-03-07: raw -90%, factor 0.5, adjusted -80%).  The
+    unexplained-gap warning cannot see these, because an event is on record.  Some are real falls on the same day."""
+    columns = ["date", "symbol", "factor", "move"]
+    if events is None or events.empty:
+        return pd.DataFrame(columns=columns)
+    prior = close.astype("float64").shift(1)
+    rows = []
+    for row in events.itertuples(index=False):
+        day = pd.Timestamp(row.date)
+        if row.symbol in close.columns and day in close.index:
+            move = float(close.at[day, row.symbol]) / float(prior.at[day, row.symbol])
+            if np.isfinite(move) and move > 0 and abs(math.log(move)) >= -math.log(1.0 - gap):
+                rows.append((day, row.symbol, float(row.factor), move - 1.0))
+    return pd.DataFrame(rows, columns=columns)
+
+
 def load_market_data(
     store_dir: PathLike,
     start: DateLike,
@@ -901,6 +922,10 @@ def load_market_data(
     if sector_map and not history:
         logger.warning("sector map %s has no dated snapshots: the sector cap is not applied (point-in-time)", found)
     sector_history = [(d, {s: m[s] for s in keep if s in m}) for d, m in history]
+
+    for row in partial_adjustments(frames["close"], share_events).itertuples(index=False):
+        logger.warning("partial adjustment %s %s: adjusted close moved %+.0f%% on a corporate action, factor=%.4g",
+                       row.symbol, row.date.date(), row.move * 100, row.factor)
 
     data = MarketData(
         dates=dates,

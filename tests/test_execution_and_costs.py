@@ -1710,3 +1710,61 @@ def test_go_live_refuses_any_start_but_the_canary():
     assert dict((n, ok) for n, ok, _ in readiness({}, [], capital=300_000))["canary"]
     assert not dict((n, ok) for n, ok, _ in readiness({}, [], capital=600_000))["canary"]
     assert "canary" not in dict((n, ok) for n, ok, _ in readiness({}, []))
+
+
+# ---- the book's conditions on weights (151 Trading Strategies, plan 5aw)
+def test_capped_weights_keep_every_cap_on_random_books():
+    from nse_engine.portfolio import capped_weights
+
+    rng = np.random.default_rng(11)
+    for _ in range(3_000):
+        n = int(rng.integers(1, 45))
+        raw = pd.Series(rng.lognormal(0.0, rng.uniform(0.2, 2.5), n), index=[f"S{i}" for i in range(n)])
+        max_weight, sector_cap = float(rng.choice([0.02, 0.05, 0.08, 0.2])), float(rng.choice([0.1, 0.25, 0.6]))
+        sectors = {s: f"X{rng.integers(1, 8)}" for s in raw.index if rng.random() > 0.1}
+        w = capped_weights(raw, max_weight, sector_cap, sectors)
+        by_sector = pd.Series({s: sectors.get(s) for s in w.index}, dtype=object)
+        assert (w >= 0).all() and (w <= max_weight + 1e-9).all() and w.sum() <= 1.0 + 1e-9
+        if by_sector.notna().any():
+            assert (w.groupby(by_sector).sum() <= sector_cap + 1e-9).all()
+        known = pd.Series(sectors, dtype=object).reindex(raw.index)
+        room = sum(min(sector_cap, max_weight * (known == x).sum()) for x in known.dropna().unique())
+        assert w.sum() == pytest.approx(min(1.0, room + max_weight * known.isna().sum()), abs=1e-4)      # nothing idle
+
+
+def test_core_weights_are_the_books_sharpe_weights_on_a_diagonal_covariance():
+    from nse_engine.config import PortfolioConfig
+    from nse_engine.portfolio import core_weights
+
+    forecast = pd.Series({"A": 4.0, "B": 8.0, "C": 2.0, "D": 6.0})
+    vol = pd.Series({"A": 0.2, "B": 0.4, "C": 0.1, "D": 0.3})
+    got = core_weights(forecast, vol, PortfolioConfig(max_weight=1.0, sector_cap=None))
+    expected = forecast * vol / vol ** 2                   # Eq. 3.85 with C = diag(vol^2), E = forecast x vol
+    assert got.reindex(forecast.index).to_numpy() == pytest.approx((expected / expected.sum()).to_numpy())
+
+
+@pytest.mark.parametrize("weights,why", [({"A": float("nan")}, "not finite"), ({"A": float("inf")}, "not finite"),
+                                         ({"A": -0.01, "B": 0.5}, "negative"), ({"A": 0.7, "B": 0.4}, "above max_gross")])
+def test_a_book_no_account_can_hold_is_refused(weights, why):
+    from nse_engine.portfolio import check_book_weights
+
+    with pytest.raises(ValueError, match=why):
+        check_book_weights(weights, 1.0)
+
+
+def test_a_full_or_empty_book_passes():
+    from nse_engine.portfolio import check_book_weights
+
+    check_book_weights({}, 1.0)
+    check_book_weights({"A": 0.6, "B": 0.4 + 1e-12}, 1.0)
+
+
+def test_vol_target_is_the_books_ratio_and_only_scales_down():
+    from nse_engine.allocator import _apply_vol_target
+    from nse_engine.config import AllocatorConfig
+
+    cfg = AllocatorConfig(target_vol_annual=0.10, vol_target_min_scale=0.3)
+    assert _apply_vol_target(1.0, 0.0, 0.20, 0.0, cfg, [])[0] == pytest.approx(0.10 / 0.20)      # Eq. 6.5's w
+    assert _apply_vol_target(1.0, 0.0, 0.05, 0.0, cfg, [])[0] == 1.0                             # never up
+    assert _apply_vol_target(1.0, 0.0, 0.80, 0.0, cfg, [])[0] == pytest.approx(0.3)              # the floor
+

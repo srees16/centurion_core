@@ -758,8 +758,12 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              8), dilution has not gone, so no signal group.  What is left: at most
              one core configuration each, a quality veto that drops the worst names
              (filings from 2012, gap stated) and a rule for post-crash rebounds,
-             where ranks gave no alpha in 2008-12.  Gain unknown, possibly none.
-                                                             Prompt: do GT2D
+             where ranks gave no alpha in 2008-12; it must differ from R11's faster
+             re-entry, which failed.  Gain unknown, possibly none.  Prompt: do GT2D
+[x]     S151A FAILED 1 Nov: sector momentum was survivorship; no January slot (section 8).
+[ ] P3  OPS1A At the next re-baseline: repair the partial corporate-action factors the load now
+             warns about (ADANIENT 2015, HINDZINC 2011, ZEENEWS 2010, TRIVENI 2011 in the universe; 14
+             in all), checking each against the record first.  Moves the data hash.  Prompt: do OPS1A
 [x]     GT2E FAILED 31 Oct: reshaped to the metals cap, not adopted (section 8).
 [x]     GT2F WITHDRAWN 31 Oct: REITs and InvITs stay closed under GT14 (11 Oct).
 [x]     GT2G WITHDRAWN 31 Oct: U28 closed single-stock futures shorts on 10 Oct
@@ -1284,6 +1288,51 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              breaks it, which backs "no structural leverage".  Real days: 23 Mar
              2020 -1.25%, 4 Jun 2024 -7.59%.  Open: market_protection awaits
              Zerodha.  464 tests (414 plus 50 skips core-only), 6 of 6 breakages.
+1 Nov   OPS1 Online portfolio selection, NYU Glucksman paper (plan 5ay; uncommitted).  Long-only,
+             daily, frictionless, NASDAQ 100 1998-2010.  Replicated on 39 survivors: PAMR 788x to
+             1,115x, CRP 12.2x to 14.0x; break-even 13.4 bp a side, 0.28x at 25 bp; its OLMAR never
+             traded.  India, point-in-time, 2008-25: PAMR -30.5% a year gross, -52.3% net; all fail;
+             even on survivors PAMR is 0.50x gross.  EG across streams equals a fixed mix, p 0.68.
+             One bad print cleaned its way: 1,115x to 4.5 billion x; Centurion never clips.  Cost
+             margin: the book reaches passive's 12.4% at 1.25x modelled costs, ceiling 1.92x if D2 is
+             all costs.  Audit found 14 partial corporate-action factors, 4 in the universe; a repair
+             is +0.07 pt, left for the next re-baseline.  Built: cost_margin, run_nse_engine
+             cost-margin, a load warning, a protocol line.  Results: data/nse_engine/gl/.
+1 Nov   S151A Sector momentum on a fuller map: FAIL, January configuration dropped (plan 5aw).
+             574 of 1,016 universe names had no sector; 262 labelled by hand, uncertain ones left
+             out; 57 of 59 right on a blind sample of current names, easier than these.  Result:
+             15.89% / 0.702 / -29.6% against 15.48% / 0.697 / -28.6%; 2008-12 -0.036 against 0.037;
+             2013-19 0.505 against 0.516; p 0.47; DSR 0.54.  The earlier 0.764 was mostly
+             survivorship.  Correction: S151's placebo shuffled survivors only and could not see
+             this; within-sector's 0.809 used the same map and is not to be trusted.  Sector cap on
+             the fuller map 15.70% / 0.711: it still costs nothing.  No code stays; labels in
+             data/nse_engine/s151/sector_backfill.json.
+1 Nov   MIT1 Aiuchi thesis, MIT 2008 (plan 5ax; uncommitted).  S&P timing rules, 1998-2007.
+             Replicated on real S&P data: Table 5.3 exact, Table 5.5, MACD 8.37 to 8.37,
+             Contrarian 7.53 to 7.28, NN 8.86 to 7.98; six rules not reproduced.  His 5%
+             boundary has a units error, sqrt(252), and omits (1 - p): his significance
+             claim falls; best z 3.41 against 4.14 for his grids.  Out of sample,
+             parameters unchanged, net: no rule beats buy-and-hold on both S&P and NIFTY;
+             NIFTY best 0.12 against 0.27.  Regime gate on NIFTY: 7.6% a year in, 27.0% out,
+             capture -3.8%, rotation p 0.94: no skill at picking days; it cuts risk (worst
+             weeks -7.1% to -2.3%).  Stands as risk control, GT2A agrees; no exposure may be
+             added on it.  Metals unfiltered, a look: 14.05% / 0.687 / -17.1%, Calmar 0.82,
+             2008-12 Sharpe 0.51, against 0.54 Calmar, 0.04: fails the read rule, not queued
+             (your call 1 Nov: the metals trend filter stays on).
+             Built: validation/timing.py, run_nse_engine timing-skill, protocol line.
+             503 fast, 453 plus 50 skips core-only, canary ok.  Results: data/nse_engine/mit/.
+1 Nov   S151 "151 Trading Strategies" (plan 5aw; uncommitted).  A catalogue with no
+             backtests, so no table to replicate: its maths reproduced, 11 of 11.
+             Looks only, no trial, fixed settings, live-like 2008-25, base 15.48% / 0.697:
+             book-form residual momentum 0.698, fails; sector momentum 252 days 16.65% /
+             0.764 clears the read rule; 126 days 0.746 fails; within-sector 17.44% /
+             0.809 fails, lower in 2008-12; IBS fails, t -0.66 and 0.54.  Sector cap on
+             2008-25, never measured since SB2: 15.78% / 0.717, it costs nothing.
+             Sector momentum, checked: 5 horizons 0.70-0.82; 5 placebos 0.61-0.64, all
+             below the base; bootstrap_p 0.24; DSR 0.60 at N 61.  Today's map misses names
+             that dropped out, 24% of stock weight.  Built, no output change, canary ok:
+             check_book_weights, group-weight refusal, collinear regression refusal.
+             492 fast, 442 plus 50 skips core-only.  Results: data/nse_engine/s151/.
 31 Oct  GT2I Go-live ramp: built (plan 5at, Phase E; uncommitted).  Look: one-year books
              2013-25 by capital.  Rs 1.5L holds 12 names, 74% invested, -10 to +8 pt a
              year against Rs 30L: a different book.  Rs 3L 17 names, 85%, mean +0.5;
@@ -1299,8 +1348,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              Output change: manual F&O with no capital set reads Rs 3L, not Rs 6L.
              Lean plan's Rs 0.8L funding buffer was sized at Rs 6L: re-size with the
              funding choice.  Checks: 474 fast, 424 plus 50 skips core-only, the ladder
-             step exercised once with stubs.  Before go-live set the variable
-             CENTURION_LIVE_CAPITAL=300000 and fund Rs 3L.
+             step exercised once with stubs.  CENTURION_LIVE_CAPITAL=300000 set on
+             GitHub 1 Nov 00:02 IST, confirmed.  Before go-live: fund Rs 3L.
              Results: data/nse_engine/gt2i/capital_look.json.
 31 Oct  GT2D Look at 30-40 names (plan 5at; a look: nothing recorded, no trial, no
              parameter chosen).  18 fixed-settings books, live-like 2008-25.  Dilution

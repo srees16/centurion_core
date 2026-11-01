@@ -236,3 +236,21 @@ def test_a_held_stock_that_left_for_cause_is_sold_at_its_exit_ratio(panel, monke
     assert EngineCache(gone, cfg).exit_ratio.min() == 0.5
     assert EngineCache(gone, cfg.replace(**{"costs.market": "US"})).exit_ratio.min() == 1.0
 
+
+def test_a_factor_that_covers_only_part_of_the_move_is_reported():
+    import numpy as np
+    import pandas as pd
+
+    from nse_engine.data.panel import partial_adjustments
+
+    days = pd.bdate_range("2011-03-01", periods=5)
+    close = pd.DataFrame({"HIT": [230.0, 234.0, 46.0, 47.0, 48.0], "CLEAN": [100.0, 101.0, 100.0, 99.0, np.nan],
+                          "UP": [50.0, 50.0, 80.0, 81.0, 82.0], "QUIET": [10.0, 10.0, 7.5, 7.0, 7.0]}, index=days)
+    events = pd.DataFrame({"date": [days[2]] * 4 + [days[4]] + [pd.Timestamp("2030-01-01")],
+                           "symbol": ["HIT", "CLEAN", "UP", "QUIET", "CLEAN", "HIT"],
+                           "factor": [0.5, 0.5, 2.0, 0.9, 0.5, 0.5], "source": 1})
+    got = partial_adjustments(close, events)
+    assert sorted(got["symbol"]) == ["HIT", "UP"]                    # QUIET fell 25%; CLEAN has no price that day
+    assert got.set_index("symbol").at["HIT", "move"] == pytest.approx(46.0 / 234.0 - 1.0)
+    assert partial_adjustments(close, None).empty
+
