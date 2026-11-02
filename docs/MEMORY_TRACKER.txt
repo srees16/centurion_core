@@ -278,7 +278,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
         day: Option Chain tab, then Scan Overlay Strategies.  Not yet seen on
         live quotes or in a browser.
      2. Every month: python -m kite_connect.options.cli iv-snapshot, after
-        "refresh", then commit config/iv30_history.csv.gz.  After 45 days the
+        "refresh", then commit config/iv30_history.csv.  After 45 days the
         scan refuses a stale rank and says so in its log.
  >>> INT1A MINUTE DATA (budget Rs 50,000 approved 1 Nov, all in)
      1. Email TrueData and Global Datafeeds; the text is in chat, 1 Nov.
@@ -1314,6 +1314,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              breaks it, which backs "no structural leverage".  Real days: 23 Mar
              2020 -1.25%, 4 Jun 2024 -7.59%.  Open: market_protection awaits
              Zerodha.  464 tests (414 plus 50 skips core-only), 6 of 6 breakages.
+2 Nov   B6   Deploy to HF failed on main ec0250f, 1 Nov (uncommitted fix).  The Space refuses pushed binary files, and OPT1's
+             config/iv30_history.csv.gz is one, so nothing from that merge reached the backend.  Now plain text,
+             config/iv30_history.csv, 1.4 MB, same 53,410 rows; write_snapshot no longer gzips; .gitignore excepts
+             the file (*.csv is ignored).  Tests pin it as readable text.
 1 Nov   GT3  Golden target rebuild review (your ask; docs/Golden target rebuild evidence.md; no code, no
              trial).  No evidence for a sustained 1.4 / 35%.  One book, three bases: 13.0% / 0.60 free sweep, 12.4% / 0.54
              realistic sweep, 10.9% / 0.43 as paper and live run today.  2013-25 already at the milestone; the shortfall
