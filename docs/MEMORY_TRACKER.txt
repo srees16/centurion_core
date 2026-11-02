@@ -287,19 +287,16 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      3. Buy from the one confirmed, then say "do INT1A".  What the budget buys,
         in order: expired futures, then their bid/ask, then expired options.
  >>> AFTER YOU MERGE KES1 (plan 5be)
-     1. GitHub > centurion_core > Settings > Secrets and variables > Actions >
-        Variables: add CENTURION_SKIP_DONE_RUNS = true.  Backup runs then stop
-        on a finished night, about 70 GB a month less cache egress.  Until
-        then nothing changes.  To undo: delete the variable.
+     1. DONE 2 Nov: CENTURION_SKIP_DONE_RUNS = true is set.  Backup runs stop on
+        a finished night, about 70 GB a month less cache egress.  To undo:
+        delete the variable.
      2. Put the Kite Connect app's expiry date in your calendar, a week early,
         and renew from it.  Its console shows the date; no code tracks it, and
         it lapsed unnoticed on 17 Oct.
  >>> MON 2 NOV - YOUR ACTIONS (a trading day)
      1. Kite login, as every trading day.
-     2. Then run the Kill switch check, read only, it cancels nothing.  GitHub >
-        centurion_core > Actions > Kill switch > Run workflow.  Branch: main.
-        Action: check.  Reason: leave blank.  Green run, and the "Kill switch"
-        step's log must show "0 account(s) not checked".  Needed before go-live.
+     2. DONE 2 Nov: Kill switch check: "0 buys found, 0 cancelled, 0 open, 0
+        account(s) not checked".
      3. Sell test fallback, if 29-30 Oct did not record (ST2 step 3).
  >>> SAT 31 OCT - YOUR ACTIONS
      1. Merge PR #298 (SB3 with config/nse_for_cause_exits.json), then commit and
@@ -523,6 +520,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
        Fri 30 Oct, TEST 2: the same steps, on the 2 remaining shares.
        Fallback for a failed leg: Mon 2 or Tue 3 Nov (no holiday until
          Tue 10 Nov).
+       2 Nov, your call: restart.  AMO after 20:00 Mon 2 Nov (no AMO can
+         reach today's open), TEST 1 Tue 3 Nov, TEST 2 Wed 4 Nov.
      The original plan, whose steps stand (only the dates moved):
      Why one day per test: Record sell path reads both orders from Kite,
      whose API returns only that day's orders.  So the AMO SELL and the GTT
@@ -1314,6 +1313,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              breaks it, which backs "no structural leverage".  Real days: 23 Mar
              2020 -1.25%, 4 Jun 2024 -7.59%.  Open: market_protection awaits
              Zerodha.  464 tests (414 plus 50 skips core-only), 6 of 6 breakages.
+2 Nov   B7   First live overlay scan: "Internal server error" (uncommitted fix).  Space log: broker.quotes hit an HTML 400 from
+             Kite's gateway, on a GET with 500 option keys, a 14 KB URL (cause inferred; the spot quote before it worked).
+             QUOTE_BATCH 500 to 200, as the stock quote paths; a test caps the URL under 8,000.  Not yet seen on live.
+             HF_TOKEN in .env is a read token for the Space's logs.
 2 Nov   B6   Deploy to HF failed on main ec0250f, 1 Nov (uncommitted fix).  The Space refuses pushed binary files, and OPT1's
              config/iv30_history.csv.gz is one, so nothing from that merge reached the backend.  Now plain text,
              config/iv30_history.csv, 1.4 MB, same 53,410 rows; write_snapshot no longer gzips; .gitignore excepts

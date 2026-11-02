@@ -12,7 +12,7 @@ client with the same methods and no network.
   Zerodha (``CENTURION_KITE_STATIC_IP``, mandatory for API orders since April
   2026); market data works from any IP.
 * **Rate limits.** Quotes are throttled to Kite's one request a second
-  (500 instruments each); orders to ``LimitsConfig.max_orders_per_second``,
+  (200 instruments each); orders to ``LimitsConfig.max_orders_per_second``,
   below Kite's ten.
 * **Freeze quantity.** Orders go out with ``autoslice=true``: Kite splits a
   quantity above the exchange freeze limit into up to ten orders and returns
@@ -40,7 +40,9 @@ logger = logging.getLogger(__name__)
 
 EXCHANGE = "NFO"
 PRODUCT = "NRML"
-QUOTE_BATCH = 500
+# Kite takes 500 instruments, but a quote is a GET: 500 option keys make a 14 KB URL, which its gateway answers with
+# an HTML 400 (the first live overlay scan, 2 Nov 2026).  200 is the batch the stock quote paths already use.
+QUOTE_BATCH = 200
 QUOTES_PER_SECOND = 1.0
 DEFAULT_ORDER_LOG = Path("data/options/orders.jsonl")
 #: Order statuses after which an order no longer changes.
@@ -93,7 +95,7 @@ class Broker:
         return self._instruments[exchange]
 
     def quotes(self, keys: Sequence[str]) -> Dict[str, dict]:
-        """Full quotes for ``EXCHANGE:SYMBOL`` keys, in batches of 500 at one request a second."""
+        """Full quotes for ``EXCHANGE:SYMBOL`` keys, in batches of ``QUOTE_BATCH`` at one request a second."""
         out: Dict[str, dict] = {}
         keys = list(dict.fromkeys(keys))
         for i in range(0, len(keys), QUOTE_BATCH):
