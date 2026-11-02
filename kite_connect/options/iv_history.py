@@ -389,7 +389,7 @@ def write_snapshot(symbols: Sequence[str], cfg: OptionsConfig) -> Path:
     out["iv30"] = out["iv30"].round(5)
     path = Path(cfg.overlay.history_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    out[["date", "symbol", "iv30"]].to_csv(path, index=False, compression="gzip")
+    out[["date", "symbol", "iv30"]].to_csv(path, index=False)
     return path
 
 

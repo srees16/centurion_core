@@ -188,8 +188,9 @@ class OverlayConfig:
     # Strikes quoted around spot, and underlyings scanned; the rest are named in the scan's log.
     strike_band: float = 0.25
     max_symbols: int = 40
-    # One year of 30-day IV per symbol (``iv_history.write_snapshot``): data/ is not deployed.
-    history_path: str = "config/iv30_history.csv.gz"
+    # One year of 30-day IV per symbol (``iv_history.write_snapshot``): data/ is not deployed.  Plain text: the
+    # Hugging Face Space refuses a pushed binary file.
+    history_path: str = "config/iv30_history.csv"
     history_max_age_days: int = 45
     # Near-month IV this far above the next (Jabbour & Budwick p. 94): the market expects an event.
     event_skew: float = 0.03

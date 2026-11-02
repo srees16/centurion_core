@@ -540,7 +540,8 @@ def test_snapshot_round_trip_and_a_short_history_is_left_out(tmp_path, monkeypat
     from kite_connect.options import iv_history as ivh
     from kite_connect.options.options_config import OverlayConfig
 
-    cfg = replace(OptionsConfig(), overlay=OverlayConfig(history_path=str(tmp_path / "iv.csv.gz")))
+    path = tmp_path / "iv.csv"
+    cfg = replace(OptionsConfig(), overlay=OverlayConfig(history_path=str(path)))
     dates = pd.bdate_range(end="2026-10-30", periods=300)
     long = pd.DataFrame({"date": dates, "iv30": 0.2})
     monkeypatch.setattr(ivh, "underlying_prices", lambda s, c, start: (pd.Series(dtype=float), None))
@@ -548,6 +549,17 @@ def test_snapshot_round_trip_and_a_short_history_is_left_out(tmp_path, monkeypat
     ivh.write_snapshot(["NIFTY", "NEWLY"], cfg)
     back = ivh.load_snapshot(cfg)
     assert set(back["symbol"]) == {"NIFTY"} and len(back) == cfg.data.lookback_sessions
+    assert path.read_text().startswith("date,symbol,iv30")          # text: the Space refuses a pushed binary file
+
+
+def test_the_deployed_iv_snapshot_is_tracked_text_the_scan_can_read():
+    from pathlib import Path
+
+    from kite_connect.options import iv_history as ivh
+
+    cfg = OptionsConfig()
+    assert Path(cfg.overlay.history_path).read_text().startswith("date,symbol,iv30")
+    assert len(ivh.load_snapshot(cfg)) > 0
 
 
 # ---- position alerts: the 200% and 10% rules (Cordier & Gross ch. 12)
