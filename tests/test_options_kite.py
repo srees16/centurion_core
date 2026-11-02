@@ -148,6 +148,25 @@ def test_quotes_are_batched_and_throttled(tmp_path):
     assert broker.kite.quote_calls == 2 and clock.slept == approx([1.0])  # one request a second
 
 
+def test_a_quote_batch_stays_a_url_kites_gateway_accepts(tmp_path):
+    from urllib.parse import urlencode
+
+    from kite_connect.options.broker import Broker
+
+    class Recorder:
+        batches = []
+
+        def quote(self, keys):
+            self.batches.append(keys)
+            return {k: {} for k in keys}
+
+    kite = Recorder()
+    keys = [f"NFO:BAJAJ-AUTO26NOV{10000 + i}CE" for i in range(450)]        # about the longest key there is
+    got = Broker(kite, order_log=tmp_path / "orders.jsonl", sleep=lambda s: None).quotes(keys)
+    assert len(got) == 450 and len(kite.batches) == 3
+    assert max(len(urlencode({"i": b}, doseq=True)) for b in kite.batches) < 8000    # 500 keys answered an HTML 400
+
+
 # ---- pre-trade report
 def test_legs_and_limit_prices():
     assert parse_legs("BUY CE 25000, SELL 2 CE 25150") == [("BUY", "CE", 25000.0, 1), ("SELL", "CE", 25150.0, 2)]
