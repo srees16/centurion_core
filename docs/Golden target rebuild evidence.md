@@ -14,6 +14,16 @@ Backtests do not bridge the gap. Bank alternative-beta products fell from a medi
 
 Centurion's own arithmetic closes the question. Holding NIFTY with perfect foresight of every bear gives about 25%, and a true Sharpe of 0.6 tops out near 24.5% at any leverage (GT2 review). The book reached 35% in 3 of 18 years, and its best rolling three-year CAGR is 28.9%. Target vol is about 22% (my calc: 34.9% at Sharpe 1.4), and even a true 1.4 at 22% vol has about a 43% chance of a -30% drawdown in 18 years (Gaussian, so a floor).
 
+**Why the arithmetic rules out the target.** Long-run compound growth is roughly CAGR ≈ rf + Sharpe × vol − vol²/2. Leverage raises vol; the middle term grows in step with it, but the drag term (vol²/2) grows with its square, so past some point more risk lowers growth. Growth peaks at vol = Sharpe, where CAGR = rf + Sharpe²/2:
+
+| True Sharpe | Peak CAGR (at vol = Sharpe) | At today's ~11% vol, no leverage |
+|---|---|---|
+| 0.6 | 6.5% + 0.36/2 = **24.5%** (needs 60% vol) | 6.5% + 6.6% − 0.6% ≈ 12.5% |
+| 0.8 | 6.5% + 0.64/2 = 38.5% (needs 80% vol) | 6.5% + 8.8% − 0.6% ≈ **14.7%** |
+| 1.4 | 6.5% + 1.96/2 = 104.5% | 34.9% needs ~22% vol |
+
+So at Sharpe 0.6 no amount of leverage reaches 35%. At 0.8 the ceiling sits above 35% only at about 80% vol, which means structural leverage, and that is ruled out. Unlevered, CAGR is Sharpe × the book's own vol plus the risk-free rate: mid-teens, not 35%. The target needs a better Sharpe, not more leverage (my calc; Gaussian, continuous rebalancing, costs of leverage ignored, so these are upper bounds).
+
 | Golden leg | Target | Live-like 2008-25 | 2013-25 | Reading |
 |---|---|---|---|---|
 | Sharpe | ≥ 1.4 | 0.60 (0.54 realistic sweep) | 0.88 | Out of reach as a sustained result |

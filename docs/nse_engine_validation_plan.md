@@ -6140,6 +6140,371 @@ that question.
 **Where it fails in production.** Liquidity and costs: ask prices across a full
 strip, on a thin chain, at retail size.
 
+## 5bp. NS1: untested uncorrelated streams, a plan of action (India tracker NS1; your ask, written 02 Nov 2026, before any data was read)
+
+**Why.** The golden target review (`docs/Golden target rebuild evidence.md`) puts
+every queued idea at 0 to +0.20 Sharpe together. To lift 0.60 to 0.80, one stream
+needs its own Sharpe of 0.53 at correlation 0 or 0.69 at 0.3. This plan tests the
+streams that are in the docs but were never run (desk verdicts only), plus six
+new ideas, in an order that spends no core trial. **This is a plan, not a
+pre-registration:** each stream gets its own dated, timestamped section (5bq
+onward) with exact rules and parameters before any number is read.
+
+**Rules that apply to every item** (research protocol; tracker sections 3 and 6):
+- **Pre-register first** (protocol §2): hypothesis (who pays and why), source,
+  exact rules with every parameter, translations marked (A), window, costs, pass
+  rule, and what a pass leads to.
+- **Windows.** 2013–25 test; 2007–25 reported; **2008–25 for anything headed for
+  money**, or the stream's own span with the gap stated (your call to go live
+  without 2008, as U38). 2026 stays sealed, opened once per family.
+- **No core trials.** The core has none before January (GT2B). Every item here is
+  an event study (N = its hypotheses) or a new sleeve family with its own
+  registry `data/nse_engine/runs_<name>`, at most 3 configurations, 1–2
+  preferred.
+- **Where it runs.** Engine-backed trials on Kaggle (one environment, LN-T26);
+  arithmetic on recorded series may run on the Mac, stated (A), all of a
+  family's trials in one place. Debugging runs: short windows, never recorded.
+- **Costs.** Every instrument at its own dated cost model (`nse_engine.costs`,
+  `fno_costs`, MCX's); a missing model is built with the stream. Break-even
+  cost reported for anything high-turnover (OPS1). Sized against
+  broker-feasible capital.
+- **Gates.** Event signal: t ≥ 2 for a published effect, t ≥ 3 for a new one,
+  Newey-West. Beside the book: the diversifier gate (§5.1) on both honest-base
+  books, equal-risk weight, paired stationary bootstrap one-sided p ≤ 0.10, the
+  2008–12 gain held if 2013–25 was seen. MaxDD and Calmar reported, never a
+  condition (GT13). An in/out-of-market rule reports `timing_skill` (MIT1).
+- **After a run:** bug fixes only, dated, effect stated. A failure is never
+  re-tuned; it closes, and its code is removed unless something uses it (your
+  rule: nothing unused is merged).
+- **Code and records.** Claude marks the tracker item [~], works, leaves changes
+  **uncommitted** for your review (you commit and push), adds tests to the fast
+  suite, and logs the verdict in tracker section 8 and the stream register
+  (`docs/golden_target_review.md` §6). A pass goes to a paper book (≥ 60
+  sessions) before any live capital, then the ladder.
+
+### Phase 0: no trial, before go-live (Nov to 11 Dec)
+
+| ID | Stream | What is done | Done when |
+|---|---|---|---|
+| NS1-0a | Liquid-fund sweep on idle cash (LN-T29, cost model 5) | Waits on Zerodha Q5. Already queued; listed here because every later comparison uses its base. | Cost model 5 in the registry; honest base re-stated |
+| NS1-0b | **Cash-futures carry on idle cash (new)** | A cost-model comparison, not alpha: buy stock, sell its near future, hold to expiry, roll. On the F&O archive 2013–25 (2008 contracts built from the raw archive): net annual yield after STT (2026 rates), brokerage, roll slippage and margin, against cost model 5's sweep. One look, not a trial. | Adopt only if it beats the sweep by ≥ 0.5 pt a year net in 2013–25 **and** in 2020–25, with cash free by the next session's buys |
+
+### Phase 1: event studies, cheap (Nov to Dec; no core trial)
+
+Each is one pre-registered section; N = its hypotheses (at most 2). Signal from
+the event date's next open; costs at 15 bp a side plus impact; abnormal return
+against NIFTY 500 TRI; 2008–25 where data exists.
+
+| ID | Stream | Status before | Hypothesis | Data | Pass |
+|---|---|---|---|---|---|
+| NS1-1 | **Index deletion rebound** (NIFTY 50 / Next 50 / 100 / 500) | desk (§6 row 5) | Index funds sell on a known date; the price recovers over days 60–240 | **Not in hand** (corrected 2 Nov): the event list is built from NSE Indices' press releases (5bq); prices from the store | t ≥ 2, both halves positive; then a sleeve (3 configs) |
+| NS1-2 | **Long-vol tail hedge (new)** | none | NIFTY's crash risk is under-priced in calm regimes (low IV rank) | `fo_store`, IV history; bought far-OTM monthly puts, rolled | A drawdown lever judged on Sharpe under §5.1 (no MaxDD route, GT13); its 2008 loss avoided reported. Options family budget (U32) |
+| NS1-3 | **Promoter buying (SAST/PIT)** | desk | Insiders buy on information; outsiders follow late | PIT filings from Oct 2020 (gap stated) | t ≥ 2; a filter, not a sleeve |
+| NS1-4 | **Demergers** | desk | Index and mandate holders sell the spun-off unit | **Not in hand** (data check 2 Nov, no trial): `corpact_api` 2008–25 holds 98 explicit demergers, 11 before 2019 (older ones filed as "Scheme of Arrangement", mixed with mergers and capital cuts), and never names the spun-off company; about 69 new symbols list within 150 days of each event, so the pairing cannot be automated. Needs a hand list from NSE listing circulars ("listing pursuant to scheme of arrangement") before 5bs can be pre-registered | t ≥ 2 after the listing day |
+| NS1-5 | **F&O-segment entry/exit and MSCI rebalances (new)** | none | Flows on dates announced in advance | NSE F&O circulars, MSCI announcements (sourced first) | t ≥ 3 (new effect) |
+| NS1-6 | **Anchor lock-in expiry, IPO days 30/90 (new)** | partly (IPO day 29–33 filter) | Mechanical supply when anchor shares unlock | IPO dates, anchor allotments (sourced first) | t ≥ 3; merged with the IPO filter if both hold |
+
+### Phase 2: manual and opportunistic (any time; no code)
+
+| ID | Stream | What is done |
+|---|---|---|
+| NS1-7 | **Buyback tenders, retail quota** | A hand table of past tenders 2013–25: acceptance ratio, price gap, holding days, net of the April 2026 buyback tax. Expected gain per Rs lakh at the Rs 3–30 lakh rungs. Tendering stays manual in Console (API has none), under MO1's Rs 2 lakh cap. **Done 3 Nov: not adopted** (result below the table). |
+| NS1-8 | **Open-offer and delisting-offer arbitrage (new)** | The same table for SAST open offers and delisting offers: spread, acceptance, failure rate, worst case. A failed delisting is the stated risk. |
+
+**NS1-7 result (3 Nov 2026; hand table, no trial).** Source: SEBI Filings →
+Buybacks → Tender Offers, 1,232 documents 2013–25, 252 post-offer
+announcements; 46 with a machine-readable small-shareholder row (the rest
+scans or other layouts), 2013–22.
+- Small-shareholder acceptance (reserved ÷ tendered, capped at 1): median 72%,
+  mean 65%, quartiles 29% / 100%; 16 of 46 fully accepted, 13 below 30%.
+- It fell as the trade got known: medians 2016 100%, 2017 60%, 2018 86%,
+  2019 30%, 2020 22%; the 2021 cluster (TCS, NIIT 30%) and FDC 2022 (14%).
+- The big names are crowded: Mindtree 14%, Aarti Drugs 7%, HEG 17%, eClerx
+  18%, FDC 14%. Full acceptance came mostly where the offer was out of the
+  money (tendered far below reserved: NALCO 0.02×, Welspun 0.25×, KG Denim).
+- From 1 Oct 2024 the proceeds are a deemed dividend taxed at slab rate on the
+  whole amount, the cost becoming a capital loss (Finance Act 2024; the April
+  2026 change keeps the shareholder taxed). At a 30% slab a Rs 100 tender at
+  a 15% premium accepted at 30% gains about 4.5% gross on the money tied up,
+  and the slab tax on the accepted proceeds more than wipes it out before the
+  unaccepted shares' price fall.
+- Reading: not worth doing at any rung; no tendering rule for the book.
+  Scratch code and downloads removed.
+
+**NS1-10 check (3 Nov 2026; desk, no trial): fails, closed.**
+- Data: none in hand (the store has MCX only). NCDEX's bhavcopy page is
+  rendered in the browser; no file or API link was found to script 2008–25
+  history, so a backtest would start with a hand download or a vendor.
+- Suspensions (public record, not re-verified here): futures in the most
+  traded agri contracts were halted repeatedly (chana and others 2008–09,
+  guar 2012, chana again 2016) and, from Dec 2021, SEBI suspended seven
+  (paddy non-basmati, wheat, chana, mustard, soybean and its products, crude
+  palm oil, moong), extended year after year. A trend rule loses its best
+  markets exactly when prices move most, and a halted position cannot exit.
+- Liquidity in what remains (guar, cotton seed oilcake, jeera, turmeric and
+  similar) is thin for a sleeve, and suspensions made the 2008–25 history
+  discontinuous.
+- Reading: the precondition fails; GT5's third configuration stays unused.
+
+### Phase 3: data first (quote before any test)
+
+| ID | Stream | What is done |
+|---|---|---|
+| NS1-9 | **Analyst revision breadth, as a veto** | Ask two vendors for point-in-time consensus history from 2008. Weigh the quote against +0.05–0.15 Sharpe. Only then pre-register, as a core veto in a January slot (decision 2 of the GT3 list). |
+| NS1-10 | **NCDEX agri trend (new)** | Check contract liquidity and suspensions 2008–25 first. A pass of that check joins the commodity family's last configuration (GT5's third), not a new budget. **Check 3 Nov: fails, closed** (below). |
+
+### Not reopened
+
+Value/quality (GT4), REITs (GT14), options premium selling (O2–O8), MON100 (R14),
+bonds as alpha (BD1), residual momentum, 52-week high, sector momentum (S151A),
+volatility targeting (R3, VT1), HMM regimes, pairs (Sharpe ~0.1), USDINR (RBI
+rule) and leverage beyond your U36 call.
+
+### Order and dependencies
+
+1. NS1-0b after LN-T29 (needs cost model 5 as the comparison).
+2. NS1-1 and NS1-2 first among the studies: data in hand, and NS1-2 aims at the
+   2008–12 gap. Then NS1-3, NS1-4; NS1-5 and NS1-6 once their data is sourced.
+3. NS1-7 and NS1-8 in parallel, by hand.
+4. NS1-9 and NS1-10 are quote and data checks only until you decide.
+5. Nothing here moves the deployed book before RA1's verdict (14 Dec). A pass
+   becomes a paper book; live only after its own 60 sessions and your go-ahead.
+
+**What would count as success.** Two or more streams passing §5.1 on both books,
+their combined effect measured (not summed) on the walk-forward 2008–25 book.
+Expectation, stated now: most will fail; the plan is worth running for the one
+or two that do not.
+
+## 5bq. NS1-1: the index deletion rebound (India tracker NS1; your ask "do NS1-1", pre-registered 02 Nov 2026, before any event list was built or any return read)
+
+**Hypothesis.** Passive funds tracking a NIFTY index must sell a deleted stock
+on or just before its effective date, whatever its value. The price is pushed
+below fair value by forced, information-free selling and recovers as the
+pressure ends. Who pays: index funds and ETFs, which accept the tracking cost.
+The literature's long-side figure is +4–7% abnormal over days 60–240 after the
+effective date (golden_target_review §6 row 5); it is a replication, so t ≥ 2.
+
+**Data check, done before writing this (corrects plan 5bp, which said "in hand").**
+- `data/nifty500_historical_constituents.json` holds 16 half-year NIFTY 500
+  lists from Wayback snapshots, 2019-03 onward, some periods reusing an older
+  snapshot. No dates, no NIFTY 50/Next 50/100, nothing before 2019. **Not usable
+  as an event list.**
+- `archive/indices` holds daily index *levels* 2012–26, not constituents.
+- The source used instead: NSE Indices' press releases ("Replacements in
+  indices", "Exclusion of ... from Nifty Indices"), each with an announcement
+  date and an effective date. The archive must be built: tools/index_events.py
+  (to write), saving every PDF under `archive/index_events/` and a parsed table
+  `index_events.parquet` (symbol, index, action, announced, effective, reason).
+
+**Events.**
+- **Kept:** periodic-review deletions (semi-annual, March and September) from
+  NIFTY 50, NIFTY Next 50, NIFTY 100 and NIFTY 500 (A: the four broad indices
+  with the most passive money; NIFTY 500 has the least, kept to test size).
+- **Dropped, fixed now:** deletions for a merger, delisting, demerger,
+  suspension or surveillance (not forced, information-bearing); a stock deleted
+  from one index but added to the next tier down on the same date (e.g. NIFTY
+  50 to Next 50) is kept and flagged, and reported separately (A).
+- A stock with no store price at the effective date + 1 is dropped and counted.
+
+**Rules.**
+- Entry: the open of the first session after the effective date (day 1).
+  Exit: the close of day 240, or earlier if it leaves the store (exit at its
+  last close; counted).
+- Abnormal return: stock total return less NIFTY 500 TRI over the same days
+  (A: the store's price-return NIFTY 500 plus 1.3 pt a year if the TRI is
+  missing, stated).
+- Windows reported: [−20, 0] (the pressure, information only), [1, 60],
+  [60, 240] (the hypothesis), [1, 240].
+- Costs: 15 bp a side plus the engine's impact model on the day-1 traded value,
+  at a Rs 2 lakh position (A).
+
+**Window.** 2008–25 if releases exist from 2008; otherwise from the first year
+they do, the gap stated (your call, as U38). 2026 sealed. Halves: 2008–16 and
+2017–25.
+
+**Clarifications, 02 Nov 2026, before any run:**
+- The release archive was checked: NSE Indices' press-release page lists every
+  release from 1998, with index changes in every year 2008–25 (2010 and 2012
+  under "Index Changes w.e.f."), so the full 2008–25 window holds.
+- **The holdout stays sealed:** an event whose day 240 falls after 31 Dec 2025
+  is dropped (about the last year of events; counted). The store is read only
+  to 31 Dec 2025.
+- Releases before Aug 2013 give company names, not symbols. Names map to NSE
+  symbols through the corporate-action and board-meeting records (company name
+  and symbol, 2006 on) and EQUITY_L, normalised (case, "Ltd"/"Limited",
+  punctuation); an unmatched name is dropped and listed, never guessed.
+- The reason is read per release section: kept only where the release or its
+  section says periodic review, semi-annual review or rebalancing; any section
+  naming a merger, amalgamation, scheme of arrangement, demerger, delisting,
+  suspension or surveillance is dropped.
+- **One event per stock per release:** a stock leaving several of the four
+  indices in one release (e.g. Next 50 and 100) is one event, its indices
+  listed; "by index" counts it under each.
+- **Days:** day 0 is the effective date's session (the next session if it is a
+  holiday); day 1 is the session after. The benchmark enters at NIFTY 500's
+  open on day 1, like the stock. The store holds no NIFTY 500 dividend series,
+  so the stated fallback applies: NIFTY 500 price plus 1.3 pt a year,
+  compounded daily.
+- [−20, 0] runs close to close; [1, 60] and [1, 240] from day 1's open;
+  [60, 240] from day 60's close. Costs are charged on the three tradable
+  windows: 15 bp a side plus the square-root impact (`costs.impact_bps`,
+  default CostConfig) of Rs 2 lakh against the 20-session median traded value
+  at entry and at exit.
+- The store is loaded with no liquidity pre-filter, so thin NIFTY 500
+  deletions are not dropped by the loader.
+- Name normalisation (02 Nov 2026, before any run): the matcher removes
+  Ltd/Limited/Co/Company/India/The/Of, treats "&" as "and", collapses tripled
+  letters, and stems pharmaceuticals→pharma and industrial/industry→industries.
+  "Corporation" is kept. Matching is exact on the normalised name with no
+  fuzzy matching, and a name that maps to two symbols is excluded.
+
+**Hypotheses (N = 2):**
+- H1: mean net abnormal return over [60, 240] > 0.
+- H2: the same over [1, 240].
+
+**Pass.** H1 or H2 with Newey-West t ≥ 2 on calendar-month averages (events
+in the same month averaged first, so overlapping events do not inflate t), and
+**positive in both halves**. Also reported: count per year, hit rate, the worst
+event, the tier-down subset, results by index.
+
+**What a pass leads to.** A sleeve family `runs_index_del` (at most 3
+configurations) under the diversifier gate (§5.1), each pre-registered. A fail
+closes NS1-1; the event table stays only if another study uses it.
+
+**Runs on** the Mac (A: arithmetic on store prices, no engine decisions), all
+of it in one place.
+
+**Result (02 Nov 2026): FAIL, closed.** 253 releases (1 download failed, 30
+names unmatched, 7 with no effective date); 532 periodic deletions in 25 event
+months. H1 [60,240]: −12.1% per event-month net, NW t −4.34 (2008–16 −9.6%,
+2017–25 −13.5%). H2 [1,240]: −14.6%, t −3.90 (−9.0%, −17.7%). Event means:
+[−20,0] +1.3%, [1,60] −1.8%, [60,240] −7.3%; hit rate 35–38%. Tier-down (17):
+mean +5.4%, median −8.7%. Deleted stocks keep lagging; there is no rebound to
+harvest. Known limits: the per-index split double-counts NIFTY 50 inside
+NIFTY 500 labels, and 2022–23 yielded only 9 events; neither can flip a t of
+−4. No other study uses the event table, so the code and data were removed.
+
+## 5br. NS1-2: long-vol tail hedge (India tracker NS1; your ask "do NS1-2", pre-registered 02 Nov 2026, before any code or return)
+
+**Hypothesis.** NIFTY's crash risk is under-priced when markets are calm, so
+far out-of-the-money puts bought in calm regimes raise the book's Sharpe as an
+overlay (a drawdown lever judged on Sharpe, GT13), most of all in 2008–12,
+where the book has no alpha.
+
+**Family.** Options (U32). Two configurations, the options family's N
+becoming 20 (from 18). Runs go to `data/nse_engine/runs_options/`.
+
+**Instrument and rule (parameters from common practice, not fitted).**
+- NIFTY monthly put, the expiry settling closest to 30 days away (25–35),
+  strike the nearest traded put to 0.90 × spot (10% out of the money).
+- Decided at the close of the session after the previous put settles, filled
+  at the next session's close (Y2's timing), held to expiry, settled at
+  intrinsic on NIFTY 50's close with exercise STT.
+- Notional 1× the stream's equity (units = equity / spot); premium paid from
+  that equity; no other position, idle cash earns nothing in the stream (the
+  gate's book already earns the liquid rate).
+- Costs: `fno_costs` (fills with OptionsConfig slippage, `option_charges`,
+  `exercise_stt`), Y2's helpers unchanged.
+- **H-A (always):** buy every month.
+- **H-B (calm only):** buy only when NIFTY's IV30 (`fo_store/iv`) on the
+  decision day is at or below the median of its trailing 252 sessions
+  (at least 126); else hold no put that month.
+
+**Window.** 2008-01-01 to 2025-12-31 (NIFTY options in the store throughout);
+2026 sealed.
+
+**Gate (protocol 5.1 as amended by GT13, `diversifier_gate.evaluate`,
+unchanged).** An overlay at equal risk (cap 3×), on both books (2008–25
+backtest and walk-forward), live-like (liquid rate, D2 haircut):
+- Pass = combined excess Sharpe above the book's with paired-bootstrap
+  p ≤ 0.10 on **both** books, **and** the combined Sharpe in 2008–12 at least
+  the book's on both books.
+- Reported, not gating: MaxDD, Calmar, the 0.25 tested weight, the stream's
+  own Sharpe and deflated Sharpe at N = 20, correlation, 2008's book loss
+  avoided, the yearly table.
+
+**What a pass leads to.** A third configuration at most (a strike or tenor
+variant, pre-registered), then paper trading under the options family's rules.
+A fail closes NS1-2 and its code is removed.
+
+**Runs on** the Mac (A: arithmetic on store prices and recorded book runs, no
+engine decisions).
+
+**Result (02 Nov 2026): FAIL, both; closed.** Runs `20261102T175824345660Z_863902c9`
+(T-A) and `20261102T175827290331Z_afe1ffc5` (T-B) in `runs_options`; options
+family N = 20.
+- Alone, 2008–25: T-A CAGR −1.1%, Sharpe −0.16, MaxDD −32%, 206 puts, 2.4%
+  paid off; T-B CAGR −1.1%, Sharpe −0.70, 123 puts (83 months skipped), 1.6%
+  paid off. Deflated Sharpe 0.006 and 0.000.
+- Overlay at equal risk (weight ~2.6–2.9×), excess Sharpe book → combined:
+  T-A backtest 0.70 → 0.45 (p 0.96), walk-forward 0.60 → 0.34 (p 0.96);
+  T-B 0.70 → 0.47 and 0.60 → 0.34 (p 1.00). 2008–12 worse on every book.
+- Reported: MaxDD worse with the hedge (backtest −28.6% → −32.4% T-A, −33.9%
+  T-B); correlation to the book −0.17 (T-A), ~0 (T-B). 2008: T-A halves the
+  backtest book's loss (−23.2% → −11.8%), T-B misses it (calm filter off
+  through the crash).
+- Reading: 10% OTM NIFTY puts are not under-priced; the premium bleed exceeds
+  the crash payoff, and buying only in calm regimes keeps the bleed and loses
+  the payoff. The code is removed; the two recorded runs stay in the options
+  registry (they count in N).
+
+## 5bs. NS1-3: promoter open-market buying (India tracker NS1; your ask "do NS1-3", pre-registered 02 Nov 2026, before any filing was downloaded beyond a 9-month depth probe)
+
+**Data (checked 2 Nov).** NSE's insider-trading API (`/api/corporates-pit`)
+returns filings from Jan 2016 (SEBI PIT Regulations 2015; nothing earlier),
+not Oct 2020 as 5bp said. The depth probe read only counts and one row per
+month, no prices.
+
+**Hypothesis (published, t ≥ 2).** Promoters buying their own stock in the
+open market know something; the price drifts up after the filing.
+
+**Events.**
+- Filings with category containing "promoter" (Promoters, Promoter Group),
+  mode "Market Purchase", security "Equity Shares", transaction Buy.
+- Summed per (symbol, filing date); kept if the sum is ≥ Rs 10 lakh.
+- One event per stock per 60 sessions (the first; later ones in the window
+  dropped), so holdings never overlap.
+- Symbol mapped to the store's canonical symbol (symbol changes); unmatched
+  dropped and counted.
+- Tradable at entry: 20-session median traded value ≥ Rs 25 lakh (the
+  engine's own floor).
+
+**Timing.** Day 0 = the filing's date (filings land mostly after the close);
+entry at day 1's open, the next session. Windows: [1,20], [1,60], [1,120] to
+the close; a stock that stops trading exits at its last close.
+
+**Abnormal return and costs.** Against NIFTY 500 plus 1.3 pt a year (5bq's
+fallback, entry at day 0's close); 15 bp a side plus `impact_bps` at Rs 2
+lakh on both legs (5bq's model).
+
+**Hypotheses (N = 2).** H1: mean net abnormal [1,60] > 0. H2: the same over
+[1,120].
+
+**Window and pass.** Events with day 0 from 2016-01-01 and day 120 by
+2025-12-31; 2026 sealed. Pass: H1 or H2 with Newey-West t ≥ 2 on
+calendar-month averages, and a positive mean in both 2016–20 and 2021–25.
+
+**What a pass leads to.** A filter on the core book (a positive tilt or a
+veto), pre-registered for a January slot; not a sleeve. A fail closes NS1-3
+and removes its code; the downloaded filings stay only if another study uses
+them.
+
+**Runs on** the Mac (A).
+
+**Result (02 Nov 2026): FAIL, closed.** 333,330 filings (120 months; monthly
+requests checked against weekly ones, no truncation; filings fall from ~57k a
+year in 2017 to ~14k in 2025). 28,767 promoter market buys, 13,073 events ≥
+Rs 10 lakh; dropped 377 unmatched, 515 too late, 7,308 inside a stock's
+60-session gap, 2,019 thin; 2,854 used (173–418 a year). Net abnormal vs
+NIFTY 500 + 1.3 pt:
+- H1 [1,60]: −0.2% per event-month, NW t −0.16 (2016–20 −1.5%, 2021–25 +1.2%).
+- H2 [1,120]: −1.5%, t −0.63 (−3.7%, +0.9%).
+- Events: [1,20] +0.05%, [1,60] −0.2%, [1,120] −0.7%; hit rate 46–47%.
+  Buys ≥ Rs 1 crore (1,395): [1,60] −0.7%.
+
+Promoter open-market buying carries no drift in India after costs; it is no
+filter for the core book. Code, filings and results removed.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast

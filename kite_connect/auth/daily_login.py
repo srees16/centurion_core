@@ -212,9 +212,8 @@ def remind(book=None, now: Optional[datetime] = None, force: bool = False,
         f"<p>Tonight's live session ({label}){whose} needs today's Kite login.</p>"
         f"<p style=\"margin:22px 0;\"><a href=\"{url}\" style=\"background:#387ed1;color:#fff;padding:10px 18px;"
         "border-radius:6px;text-decoration:none;font-weight:600;\">Log in to Kite</a></p>"
-        "<p style=\"color:#555;\">Launches Zerodha login page: the password and authenticator code "
-        "are typed there. Zerodha connects you to the Centurion server, which keeps the session until "
-        "06:00 tomorrow.</p><p style=\"color:#555;\">No login, no orders tonight. Your GTT stops stay active "
+        "<p style=\"color:#555;\">Launches Zerodha login page. Connects you to the Centurion server. The session will be active until "
+        "06:00 IST tomorrow.</p><p style=\"color:#555;\">No login, no orders tonight. Your GTT stops stay active "
         "at Zerodha either way.</p></div></div></body></html>")
     subject = f"Kite Login Request {now:%a %d %b} ({label})" + (f" - {holder}" if holder else "")
     if send is None:

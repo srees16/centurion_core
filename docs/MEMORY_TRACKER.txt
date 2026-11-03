@@ -273,10 +273,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      your go-ahead.  REJECT: no live capital; 679cbd0c is not re-tuned.
  >>> A1 EVENT LIST: sleeves.EVENT_DATES holds 2027-02-01, the customary Budget date (added 1 Nov at your call, not yet
      announced).  Correct it if the date differs.  After it passes the nightly overlay alerts until the next is added.
- >>> OPTIONS PAGE (OPT1, uncommitted)
-     1. After merging, open Ind Stocks > Options with Kite logged in, on a trading
-        day: Option Chain tab, then Scan Overlay Strategies.  Not yet seen on
-        live quotes or in a browser.
+ >>> OPTIONS PAGE (OPT1)
+     1. DONE 2 Nov: the scan ran on live quotes with Kite logged in and proposed
+        nothing, correctly: positions under one lot, too little cash, IV ranks low.
      2. Every month: python -m kite_connect.options.cli iv-snapshot, after
         "refresh", then commit config/iv30_history.csv.  After 45 days the
         scan refuses a stale rank and says so in its log.
@@ -469,9 +468,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      2. DONE 26 Oct: sign-up test (MU2): the activation email arrived.
      3. DONE 26 Oct: sell test re-dated by you to 28 Oct onwards: tests Thu
         29 and Fri 30 Oct (SELL TEST block).
-     4. ON OR AFTER 1 NOV, not before: Neon back to the Free plan (Billing >
-        Change plan > Free; storage under 0.5 GB).  Launch bills every
-        CU-hour (~$1-2 a month now); Free never charges, it suspends.
+     4. DONE 2 Nov: Neon back to the Free plan (from Launch).  Free never
+        charges, it suspends at its limits (storage under 0.5 GB).
         DONE 26 Oct: the spending notification is on, at $5 a month.
      5. Send Zerodha one ticket with three questions (Q4, the 09:00 check,
         Q5 on LIQUIDCASE, Q6 on the closing auction: ST2 block), then
@@ -783,6 +781,23 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              where ranks gave no alpha in 2008-12; it must differ from R11's faster
              re-entry, which failed.  Gain unknown, possibly none.  Prompt: do GT2D
 [x]     S151A FAILED 1 Nov: sector momentum was survivorship; no January slot (section 8).
+[ ] P2  NS1  Untested uncorrelated streams (plan 5bp, written 2 Nov; your ask).  No core
+             trial: event studies and new sleeve families only, each pre-registered in
+             its own section first.  Phase 0: cash-futures carry vs LN-T29's sweep (one
+             look).  Phase 1: index deletions, long-vol tail hedge, promoter buying,
+             demergers, F&O/MSCI rebalances, anchor lock-ins.  Phase 2: buyback and
+             open-offer tables by hand.  Phase 3: revision-breadth quote, NCDEX
+             liquidity check.  Nothing moves the deployed book before RA1 (14 Dec).
+             NS1-1 FAILED 2 Nov (section 8): deletions keep lagging, t -4.3.
+             NS1-2 FAILED 2 Nov (section 8): put bleed beats the crash payoff.
+             NS1-4 BLOCKED 2 Nov, data check only (no trial): corpact has 98 explicit
+             demergers 2008-25, 11 before 2019, and never names the spun-off company.
+             Needs a hand-built parent -> spin-off list from NSE listing circulars.
+             NS1-3 FAILED 2 Nov (section 8): promoter buys, no drift, t -0.2 / -0.6.
+             NS1-7 DONE 3 Nov (section 8): buyback tenders not worth doing.
+             NS1-10 CLOSED 3 Nov (section 8): NCDEX check fails (no scriptable data,
+             main contracts suspended since Dec 2021, thin rest).
+                                                         Prompt: do NS1-8, or wait for Q5 / RA1
 [ ] P3  OPS1A At the next re-baseline: repair the partial corporate-action factors the load now
              warns about (ADANIENT 2015, HINDZINC 2011, ZEENEWS 2010, TRIVENI 2011 in the universe; 14
              in all), checking each against the record first.  Moves the data hash.  Prompt: do OPS1A
@@ -1313,9 +1328,53 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              breaks it, which backs "no structural leverage".  Real days: 23 Mar
              2020 -1.25%, 4 Jun 2024 -7.59%.  Open: market_protection awaits
              Zerodha.  464 tests (414 plus 50 skips core-only), 6 of 6 breakages.
+3 Nov   NS1-10 NCDEX agri trend, precondition check (plan 5bp, desk, no trial): fails, closed.  No NCDEX
+             data in the repo and no scriptable bhavcopy history on ncdex.com.  The most traded agri futures
+             were suspended repeatedly, and seven (paddy, wheat, chana, mustard, soybean complex, crude palm
+             oil, moong) have been suspended since Dec 2021 (public record, not re-verified).  What remains is
+             thin.  GT5's third commodity configuration stays unused.
+3 Nov   NS1  Round summary (plan 5bp): nothing adopted.  NS1-1 index deletions FAIL (t -4.3, deletions keep
+             lagging), NS1-2 tail-hedge puts FAIL (book Sharpe 0.70 -> 0.45), NS1-3 promoter buys FAIL
+             (t -0.2), NS1-4 BLOCKED (corpact never names the spin-off), NS1-7 buyback tenders not
+             adopted (acceptance 72% median, ~20-30% when crowded; slab-rate dividend tax since Oct 2024).
+             Indian event-driven effects tested so far do not survive costs.  Recommendation: pause new
+             research until the Zerodha reply (Q4, 09:00 check, Q5: unblocks LN-T29 and NS1-0b, the
+             likeliest real gain) and RA1 (14 Dec).  Left, all low value: NS1-10 NCDEX liquidity check,
+             NS1-8 open-offer table, NS1-5/6 (data first), removing the disabled tail-hedge path
+             (execute_tail_hedge, OPTIONS_TAIL_HEDGE_ENABLED = False; NS1-2 says never enable it).
+             Housekeeping: the three closed studies' files (index_events.py, tail_hedge.py,
+             promoter_buys.py) came back untracked after deletion, likely via the chat's "Keep" on
+             created files; deleted again 3 Nov.  Use "Undo", not "Keep", for files a study removes.
+             Terminal auto-approve set in user settings (global autoApprove on, 3 Nov): rm/git blocks no
+             longer enforced by VS Code; the assistant asks in chat before deletes, never commits/pushes.
+3 Nov   NS1-7 Buyback tenders, retail quota (plan 5bp, hand table, no trial): not adopted.  SEBI post-offer
+             announcements 2013-25: 46 readable small-shareholder rows (2013-22).  Acceptance median 72%,
+             quartiles 29% / 100%; fell to ~20-30% in 2019-20 as the trade got crowded (Mindtree 14%,
+             Aarti 7%, HEG 17%, FDC 14%).  Full acceptance mostly when the offer was barely wanted.  Since
+             Oct 2024 the proceeds are taxed as a dividend at slab rate, which wipes out the premium.
+             No tendering rule; scratch code and downloads removed.
+2 Nov   NS1-3 Promoter open-market buying (plan 5bs, N = 2, t >= 2): FAIL, closed, code and data removed.
+             NSE PIT filings exist from Jan 2016 (not Oct 2020): 333k filings, 2,854 events used (>= Rs 10
+             lakh, one per stock per 60 sessions, tradable).  Net abnormal vs NIFTY 500 + 1.3 pt: [1,60]
+             -0.2% per event-month, NW t -0.16; [1,120] -1.5%, t -0.63; halves split (2016-20 negative,
+             2021-25 slightly positive).  Rs 1 crore+ buys no better (-0.7%).  No filter for the core book.
+2 Nov   NS1-2 Long-vol tail hedge (plan 5br, options family, N now 20): FAIL, both, closed.  NIFTY monthly put
+             at 0.90 x spot, 1x notional, 2008-25.  T-A (every month): alone Sharpe -0.16, 2.4% of puts pay;
+             as an equal-risk overlay the book's excess Sharpe falls 0.70 -> 0.45 (backtest) and 0.60 -> 0.34
+             (walk-forward), p 0.96; 2008-12 worse.  It does halve 2008 (-23.2% -> -11.8%), at the cost of
+             the other 17 years.  T-B (calm IV only): Sharpe -0.70, misses 2008, p 1.00.  OTM puts are not
+             under-priced in India; the bleed beats the payoff.  Runs stay in runs_options (counted in N).
+2 Nov   NS1-1 Index deletion rebound (plan 5bq, N = 2, t >= 2): FAIL, closed, code and data removed.
+             Events from NSE Indices press releases 2008-25 (253 releases, 1 download failed, 30 names
+             unmatched); 532 periodic deletions used.  Net abnormal vs NIFTY 500 + 1.3 pt: H1 [60,240]
+             -12.1% per event-month, NW t -4.34; H2 [1,240] -14.6%, t -3.90; both halves negative.
+             Windows: [-20,0] +1.3%, [1,60] -1.8%, [60,240] -7.3%; hit rate 35-38%.  Deleted stocks keep
+             lagging (anti-rebound), not passive-selling relief.  Tier-down 17 events, median -8.7%.
+             The desk's +4-7% does not hold in India.  Not a short either: no stock shorting (SLB not
+             used), and a new-effect short would need its own pre-registration at t >= 3.
 2 Nov   B7   First live overlay scan: "Internal server error" (uncommitted fix).  Space log: broker.quotes hit an HTML 400 from
              Kite's gateway, on a GET with 500 option keys, a 14 KB URL (cause inferred; the spot quote before it worked).
-             QUOTE_BATCH 500 to 200, as the stock quote paths; a test caps the URL under 8,000.  Not yet seen on live.
+             QUOTE_BATCH 500 to 200, as the stock quote paths; a test caps the URL under 8,000.  Ran live 2 Nov, no error.
              HF_TOKEN in .env is a read token for the Space's logs.
 2 Nov   B6   Deploy to HF failed on main ec0250f, 1 Nov (uncommitted fix).  The Space refuses pushed binary files, and OPT1's
              config/iv30_history.csv.gz is one, so nothing from that merge reached the backend.  Now plain text,
