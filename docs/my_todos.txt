@@ -278,3 +278,26 @@ Prepare plan of action to test and validate below observations since they need n
    MV1, which carries the earnings filter.
 
 Whether this changes anything is mostly your call on decisions 1, 2 and 7 in the GT3 list: the milestone basis, the January slots and GT7, and the strict or "not lower" gate.
+
+~~~~~~~
+
+Note for me:
+
+verdict that decides go-live comes at 60 sessions, on Mon 14 Dec (RA1). A pass now doesn't let you go live sooner, and the configuration stays as it is.
+
+Until 14 Dec:
+
+Log in to Kite every trading day. A missed login is a missed session, which counts against tracking.
+Watch the nightly email. If G4 ever shows FAIL, say "diagnose G4".
+Finish the go-live conditions:
+5 clean dry runs: ask me for the dry-run log to see the current count.
+Sell path recorded: this is the AMO SELL 1 HDFCBANK test, still open.
+Put Rs 3 lakh in cash in the account before the first live session. Dry runs plan a Rs 3 lakh book whatever the account holds, so a shortfall only shows up on the first live day.
+Around mid-Dec, before the first live session:
+
+Say "do SC1b". It re-runs the scorecard on the 60-session paper record: tracking error, fill cost against the model, and drawdown against the backtest.
+On 14 Dec, the email shows one of three verdicts:
+
+ACCEPT: live trading starts at Rs 3 lakh once the 5 dry runs are clean and you give the go-ahead. That means setting CENTURION_LIVE_CAPITAL=300000 and CENTURION_LIVE_MODE=live.
+WATCH: decided again at 90 sessions, about 25 Jan 2027.
+REJECT: no live capital, and the configuration (679cbd0c) is not re-tuned.

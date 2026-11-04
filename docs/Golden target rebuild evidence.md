@@ -255,6 +255,16 @@ Pre-commit to the fan now. At a true Sharpe of 0.6, a single year has a 27% chan
 | 7 | Keep t ≥ 2 and DSR ≥ 0.95 for all, or use a "not lower" tier for risk and implementation changes? The base itself fails DSR at 0.42 | Strict for return claims, "not lower" for risk rules and fills |
 | 8 | If the book cannot clear the after-tax passive hurdle, is the product a passive mix plus overlay? Which tax treatment? Buy consensus data? | Take a chartered accountant's view before the first full year; buy data only once a quote is weighed against +0.05-0.15 |
 
+**Owner's decisions, 4 Nov 2026.**
+- **1, decided:** the milestone is 2008-25 on the realistic sweep basis, with the 2013-25 and rolling three-year figures reported alongside.
+- **2, open:** the owner asked what the six January claims are; the answer was given in chat.
+- **3, open:** the owner asked which rule keeps 2026 out; the answer was given in chat.
+- **4, decided:** yes. Filters and capped event sleeves fed by short-history streams may pass a shorter gate at a smaller size, with the gap stated, under a recorded exception like U38.
+- **5, decided:** yes. MIT1's "no exposure may be added" rule is waived once, for J4 only, capped at 25%.
+- **6, decided:** GT8 and U36 are closed. They reopen only by a new decision.
+- **7, decided:** strict gates (t ≥ 2, DSR ≥ 0.95) for return claims; a "not lower" tier for risk rules and fills.
+- **8, open:** not yet answered.
+
 ## Conclusion
 
 The research changes the question from "what gets Centurion to 1.4" to "which number is it really running at, and how would we know". Three figures look like one, 0.60, 0.54 and 0.43, and the distance between them is an operations problem with a Zerodha timing answer in it, not a research problem. That single fix is worth more on the live path than the whole list of new alpha, and it needs no trial. The evidence also inverts where the risk lies: the signal is real in 2013-25 and absent in 2008-12 for reasons NSE's index shares, so the regime weakness is probably a property of the market, while unexercised exits and an unmeasured open auction are properties of the system, and those can be fixed.

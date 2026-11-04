@@ -197,7 +197,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
   U37  (31 Oct) Intraday: amended by you.  Centurion may place intraday trades
        where there are strong opportunities, if they add to CAGR and Sharpe.
        Same gates, its own family; NI1's refusal stays on until a stream passes.
-  U36  (17 Oct) Your four calls:
+  U36  (17 Oct; CLOSED 4 Nov by GT3 decision 6, no structural leverage) Your four calls:
        - Leverage: 1.75x is accepted, with MaxDD to about -40%; hedging the
          drawdown comes later.
        - MTF: "MTF never" came from Claude's L4/L5 advice, not your rule.
@@ -1063,7 +1063,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              a fourth forecast group, ranked like the other rank groups; no
              recent results scores 0.  Weights: fast trend, slow trend and
              earnings at 1/3 each.                       Prompt: do GT7
-[ ] P3  GT8  Futures leverage up to 1.75x (your call 17 Oct, U36: MaxDD
+[x] P3  GT8  CLOSED 4 Nov (GT3 decision 6, with U36; reopen only by a new decision).  Was: Futures leverage up to 1.75x (your call 17 Oct, U36: MaxDD
              about -40% accepted; MTF dropped by your call, L11): only at
              >= ~Rs 1 crore (lots ~Rs 15 lakh) and after 12+ months of live
              combined tracking; half-Kelly on a haircut Sharpe of 0.7; a
@@ -1328,6 +1328,45 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              breaks it, which backs "no structural leverage".  Real days: 23 Mar
              2020 -1.25%, 4 Jun 2024 -7.59%.  Open: market_protection awaits
              Zerodha.  464 tests (414 plus 50 skips core-only), 6 of 6 breakages.
+4 Nov   OF1  Overfitting remediation (your call: do A, adopt C and D).
+             A, plateau ensemble (desk, no trial, no code): deployed 679cbd0c 2013-25 against an equal-weight
+             average of itself and its 14 recorded one-setting neighbours.  Deployed 1.16 / 23.6% / -23.9%;
+             ensemble 1.10 / 21.1% / -22.4%; the 7 numeric nudges only (stop ATR, rebalance, positions, sector
+             cap, regime scale, trend confirm, price filter) 1.12 / 22.1% / -22.5%.  The ensemble beat deployed
+             in 3 of 13 years.  Read: the deployed settings sit near the top of their neighbourhood, not on a
+             lonely spike; averaging costs about 0.04-0.06 Sharpe and 1.5-2.5 pt CAGR and buys about 1.5 pt
+             of drawdown.  Neighbours span 0.77-1.16, with the low end all signal-group swaps (a different
+             strategy, not a nudge).  Not adopted: no change to the book; V3 stays the route.
+             C, RULE (adopted 4 Nov): plan sizing, go-live and expectations on the deflated, as-run figures
+             (about 0.43 Sharpe, about 11% CAGR on 2008-25, GT3's third basis), never the 1.24 walk-forward or
+             1.16 backtest.  The higher figures are reported, not planned on.
+             D, RULE (adopted 4 Nov): if a live or paper book sits below its MC1 5th percentile (return or
+             drawdown, config/mc_bands.json) for 60 consecutive sessions, it steps down to paper; it returns
+             only by a new decision.  Until coded, the Saturday books email's MC1 line is read by hand.
+             Written into the code: YES, 4 Nov (your ask).  capital_ladder.mc_breach_streak / mc_line, recomputed
+             nightly from the flow-adjusted equity against config/mc_bands.json ("deployed" band).  Live book
+             (live_session._mc_rule_d): on the 60th consecutive session below the 5th percentile it latches
+             live_mc_step_down in the book's state and turns the kill switch ON (new buys refused on every path,
+             exits and stop GTTs still go), with a CRITICAL email; while latched the session plans exits only.
+             Paper book: go-live readiness gains "MC floor (rule D)", so a tripped paper record refuses the first
+             live session.  Cleared only by you: live_session --clear-mc-step-down "reason", then the kill switch
+             off.  Every live email carries the streak line.  tests/test_mc_rule_d.py (5); ladder and live tests
+             pass.  Not merged: uncommitted on feature/fine-tuning.
+             Your call 4 Nov: the three design choices accepted as built (kill switch, not a capital or position
+             unwind; no bands or too young reads as not breached; the "deployed" band for every account).
+4 Nov   SHUF1 Sequence shuffle check, deployed 679cbd0c (your ask; no trial, no code).  1,000 random orderings each,
+             seed 7.  Max drawdown, actual against shuffled median / 1st percentile / worst: backtest 2013-25 -23.9%
+             against -17.6% / -29.9% / -41.6%; walk-forward 2017-25 -22.1% against -14.3% / -25.3% / -28.1%; 3,246
+             closed trades on a Rs 30L book -7.1% against -2.5% / -4.7% / -5.7%.  No ordering doubled drawdown (0%
+             in all three).  The real order is already worse than the shuffled median (bad days cluster), so plain
+             shuffling understates risk; MC1's block bootstrap keeps the clusters and stays the risk range.
+             Already on record: walk-forward OOS 1.24 (2017-25), 14-neighbour sensitivity with three fragile
+             settings (stop ATR, rebalance frequency, group weights; feeds V3).
+4 Nov   GT3  Owner's decisions on the rebuild review (docs/Golden target rebuild evidence.md, end).  1: the
+             milestone is 2008-25 on the realistic sweep basis, the others reported.  4: yes, a shorter gate at a
+             smaller size for short-history filters and capped event sleeves, gap stated.  5: yes, MIT1 waived once
+             for J4, capped at 25%.  6: GT8 and U36 CLOSED, reopen only by a new decision.  7: strict for return
+             claims, "not lower" for risk rules and fills.  Open: 2 (which January claims), 3 (RF1 window), 8.
 3 Nov   NS1-10 NCDEX agri trend, precondition check (plan 5bp, desk, no trial): fails, closed.  No NCDEX
              data in the repo and no scriptable bhavcopy history on ncdex.com.  The most traded agri futures
              were suspended repeatedly, and seven (paddy, wheat, chana, mustard, soybean complex, crude palm

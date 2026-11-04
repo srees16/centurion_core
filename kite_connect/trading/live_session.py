@@ -718,8 +718,15 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
         except Exception:                                 # noqa: BLE001 - an unknown user fails the check
             user_id = None
         sell_path = cl.sell_path_check(json.loads(state.get(cl.SELL_PATH_KEY) or "null"), user_id)
+        mc = None
+        try:                                              # rule D on the paper record go-live rests on
+            from nse_engine import mc_bands
+            pb = paper_book if paper_book is not None else _deployed_paper_book()
+            mc = cl.mc_breach_streak(_equity_and_flows(pb.read_snapshots())[0], mc_bands.load(), "deployed")
+        except Exception as exc:                          # noqa: BLE001 - then not checked, and said so
+            logger.warning("rule D on the paper book unavailable: %s", exc)
         checks = cl.readiness(pgate, json.loads(state.get(cl.DRY_RUNS_KEY) or "[]"), source=source,
-                              sell_path=sell_path, capital=ledger["capital"])
+                              sell_path=sell_path, capital=ledger["capital"], mc=mc)
         missing = [f"{n}: {d}" for n, ok, d in checks if not ok]
         if cl.rung_of(ledger["capital"]) is None:
             raise RuntimeError(f"live capital {ledger['capital']:,.0f} is not a ladder rung "
@@ -873,6 +880,10 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
     adopted_entries: Dict[str, str] = {}
     if book_unknown:
         block_buys.append("the order book could not be read, so last night's fills are unknown")
+    from nse_engine.capital_ladder import MC_STEP_DOWN_KEY
+    if state.get(MC_STEP_DOWN_KEY):                       # rule D latched: exits only until the owner clears it
+        block_buys.append("RULE D: stepped down to paper (" + str(json.loads(state[MC_STEP_DOWN_KEY]).get("session"))
+                          + "); clear with live_session --clear-mc-step-down")
     elif pending or skipped:
         provisional = apply_fills(ledger, report["fills"] + report["external"], session, dp)
         since = str(ledger.get("session") or "")
@@ -983,6 +994,9 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
         report["ladder"] = decision.line()
         report["alerts"].extend(decision.alerts)
         critical.extend(decision.critical)
+        mc_alert = _mc_rule_d(state, history, ahead, report)
+        if mc_alert:
+            critical.append(mc_alert)
         if gate is not None:
             from nse_engine import paper_gate as pg
             report["gate"] = (pg.one_line(gate) + " (vs live's order rules; vs the model, for information: "
@@ -1222,6 +1236,36 @@ def _book_write(ok, what: str, strict: bool) -> None:
     """A real session refuses to go on when its book could not be saved (LN-T10)."""
     if strict and ok is False:
         raise RuntimeError(f"live book write failed: {what}; nothing more is sent, the backup run retries")
+
+
+def _mc_rule_d(state: Dict[str, str], history: pd.Series, ahead: Dict[str, str], report: dict) -> Optional[str]:
+    """Rule D (tracker OF1): 60 consecutive sessions below the MC1 5th percentile steps the live book down to paper.
+
+    On the first trip it latches ``MC_STEP_DOWN_KEY`` and turns the kill switch on, so new buys are refused on every
+    order path while exits and stop GTTs still go; it returns the critical alert.  Only the owner clears it
+    (``live_session --clear-mc-step-down``, then the kill switch off).  Never raises: the book still runs."""
+    from nse_engine import capital_ladder as cl
+    from nse_engine import mc_bands
+
+    try:
+        res = cl.mc_breach_streak(history, mc_bands.load(), "deployed")
+    except Exception as exc:                              # noqa: BLE001 - reported, the ladder still guards
+        report["notes"].append(f"rule D (MC floor) unavailable: {exc}")
+        return None
+    report["notes"].append(cl.mc_line(res))
+    if not res["tripped"] or state.get(cl.MC_STEP_DOWN_KEY):
+        return None
+    detail = cl.mc_line(res)
+    ahead[cl.MC_STEP_DOWN_KEY] = json.dumps({"session": report["session"], "streak": res["streak"], "detail": detail})
+    msg = (f"RULE D STEP DOWN TO PAPER: {detail}. The kill switch is on: new buys refused, exits and stops still go. "
+           "Only you clear it (live_session --clear-mc-step-down, then the kill switch off).")
+    try:
+        from kite_connect.trading import kill_switch
+        kill_switch.set_switch(True, f"rule D: {detail}", by="rule D (capital ladder)")
+    except Exception as exc:                              # noqa: BLE001 - the alert says to do it by hand
+        msg += f" The kill switch could NOT be set ({exc}): turn it on by hand now."
+    report["alerts"].append(msg)
+    return msg
 
 
 def _equity_and_flows(snaps: Optional[pd.DataFrame]) -> Tuple[pd.Series, pd.Series]:
@@ -1494,6 +1538,8 @@ def main(argv=None) -> int:
                          "to clear a RECONCILE NEEDED alert (LN-T6); no Kite login needed")
     ap.add_argument("--record-sell-path", nargs=3, metavar=("DDPI_CONFIRMED_ON", "AMO_ORDER_ID", "GTT_ID"),
                     help="verify the supervised sell test against Kite and record it (go-live check, LN-T2)")
+    ap.add_argument("--clear-mc-step-down", metavar="REASON",
+                    help="clear rule D's step-down to paper (tracker OF1); turn the kill switch off separately")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     from kite_connect.trading.public_log import install_public_log_filter
@@ -1515,6 +1561,15 @@ def main(argv=None) -> int:
             print(f"{acct.id}: session skipped: {lock}")
             return 0
         capital = capital if capital is not None else acct.capital
+    if args.clear_mc_step_down:
+        from nse_engine.capital_ladder import MC_STEP_DOWN_KEY
+        if not args.clear_mc_step_down.strip():
+            ap.error("--clear-mc-step-down needs a reason")
+        cbook = live_book(acct.schema if acct else None)
+        was = cbook.read_state().get(MC_STEP_DOWN_KEY)
+        cbook.sync_state({MC_STEP_DOWN_KEY: ""})
+        print(json.dumps({"cleared": bool(was), "reason": args.clear_mc_step_down.strip()[:200]}))
+        return 0
     if args.reconcile:
         from nse_engine.deployment import load_deployment
 
