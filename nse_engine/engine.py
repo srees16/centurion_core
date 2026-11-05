@@ -500,6 +500,11 @@ def _sell(book: _Book, cache: EngineCache, sym: str, qty: int, price: float, adv
 
 
 FILL_RULES = ("open", "live")
+#: How buys are funded at an open.  "model": by the cash after that open's sells, as recorded runs do.  "live"
+#: (LN-T11): only by the cash free before the open - Zerodha could not confirm (5 Nov 2026) that a buy AMO may
+#: spend a sell AMO filled at the same open - so a sale funds later buys.  "live" is a reference run, outside the
+#: config hash and never recorded (FND1, plan 5bt).
+FUNDING = ("model", "live")
 
 
 @dataclass(frozen=True)
@@ -546,8 +551,10 @@ def _locked(locks: Optional[np.ndarray], u: int, j: int) -> bool:
 
 
 def _execute_order(book: _Book, cache: EngineCache, order: _Order, u: int, skip: set,
-                   live: Optional[_LiveRules] = None) -> None:
+                   live: Optional[_LiveRules] = None, funding: str = "model",
+                   free: Optional[float] = None) -> None:
     cfg = cache.config
+    free = book.cash if free is None else free            # funding "live": what the buys may spend
     frac = cfg.portfolio.fractional_shares
     date = cache.dates[u]
     min_val = cfg.portfolio.min_trade_value_inr
@@ -606,7 +613,7 @@ def _execute_order(book: _Book, cache: EngineCache, order: _Order, u: int, skip:
         if fill.quantity > 0:
             wanted.append([sym, j, fill])
     need = sum(f.value_inr + f.cost_inr for _, _, f in wanted)
-    avail = max(book.cash, 0.0)
+    avail = max(book.cash if funding == "model" else min(book.cash, free), 0.0)
     if need > avail and need > 0:
         factor = avail / need
         for item in wanted:
@@ -681,6 +688,7 @@ def run_backtest(
     cache: Optional[EngineCache] = None,
     manifest_extra: Optional[Mapping[str, object]] = None,
     fill_rule: str = "open",
+    funding: str = "model",
 ) -> BacktestResult:
     """Simulate the engine between ``config.start`` and ``config.end``.
 
@@ -692,11 +700,17 @@ def run_backtest(
     tracker LN-T21): a reference run, outside the config hash and never
     recorded.  No stop fires on a buy's own day (its GTT is placed that
     evening); a top-up is stopped with the rest of its position.
+    ``funding="live"`` spends only the cash free before each open on its buys
+    (LN-T11, ``FUNDING``): a reference run at lag 0, never recorded.
     """
     if fill_rule not in FILL_RULES:
         raise ValueError(f"fill_rule must be one of {FILL_RULES}, not {fill_rule!r}")
     if fill_rule == "live" and record:
         raise ValueError("fill_rule='live' is a reference run: pass record=False")
+    if funding not in FUNDING:
+        raise ValueError(f"funding must be one of {FUNDING}, not {funding!r}")
+    if funding != "model" and (record or lag_days):
+        raise ValueError(f"funding={funding!r} is a reference run at lag 0: pass record=False, lag_days=0")
     t0 = time.perf_counter()
     cache = _ensure_cache(data, config, cache)
     live = _live_rules(data) if fill_rule == "live" else None
@@ -734,6 +748,7 @@ def run_backtest(
                 del book.positions[sym]
                 _record_trade(book, date, sym, "SELL", fill, "delisted", frac)
                 book.notes.append(f"{date.date()} {sym}: stopped trading after {dates[lv].date()}; liquidated at {px:.2f}")
+        free = book.cash                                  # funding "live": before this open's stop and order sales
         stopped_today: set = set()
         carried: set = set()                              # live: a triggered stop GTT that did not fill today
         # gap stops at the open
@@ -761,7 +776,7 @@ def run_backtest(
         if order is not None:
             # never re-buy a name stopped out after the order was decided
             skip = stopped_today | {s for s, p in book.stopped_pos.items() if p > order.decision_pos}
-            _execute_order(book, cache, order, u, skip, live)
+            _execute_order(book, cache, order, u, skip, live, funding, free)
         # intraday stops
         for sym in list(book.positions):
             h = book.positions[sym]

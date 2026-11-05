@@ -6505,6 +6505,168 @@ NIFTY 500 + 1.3 pt:
 Promoter open-market buying carries no drift in India after costs; it is no
 filter for the core book. Code, filings and results removed.
 
+## 5bt. FND1: live funding (LN-T11) and the liquid sweep's policy B′ (LN-T29) (India tracker FND1; your ask "build LN-T29's policy B′ now", pre-registered 05 Nov 2026, 18:23 IST, before any run)
+
+**Why.** Zerodha could not confirm (5 Nov 2026, tracker ZR1) that a buy AMO
+may spend a sell AMO filled at the same open, so the live book now buys only
+from the cash already free (LN-T11, `nse_engine_executor.
+LIVE_SELL_PROCEEDS_CREDIT = 0`). Every recorded run funds buys with that
+open's sales. Policy A of the sweep (SWP0) depended on the same credit and is
+not usable; B′ is the remaining design.
+
+**Not a signal trial.** An execution and cost measurement, like SWP0 and
+LN-T21: no family budget, the deployed configuration unchanged, 2026 sealed.
+
+**Runs.** `engine.run_backtest(funding=...)`, reference runs (never recorded,
+outside the config hash), on each of the 18 folds of R4b's 2008–25
+walk-forward (`data/nse_engine/wf_stitched_r4b.json`): each fold's recorded
+test configuration over its test window, stitched.
+- **M (model):** funding as recorded. Harness check: M must reproduce each
+  fold's recorded returns (largest daily difference under 1e-9), else the
+  measurement stops.
+  *Amended 05 Nov 2026, 18:25 IST, after fold 0's M only, before any L or S
+  run:* the check failed (largest daily difference 0.11%), as it must: the
+  engine and data code changed after R4b was recorded on 17 Oct (for-cause
+  exits, circuit locks, the cost margin). M is now run on today's code and
+  data, its stitched CAGR and Sharpe reported beside the record's; the
+  measurement proceeds if they are within 1.0 pt and 0.10 of it (else it
+  stops: the walk-forward needs re-running first). L and S are judged against
+  this M, same code and data.
+- **L (live funding, LN-T11):** buys spend only the cash free before the
+  open; a sale funds the next session.
+- **S (B′):** L, plus idle cash in a liquid ETF. Each night, with N tomorrow's
+  buys at the close plus 1.25% (the live limit band and cost allowance) and C
+  the cash: if N > C, redeem min(N − C, the fund) at tomorrow's open, which
+  funds the session after; else, if C − N − 2% of equity ≥ 5% of equity, park
+  C − N − 2% at tomorrow's open after the buys. Fund return: the bond store's
+  overnight-rate index less LIQUIDCASE's 0.27% a year. Costs: the bond
+  stream's liquid trade cost (statutory, no STT; 3 bp floor; impact at a
+  Rs 74.6 crore ADV, 5% cap) plus the DP charge on each redemption. Buffer
+  and band are the bond stream baseline's (plan 5ag), not chosen here.
+
+**Basis.** As-run (idle cash earns nothing in M and L), D2's haircut on the
+invested share; metrics on the stitched 2008–25 series: CAGR, excess Sharpe,
+MaxDD (recorded, not gating), and both halves (2008–16, 2017–25).
+
+**Reported.** L − M is the cost of LN-T11 (no decision: it stands, the
+funding answer forces it). **B′ is wired into the paper and live books** if
+S − L is at least +0.3 pt CAGR and Sharpe is not lower, on the full window
+and in both halves; else LN-T29 closes on the record and its engine code is
+removed. Either way the sweep trades only after RA1 (14 Dec) and your
+go-ahead.
+
+**Result (05 Nov 2026): B′ FAILS; LN-T29 closed, its engine code removed.**
+On today's code M is 11.15% / 0.428 against the record's 11.14% / 0.426,
+inside the amended tolerance.
+
+| Run | CAGR | Sharpe | MaxDD | 2008–16 | 2017–25 | Invested |
+|---|---|---|---|---|---|---|
+| M (model) | 11.15% | 0.428 | −32.8% | 6.06% / −0.005 | 16.46% / 0.836 | 0.695 |
+| L (LN-T11) | 10.85% | 0.414 | −31.1% | 6.13% / −0.002 | 15.78% / 0.805 | 0.678 |
+| S (B′) | 4.16% | −0.332 | −23.0% | 3.64% / −0.365 | 4.69% / −0.296 | 0.363 |
+
+- **LN-T11 costs 0.30 pt and 0.014 Sharpe** (L − M), all in 2017–25. The
+  engine enters only on rebalance nights, so a buy the free cash cannot cover
+  waits for the next rebalance (5 or 21 sessions), not one session. The live
+  planner shares that engine, so live behaves the same way. Free cash is taken
+  before the open's stop sales too (a GTT fires after the AMOs are released);
+  rerun with that, L is unchanged.
+- **S − L is −6.7 pt.** The cause is the specification, not the fund. In
+  fold 2017 all 12 redemptions were re-parked the next session: with no
+  rebalance that night, N = 0, so the rule parked the redeemed cash again
+  before any buy could use it. Invested fell to 0.36.
+- A corrected design would redeem the night before each rebalance night and
+  hold the redemption until the buys go through. That is a new specification
+  and needs its own pre-registration; it was not run.
+
+### 5bt-2. FND2: the sweep's policy B″ (your ask "build a corrected version of B″", pre-registered 05 Nov 2026, 18:52 IST, before any code or run)
+
+**Rule (S″).** L's funding (LN-T11), plus a standing cash reserve and a
+liquid ETF for the rest. Each night u, with C the cash (free at the next
+open), N tonight's buys at the close plus 1.25%, E the equity and F the fund:
+- **Reserve** Rv = E × the largest buy need, as a share of equity, of the last
+  4 scheduled rebalances (their wanted buys before any cash cut); before 4
+  have run, Rv = E (nothing parked).
+- **Night before a scheduled rebalance** (`rebalance_day[u + 1]`): redeem
+  min(max(Rv + N − C, 0), F) at the open u + 1; its proceeds are free for
+  the rebalance's buys at the open u + 2. A rebalance forced off schedule (a
+  regime switch, an empty book) cannot be foreseen: its buys wait, as in L.
+- **Any other night:** park C − N − Rv − 2% of E at the open u + 1, after the
+  buys, if that is at least 5% of E. Never park on the night before a
+  scheduled rebalance.
+- Fund, costs, buffer (2%) and band (5%) as in 5bt; window, basis, runs (18
+  folds of R4b, M and L as in 5bt), halves as in 5bt.
+
+**Decision (unchanged from 5bt).** B″ is wired into the paper and live books
+if S″ − L is at least +0.3 pt CAGR with Sharpe not lower, on the full window
+and in both halves; else the sweep closes for good and its code is removed.
+Reported beside it: the mean share parked, redemptions a year, and how often
+a scheduled rebalance's buys were cut for cash in S″ against L.
+
+**Result (05 Nov 2026): B″ FAILS; the sweep is closed for good, its code
+removed.**
+
+| Run | CAGR | Sharpe | MaxDD | 2008–16 | 2017–25 | Parked | Cut for cash |
+|---|---|---|---|---|---|---|---|
+| L (LN-T11) | 10.85% | 0.414 | −31.1% | 6.13% / −0.002 | 15.78% / 0.805 | 0 | 87 of 290 rebalances |
+| S″ (B″) | 11.00% | 0.432 | −27.4% | 6.58% / 0.038 | 15.59% / 0.796 | 10.2% | 100 of 292 |
+
+S″ − L is +0.15 pt overall (needed +0.3), +0.45 pt in 2008–16 and −0.19 pt
+in 2017–25. The reserve keeps most idle cash unparked (10% of the book
+parked, 6.6 redemptions a year), and the buys of rebalances forced off
+schedule (regime switches) still wait, now more often (100 cuts against 87).
+The sweep earns its yield only where the book is least invested; no third
+specification is run (the protocol: a failed configuration is never
+re-tuned). Idle cash earns nothing in the live plan; rule C's as-run basis
+and `mc_bands.DEPLOYED_IDLE_CASH_SWEEP = False` stand.
+
+## 5bu. MON1: live monitoring fixed before the first live session (India tracker GL1; golden-target review "do now", pre-registered 05 Nov 2026, 19:11 IST, before any live session)
+
+Three readings of the live book, fixed now so that none is chosen after its
+result. None is a trial or spends a family budget; none trades. Each is
+judged only at the points named.
+
+**1. Cumulative gap bands (a slow leak G4 cannot see).** The daily gap is
+G4's: the live book's daily return less its same-period reference (the
+live-rule backtest, `paper_gate`). With σ the daily gap's standard deviation
+on the deployed paper book at its 60th G4 session (RA1, 14 Dec 2026), floored
+at 10 bp and then fixed, the cumulative gap G(n) after n live sessions is read
+at n = 60, 120 and 250 (then every 250):
+- **Breach:** G(n) < −2σ√n (about 2.3% false alarms at each point under no
+  leak; at 250 sessions it catches a steady leak of 0.13σ a day).
+- **At 60:** a breach is a WATCH line in the email and a review of fills and
+  costs; nothing else.
+- **At 120 or 250:** a breach holds the ladder at its rung (no step up) until
+  the cause is found and written in the tracker; the owner decides any step
+  down. Rule D, the kill switch and the drawdown rule are unchanged by it.
+
+**2. Monthly universe rank IC (Tier B: supports, never proves).** At each
+month-end of live trading, the Spearman correlation across the deployed
+universe between the engine's combined forecast at that close and each
+name's return over the next 21 sessions (point in time, as the engine saw
+it). Benchmark: 0.051 at 21 sessions (2013–25, Stage F item 5).
+- Reported monthly with its running mean and t over months.
+- **Read at 12 months only:** t ≥ 2 supports the signal still ranking;
+  mean IC ≤ 0 is a "signal not ranking" review (no automatic action:
+  12 months is too few to act on, the review's t 1–2.3 range).
+
+**3. The after-tax line.** Once a year, on the financial year (April–March),
+the live book's return after tax against a passive hurdle:
+- **Book:** realised gains taxed as short-term equity (20%) under 12 months,
+  long-term (12.5%) beyond, above the Rs 1.25 lakh yearly exemption; gold and
+  silver ETF gains short-term at the 30% slab, long-term at 12.5%; 4% cess on
+  all; statutory trading costs as booked.
+- **Hurdle:** 50% NIFTYBEES and 50% GOLDBEES bought on the book's first live
+  day, never rebalanced, its gain taxed only if sold (shown both untaxed and
+  as if sold at the year's end).
+- Reported beside the pre-tax figures. It feeds your decision 8 (scale past
+  the canary only if the book beats the hurdle after tax). These rates are the
+  2026–27 rules as I read them; the chartered accountant's view replaces them,
+  recorded here, before the first full year closes.
+
+**Built before each is first read:** the gap bands by the 60th live session,
+the rank IC by the first live month-end, the after-tax line by 31 March 2027.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast
