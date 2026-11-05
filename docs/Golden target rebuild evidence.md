@@ -256,14 +256,15 @@ Pre-commit to the fan now. At a true Sharpe of 0.6, a single year has a 27% chan
 | 8 | If the book cannot clear the after-tax passive hurdle, is the product a passive mix plus overlay? Which tax treatment? Buy consensus data? | Take a chartered accountant's view before the first full year; buy data only once a quote is weighed against +0.05-0.15 |
 
 **Owner's decisions, 4 Nov 2026.**
-- **1, decided:** the milestone is 2008-25 on the realistic sweep basis, with the 2013-25 and rolling three-year figures reported alongside.
+- **Golden target, 5 Nov:** Sharpe ≥ 1.4 and CAGR ≥ 35% (and `paper_trade_strategy.md` §7's Sharpe ≥ 1.0, CAGR ≥ 20%) stay as aspirations the book aims to reach in the near future, not as gates; decisions are taken on the live-like basis above.
+- **1, decided; revised 5 Nov:** the milestone is 2008-25 on the live-like as-run basis (no sweep, D2's haircut, buys funded only by free cash): 10.9% / 0.41 today (plan 5bt), with the 2013-25 and rolling three-year figures reported alongside. The sweep basis it first named no longer exists: both sweep designs failed (FND1, FND2) and LN-T29 is closed.
 - **2, decided 5 Nov:** January runs J1 refill exits, J2 GT11 (only if its hit count clears 1% of buys by 11 Dec) and J3 MV1 as core slots, highest prior first, and J4 the half-step in the overlay family. GT9 and GT7 are withdrawn; the quality veto waits; J4 covers the rebound rule.
 - **3, decided 5 Nov:** 2026 stays sealed. Every January trial runs on 2008-25; RF1 moves the window to 2013-26 only after the last January verdict.
 - **4, decided:** yes. Filters and capped event sleeves fed by short-history streams may pass a shorter gate at a smaller size, with the gap stated, under a recorded exception like U38.
 - **5, decided:** yes. MIT1's "no exposure may be added" rule is waived once, for J4 only, capped at 25%.
 - **6, decided:** GT8 and U36 are closed. They reopen only by a new decision.
 - **7, decided:** strict gates (t ≥ 2, DSR ≥ 0.95) for return claims; a "not lower" tier for risk rules and fills.
-- **8, decided 5 Nov:** build the sweep (LN-T29) first; take a chartered accountant's view before the first full year; go live at the canary regardless; scale past it only if the as-run book with the sweep beats the passive NIFTY and gold mix after tax on 2008-25. If it does not, the product becomes a passive NIFTY, gold and gilt core held long-term, with Centurion a capped satellite of about 25% until it earns more.
+- **8, decided 5 Nov:** build the sweep (LN-T29) first; take a chartered accountant's view before the first full year; go live at the canary regardless; scale past it only if the as-run book beats the passive NIFTY and gold mix after tax on 2008-25 (revised 5 Nov: without the sweep, which is closed; plan 5bu's after-tax line is the test). If it does not, the product becomes a passive NIFTY, gold and gilt core held long-term, with Centurion a capped satellite of about 25% until it earns more.
 
 ## Conclusion
 

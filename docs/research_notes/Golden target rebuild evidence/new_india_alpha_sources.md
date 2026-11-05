@@ -233,7 +233,7 @@ Three rule conflicts decide whether any of this can proceed.
 
 ### Cited Findings
 - Live gates require backtest 2008-25, walk-forward, OOS, 60 days' paper and 5 dry runs (project memory, streams and live gates).
-- 13 Oct tracker note: 1 core trial left before January, reserved for GT7 and MV1 after V3 (tracker lines 3329-3333). This may be out of date.
+- 13 Oct tracker note: 1 core trial left before January, reserved for GT7 and MV1 after V3 (tracker lines 3329-3333). Out of date: GT2B used it on 31 Oct; January's slots are the owner's decision 2 (5 Nov).
 - GSM began Feb 2017, per the GSM draft, and the PIT feed Oct 2020, per the AMSS note. The anchor study starts Apr 2022.
 
 ### Inferences

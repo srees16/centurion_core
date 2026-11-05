@@ -282,6 +282,24 @@ def whole_share_refusal(quantity) -> Optional[str]:
 ORDER_TYPES = frozenset({"MARKET", "LIMIT", "SL", "SL-M"})
 
 
+#: Kite Connect's ``market_protection`` on every MARKET and SL-M order: -1 is the automatic protection the system
+#: applies under the exchanges' guidelines (kiteconnect's ``MARKET_PROTECTION_AUTO``).  Zerodha, 5 Nov 2026: API
+#: MARKET and SL-M orders with protection 0 are rejected by the exchanges, as all algo orders must carry it.
+MARKET_PROTECTION = -1
+PROTECTED_ORDER_TYPES = frozenset({"MARKET", "SL-M"})
+
+
+def amo_market_refusal(symbol, exchange, order_type, variety) -> Optional[str]:
+    """Why an after-market order cannot be MARKET, or None: Zerodha blocks AMO MARKET orders on index options
+    (5 Nov 2026), so one is refused here rather than at the broker."""
+    name = str(symbol or "").upper()
+    if (str(variety or "").lower() == AMO_VARIETY and str(order_type).upper() == "MARKET"
+            and str(exchange or "").upper() in FO_EXCHANGES and name.startswith(INDEX_UNDERLYINGS)
+            and name.endswith(("CE", "PE"))):
+        return f"{name}: Zerodha blocks after-market MARKET orders on index options; send a LIMIT order"
+    return None
+
+
 def order_refusal(order_type, price=None, trigger_price=None) -> Optional[str]:
     """Why the order's type or prices cannot be sent, or None (tracker RB5): LIMIT and SL need a price, SL and SL-M a
     trigger, each a positive finite number.  Refused here rather than left for Kite to reject."""
@@ -437,6 +455,10 @@ def place_order(kite, symbol, exchange, transaction_type, quantity,
     variety = str(variety or REGULAR_VARIETY).lower()
     if variety not in (REGULAR_VARIETY, AMO_VARIETY):
         return {"success": False, "error": f"unsupported order variety {variety!r}"}
+    refusal = amo_market_refusal(symbol, exchange, order_type, variety)
+    if refusal:
+        logger.error("Order refused for %s: %s", symbol, refusal)
+        return {"success": False, "error": refusal}
     if order_type not in ("SL", "SL-M") and variety != AMO_VARIETY:
         if not _is_nse_market_open():
             logger.warning("Order blocked for %s — NSE market is closed", symbol)
@@ -501,6 +523,8 @@ def place_order(kite, symbol, exchange, transaction_type, quantity,
                 params["price"] = float(price)
             if order_type in ("SL", "SL-M") and trigger_price is not None:
                 params["trigger_price"] = float(trigger_price)
+            if order_type in PROTECTED_ORDER_TYPES:
+                params["market_protection"] = MARKET_PROTECTION
 
             _pace_orders()
             order_id = kite.place_order(**params)

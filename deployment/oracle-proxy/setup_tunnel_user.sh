@@ -7,12 +7,19 @@
 # Kite calls then leave from this VM's reserved public IP, the one registered
 # with Zerodha.  Nothing listens on the internet except SSH (key-only).
 #
-#   sudo bash setup_tunnel_user.sh "ssh-ed25519 AAAA... centurion-kite-tunnel"
+#   sudo bash setup_tunnel_user.sh "ssh-ed25519 AAAA... centurion-kite-tunnel"             # the primary host
+#   sudo bash setup_tunnel_user.sh "ssh-ed25519 AAAA... centurion-kite-tunnel" secondary   # the backup host
 #
-# It prints the three values to store in GitHub (see README.md).
+# Any Ubuntu server with a static public IP works (the backup on another provider, ZR2).  It prints the three
+# values to store in GitHub (see README.md), with the _2 names for the backup.
 set -euo pipefail
 
-PUBKEY="${1:?usage: sudo bash setup_tunnel_user.sh '<the tunnel public key, one line>'}"
+PUBKEY="${1:?usage: sudo bash setup_tunnel_user.sh '<the tunnel public key, one line>' [secondary]}"
+case "${2:-primary}" in
+  primary) SUFFIX="" ;;
+  secondary) SUFFIX="_2" ;;
+  *) echo "second argument: primary or secondary" >&2; exit 1 ;;
+esac
 USER_NAME="kitetunnel"
 DESTS='permitopen="api.kite.trade:443",permitopen="api.ipify.org:443"'
 
@@ -58,8 +65,8 @@ HOSTKEY="$(cut -d' ' -f1-2 /etc/ssh/ssh_host_ed25519_key.pub)"
 cat <<EOF
 
 Done.  Put these in GitHub (Settings -> Secrets and variables -> Actions):
-  secret   CENTURION_PROXY_HOST      = $USER_NAME@$IP
-  secret   CENTURION_PROXY_HOST_KEY  = $IP $HOSTKEY
-  variable CENTURION_KITE_STATIC_IP  = $IP
-and register $IP in developers.kite.trade -> Profile -> IP Whitelist.
+  secret   CENTURION_PROXY_HOST$SUFFIX      = $USER_NAME@$IP
+  secret   CENTURION_PROXY_HOST_KEY$SUFFIX  = $IP $HOSTKEY
+  variable CENTURION_KITE_STATIC_IP$SUFFIX  = $IP
+and register $IP in developers.kite.trade -> Profile -> IP Whitelist (${2:-primary}).
 EOF

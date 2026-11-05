@@ -107,6 +107,29 @@ def test_backtest_fills_use_the_next_open_not_todays_close(store_path):
 
 
 @pytest.mark.slow
+def test_live_funding_never_spends_a_sale_at_its_own_open(store_path):
+    """FND1 (LN-T11): with funding="live", no session's buys exceed the cash free before that open, and the run
+    differs from the model's; it is a reference run only."""
+    from nse_engine.deployment import load_deployment
+    from nse_engine.engine import run_backtest
+    from runners.run_nse_engine import _load_data
+
+    cfg = load_deployment("config/nse_engine_deployed.json").engine.replace(start="2024-01-01", end="2024-12-31")
+    data = _load_data(cfg, data_start="2022-01-03")
+    model = run_backtest(data, cfg, record=False)
+    live = run_backtest(data, cfg, record=False, funding="live")
+    assert not np.allclose(model.returns.to_numpy(), live.returns.to_numpy(), atol=1e-12)
+    t = live.trades.assign(flow=lambda d: np.where(d["side"] == "BUY", -1, 1) * d["value_inr"] - d["cost_inr"])
+    cash = cfg.initial_capital
+    for day, g in t.groupby("date", sort=True):
+        assert -g.loc[g["side"] == "BUY", "flow"].sum() <= cash + 1e-6, day
+        cash += g["flow"].sum()
+    for bad in (dict(funding="sweep"), dict(funding="live", record=True), dict(funding="live", lag_days=1)):
+        with pytest.raises(ValueError):
+            run_backtest(data, cfg, **{"record": False, **bad})
+
+
+@pytest.mark.slow
 def test_trading_costs_reduce_returns(store_path):
     """Doubling modelled impact must lower CAGR and raise the cost drag."""
     from nse_engine.deployment import load_deployment
@@ -189,6 +212,35 @@ def test_order_refusal_known_answers(order_type, price, trigger, refused):
 def test_an_impossible_price_never_reaches_the_broker(gate):
     broker = _Broker()
     assert gate.place_order(broker, **{**LIMIT, "price": 0})["success"] is False and broker.sent == 0
+
+
+@pytest.mark.parametrize("order_type, extra, protected", [
+    ("MARKET", {}, True), ("SL-M", {"trigger_price": 101.0}, True),
+    ("LIMIT", {"price": 100.0}, False), ("SL", {"price": 100.0, "trigger_price": 101.0}, False),
+])
+def test_market_and_sl_m_orders_carry_market_protection(gate, order_type, extra, protected):
+    """Zerodha, 5 Nov 2026: an API MARKET or SL-M order with market_protection 0 is rejected by the exchanges."""
+    class Recording(_Broker):
+        def place_order(self, **params):
+            self.params = params
+            return super().place_order(**params)
+
+    broker = Recording()
+    out = gate.place_order(broker, symbol="RELIANCE", exchange="NSE", transaction_type="SELL", quantity=5,
+                           order_type=order_type, is_exit=True, **extra)
+    assert out["success"] is True
+    assert broker.params.get("market_protection") == (gate.MARKET_PROTECTION if protected else None)
+    assert gate.MARKET_PROTECTION == -1                   # kiteconnect's MARKET_PROTECTION_AUTO, never 0
+
+
+def test_an_after_market_market_order_on_an_index_option_never_reaches_the_broker(gate):
+    broker = _Broker()
+    order = dict(exchange="NFO", transaction_type="SELL", quantity=75, order_type="MARKET", product="NRML",
+                 is_exit=True, variety="amo")
+    out = gate.place_order(broker, symbol="NIFTY26NOV24000CE", **order)
+    assert out["success"] is False and "LIMIT" in out["error"] and broker.sent == 0
+    assert gate.place_order(broker, symbol="NIFTY26NOV24000CE", **{**order, "order_type": "LIMIT", "price": 50.0})[
+        "success"] is True
 
 
 def test_a_repeated_request_returns_the_first_order(gate):
@@ -775,6 +827,50 @@ def test_each_live_plan_asks_for_the_holiday_list(monkeypatch):
     assert asked == [True]
 
 
+def test_live_buys_spend_only_the_cash_already_free(monkeypatch):
+    """LN-T11 (Zerodha, 5 Nov 2026: same-open sale credit unconfirmed): with no sell credit, a night that sells OLD
+    and buys NEW buys only what the free cash covers; with the model's full credit, the whole target.  The live
+    session runs with none; paper keeps the model's."""
+    from types import SimpleNamespace
+
+    from kite_connect.trading import live_session
+    from kite_connect.trading import nse_engine_executor as ex
+
+    day = pd.Timestamp("2024-06-03")
+    data = SimpleNamespace(dates=[day], close=pd.DataFrame({"OLD": [100.0], "NEW": [100.0]}, index=[day]))
+    data.until = lambda as_of: data
+    cfg = SimpleNamespace(portfolio=SimpleNamespace(no_trade_buffer=0.25, min_trade_value_inr=5000.0))
+    target = SimpleNamespace(weights={"NEW": 0.5}, exits={"OLD": "rank_exit"}, stops={}, notes=[])
+
+    def plan(credit):
+        e = ex.EngineExecutor(paper=True, config=cfg, target_fn=lambda *a, **k: target, stopped_out_fn=dict,
+                              holdings_fn=lambda: ({"OLD": {"quantity": 1000, "avg_price": 90.0}}, 20_000.0),
+                              sell_credit=credit)
+        e.drawdown_decision = lambda as_of, equity: (None, None)
+        e._apply_shift_multiplier = lambda p, t, *a: dict(t.weights)
+        return {o.symbol: o.quantity for o in e.plan(as_of=day, data=data).orders}, e
+
+    full, _ = plan(1.0)
+    free, _ = plan(ex.LIVE_SELL_PROCEEDS_CREDIT)
+    assert full == {"OLD": 1000, "NEW": 600}              # half of Rs 1.2 lakh at Rs 100
+    assert free == {"OLD": 1000, "NEW": 197}              # Rs 20,000 free / (Rs 101 limit + 25 bp allowance)
+    assert ex.LIVE_SELL_PROCEEDS_CREDIT == 0.0 and ex.SELL_PROCEEDS_CREDIT == 1.0
+    with pytest.raises(ValueError):
+        plan(1.5)
+
+    made = {}
+
+    def factory(**kw):
+        made.update(kw)
+        raise RuntimeError("stop here")
+    with pytest.raises(RuntimeError, match="stop here"):
+        live_session.run_live_session(object(), dry_run=True, capital=300_000.0, deployment=SimpleNamespace(),
+                                      executor_factory=factory,
+                                      book=SimpleNamespace(read_state=dict, read_snapshots=lambda: None),
+                                      email=False)
+    assert made["sell_credit"] == ex.LIVE_SELL_PROCEEDS_CREDIT
+
+
 # ── BT1: the single-stock backtest (strategies/, trading_strategies/, tools/strategy_benchmark.py) ──
 
 def _bars(closes, opens=None, start="2024-01-01"):
@@ -1308,6 +1404,172 @@ def test_a_stock_moved_to_series_bz_can_be_sold_but_never_bought(monkeypatch):
     sell, buy = executor.live_orders(plan, variety="amo")
     assert sell["symbol"] == "DEAD-BZ" and sell["unresolved"] is None and "exit only" in sell["series_note"]
     assert buy["symbol"] == "DEAD" and buy["unresolved"], "a buy is not resolved to a restricted series"
+
+
+def _capped_executor(monkeypatch):
+    """An EngineExecutor over a stub Kite: deployed limits, an empty order book, every send recorded."""
+    from types import SimpleNamespace
+
+    from kite_connect.trading import gtt_stops, order_service
+    from kite_connect.trading.nse_engine_executor import EngineExecutor
+
+    sent = []
+    monkeypatch.setattr("kite_connect.trading.nse_instruments.ticks_for", lambda kite: {"AAA": 0.05, "BBB": 0.05, "GOLDBEES": 0.01})
+    monkeypatch.setattr(order_service, "is_kill_switch_active", lambda: False)
+    monkeypatch.setattr(order_service, "place_order",
+                        lambda kite, **kw: sent.append((kw["transaction_type"], kw["symbol"])) or {"success": True})
+    monkeypatch.setattr(gtt_stops, "reconcile_stop_gtts", lambda kite, **kw: {"errors": []})
+    ex = EngineExecutor.__new__(EngineExecutor)
+    ex.kite, ex._stop_scope_fn = SimpleNamespace(orders=lambda: []), None
+    ex.next_lower_circuits = lambda symbols: {}
+    ex.config = SimpleNamespace(portfolio=SimpleNamespace(max_positions=30, max_weight=0.08),
+                                allocator=SimpleNamespace(max_gross=1.0),
+                                sleeves=SimpleNamespace(symbols=("GOLDBEES", "SILVERBEES")))
+    return ex, sent
+
+
+def test_a_runaway_session_sends_no_buy_and_still_exits(monkeypatch):
+    """Golden-target review's session cap, on a stub broker: a stock BUY far above the book's largest position (a
+    quantity bug) refuses every BUY that session, live and in the dry run; the exits still go.  A full book
+    bought from cash in one session (a first deployment, a regime re-entry), or a sleeve near half the book, is
+    not a runaway."""
+    from kite_connect.trading.nse_engine_executor import ExecutionPlan, PlannedOrder
+
+    def plan(buy_qty, cash, symbol="AAA"):
+        return ExecutionPlan(as_of=pd.Timestamp("2026-11-05"), equity=300_000.0, cash=cash, orders=[
+            PlannedOrder("BBB", "SELL", 10, 100.0, 95.0, "exit:stop", current_qty=10, target_qty=0),
+            PlannedOrder(symbol, "BUY", buy_qty, 100.0, 101.0, "entry", current_qty=0, target_qty=buy_qty)])
+
+    ex, sent = _capped_executor(monkeypatch)
+    runaway = plan(2_000, 250_000.0)                      # Rs 2 lakh in one stock: the cap is 10% of Rs 3 lakh
+    results = ex._execute_live(runaway)
+    assert sent == [("SELL", "BBB")]
+    assert any("SESSION CAP" in (r.get("error") or "") and r.get("type") == "preflight" for r in results)
+    dry = {r["symbol"]: r for r in ex.dry_run_live(runaway) if "tag" in r}
+    assert dry["AAA"]["status"] == "WOULD_REJECT" and "SESSION CAP" in dry["AAA"]["error"]
+    assert dry["BBB"]["status"] == "WOULD_PLACE"
+
+    sent.clear()
+    results = ex._execute_live(plan(290, 300_000.0))      # a 9.7% stock position: inside the band
+    assert sent == [("SELL", "BBB"), ("BUY", "AAA")]
+    assert not any("SESSION CAP" in (r.get("error") or "") for r in results)
+    sent.clear()
+    ex._execute_live(plan(1_400, 300_000.0, "GOLDBEES"))  # a 47% gold sleeve bought from cash: allowed
+    assert sent == [("SELL", "BBB"), ("BUY", "GOLDBEES")]
+    sent.clear()
+    ex._execute_live(plan(1_400, 100_000.0, "GOLDBEES"))  # gross after the session would be 113% of the book
+    assert sent == [("SELL", "BBB")]
+
+
+def test_the_game_day_broker_keeps_kites_rules():
+    """tools.game_day's SimKite: a buy is checked against the cash free before the open, a DAY limit fills by
+    live's rule or lapses, bought shares go T1 then settle, a gap through a stop's limit leaves its GTT order
+    unfilled, a lower-circuit lock blocks the sell, and a split multiplies the holding and cancels its GTT."""
+    from tools.game_day import SimKite
+
+    days = pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"])
+    rows = []
+    for d, (o, h, l, c, p) in zip(days, [(100, 101, 99, 100, 100), (100, 102, 99.5, 101, 100), (101, 101, 101, 101, 101),
+                                         (80, 81, 79, 80, 101), (40, 41, 39, 40, 80)]):
+        rows.append((d, "AAA", o, h, l, c, p))
+        rows.append((d, "BBB", 50, 51, 49, 50, 50))
+    bars = pd.DataFrame(rows, columns=["date", "symbol", "open", "high", "low", "close", "prev_close"]) \
+        .set_index(["date", "symbol"])
+    k = SimKite(bars, 10_000.0, 15.0)
+    k.open(days[0])
+    k.place_order("amo", "NSE", "AAA", "BUY", 50, "CNC", "LIMIT", price=101.0, tag="NE240101BAAA")
+    k.place_order("amo", "NSE", "BBB", "BUY", 200, "CNC", "LIMIT", price=50.5, tag="NE240101BBBB")
+    k.open(days[1])
+    book = {o["tradingsymbol"]: o for o in k.orders()}
+    assert book["AAA"]["status"] == "COMPLETE" and book["AAA"]["average_price"] == 100.0
+    assert book["BBB"]["status"] == "REJECTED"            # Rs 10,100 > the Rs 5,000 left before the open
+    assert k.positions()["net"][0]["quantity"] == 50 and k.holdings() == []
+    k.place_gtt("single", "AAA", "NSE", [95.0], 101.0,
+                [{"transaction_type": "SELL", "quantity": 50, "price": 94.05, "order_type": "LIMIT", "product": "CNC"}])
+    k.place_order("amo", "NSE", "AAA", "SELL", 50, "CNC", "LIMIT", price=96.0, tag="NE240102SAAA")
+    k.open(days[2])                                       # a flat day up: no lock for a sell, it fills at the open
+    assert k.holdings()[0]["t1_quantity"] == 50 and k.orders()[0]["status"] == "COMPLETE"
+    assert k.held("AAA") == 0
+    k.place_order("amo", "NSE", "BBB", "BUY", 10, "CNC", "LIMIT", price=50.5, tag="NE240103BBBB")
+    k.open(days[3])
+    k.place_gtt("single", "BBB", "NSE", [49.5], 50.0,
+                [{"transaction_type": "SELL", "quantity": 10, "price": 49.95, "order_type": "LIMIT", "product": "CNC"}])
+    k.open(days[4])                                       # BBB opens 50, low 49: triggers, fills at the trigger
+    assert k.held("BBB") == 0 and k.events["stop_filled"] == 1
+    assert k.sent_tags["NE240101BAAA"] == 1 and len(k.rejected) == 1
+
+    bonus = pd.DataFrame({"symbol": ["AAA"], "ex_date": [days[3]], "factor": [0.5]})     # 1:1, from the store table
+    for actions, credit, gtt in ((None, {}, "active"), (bonus, {"AAA": 10}, "cancelled")):
+        s2 = SimKite(bars, 0.0, 15.0, actions)            # a crash alone keeps the shares; a bonus cancels the GTT on
+        s2.open(days[2])                                  # the ex-date and its shares arrive the next session
+        s2.settled["AAA"] = 10
+        s2.place_gtt("single", "AAA", "NSE", [10.0], 80.0,
+                     [{"transaction_type": "SELL", "quantity": 10, "price": 9.9, "order_type": "LIMIT", "product": "CNC"}])
+        s2.open(days[3])
+        assert s2.held("AAA") == 10 and s2.credit == credit and s2.gtts[1]["status"] == gtt
+        s2.open(days[4])
+        assert s2.held("AAA") == 10 + sum(credit.values())
+
+    locked = pd.DataFrame([(days[0], "CCC", 100, 100, 100, 100, 100), (days[1], "CCC", 90, 90, 90, 90, 100)],
+                          columns=["date", "symbol", "open", "high", "low", "close", "prev_close"]).set_index(["date", "symbol"])
+    lk = SimKite(locked, 0.0, 15.0)
+    lk.open(days[0])
+    lk.settled["CCC"] = 5
+    lk.place_order("amo", "NSE", "CCC", "SELL", 5, "CNC", "LIMIT", price=85.0, tag="L1")
+    lk.open(days[1])
+    assert lk.held("CCC") == 5 and lk.orders()[0]["status"] == "CANCELLED" and lk.events["locked_unfilled"] == 1
+
+
+@pytest.mark.slow
+def test_a_missed_session_during_a_bonus_credit_keeps_the_ledger_true(store_path):
+    """Game day GD1: INOXWIND's 3:1 bonus (ex 24 May 2024), an exit of the deliverable 8 shares filled at the next
+    open, and that night's session lost (broker down).  The next session must adopt the sale from the broker's
+    quantity, not count the awaited bonus as held, so the ledger ends where the broker is."""
+    from tools import game_day as gd
+
+    out = gd.run("faults", "2024-05-02", "2024-05-31", {"2024-05-27": "down"})
+    assert out["checks"]["ledger_matches_broker"], out["ledger_vs_broker"]
+    assert out["checks"]["no_unexplained_reconcile"] and out["events"].get("corporate_action", 0) >= 1
+
+
+@pytest.mark.parametrize("ssh_down, egress, backup_ip, expect", [
+    ("", {"1080": "1.1.1.1", "1081": "2.2.2.2"}, "2.2.2.2", ("socks5h://127.0.0.1:1080", "1.1.1.1", 0)),
+    ("primary", {"1081": "2.2.2.2"}, "2.2.2.2", ("socks5h://127.0.0.1:1081", "2.2.2.2", 0)),
+    ("", {"1080": "9.9.9.9", "1081": "2.2.2.2"}, "2.2.2.2", ("socks5h://127.0.0.1:1081", "2.2.2.2", 0)),
+    ("primary backup", {}, "2.2.2.2", ("", "1.1.1.1", 1)),
+    ("primary", {"1081": "2.2.2.2"}, "", ("", "1.1.1.1", 1)),
+], ids=["primary", "primary-down", "primary-wrong-ip", "both-down", "backup-unregistered"])
+def test_the_kite_tunnel_falls_back_to_the_secondary_static_ip(tmp_path, ssh_down, egress, backup_ip, expect):
+    """ZR2: deployment/oracle-proxy/static_ip_tunnel.sh takes the primary host only when a call through it leaves from
+    its registered IP, else the secondary's; it exports the proxy and the IP in use, and fails when neither works."""
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    if shutil.which("bash") is None:
+        pytest.skip("bash not available")
+    stubs = tmp_path / "bin"
+    stubs.mkdir()
+    (stubs / "ssh").write_text('#!/bin/sh\nfor a; do last="$a"; done\n'
+                               'case " $SSH_DOWN " in *" ${last#kitetunnel@} "*) exit 255;; esac\nexit 0\n')
+    (stubs / "curl").write_text('#!/bin/sh\nwhile [ $# -gt 0 ]; do [ "$1" = --socks5-hostname ] && p="${2##*:}"; '
+                                'shift; done\neval "ip=\\${EGRESS_$p:-}"\n[ -n "$ip" ] && echo "$ip" || exit 7\n')
+    (stubs / "timeout").write_text('#!/bin/sh\nshift\nexec "$@"\n')
+    (stubs / "pgrep").write_text("#!/bin/sh\nexit 1\n")
+    for f in stubs.iterdir():
+        f.chmod(0o755)
+    env = {"PATH": f"{stubs}:/usr/bin:/bin", "HOME": str(tmp_path), "SSH_DOWN": ssh_down,
+           "CENTURION_PROXY_SSH_KEY": "key", "CENTURION_PROXY_HOST": "kitetunnel@primary",
+           "CENTURION_PROXY_HOST_KEY": "primary ssh-ed25519 AAAA", "CENTURION_KITE_STATIC_IP": "1.1.1.1",
+           "CENTURION_PROXY_HOST_2": "kitetunnel@backup", "CENTURION_PROXY_HOST_KEY_2": "backup ssh-ed25519 BBBB",
+           "CENTURION_KITE_STATIC_IP_2": backup_ip, **{f"EGRESS_{p}": ip for p, ip in egress.items()}}
+    script = Path(__file__).resolve().parents[1] / "deployment" / "oracle-proxy" / "static_ip_tunnel.sh"
+    out = subprocess.run(["bash", "-c", f'. "{script}"; kite_tunnel; rc=$?; '
+                                        'printf "%s|%s|%s" "${CENTURION_KITE_PROXY:-}" "$CENTURION_KITE_STATIC_IP" "$rc"'],
+                         env=env, capture_output=True, text=True, timeout=60)
+    proxy, ip, rc = out.stdout.strip().splitlines()[-1].split("|")
+    assert (proxy, ip, int(rc)) == expect, out.stdout + out.stderr
+    assert "1.1.1.1" not in out.stdout.replace("|1.1.1.1|", "") and "2.2.2.2" not in out.stdout.replace("|2.2.2.2|", "")
 
 
 def test_circuit_locks_known_answers():
