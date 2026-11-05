@@ -102,6 +102,52 @@ CONTROL_PATHS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
     ("sleeve exit", ("SLEEVE",)), ("regime exit", ("REGIME",)))
 
 
+#: Rule D (tracker OF1, owner's call 4 Nov 2026): a book below its MC1 5th percentile, on return or drawdown since
+#: its start, for this many consecutive sessions steps down to paper, and stays there until the owner clears it.
+MC_FLOOR_PCT = 5.0
+MC_STREAK_SESSIONS = 60
+MC_STEP_DOWN_KEY = "live_mc_step_down"    # {"session", "streak", "detail"} once tripped; cleared only by hand
+
+
+def mc_breach_streak(equity: pd.Series, doc: Optional[Dict[str, Any]], band: str) -> Dict[str, Any]:
+    """Rule D: the trailing run of sessions where the book's return or drawdown since its start sits below the
+    ``MC_FLOOR_PCT`` percentile of its Monte Carlo band (``nse_engine.mc_bands``) over the same sessions.
+
+    Recomputed from the whole equity history each night, so it needs no stored counter.  A session outside the
+    band's horizons (too young) or without bands reads as not breached, so the streak starts once it can be read.
+    """
+    from nse_engine import mc_bands
+
+    e = pd.Series(equity, dtype="float64").dropna()
+    out: Dict[str, Any] = {"streak": 0, "tripped": False, "last": None, "readable": bool(doc and len(e) > 1)}
+    if not out["readable"]:
+        return out
+    v = e.to_numpy()
+    streak, peak, worst = 0, v[0], 0.0
+    for i in range(1, len(v)):
+        peak = max(peak, v[i])
+        worst = min(worst, float(v[i] / peak - 1.0))
+        ret, dd = float(v[i] / v[0] - 1.0), worst
+        rp = mc_bands.percentile(doc, band, "return", i, ret)
+        dp = mc_bands.percentile(doc, band, "drawdown", i, dd)
+        below = (rp is not None and rp < MC_FLOOR_PCT) or (dp is not None and dp < MC_FLOOR_PCT)
+        streak = streak + 1 if below else 0
+        out["last"] = {"sessions": i, "return": ret, "drawdown": dd, "return_pct": rp, "drawdown_pct": dp}
+    out["streak"], out["tripped"] = streak, streak >= MC_STREAK_SESSIONS
+    return out
+
+
+def mc_line(res: Dict[str, Any]) -> str:
+    """Rule D in a sentence for the email."""
+    if not res.get("readable"):
+        return "Rule D (MC1 floor): not readable (no bands or no history)"
+    last = res.get("last") or {}
+    pct = lambda p: "n/a" if p is None else f"{p:.0f}th"          # noqa: E731
+    return (f"Rule D (MC1 floor): {res['streak']} of {MC_STREAK_SESSIONS} consecutive sessions below the "
+            f"{MC_FLOOR_PCT:g}th percentile; now return {pct(last.get('return_pct'))}, "
+            f"drawdown {pct(last.get('drawdown_pct'))} percentile")
+
+
 def sessions_needed(rung: int) -> int:
     """Sessions at ``rung`` before GO can be allowed."""
     return CANARY_SESSIONS if rung == 0 else MIN_SESSIONS_PER_RUNG
@@ -447,10 +493,10 @@ def sell_path_check(record: Optional[Dict[str, Any]], user_id: Optional[str]) ->
 
 def readiness(paper_gate: Optional[Dict[str, Any]], dry_runs: Sequence[Dict[str, Any]],
               source: str = "deployed paper book", sell_path: Optional[Tuple[bool, str]] = None,
-              capital: Optional[float] = None) -> List[Tuple[str, bool, str]]:
+              capital: Optional[float] = None, mc: Optional[Dict[str, Any]] = None) -> List[Tuple[str, bool, str]]:
     """Go-live checks: (name, ok, detail).  ``paper_gate`` comes from :func:`go_live_evidence`;
     ``sell_path`` from :func:`sell_path_check` (missing counts as not shown); ``capital`` is the
-    first session's, checked when given."""
+    first session's, checked when given; ``mc`` is the paper book's :func:`mc_breach_streak` (rule D)."""
     out = []
     v, n = (paper_gate or {}).get("verdict"), _gate_sessions(paper_gate)
     out.append(("paper book G4", v == "PASS" and n >= GO_LIVE_MIN_PAPER_SESSIONS,
@@ -463,6 +509,8 @@ def readiness(paper_gate: Optional[Dict[str, Any]], dry_runs: Sequence[Dict[str,
     if capital is not None:
         out.append(("canary", rung_of(capital) == 0,
                     f"starts at Rs {float(capital):,.0f} (the canary is Rs {RUNGS[0]:,.0f})"))
+    if mc is not None:
+        out.append(("MC floor (rule D)", not mc.get("tripped"), mc_line(mc)))
     return out
 
 

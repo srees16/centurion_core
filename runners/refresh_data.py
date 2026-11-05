@@ -13,15 +13,19 @@ and diagnostics.  Steps:
    trial registry's data fingerprint and prints the refresh plan if it moved;
    the registry itself is never refreshed here.
 3. **F&O store.**
-4. **MCX:** the bhavcopy mirror (from 14 days before its last session) and
+4. **IV snapshot** (``kite_connect.options.cli iv-snapshot``): the year of 30-day IV the app's overlay scan
+   ranks against, ``config/iv30_history.csv``.  The app's server has no F&O store, so the file is committed;
+   the scan refuses a rank older than 45 days.  It fails without failing the refresh (``OPTIONAL_STEPS``),
+   and the status shows its last date.
+5. **MCX:** the bhavcopy mirror (from 14 days before its last session) and
    the store.
-5. **Fundamentals:** filing lists, new result documents and the store.  This
+6. **Fundamentals:** filing lists, new result documents and the store.  This
    step is skipped while a GT1 run holds the archive.
-6. **Paper books** (``tools.export_books``, tracker JR2): every book's Neon record
+7. **Paper books** (``tools.export_books``, tracker JR2): every book's Neon record
    as CSV, so the backup carries it.  It needs ``CENTURION_DATABASE_URL`` in
    ``.env``; without it, or with Neon down, the step fails without failing the
    refresh (``OPTIONAL_STEPS``: the books live in Neon, this is a second copy).
-7. **Backup** (``cloud.backup push``): every piece that changed goes to the
+8. **Backup** (``cloud.backup push``): every piece that changed goes to the
    private Kaggle backup datasets, so nothing lives only on this machine.
 
 Each step is its own process, the same command as by hand, so one failing does
@@ -54,10 +58,11 @@ _ROOT = Path(__file__).resolve().parent.parent
 DATA = _ROOT / "data" / "nse_engine"
 STATUS = DATA / "refresh_status.json"
 LATE_FILES = timedelta(days=14)
-STEPS = ("nse", "equity_store", "fo_store", "mcx", "fundamentals", "books", "backup")
+STEPS = ("nse", "equity_store", "fo_store", "iv_snapshot", "mcx", "fundamentals", "books", "backup")
 #: Recorded but never failing the refresh: a failed refresh is re-run at every login and every evening, three
 #: attempts an hour apart with the Mac kept awake (24-25 Oct 2026: "books" without CENTURION_DATABASE_URL).
-OPTIONAL_STEPS = ("books",)
+OPTIONAL_STEPS = ("books", "iv_snapshot")
+IV_SNAPSHOT = _ROOT / "config" / "iv30_history.csv"
 
 
 def _last_session(calendar: Path, fallback: date) -> date:
@@ -92,6 +97,7 @@ def commands(today: date) -> Dict[str, List[List[str]]]:
                  "--kinds", "equity,delivery,indices,corpact,fo,participant"]],
         "equity_store": [[py, "-m", "runners.run_nse_engine", "build-store"]],
         "fo_store": [[py, "-m", "nse_engine.data.fo_store"]],
+        "iv_snapshot": [[py, "-m", "kite_connect.options.cli", "iv-snapshot"]],
         "mcx": [[py, "-m", "nse_engine.data.mcx_store", "sync", "--start", mcx_from.isoformat(),
                  "--end", today.isoformat()],
                 [py, "-m", "nse_engine.data.mcx_store", "build"]],
@@ -113,6 +119,9 @@ def store_status() -> Dict[str, Dict[str, object]]:
         "fo_store": {"data_hash": manifest("fo_store").get("data_hash")},
         "mcx_store": {"last_session": str(_mcx_last_session()), "data_hash": manifest("mcx_store").get("data_hash")},
     }
+    if IV_SNAPSHOT.exists():
+        dates = pd.read_csv(IV_SNAPSHOT, usecols=["date"])["date"]
+        out["iv_snapshot"] = {"last_date": str(dates.max()), "rows": int(len(dates))}
     results = DATA / "fundamentals" / "results.parquet"
     if results.exists():
         last = pd.read_parquet(results, columns=["disseminated"])["disseminated"].max()
