@@ -681,8 +681,8 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
     ``label`` names a connected account in the email; ``unwind_sessions`` > 0 is a
     disconnect (FA3): tonight's orders only sell, over that many sessions.
     """
-    from kite_connect.trading.nse_engine_executor import (EngineExecutor, kite_book, live_order_outcomes,
-                                                          live_orders_allowed)
+    from kite_connect.trading.nse_engine_executor import (LIVE_SELL_PROCEEDS_CREDIT, EngineExecutor, kite_book,
+                                                          live_order_outcomes, live_orders_allowed)
     from nse_engine.deployment import load_deployment
 
     if kite is None:
@@ -756,7 +756,8 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
                  holdings_fn=lambda: (scope["holdings"], scope["cash"]), stopped_out_fn=lambda: dict(cooldown),
                  equity_history_fn=lambda: history, shift_state_path=str(shift_path),
                  stop_scope_fn=lambda: ({s: h["quantity"] for s, h in scope["holdings"].items()},
-                                        list(ledger.get("symbols") or [])))
+                                        list(ledger.get("symbols") or [])),
+                 sell_credit=LIVE_SELL_PROCEEDS_CREDIT)          # LN-T11: the dry run rehearses it too
     if not dry_run and ex.paper:
         raise RuntimeError(f"real orders refused by the executor: {ex.mode_reason}")
     cfg = ex._cfg()

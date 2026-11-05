@@ -786,6 +786,38 @@ def cmd_canary(args) -> None:
                f"Runtime: {runtime}"], once=True)
 
 
+def cmd_fill_audit(args) -> None:
+    """LN-T21b: each paper book's opening orders since ``--since`` replayed through live's DAY limit on the store's
+    as-printed bars, fill rate by open-gap tercile and the proposed pass rule.  An order shared by several books is
+    counted once (same symbol, side and sessions: same bar, same outcome).  Read-only; prints counts only."""
+    from kite_connect.trading.nse_engine_executor import EXIT_LIMIT_BAND_BPS, ORDER_LIMIT_BAND_BPS, _tick
+    from nse_engine import live_rules as lr
+    from nse_engine.deployment import load_deployment
+
+    frames = []
+    for book in [b.strip() for b in args.books.split(",") if b.strip()]:
+        path = Path(args.exports) / book / "paper_fills.csv.gz"
+        if not path.exists():
+            raise SystemExit(f"fill-audit: {path} missing; run python -m tools.export_books first")
+        f = pd.read_csv(path, dtype={"decision_date": str, "session_date": str})
+        frames.append(f.assign(book=book))
+    fills = pd.concat(frames, ignore_index=True)
+    opening = fills[(fills["source"] == "pending_open") & (fills["session_date"] >= args.since)]
+    keys = ["symbol", "side", "decision_date", "session_date"]
+    orders = opening.drop_duplicates(keys)[keys]
+    store = Path(load_deployment(args.deployment).engine.data.store_dir) / "equity"
+    years = sorted({d[:4] for d in pd.concat([orders["decision_date"], orders["session_date"]])})
+    bars = pd.concat([pd.read_parquet(store / f"{y}.parquet") for y in years], ignore_index=True)
+    rank = {"EQ": 0, "BE": 1, "BZ": 2}
+    bars = (bars[bars["symbol"].isin(set(orders["symbol"]))]
+            .assign(_r=lambda d: d["series"].map(rank).fillna(9)).sort_values("_r"))
+    audit = lr.fill_audit(orders, bars, ORDER_LIMIT_BAND_BPS / 1e4, EXIT_LIMIT_BAND_BPS / 1e4, _tick)
+    _print_json({"books": args.books, "since": args.since, "store_last_session": str(bars["date"].max().date()),
+                 "paper_opening_fills": int(len(opening)), "distinct_orders": int(len(orders)),
+                 "buy_band_bps": ORDER_LIMIT_BAND_BPS, "sell_band_bps": EXIT_LIMIT_BAND_BPS,
+                 "buys": lr.gap_terciles(audit, "BUY"), "sells": lr.gap_terciles(audit, "SELL")})
+
+
 def cmd_live_rules(args) -> None:
     """LN-T21: a book's backtest under live's order rules beside the model's fills at the open, the orders'
     outcomes, and the G4 checks the order rules alone produce over rolling windows (live rules vs model, as a
@@ -977,6 +1009,14 @@ def main(argv=None) -> None:
     p.add_argument("--end", default=CANARY_WINDOW[1])
     p.add_argument("--window", type=int, default=60, help="G4 window in sessions (the go-live gate's 60)")
     p.set_defaults(func=cmd_live_rules)
+
+    p = sub.add_parser("fill-audit", help="what live's DAY limit would have done with each paper order, fill rate "
+                                          "by open-gap tercile (LN-T21b, golden-target review)")
+    p.add_argument("--books", default="deployed,candidate,e4", help="book exports to read (tools.export_books)")
+    p.add_argument("--exports", default="data/nse_engine/book_exports")
+    p.add_argument("--since", default="2026-09-07", help="first session (NSE's pre-open change)")
+    p.add_argument("--deployment", default="config/nse_engine_deployed.json", help="for the store's location")
+    p.set_defaults(func=cmd_fill_audit)
 
     p = sub.add_parser("validate", help="DSR, PBO and benchmark gate for a recorded run")
     p.add_argument("--run-id")

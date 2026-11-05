@@ -47,7 +47,8 @@ Planning rules (see docs/nse_engine.md):
   * trades below ``portfolio.min_trade_value_inr`` are skipped (full exits are
     never skipped);
   * integer shares; buys never exceed available cash (cash + expected sell
-    proceeds x ``SELL_PROCEEDS_CREDIT``, net of estimated costs).  Every NSE
+    proceeds x ``sell_credit``, net of estimated costs: ``SELL_PROCEEDS_CREDIT``
+    on paper, ``LIVE_SELL_PROCEEDS_CREDIT`` (none) in the live book).  Every NSE
     share settles T+1, and Zerodha credits a sale in full the same day, except
     a sale of shares still unsettled (bought the session before, T1 holdings):
     that credit comes the next day, so a holding's ``t1_quantity`` is left
@@ -89,6 +90,10 @@ PRICE_BANDS = (0.02, 0.05, 0.10, 0.20)
 ORDER_BOOK_READS, ORDER_BOOK_RETRY_SECONDS = 3, 2.0
 # Share of same-day sell proceeds treated as available for buys.
 SELL_PROCEEDS_CREDIT = float(os.environ.get("CENTURION_ENGINE_SELL_CREDIT", "1.0"))
+# ... and in the live book (LN-T11): none.  Zerodha could not confirm (5 Nov 2026, ZR1) that a buy AMO may use the
+# proceeds of a sell AMO filled at the same open, and on 14 Oct the sell AMO filled in the 09:00 pre-open, after
+# the buy AMOs' release; so a live night buys from the cash already free, and the sale funds the next night.
+LIVE_SELL_PROCEEDS_CREDIT = 0.0
 # Cost allowance when checking cash for buys (statutory + slippage).
 BUY_COST_ALLOWANCE_BPS = 25.0
 # Warm-up years loaded before config.start (same anchor as runners/run_nse_engine.py)
@@ -107,6 +112,49 @@ PAPER_FILL_IMMEDIATE = "immediate"
 
 def _truthy(name: str, default: str) -> bool:
     return os.environ.get(name, default).strip().lower() in ("true", "1", "yes")
+
+
+#: Session cap (golden-target review, "do now"): the gross exposure a session's orders may leave, as a share of
+#: max_gross, before every BUY of that session is refused.  The 2% covers the buy limits' band over the close.
+SESSION_GROSS_TOLERANCE = 0.02
+#: ... and how far a stock's position after a BUY may exceed ``portfolio.max_weight`` (the limit's band, drift).
+SESSION_WEIGHT_TOLERANCE = 1.25
+
+
+def session_cap_breaches(specs: List[dict], equity: float, cash: float, cfg) -> List[str]:
+    """Why a session's broker orders exceed what the book can mean to send; empty when they do not.
+
+    A runaway plan (a quantity bug, a loop, a stale book) shows as one of: more BUYs than the book holds names
+    (``portfolio.max_positions`` plus the sleeves); a stock whose position after its BUY passes
+    ``portfolio.max_weight`` (with ``SESSION_WEIGHT_TOLERANCE``; a metal sleeve, which the allocator may size to
+    about half the book, is held to the gross test alone); a SELL of more than is held; or a book whose gross
+    exposure after the session would pass ``max_gross`` (with ``SESSION_GROSS_TOLERANCE``).  Not a share-of-book
+    turnover cap: a first deployment and a regime re-entry legitimately buy most of the book in one session.
+    """
+    if not (np.isfinite(equity) and equity > 0 and np.isfinite(cash)):
+        return [f"book equity {equity} / cash {cash} unusable: nothing to size the cap on"]
+    buys = [s for s in specs if s["transaction_type"] == "BUY"]
+    sells = [s for s in specs if s["transaction_type"] == "SELL"]
+    value = lambda s: float(s["quantity"]) * float(s["ref_price"])   # noqa: E731
+    sleeves = set(cfg.sleeves.symbols)
+    out = []
+    names = cfg.portfolio.max_positions + len(sleeves)
+    if len(buys) > names:
+        out.append(f"{len(buys)} BUYs, above the book's {names} names")
+    largest = cfg.portfolio.max_weight * SESSION_WEIGHT_TOLERANCE * equity
+    for s in buys:
+        after = float(s["target_qty"]) * float(s["ref_price"])
+        if s["engine_symbol"] not in sleeves and (after > largest or value(s) > largest):
+            out.append(f"BUY {s['engine_symbol']}: Rs {max(after, value(s)):,.0f} held after it, above the "
+                       f"largest position allowed (Rs {largest:,.0f})")
+    for s in sells:
+        if int(s["quantity"]) > int(s["current_qty"]):
+            out.append(f"SELL {s['engine_symbol']} x{s['quantity']}, more than the {s['current_qty']} held")
+    gross = (equity - cash) - sum(value(s) for s in sells) + sum(value(s) for s in buys)
+    ceiling = cfg.allocator.max_gross * equity * (1.0 + SESSION_GROSS_TOLERANCE)
+    if gross > ceiling:
+        out.append(f"gross after the session Rs {gross:,.0f}, above max_gross (Rs {ceiling:,.0f})")
+    return out
 
 
 def live_orders_allowed() -> Tuple[bool, str]:
@@ -423,8 +471,12 @@ class EngineExecutor:
                  deployment=None, deployment_path: Optional[str] = None,
                  shift_state_path: Optional[str] = None, paper_fill: str = PAPER_FILL_NEXT_OPEN,
                  equity_history_fn: Optional[Callable] = None, drawdown_rule=None,
-                 dry_run: bool = False, stop_scope_fn: Optional[Callable] = None):
+                 dry_run: bool = False, stop_scope_fn: Optional[Callable] = None,
+                 sell_credit: float = SELL_PROCEEDS_CREDIT):
         self.kite = kite
+        if not (np.isfinite(sell_credit) and 0.0 <= sell_credit <= 1.0):
+            raise ValueError(f"sell_credit must be in [0, 1], got {sell_credit}")
+        self.sell_credit = float(sell_credit)   # share of tonight's sale proceeds tonight's buys may spend
         self.dry_run = bool(dry_run)      # live mode: build every order, send none
         # live book sharing the account: () -> ({symbol: qty to protect}, symbols it manages)
         self._stop_scope_fn = stop_scope_fn
@@ -739,7 +791,11 @@ class EngineExecutor:
         if t1_value > 0:
             plan.notes.append("unsettled shares sold, their proceeds kept for the next session: "
                               + ", ".join(f"{s} x{q}" for s, q in sorted(t1_sold.items())))
-        budget = float(cash) + SELL_PROCEEDS_CREDIT * (sum(o.value for o in sells) - t1_value - est_sell_costs)
+        proceeds = sum(o.value for o in sells) - t1_value - est_sell_costs
+        budget = float(cash) + self.sell_credit * proceeds
+        if sells and self.sell_credit < 1.0 and proceeds > 0:
+            plan.notes.append(f"sale proceeds credited at {self.sell_credit:.0%} tonight (LN-T11): buys spend the "
+                              "cash already free, the rest funds the next session")
         buys.sort(key=lambda o: (-o.target_weight, o.symbol))
         kept: List[PlannedOrder] = []
         for o in buys:
@@ -1168,12 +1224,15 @@ class EngineExecutor:
         kill = is_kill_switch_active()
         ticks = ticks_for(self.kite) if self.kite is not None else None
         results: List[dict] = self._preflight_notes(ticks)
-        for spec in self.live_orders(plan):
+        specs = self.live_orders(plan)
+        capped = self._session_cap(specs, plan, results)
+        for spec in specs:
             off_tick = (ticks is not None and spec["symbol"] in ticks
                         and not on_tick(spec["price"], ticks[spec["symbol"]]))
-            blocked = (kill and not spec["is_exit"]) or bool(spec["unresolved"]) or off_tick
+            cap = capped(spec)
+            blocked = (kill and not spec["is_exit"]) or bool(spec["unresolved"]) or off_tick or bool(cap)
             error = (spec["unresolved"] or (f"price {spec['price']} is off the {ticks[spec['symbol']]} tick" if off_tick
-                                            else "KILL SWITCH active: BUYs are refused"))
+                                            else cap or "KILL SWITCH active: BUYs are refused"))
             results.append({"mode": "live-dry-run", "status": "WOULD_REJECT" if blocked else "WOULD_PLACE",
                             "success": not blocked, "symbol": spec["engine_symbol"], "tradingsymbol": spec["symbol"],
                             "side": spec["transaction_type"],
@@ -1199,6 +1258,20 @@ class EngineExecutor:
         logger.info("EngineExecutor DRY RUN %s: %d order(s) would be sent (%s), %d stop(s) reconciled",
                     plan.as_of.date(), len(sent), sent[0]["variety"] if sent else "-", len(plan.stop_instructions))
         return results
+
+    def _session_cap(self, specs: List[dict], plan: ExecutionPlan, results: List[dict]) -> Callable[[dict], str]:
+        """Apply :func:`session_cap_breaches`: a breach refuses every BUY of the session and records a preflight
+        row naming each reason; an over-sized SELL is refused on its own, the other exits still go.  Returns the
+        refusal (or "") for a spec."""
+        breaches = session_cap_breaches(specs, plan.equity, plan.cash, self._cfg())
+        if not breaches:
+            return lambda spec: ""
+        logger.error("SESSION CAP %s: BUYs refused: %s", plan.as_of.date(), "; ".join(breaches))
+        results.append({"mode": "preflight", "type": "preflight", "success": False,
+                        "error": "SESSION CAP: every BUY refused tonight: " + "; ".join(breaches)})
+        over = {s["tag"] for s in specs if s["transaction_type"] == "SELL" and int(s["quantity"]) > int(s["current_qty"])}
+        return lambda spec: ("SESSION CAP: BUYs refused tonight" if spec["transaction_type"] == "BUY"
+                             else "SESSION CAP: SELL above the holding" if spec["tag"] in over else "")
 
     def _preflight_notes(self, ticks) -> List[dict]:
         """Run-level preflight findings, as result rows of ``type`` preflight (LN-T12)."""
@@ -1232,12 +1305,17 @@ class EngineExecutor:
                 if attempt + 1 < ORDER_BOOK_READS:
                     time.sleep(ORDER_BOOK_RETRY_SECONDS)
         existing_tags = {o.get("tag") for o in (book or []) if order_placed(o.get("status"))}
-        for spec in self.live_orders(plan):
+        specs = self.live_orders(plan)
+        capped = self._session_cap(specs, plan, results)
+        for spec in specs:
             base = {"mode": "live", "symbol": spec["engine_symbol"], "tradingsymbol": spec["symbol"],
                     "side": spec["transaction_type"],
                     "quantity": spec["quantity"], "limit_price": spec["price"], "variety": spec["variety"],
                     "tag": spec["tag"], "reason": spec["reason"], "tick_fallback": spec["tick_fallback"],
                     "series_note": spec["series_note"], "limit_note": spec["limit_note"]}
+            if capped(spec):                              # golden-target review: nothing a runaway plan sends
+                results.append({**base, "status": "NOT_SENT", "success": False, "error": capped(spec)})
+                continue
             if spec["unresolved"] and spec["transaction_type"] == "BUY":    # LN-T5: Kite has no instrument
                 results.append({**base, "status": "NOT_SENT", "success": False, "error": spec["unresolved"]})
                 continue                                  # an exit is still attempted (LN-T12)
