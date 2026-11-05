@@ -4,8 +4,8 @@ the paths its own honest history allows, over the same number of sessions.
 
 Each book's reference is its live-like walk-forward record (the honest base, never the in-sample backtest):
 
-* deployed, candidate: the deployed family's walk-forward book (R4b, 2008-25), idle cash at the liquid rate and
-  D2's haircut, as the diversifier gate's books;
+* deployed, candidate: the deployed family's walk-forward book (R4b, 2008-25) with D2's haircut, idle cash as
+  ``DEPLOYED_IDLE_CASH_SWEEP`` says (rule D reads this band);
 * e4: E4's family walk-forward (R12b4), the same way;
 * futures: the L7-A run (the deployed rules levered 1.75x with stock futures, walk-forward folds, 2017-25);
 * bonds, mcx: 0.75 x the walk-forward book + 0.25 x its sleeve (gilts; MCX-B), as DG2 measured them;
@@ -36,6 +36,11 @@ SIMS, BLOCK, SEED = 5000, 20, 7
 HORIZONS = (5, 10, 15, 20, 30, 40, 50, 60, 80, 100, 125, 150, 200, 252, 378, 504, 756)
 PCTS = (1, 2, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 98, 99)
 BANDS_PATH = "config/mc_bands.json"
+#: Idle cash in the deployed and candidate references.  False: it earns nothing, as paper and live run today
+#: without a sweep (GT3's as-run basis, the one rule C plans on); a band on the liquid rate would sit about 2
+#: points a year above the book and walk rule D towards a false trip.  True once LN-T29's sweep trades (owner, 5
+#: Nov 2026).  The other books keep the liquid rate.
+DEPLOYED_IDLE_CASH_SWEEP = False
 E4_WALK_FORWARD = "data/nse_engine/wf_stitched_r12b4.json"
 L7A_RUN = "data/nse_engine/runs_leverage/20261017T111547459708Z_33297924/returns.csv"
 MCX_JSON = "data/nse_engine/dg1/mcx_results_2007_25.json"
@@ -49,12 +54,14 @@ def reference_returns() -> Dict[str, pd.Series]:
     from nse_engine import bond_stream as bs
     from nse_engine import diversifier_gate as dg
 
-    def live(base: "bs.Base") -> pd.Series:
-        liquid = bs.bond_returns(base.returns.index, bs.BondConfig())["liquid"]
-        return dg._live_book(base, liquid, base.returns.index)
+    def live(base: "bs.Base", sweep: bool = True) -> pd.Series:
+        idx = base.returns.index
+        liquid = bs.bond_returns(idx, bs.BondConfig())["liquid"] if sweep else pd.Series(0.0, index=idx)
+        return dg._live_book(base, liquid, idx)
 
     wf = bs.walk_forward_base()
     book = live(wf)
+    as_run = live(wf, DEPLOYED_IDLE_CASH_SWEEP)
     idx = book.index
     br = bs.bond_returns(idx, bs.BondConfig())
     mcx = json.loads(Path(MCX_JSON).read_text())["reported"]["GT5-B"]["returns"]
@@ -68,7 +75,7 @@ def reference_returns() -> Dict[str, pd.Series]:
     a1_book = dg.combine(book[sessions], dg.carry_to(a1, sessions).reindex(sessions).fillna(0.0), w, "overlay")
     l7a = pd.read_csv(L7A_RUN, index_col=0).squeeze("columns").astype("float64")
     l7a.index = pd.DatetimeIndex(l7a.index)
-    return {"deployed": book, "candidate": book, "e4": live(bs.walk_forward_base(E4_WALK_FORWARD)),
+    return {"deployed": as_run, "candidate": as_run, "e4": live(bs.walk_forward_base(E4_WALK_FORWARD)),
             "futures": l7a.sort_index(), "bonds": dg.combine(book, br["gilt"], 0.25, "sleeve"),
             "mcx": dg.combine(book, mcx, 0.25, "sleeve"), "a1": a1_book}
 

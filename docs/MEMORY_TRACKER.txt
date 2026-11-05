@@ -276,11 +276,13 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
  >>> OPTIONS PAGE (OPT1)
      1. DONE 2 Nov: the scan ran on live quotes with Kite logged in and proposed
         nothing, correctly: positions under one lot, too little cash, IV ranks low.
-     2. Every month: python -m kite_connect.options.cli iv-snapshot, after
-        "refresh", then commit config/iv30_history.csv.  After 45 days the
-        scan refuses a stale rank and says so in its log.
+     2. Every month (next by 14 Dec): commit and merge config/iv30_history.csv.  Since 5 Nov
+        the weekly refresh writes it (step iv_snapshot, about 11 minutes, after the F&O
+        store); refresh_status.json shows its last date.  After 45 days the scan refuses
+        a stale rank and says so in its log.
  >>> INT1A MINUTE DATA (budget Rs 50,000 approved 1 Nov, all in)
-     1. Email TrueData and Global Datafeeds; the text is in chat, 1 Nov.
+     1. DONE 5 Nov: emailed support@truedata.in and support@globaldatafeeds.in (quote and samples).
+        The second address is unverified: if it bounces, use globaldatafeeds.in's chat.
      2. Forward Claude the replies and sample files.  They are checked against
         the bhavcopy before you pay anything.
      3. Buy from the one confirmed, then say "do INT1A".  What the budget buys,
@@ -289,9 +291,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      1. DONE 2 Nov: CENTURION_SKIP_DONE_RUNS = true is set.  Backup runs stop on
         a finished night, about 70 GB a month less cache egress.  To undo:
         delete the variable.
-     2. Put the Kite Connect app's expiry date in your calendar, a week early,
-        and renew from it.  Its console shows the date; no code tracks it, and
-        it lapsed unnoticed on 17 Oct.
+     2. DONE 5 Nov: Kite Connect expires 17 Nov 2026 and auto-renews monthly;
+        in your calendar a week early.  Check after each 17th that it reads
+        Active (it lapsed unnoticed on 17 Oct).
  >>> MON 2 NOV - YOUR ACTIONS (a trading day)
      1. Kite login, as every trading day.
      2. DONE 2 Nov: Kill switch check: "0 buys found, 0 cancelled, 0 open, 0
@@ -305,8 +307,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
         server too, or manual F&O stays limited as at Rs 3 lakh.
      2. DONE, your call 31 Oct: the golden target stays what Centurion aspires
         to.  Paper trading on live Kite data is allowed (you confirmed).
-     3. Send Zerodha one ticket: the seven questions below, then tell Claude
-        the answers.  The answers set LN-T11's buffer, LN-T29 and GT2H.
+     3. DONE 5 Nov: emailed Zerodha support 12 questions (A funds at the open, B pre-open and
+        closing auction, C API orders, D GTTs, E static IP).  Forward Claude the reply.
+        The answers set LN-T11's buffer, LN-T29 (Q2 picks sweep policy A or B') and GT2H.
         Q4 and the 09:00 check, Q5 and Q6 are the ST2 block's, still unsent.
         - a holding moved to series BZ: can it be sold as CNC through the Kite
           API, and does its GTT survive the series change?
@@ -1269,6 +1272,15 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              2. Zerodha's answers (ST2: Q4, the 09:00 check, Q5): they set
                 the timing rule (ETF sold a session ahead, or a buffer, or
                 a 09:20 second pass).
+             5 Nov (SWP0, a measure, no trial): the timing answer decides whether it pays.  On the walk-forward
+                book, as-run 11.1% / 0.43: A, buys use a same-open ETF sale (sweep sits, redeems what buys
+                need) 12.4-12.6% / 0.53-0.55; B, no same-open credit, the whole sweep sold the session before
+                each weekly rebalance and bought back after, 10.5-10.8% / 0.37-0.40: BELOW no sweep (costs
+                2.4-2.7% of capital a year).  So build only on A, or on B' (redeem tonight what buys need,
+                buy a session later, about -0.7 pt), never B.  Zerodha's Q5 answer picks it.
+             When the sweep trades: set mc_bands.DEPLOYED_IDLE_CASH_SWEEP = True and rebuild
+                config/mc_bands.json (python -m nse_engine.mc_bands build), or rule D reads the
+                as-run band against a book that now earns on its cash (MC2, 5 Nov).
              3. Pre-register cost model 5 (plan 5ak): LIQUIDCASE, 0.27%
                 expense ratio, BD2's spreads (else 3 bp), buffer and band,
                 the timing rule.
@@ -1328,6 +1340,19 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              breaks it, which backs "no structural leverage".  Real days: 23 Mar
              2020 -1.25%, 4 Jun 2024 -7.59%.  Open: market_protection awaits
              Zerodha.  464 tests (414 plus 50 skips core-only), 6 of 6 breakages.
+5 Nov   GT3D Your calls on the review's last three decisions (docs/Golden target rebuild evidence.md):
+             2. January: J1 refill exits, J2 GT11 (only if it hits 1% of buys, counted by 11 Dec), J3 MV1, highest
+                prior first; J4 half-step in the overlay family.  GT9 and GT7 withdrawn; quality veto waits.
+             3. 2026 stays sealed; January runs on 2008-25; RF1's window move only after the last verdict.
+             8. Sweep first (LN-T29); accountant's view before the first full year; canary regardless; scale past
+                it only if the as-run book with the sweep beats passive NIFTY and gold after tax on 2008-25, else a
+                passive core with Centurion a capped satellite of about 25%.
+5 Nov   MC2  Rule D's band on the as-run basis (your call; uncommitted).  The deployed and candidate MC1 references
+             credited idle cash at the liquid rate (13.0% / 0.60) while paper and live run without a sweep; now
+             mc_bands.DEPLOYED_IDLE_CASH_SWEEP = False: 11.1% / 0.43, rule C's basis.  config/mc_bands.json rebuilt;
+             only deployed and candidate moved.  5th percentile, old to new: return at 60 sessions -7.3% to -7.9%,
+             at 252 -9.9% to -11.7%; drawdown at 252 -20.2% to -21.0%.  Switch back when LN-T29's sweep trades
+             (noted on LN-T29).  574 tests pass.
 4 Nov   OF1  Overfitting remediation (your call: do A, adopt C and D).
              A, plateau ensemble (desk, no trial, no code): deployed 679cbd0c 2013-25 against an equal-weight
              average of itself and its 14 recorded one-setting neighbours.  Deployed 1.16 / 23.6% / -23.9%;

@@ -301,3 +301,8 @@ On 14 Dec, the email shows one of three verdicts:
 ACCEPT: live trading starts at Rs 3 lakh once the 5 dry runs are clean and you give the go-ahead. That means setting CENTURION_LIVE_CAPITAL=300000 and CENTURION_LIVE_MODE=live.
 WATCH: decided again at 90 sessions, about 25 Jan 2027.
 REJECT: no live capital, and the configuration (679cbd0c) is not re-tuned.
+
+
+~~~~~~~
+
+Sell test: no "Record sell path" run exists yet. Log in to Kite, and tonight after 20:00 place AMO SELL 1 HDFCBANK at today's close × 0.995 for Friday. The test's GTT step and evening record follow on Friday.
