@@ -3,6 +3,8 @@ Golden target: Sharpe >= 1.4, CAGR >=30%, PBO <= 30%
 Realistically achievable target: Sharpe >= 1.2, CAGR >=35%, MaxDD<=35%, Calmar >= 1%, PBO <= 30%
 Goal is to have the best possible alpha, Sharpe and CAGR, lowest possible maxDD
 
+CAGR ≈ risk-free rate + Sharpe × volatility − volatility² / 2
+
 Robustness still comes from what you already have: walk-forward, holdout, PBO, deflated Sharpe and the paper gate.
 
 *success criterion should be highest Sharpe + lowest max DD, not a CAGR number. A config with 45%+ CAGR and 0.90 Sharpe is far better than 60% CAGR and 0.50 Sharpe, because the former will survive in live trading while the latter will blow up.*
@@ -114,9 +116,6 @@ audit the gaps in the current implementation of centurion_core with respect to t
 
 analyze if the current trading strategies, backtest strategies and techniques implemented from various pdf docs are practical to apply when triggering orders for ind stocks.
 
-~~~~~~
-I've put 5 files in centurion_core/research_inbox/, there are various options strategies that are implemented using the techniques discussed in them.
-Study, evaluate and implement the stategies which could potentially result in a consistent profit generation in bull, bear and range-bound regimes. Perform backest and do paper trade for each source if required, until those strategies add CAGR, alpha and Sharpe before onboarding to centurion_core. Follow O5, O6 and so on for each source as mentioned earlier.
 
 ~~~~~~
 
@@ -258,3 +257,52 @@ Read doc in full. Extract the ideas that fit centurion_core (Indian stocks modul
 
 ~~~~~~~~~~~~~
 
+Analyze & fix gaps:
+1. It lags rebounds.
+   It kept only 37% of the 2008–10 rise and 60% of the 2016–20 rise.
+   In weak-market states it is only 49% invested.
+   In bull states it is 78% invested. That's 22% of capital out of the market.
+2. It loses money in sideways markets. It earns 2% a year there, below the 6.5% risk-free rate, because the market-state switch flips often and the costs add up.
+3. Idle cash earns nothing in paper and live. That alone costs 1.5 points of CAGR (Sharpe 0.43 vs 0.54)
+
+~~
+Prepare plan of action to test and validate below observations since they need no research trial and can potentially move the numbers in the direction of golden target:
+
+1. Put idle cash in a liquid fund (LIQUIDCASE sweep): +1.5 points of CAGR on the live path. I think this waits on Zerodha's answer to Q5.
+2. Exercise the market-state exit and the drawdown rule on the order path, and add a per-session order count and value cap. Paper has never run either rule.
+3. Audit fill rates by opening gap: limit buys may miss stocks that gap up, which could eat the live edge.
+4. Track the live-vs-backtest gap cumulatively at 60, 120 and 250 sessions, so a slow leak shows up.
+5. Use the January core slots on:
+   higher deployment in bull markets (+0.5 to +1.5 points);
+   the half-step overlay for rebounds;
+   MV1, which carries the earnings filter.
+
+Whether this changes anything is mostly your call on decisions 1, 2 and 7 in the GT3 list: the milestone basis, the January slots and GT7, and the strict or "not lower" gate.
+
+~~~~~~~
+
+Note for me:
+
+verdict that decides go-live comes at 60 sessions, on Mon 14 Dec (RA1). A pass now doesn't let you go live sooner, and the configuration stays as it is.
+
+Until 14 Dec:
+
+Log in to Kite every trading day. A missed login is a missed session, which counts against tracking.
+Watch the nightly email. If G4 ever shows FAIL, say "diagnose G4".
+Finish the go-live conditions:
+5 clean dry runs: ask me for the dry-run log to see the current count.
+Sell path recorded: this is the AMO SELL 1 HDFCBANK test, still open.
+Put Rs 3 lakh in cash in the account before the first live session. Dry runs plan a Rs 3 lakh book whatever the account holds, so a shortfall only shows up on the first live day.
+Around mid-Dec, before the first live session:
+
+Say "do SC1b". It re-runs the scorecard on the 60-session paper record: tracking error, fill cost against the model, and drawdown against the backtest.
+On 14 Dec, the email shows one of three verdicts:
+
+ACCEPT: live trading starts at Rs 3 lakh once the 5 dry runs are clean and you give the go-ahead. That means setting CENTURION_LIVE_CAPITAL=300000 and CENTURION_LIVE_MODE=live.
+WATCH: decided again at 90 sessions, about 25 Jan 2027.
+REJECT: no live capital, and the configuration (679cbd0c) is not re-tuned.
+
+
+~~~~~~~
+
+Sell test: no "Record sell path" run exists yet. Log in to Kite, and tonight after 20:00 place AMO SELL 1 HDFCBANK at today's close × 0.995 for Friday. The test's GTT step and evening record follow on Friday.

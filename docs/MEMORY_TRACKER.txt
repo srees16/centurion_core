@@ -197,7 +197,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
   U37  (31 Oct) Intraday: amended by you.  Centurion may place intraday trades
        where there are strong opportunities, if they add to CAGR and Sharpe.
        Same gates, its own family; NI1's refusal stays on until a stream passes.
-  U36  (17 Oct) Your four calls:
+  U36  (17 Oct; CLOSED 4 Nov by GT3 decision 6, no structural leverage) Your four calls:
        - Leverage: 1.75x is accepted, with MaxDD to about -40%; hedging the
          drawdown comes later.
        - MTF: "MTF never" came from Claude's L4/L5 advice, not your rule.
@@ -273,15 +273,16 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      your go-ahead.  REJECT: no live capital; 679cbd0c is not re-tuned.
  >>> A1 EVENT LIST: sleeves.EVENT_DATES holds 2027-02-01, the customary Budget date (added 1 Nov at your call, not yet
      announced).  Correct it if the date differs.  After it passes the nightly overlay alerts until the next is added.
- >>> OPTIONS PAGE (OPT1, uncommitted)
-     1. After merging, open Ind Stocks > Options with Kite logged in, on a trading
-        day: Option Chain tab, then Scan Overlay Strategies.  Not yet seen on
-        live quotes or in a browser.
-     2. Every month: python -m kite_connect.options.cli iv-snapshot, after
-        "refresh", then commit config/iv30_history.csv.  After 45 days the
-        scan refuses a stale rank and says so in its log.
+ >>> OPTIONS PAGE (OPT1)
+     1. DONE 2 Nov: the scan ran on live quotes with Kite logged in and proposed
+        nothing, correctly: positions under one lot, too little cash, IV ranks low.
+     2. Every month (next by 14 Dec): commit and merge config/iv30_history.csv.  Since 5 Nov
+        the weekly refresh writes it (step iv_snapshot, about 11 minutes, after the F&O
+        store); refresh_status.json shows its last date.  After 45 days the scan refuses
+        a stale rank and says so in its log.
  >>> INT1A MINUTE DATA (budget Rs 50,000 approved 1 Nov, all in)
-     1. Email TrueData and Global Datafeeds; the text is in chat, 1 Nov.
+     1. DONE 5 Nov: emailed support@truedata.in and support@globaldatafeeds.in (quote and samples).
+        The second address is unverified: if it bounces, use globaldatafeeds.in's chat.
      2. Forward Claude the replies and sample files.  They are checked against
         the bhavcopy before you pay anything.
      3. Buy from the one confirmed, then say "do INT1A".  What the budget buys,
@@ -290,9 +291,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      1. DONE 2 Nov: CENTURION_SKIP_DONE_RUNS = true is set.  Backup runs stop on
         a finished night, about 70 GB a month less cache egress.  To undo:
         delete the variable.
-     2. Put the Kite Connect app's expiry date in your calendar, a week early,
-        and renew from it.  Its console shows the date; no code tracks it, and
-        it lapsed unnoticed on 17 Oct.
+     2. DONE 5 Nov: Kite Connect expires 17 Nov 2026 and auto-renews monthly;
+        in your calendar a week early.  Check after each 17th that it reads
+        Active (it lapsed unnoticed on 17 Oct).
  >>> MON 2 NOV - YOUR ACTIONS (a trading day)
      1. Kite login, as every trading day.
      2. DONE 2 Nov: Kill switch check: "0 buys found, 0 cancelled, 0 open, 0
@@ -306,8 +307,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
         server too, or manual F&O stays limited as at Rs 3 lakh.
      2. DONE, your call 31 Oct: the golden target stays what Centurion aspires
         to.  Paper trading on live Kite data is allowed (you confirmed).
-     3. Send Zerodha one ticket: the seven questions below, then tell Claude
-        the answers.  The answers set LN-T11's buffer, LN-T29 and GT2H.
+     3. DONE 5 Nov: emailed Zerodha support 12 questions (A funds at the open, B pre-open and
+        closing auction, C API orders, D GTTs, E static IP).  Forward Claude the reply.
+        The answers set LN-T11's buffer, LN-T29 (Q2 picks sweep policy A or B') and GT2H.
         Q4 and the 09:00 check, Q5 and Q6 are the ST2 block's, still unsent.
         - a holding moved to series BZ: can it be sold as CNC through the Kite
           API, and does its GTT survive the series change?
@@ -469,9 +471,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      2. DONE 26 Oct: sign-up test (MU2): the activation email arrived.
      3. DONE 26 Oct: sell test re-dated by you to 28 Oct onwards: tests Thu
         29 and Fri 30 Oct (SELL TEST block).
-     4. ON OR AFTER 1 NOV, not before: Neon back to the Free plan (Billing >
-        Change plan > Free; storage under 0.5 GB).  Launch bills every
-        CU-hour (~$1-2 a month now); Free never charges, it suspends.
+     4. DONE 2 Nov: Neon back to the Free plan (from Launch).  Free never
+        charges, it suspends at its limits (storage under 0.5 GB).
         DONE 26 Oct: the spending notification is on, at $5 a month.
      5. Send Zerodha one ticket with three questions (Q4, the 09:00 check,
         Q5 on LIQUIDCASE, Q6 on the closing auction: ST2 block), then
@@ -783,6 +784,23 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              where ranks gave no alpha in 2008-12; it must differ from R11's faster
              re-entry, which failed.  Gain unknown, possibly none.  Prompt: do GT2D
 [x]     S151A FAILED 1 Nov: sector momentum was survivorship; no January slot (section 8).
+[ ] P2  NS1  Untested uncorrelated streams (plan 5bp, written 2 Nov; your ask).  No core
+             trial: event studies and new sleeve families only, each pre-registered in
+             its own section first.  Phase 0: cash-futures carry vs LN-T29's sweep (one
+             look).  Phase 1: index deletions, long-vol tail hedge, promoter buying,
+             demergers, F&O/MSCI rebalances, anchor lock-ins.  Phase 2: buyback and
+             open-offer tables by hand.  Phase 3: revision-breadth quote, NCDEX
+             liquidity check.  Nothing moves the deployed book before RA1 (14 Dec).
+             NS1-1 FAILED 2 Nov (section 8): deletions keep lagging, t -4.3.
+             NS1-2 FAILED 2 Nov (section 8): put bleed beats the crash payoff.
+             NS1-4 BLOCKED 2 Nov, data check only (no trial): corpact has 98 explicit
+             demergers 2008-25, 11 before 2019, and never names the spun-off company.
+             Needs a hand-built parent -> spin-off list from NSE listing circulars.
+             NS1-3 FAILED 2 Nov (section 8): promoter buys, no drift, t -0.2 / -0.6.
+             NS1-7 DONE 3 Nov (section 8): buyback tenders not worth doing.
+             NS1-10 CLOSED 3 Nov (section 8): NCDEX check fails (no scriptable data,
+             main contracts suspended since Dec 2021, thin rest).
+                                                         Prompt: do NS1-8, or wait for Q5 / RA1
 [ ] P3  OPS1A At the next re-baseline: repair the partial corporate-action factors the load now
              warns about (ADANIENT 2015, HINDZINC 2011, ZEENEWS 2010, TRIVENI 2011 in the universe; 14
              in all), checking each against the record first.  Moves the data hash.  Prompt: do OPS1A
@@ -1048,7 +1066,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              a fourth forecast group, ranked like the other rank groups; no
              recent results scores 0.  Weights: fast trend, slow trend and
              earnings at 1/3 each.                       Prompt: do GT7
-[ ] P3  GT8  Futures leverage up to 1.75x (your call 17 Oct, U36: MaxDD
+[x] P3  GT8  CLOSED 4 Nov (GT3 decision 6, with U36; reopen only by a new decision).  Was: Futures leverage up to 1.75x (your call 17 Oct, U36: MaxDD
              about -40% accepted; MTF dropped by your call, L11): only at
              >= ~Rs 1 crore (lots ~Rs 15 lakh) and after 12+ months of live
              combined tracking; half-Kelly on a haircut Sharpe of 0.7; a
@@ -1254,6 +1272,15 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              2. Zerodha's answers (ST2: Q4, the 09:00 check, Q5): they set
                 the timing rule (ETF sold a session ahead, or a buffer, or
                 a 09:20 second pass).
+             5 Nov (SWP0, a measure, no trial): the timing answer decides whether it pays.  On the walk-forward
+                book, as-run 11.1% / 0.43: A, buys use a same-open ETF sale (sweep sits, redeems what buys
+                need) 12.4-12.6% / 0.53-0.55; B, no same-open credit, the whole sweep sold the session before
+                each weekly rebalance and bought back after, 10.5-10.8% / 0.37-0.40: BELOW no sweep (costs
+                2.4-2.7% of capital a year).  So build only on A, or on B' (redeem tonight what buys need,
+                buy a session later, about -0.7 pt), never B.  Zerodha's Q5 answer picks it.
+             When the sweep trades: set mc_bands.DEPLOYED_IDLE_CASH_SWEEP = True and rebuild
+                config/mc_bands.json (python -m nse_engine.mc_bands build), or rule D reads the
+                as-run band against a book that now earns on its cash (MC2, 5 Nov).
              3. Pre-register cost model 5 (plan 5ak): LIQUIDCASE, 0.27%
                 expense ratio, BD2's spreads (else 3 bp), buffer and band,
                 the timing rule.
@@ -1313,9 +1340,105 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              breaks it, which backs "no structural leverage".  Real days: 23 Mar
              2020 -1.25%, 4 Jun 2024 -7.59%.  Open: market_protection awaits
              Zerodha.  464 tests (414 plus 50 skips core-only), 6 of 6 breakages.
+5 Nov   GT3D Your calls on the review's last three decisions (docs/Golden target rebuild evidence.md):
+             2. January: J1 refill exits, J2 GT11 (only if it hits 1% of buys, counted by 11 Dec), J3 MV1, highest
+                prior first; J4 half-step in the overlay family.  GT9 and GT7 withdrawn; quality veto waits.
+             3. 2026 stays sealed; January runs on 2008-25; RF1's window move only after the last verdict.
+             8. Sweep first (LN-T29); accountant's view before the first full year; canary regardless; scale past
+                it only if the as-run book with the sweep beats passive NIFTY and gold after tax on 2008-25, else a
+                passive core with Centurion a capped satellite of about 25%.
+5 Nov   MC2  Rule D's band on the as-run basis (your call; uncommitted).  The deployed and candidate MC1 references
+             credited idle cash at the liquid rate (13.0% / 0.60) while paper and live run without a sweep; now
+             mc_bands.DEPLOYED_IDLE_CASH_SWEEP = False: 11.1% / 0.43, rule C's basis.  config/mc_bands.json rebuilt;
+             only deployed and candidate moved.  5th percentile, old to new: return at 60 sessions -7.3% to -7.9%,
+             at 252 -9.9% to -11.7%; drawdown at 252 -20.2% to -21.0%.  Switch back when LN-T29's sweep trades
+             (noted on LN-T29).  574 tests pass.
+4 Nov   OF1  Overfitting remediation (your call: do A, adopt C and D).
+             A, plateau ensemble (desk, no trial, no code): deployed 679cbd0c 2013-25 against an equal-weight
+             average of itself and its 14 recorded one-setting neighbours.  Deployed 1.16 / 23.6% / -23.9%;
+             ensemble 1.10 / 21.1% / -22.4%; the 7 numeric nudges only (stop ATR, rebalance, positions, sector
+             cap, regime scale, trend confirm, price filter) 1.12 / 22.1% / -22.5%.  The ensemble beat deployed
+             in 3 of 13 years.  Read: the deployed settings sit near the top of their neighbourhood, not on a
+             lonely spike; averaging costs about 0.04-0.06 Sharpe and 1.5-2.5 pt CAGR and buys about 1.5 pt
+             of drawdown.  Neighbours span 0.77-1.16, with the low end all signal-group swaps (a different
+             strategy, not a nudge).  Not adopted: no change to the book; V3 stays the route.
+             C, RULE (adopted 4 Nov): plan sizing, go-live and expectations on the deflated, as-run figures
+             (about 0.43 Sharpe, about 11% CAGR on 2008-25, GT3's third basis), never the 1.24 walk-forward or
+             1.16 backtest.  The higher figures are reported, not planned on.
+             D, RULE (adopted 4 Nov): if a live or paper book sits below its MC1 5th percentile (return or
+             drawdown, config/mc_bands.json) for 60 consecutive sessions, it steps down to paper; it returns
+             only by a new decision.  Until coded, the Saturday books email's MC1 line is read by hand.
+             Written into the code: YES, 4 Nov (your ask).  capital_ladder.mc_breach_streak / mc_line, recomputed
+             nightly from the flow-adjusted equity against config/mc_bands.json ("deployed" band).  Live book
+             (live_session._mc_rule_d): on the 60th consecutive session below the 5th percentile it latches
+             live_mc_step_down in the book's state and turns the kill switch ON (new buys refused on every path,
+             exits and stop GTTs still go), with a CRITICAL email; while latched the session plans exits only.
+             Paper book: go-live readiness gains "MC floor (rule D)", so a tripped paper record refuses the first
+             live session.  Cleared only by you: live_session --clear-mc-step-down "reason", then the kill switch
+             off.  Every live email carries the streak line.  tests/test_mc_rule_d.py (5); ladder and live tests
+             pass.  Not merged: uncommitted on feature/fine-tuning.
+             Your call 4 Nov: the three design choices accepted as built (kill switch, not a capital or position
+             unwind; no bands or too young reads as not breached; the "deployed" band for every account).
+4 Nov   SHUF1 Sequence shuffle check, deployed 679cbd0c (your ask; no trial, no code).  1,000 random orderings each,
+             seed 7.  Max drawdown, actual against shuffled median / 1st percentile / worst: backtest 2013-25 -23.9%
+             against -17.6% / -29.9% / -41.6%; walk-forward 2017-25 -22.1% against -14.3% / -25.3% / -28.1%; 3,246
+             closed trades on a Rs 30L book -7.1% against -2.5% / -4.7% / -5.7%.  No ordering doubled drawdown (0%
+             in all three).  The real order is already worse than the shuffled median (bad days cluster), so plain
+             shuffling understates risk; MC1's block bootstrap keeps the clusters and stays the risk range.
+             Already on record: walk-forward OOS 1.24 (2017-25), 14-neighbour sensitivity with three fragile
+             settings (stop ATR, rebalance frequency, group weights; feeds V3).
+4 Nov   GT3  Owner's decisions on the rebuild review (docs/Golden target rebuild evidence.md, end).  1: the
+             milestone is 2008-25 on the realistic sweep basis, the others reported.  4: yes, a shorter gate at a
+             smaller size for short-history filters and capped event sleeves, gap stated.  5: yes, MIT1 waived once
+             for J4, capped at 25%.  6: GT8 and U36 CLOSED, reopen only by a new decision.  7: strict for return
+             claims, "not lower" for risk rules and fills.  Open: 2 (which January claims), 3 (RF1 window), 8.
+3 Nov   NS1-10 NCDEX agri trend, precondition check (plan 5bp, desk, no trial): fails, closed.  No NCDEX
+             data in the repo and no scriptable bhavcopy history on ncdex.com.  The most traded agri futures
+             were suspended repeatedly, and seven (paddy, wheat, chana, mustard, soybean complex, crude palm
+             oil, moong) have been suspended since Dec 2021 (public record, not re-verified).  What remains is
+             thin.  GT5's third commodity configuration stays unused.
+3 Nov   NS1  Round summary (plan 5bp): nothing adopted.  NS1-1 index deletions FAIL (t -4.3, deletions keep
+             lagging), NS1-2 tail-hedge puts FAIL (book Sharpe 0.70 -> 0.45), NS1-3 promoter buys FAIL
+             (t -0.2), NS1-4 BLOCKED (corpact never names the spin-off), NS1-7 buyback tenders not
+             adopted (acceptance 72% median, ~20-30% when crowded; slab-rate dividend tax since Oct 2024).
+             Indian event-driven effects tested so far do not survive costs.  Recommendation: pause new
+             research until the Zerodha reply (Q4, 09:00 check, Q5: unblocks LN-T29 and NS1-0b, the
+             likeliest real gain) and RA1 (14 Dec).  Left, all low value: NS1-10 NCDEX liquidity check,
+             NS1-8 open-offer table, NS1-5/6 (data first), removing the disabled tail-hedge path
+             (execute_tail_hedge, OPTIONS_TAIL_HEDGE_ENABLED = False; NS1-2 says never enable it).
+             Housekeeping: the three closed studies' files (index_events.py, tail_hedge.py,
+             promoter_buys.py) came back untracked after deletion, likely via the chat's "Keep" on
+             created files; deleted again 3 Nov.  Use "Undo", not "Keep", for files a study removes.
+             Terminal auto-approve set in user settings (global autoApprove on, 3 Nov): rm/git blocks no
+             longer enforced by VS Code; the assistant asks in chat before deletes, never commits/pushes.
+3 Nov   NS1-7 Buyback tenders, retail quota (plan 5bp, hand table, no trial): not adopted.  SEBI post-offer
+             announcements 2013-25: 46 readable small-shareholder rows (2013-22).  Acceptance median 72%,
+             quartiles 29% / 100%; fell to ~20-30% in 2019-20 as the trade got crowded (Mindtree 14%,
+             Aarti 7%, HEG 17%, FDC 14%).  Full acceptance mostly when the offer was barely wanted.  Since
+             Oct 2024 the proceeds are taxed as a dividend at slab rate, which wipes out the premium.
+             No tendering rule; scratch code and downloads removed.
+2 Nov   NS1-3 Promoter open-market buying (plan 5bs, N = 2, t >= 2): FAIL, closed, code and data removed.
+             NSE PIT filings exist from Jan 2016 (not Oct 2020): 333k filings, 2,854 events used (>= Rs 10
+             lakh, one per stock per 60 sessions, tradable).  Net abnormal vs NIFTY 500 + 1.3 pt: [1,60]
+             -0.2% per event-month, NW t -0.16; [1,120] -1.5%, t -0.63; halves split (2016-20 negative,
+             2021-25 slightly positive).  Rs 1 crore+ buys no better (-0.7%).  No filter for the core book.
+2 Nov   NS1-2 Long-vol tail hedge (plan 5br, options family, N now 20): FAIL, both, closed.  NIFTY monthly put
+             at 0.90 x spot, 1x notional, 2008-25.  T-A (every month): alone Sharpe -0.16, 2.4% of puts pay;
+             as an equal-risk overlay the book's excess Sharpe falls 0.70 -> 0.45 (backtest) and 0.60 -> 0.34
+             (walk-forward), p 0.96; 2008-12 worse.  It does halve 2008 (-23.2% -> -11.8%), at the cost of
+             the other 17 years.  T-B (calm IV only): Sharpe -0.70, misses 2008, p 1.00.  OTM puts are not
+             under-priced in India; the bleed beats the payoff.  Runs stay in runs_options (counted in N).
+2 Nov   NS1-1 Index deletion rebound (plan 5bq, N = 2, t >= 2): FAIL, closed, code and data removed.
+             Events from NSE Indices press releases 2008-25 (253 releases, 1 download failed, 30 names
+             unmatched); 532 periodic deletions used.  Net abnormal vs NIFTY 500 + 1.3 pt: H1 [60,240]
+             -12.1% per event-month, NW t -4.34; H2 [1,240] -14.6%, t -3.90; both halves negative.
+             Windows: [-20,0] +1.3%, [1,60] -1.8%, [60,240] -7.3%; hit rate 35-38%.  Deleted stocks keep
+             lagging (anti-rebound), not passive-selling relief.  Tier-down 17 events, median -8.7%.
+             The desk's +4-7% does not hold in India.  Not a short either: no stock shorting (SLB not
+             used), and a new-effect short would need its own pre-registration at t >= 3.
 2 Nov   B7   First live overlay scan: "Internal server error" (uncommitted fix).  Space log: broker.quotes hit an HTML 400 from
              Kite's gateway, on a GET with 500 option keys, a 14 KB URL (cause inferred; the spot quote before it worked).
-             QUOTE_BATCH 500 to 200, as the stock quote paths; a test caps the URL under 8,000.  Not yet seen on live.
+             QUOTE_BATCH 500 to 200, as the stock quote paths; a test caps the URL under 8,000.  Ran live 2 Nov, no error.
              HF_TOKEN in .env is a read token for the Space's logs.
 2 Nov   B6   Deploy to HF failed on main ec0250f, 1 Nov (uncommitted fix).  The Space refuses pushed binary files, and OPT1's
              config/iv30_history.csv.gz is one, so nothing from that merge reached the backend.  Now plain text,

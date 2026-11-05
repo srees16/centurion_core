@@ -585,7 +585,10 @@ test closes a stream for good. The others say what would reopen them.
 | Book-level volatility targeting | R3 | test (WF) | 2017–25; no | 3 | CLOSED: every fold chose off | Only inside a momentum sleeve |
 | Cash engine: liquid ETF sweep | GT3, LN-T29 | look | 2013–25; no | 0 | "Do, after go-live". BD1's baseline: −0.4 pt with equity impact, +1 pt with spread-only costs | Measured liquid-ETF costs |
 | Earnings drift; Minervini on the core | GT7, MV1 | desk (pre-registered) | — | 0 | PENDING after V3 | — |
-| Index deletions; buybacks; FII OI | §6 rows 5–7 | desk | — | 0 | Marginal | — |
+| Index deletions (NS1-1, plan 5bq) | §6 row 5 | test (event study) | 2008–25; yes | 2 | FAIL (2 Nov): deletions keep lagging, net −14.6% over [1,240], NW t −3.9; both halves negative | — |
+| Long-vol tail hedge, 10% OTM NIFTY puts (NS1-2, plan 5br) | — | test (overlay, §5.1) | 2008–25; yes | 2 (options N 20) | FAIL (2 Nov): book Sharpe 0.70 → 0.45 / 0.60 → 0.34, p 0.96; halves 2008 only | — |
+| Promoter open-market buying (NS1-3, plan 5bs) | desk | test (event study) | 2016–25 (PIT from 2016); no | 2 | FAIL (2 Nov): 2,854 events, [1,60] −0.2%, NW t −0.16; [1,120] t −0.63 | — |
+| Buybacks; FII OI | §6 rows 6–7 | desk | — | 0 | Marginal | — |
 | Pairs / sector-neutral futures | — | desk | — | 0 | NOT VIABLE (Sharpe ~0.1) | — |
 | Option premium selling, naked | — | desk (and O2–O4) | — | — | NOT VIABLE; never-list | — |
 | Intraday options | OX | bar (swing only) | — | 0 | CLOSED | — |

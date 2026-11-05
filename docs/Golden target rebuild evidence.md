@@ -14,6 +14,16 @@ Backtests do not bridge the gap. Bank alternative-beta products fell from a medi
 
 Centurion's own arithmetic closes the question. Holding NIFTY with perfect foresight of every bear gives about 25%, and a true Sharpe of 0.6 tops out near 24.5% at any leverage (GT2 review). The book reached 35% in 3 of 18 years, and its best rolling three-year CAGR is 28.9%. Target vol is about 22% (my calc: 34.9% at Sharpe 1.4), and even a true 1.4 at 22% vol has about a 43% chance of a -30% drawdown in 18 years (Gaussian, so a floor).
 
+**Why the arithmetic rules out the target.** Long-run compound growth is roughly CAGR ≈ rf + Sharpe × vol − vol²/2. Leverage raises vol; the middle term grows in step with it, but the drag term (vol²/2) grows with its square, so past some point more risk lowers growth. Growth peaks at vol = Sharpe, where CAGR = rf + Sharpe²/2:
+
+| True Sharpe | Peak CAGR (at vol = Sharpe) | At today's ~11% vol, no leverage |
+|---|---|---|
+| 0.6 | 6.5% + 0.36/2 = **24.5%** (needs 60% vol) | 6.5% + 6.6% − 0.6% ≈ 12.5% |
+| 0.8 | 6.5% + 0.64/2 = 38.5% (needs 80% vol) | 6.5% + 8.8% − 0.6% ≈ **14.7%** |
+| 1.4 | 6.5% + 1.96/2 = 104.5% | 34.9% needs ~22% vol |
+
+So at Sharpe 0.6 no amount of leverage reaches 35%. At 0.8 the ceiling sits above 35% only at about 80% vol, which means structural leverage, and that is ruled out. Unlevered, CAGR is Sharpe × the book's own vol plus the risk-free rate: mid-teens, not 35%. The target needs a better Sharpe, not more leverage (my calc; Gaussian, continuous rebalancing, costs of leverage ignored, so these are upper bounds).
+
 | Golden leg | Target | Live-like 2008-25 | 2013-25 | Reading |
 |---|---|---|---|---|
 | Sharpe | ≥ 1.4 | 0.60 (0.54 realistic sweep) | 0.88 | Out of reach as a sustained result |
@@ -244,6 +254,16 @@ Pre-commit to the fan now. At a true Sharpe of 0.6, a single year has a 27% chan
 | 6 | Close GT8 and U36. The tracker still accepts 1.75x while your rule says no structural leverage | Close it, and reopen only by a new decision |
 | 7 | Keep t ≥ 2 and DSR ≥ 0.95 for all, or use a "not lower" tier for risk and implementation changes? The base itself fails DSR at 0.42 | Strict for return claims, "not lower" for risk rules and fills |
 | 8 | If the book cannot clear the after-tax passive hurdle, is the product a passive mix plus overlay? Which tax treatment? Buy consensus data? | Take a chartered accountant's view before the first full year; buy data only once a quote is weighed against +0.05-0.15 |
+
+**Owner's decisions, 4 Nov 2026.**
+- **1, decided:** the milestone is 2008-25 on the realistic sweep basis, with the 2013-25 and rolling three-year figures reported alongside.
+- **2, decided 5 Nov:** January runs J1 refill exits, J2 GT11 (only if its hit count clears 1% of buys by 11 Dec) and J3 MV1 as core slots, highest prior first, and J4 the half-step in the overlay family. GT9 and GT7 are withdrawn; the quality veto waits; J4 covers the rebound rule.
+- **3, decided 5 Nov:** 2026 stays sealed. Every January trial runs on 2008-25; RF1 moves the window to 2013-26 only after the last January verdict.
+- **4, decided:** yes. Filters and capped event sleeves fed by short-history streams may pass a shorter gate at a smaller size, with the gap stated, under a recorded exception like U38.
+- **5, decided:** yes. MIT1's "no exposure may be added" rule is waived once, for J4 only, capped at 25%.
+- **6, decided:** GT8 and U36 are closed. They reopen only by a new decision.
+- **7, decided:** strict gates (t ≥ 2, DSR ≥ 0.95) for return claims; a "not lower" tier for risk rules and fills.
+- **8, decided 5 Nov:** build the sweep (LN-T29) first; take a chartered accountant's view before the first full year; go live at the canary regardless; scale past it only if the as-run book with the sweep beats the passive NIFTY and gold mix after tax on 2008-25. If it does not, the product becomes a passive NIFTY, gold and gilt core held long-term, with Centurion a capped satellite of about 25% until it earns more.
 
 ## Conclusion
 
