@@ -1904,6 +1904,77 @@ def _ramp(alarm=False, low=-1.0, volatility=True, turnover=True):
             "turnover": {"value": 1.0 if turnover else 0.4, "ok": turnover, "display": "1.00x"}}
 
 
+def test_the_gap_band_reads_at_its_checkpoints_and_holds_only_from_120():
+    """MON1 (plan 5bu): G(n) < -2 sigma sqrt(n) at 60 / 120 / 250 / every 250; WATCH at 60, a ladder hold from 120
+    until the next checkpoint or the owner's acknowledgement; nothing before sigma is fixed or before 60."""
+    from nse_engine import live_monitor as lm
+
+    assert [lm.checkpoint_for(n) for n in (59, 60, 119, 120, 249, 250, 499, 500, 760)] == \
+        [None, 60, 60, 120, 120, 250, 250, 500, 750]
+    s = 0.003
+    leak = lambda n, per: pd.Series([per] * n)            # noqa: E731 - a steady daily gap
+    assert lm.gap_band(leak(80, -0.01), None)["status"] == "not armed"
+    assert lm.gap_band(leak(59, -0.01), s)["status"] == "waiting"
+    band60 = -2 * s * 60 ** 0.5                            # -4.6%: a -0.1%/day leak is -6% at 60
+    ok = lm.gap_band(leak(70, band60 / 60 * 0.9), s)
+    assert ok["status"] == "OK" and not ok["hold"] and ok["checkpoint"] == 60
+    watch = lm.gap_band(leak(70, -0.001), s)
+    assert watch["status"] == "WATCH" and not watch["hold"]
+    breach = lm.gap_band(leak(130, -0.001), s)
+    assert breach["status"] == "BREACH" and breach["hold"] and "ladder holds" in breach["line"]
+    assert breach["cum_gap"] == pytest.approx(-0.12)       # read at 120, not at 130
+    assert not lm.gap_band(leak(130, -0.001), s, ack="120")["hold"]
+    assert lm.gap_band(leak(130, -0.001), s, ack="60")["hold"], "an acknowledgement covers its own checkpoint"
+
+    d = _ladder_eval(_ladder(sessions=59), ramp={**_ramp(), "gap_band": breach}, requested=600_000)
+    assert d.action != "GO" and any("Gap band" in r for r in d.reasons) and any("Gap band" in a for a in d.alerts)
+    d = _ladder_eval(_ladder(sessions=59), ramp={**_ramp(), "gap_band": watch}, requested=600_000)
+    assert d.action == "GO" and any("WATCH" in a for a in d.alerts), "a WATCH at 60 informs, never holds"
+
+
+def test_the_gap_sigma_is_fixed_once_at_ra1(tmp_path):
+    from nse_engine import live_monitor as lm
+
+    assert lm.sigma_from_te(0.08) == pytest.approx(0.08 / 252 ** 0.5)
+    assert lm.sigma_from_te(0.001) == lm.SIGMA_FLOOR
+    assert lm.te_from_gate_summary({"checks": [{"name": "tracking error", "display": "6.2%/yr"}]}) == pytest.approx(0.062)
+    for bad in ({"checks": [{"name": "tracking error", "display": "n/a"}]}, {"checks": []}):
+        with pytest.raises(ValueError):
+            lm.te_from_gate_summary(bad)
+    path = tmp_path / "sigma.json"
+    with pytest.raises(RuntimeError, match="fixed at 60"):
+        lm.fix_sigma(0.05, "test", 59, path=path)
+    doc = lm.fix_sigma(0.05, "test", 60, path=path)
+    assert lm.load_sigma(path) == pytest.approx(doc["sigma_daily"])
+    with pytest.raises(RuntimeError, match="fixed once"):
+        lm.fix_sigma(0.06, "test", 61, path=path)
+    assert lm.load_sigma(tmp_path / "none.json") is None
+
+
+def test_the_monthly_rank_ic_scores_complete_months_only():
+    """MON1: Spearman of the forecast against the next 21 sessions, per finished month, read at 12 months."""
+    from nse_engine import live_monitor as lm
+
+    rng = np.random.default_rng(3)
+    dates = pd.bdate_range("2027-01-01", periods=120)
+    close = 100 * np.exp(np.cumsum(rng.normal(0, 0.01, (120, 60)), axis=0))
+    universe = np.ones_like(close, dtype=bool)
+    p = int(dates.get_loc(lm.month_ends(dates, dates[0])[0]))
+    perfect = np.zeros_like(close)
+    perfect[p] = close[p + 21] / close[p] - 1.0             # a forecast that knew the next 21 sessions
+    assert lm.rank_ic(perfect, universe, close, p) == pytest.approx(1.0)
+    assert lm.rank_ic(perfect, universe, close, 110) is None, "horizon not complete"
+    ends = lm.month_ends(dates, dates[0])
+    assert all(e.month != dates[-1].month for e in ends), "a running month has no month-end yet"
+    done = {ends[0].date().isoformat(): 0.1}
+    due = lm.due_ics(dates, dates[0], done)
+    assert ends[0] not in due and all(int(dates.get_loc(m)) + 21 < len(dates) for m in due)
+    s = lm.ic_summary({f"2027-{m:02d}-28": 0.05 + 0.01 * (m % 3) for m in range(1, 13)})
+    assert s["months"] == 12 and s["t"] > 2 and s["verdict"].startswith("supports")
+    assert lm.ic_summary({"2027-01-29": 0.05})["verdict"] == "read at 12 months (1 so far)"
+    assert lm.ic_summary({f"2027-{m:02d}-28": -0.02 + 0.001 * m for m in range(1, 13)})["verdict"].startswith("REVIEW")
+
+
 def test_the_canary_needs_three_months_before_go():
     held = _ladder(sessions=58)                    # evaluate counts tonight's session
     assert "59 of 60 sessions" in _ladder_eval(held, requested=600_000).reasons[0]

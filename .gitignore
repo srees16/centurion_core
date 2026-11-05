@@ -62,6 +62,7 @@ mywinenv/
 !config/nse_engine_*.json
 !config/canary_expected.json
 !config/mc_bands.json
+!config/mon1_gap_sigma.json
 !config/nse_for_cause_exits.json
 !docs/books_register.csv
 !docs/metrics_journal.csv

@@ -1001,6 +1001,17 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
         mc_alert = _mc_rule_d(state, history, ahead, report)
         if mc_alert:
             critical.append(mc_alert)
+        try:                                              # MON1 (plan 5bu): monthly universe rank IC
+            from nse_engine import live_monitor as lm
+
+            ics = json.loads(state.get(lm.IC_STATE_KEY) or "{}")
+            new = lm.score_due_ics(data, cfg, history.index[0], ics)
+            if new:
+                ics.update(new)
+                ahead[lm.IC_STATE_KEY] = json.dumps(ics)
+                report["notes"].append(lm.ic_summary(ics)["line"])
+        except Exception as exc:                          # noqa: BLE001 - a monitor never stops a session
+            report["alerts"].append(f"rank IC (MON1) not scored tonight: {exc}")
         if gate is not None:
             from nse_engine import paper_gate as pg
             report["gate"] = (pg.one_line(gate) + " (vs live's order rules; vs the model, for information: "
@@ -1405,6 +1416,11 @@ def _ladder_step(ex, data, view, dep, ledger: dict, state: Dict[str, str], book,
             gate["model_reference"] = pg.one_line(pg.evaluate(window, model.returns, fills=fills,
                                                               reference_trades=model.trades, sessions=sessions))
             ramp = cl.ramp_checks(window[window.index >= pd.Timestamp(lstate.since)], ref.returns, fills, ref.trades)
+            from nse_engine import live_monitor as lm      # MON1 (plan 5bu): the cumulative gap band
+
+            both = pd.concat({"live": pg._dated(window).pct_change(), "ref": pg._dated(ref.returns)},
+                             axis=1, join="inner").dropna()
+            ramp["gap_band"] = lm.gap_band(both["live"] - both["ref"], lm.load_sigma(), os.environ.get(lm.ACK_ENV))
         except Exception as exc:                          # noqa: BLE001 - the ladder then holds
             logger.warning("live G4 unavailable: %s", exc)
     dd, _ = ex.drawdown_decision(session, marked["equity"])
