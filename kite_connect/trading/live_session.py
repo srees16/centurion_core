@@ -899,8 +899,11 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
             report["alerts"].append(f"GTT history unavailable for the reconcile: {gtt_error}")
         awaiting = ledger.get("ca_pending") or {}
         seen_qty = {s: int(h["quantity"]) for s, h in broker_holdings.items()}
+        # split/bonus shares on their way (LN-T4) count as held, unless an order of that name is unaccounted for:
+        # then the broker's own quantity decides, and a gap it cannot explain blocks buys (game day GD1)
+        ordered = {str(o.get("symbol")) for o in pending}
         seen_qty.update({s: max(seen_qty.get(s, 0), int((provisional.get("positions") or {}).get(s, 0)))
-                         for s in awaiting})                  # split/bonus shares on their way (LN-T4)
+                         for s in awaiting if s not in ordered})
         rows, adopted_entries, gtt_cooldown, unexplained = reconcile_missed(
             provisional, pending, seen_qty,
             {s: float(h.get("avg_price") or 0.0) for s, h in broker_holdings.items()}, triggered, view, session, dp)

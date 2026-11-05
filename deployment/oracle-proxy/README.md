@@ -79,6 +79,31 @@ IP through the tunnel: if it differs from `CENTURION_KITE_STATIC_IP`, real
 orders are refused (a dry run just warns). A host key that does not match
 the pinned one stops the connection.
 
+## 5. A backup static IP (tracker ZR2)
+
+Zerodha allows a primary and a secondary static IP on the developer account,
+and the registration can change once in 7 days. When the primary host is down
+(or its calls stop leaving from its registered IP), the live session and the
+kill switch use the secondary (`static_ip_tunnel.sh`); the Actions run log says so.
+Put the backup on another provider, so one outage cannot take both.
+
+1. Create a small Ubuntu server with a static public IP on another provider,
+   for example AWS Lightsail in Mumbai (the smallest plan; attach a static IP,
+   free while attached). Allow inbound SSH (22) only.
+2. Run the same setup with the **same** tunnel public key and `secondary`:
+   ```bash
+   scp deployment/oracle-proxy/setup_tunnel_user.sh ubuntu@<backup-ip>:
+   ssh ubuntu@<backup-ip> "sudo bash setup_tunnel_user.sh '$(cat ~/.ssh/kite_tunnel.pub)' secondary"
+   ```
+   (If the private key was deleted, make a new pair, run the setup on both
+   hosts with it and replace `CENTURION_PROXY_SSH_KEY`.)
+3. In GitHub: secrets `CENTURION_PROXY_HOST_2`, `CENTURION_PROXY_HOST_KEY_2`
+   and variable `CENTURION_KITE_STATIC_IP_2`, as printed.
+4. developers.kite.trade → Profile → IP Whitelist: add `<backup-ip>` as the
+   secondary.
+5. Check it by hand, as below, with `<backup-ip>`: `api.ipify.org` must print
+   `<backup-ip>`. Nothing changes while the primary works.
+
 ## Checking it by hand
 
 ```bash

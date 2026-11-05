@@ -61,18 +61,14 @@ jobs:
           CENTURION_PROXY_SSH_KEY: ${{ secrets.CENTURION_PROXY_SSH_KEY }}
           CENTURION_PROXY_HOST: ${{ secrets.CENTURION_PROXY_HOST }}
           CENTURION_PROXY_HOST_KEY: ${{ secrets.CENTURION_PROXY_HOST_KEY }}
+          CENTURION_KITE_STATIC_IP: ${{ vars.CENTURION_KITE_STATIC_IP }}
+          CENTURION_PROXY_HOST_2: ${{ secrets.CENTURION_PROXY_HOST_2 }}
+          CENTURION_PROXY_HOST_KEY_2: ${{ secrets.CENTURION_PROXY_HOST_KEY_2 }}
+          CENTURION_KITE_STATIC_IP_2: ${{ vars.CENTURION_KITE_STATIC_IP_2 }}
         run: |
-          if [ "$ACTION" != "status" ] && [ "$ACTION" != "off" ] && [ -n "$CENTURION_PROXY_HOST" ]; then
+          if [ "$ACTION" != "status" ] && [ "$ACTION" != "off" ] && [ -n "$CENTURION_PROXY_HOST$CENTURION_PROXY_HOST_2" ]; then
             # A failed tunnel never stops the switch: the latch comes first and the broker result reports it.
-            install -d -m 700 ~/.ssh
-            (umask 077; printf '%s\n' "$CENTURION_PROXY_SSH_KEY" > ~/.ssh/kite_tunnel)
-            printf '%s\n' "$CENTURION_PROXY_HOST_KEY" > ~/.ssh/known_hosts_kite
-            if timeout 30 ssh -i ~/.ssh/kite_tunnel -o UserKnownHostsFile="$HOME/.ssh/known_hosts_kite" \
-                -o StrictHostKeyChecking=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
-                -o BatchMode=yes -o ConnectTimeout=20 -f -N -D 127.0.0.1:1080 "$CENTURION_PROXY_HOST"; then
-              export CENTURION_KITE_PROXY="socks5h://127.0.0.1:1080"
-            else
-              echo "::warning::Kite tunnel failed"
-            fi
+            . deployment/oracle-proxy/static_ip_tunnel.sh
+            kite_tunnel || echo "::warning::Kite tunnel failed"
           fi
           python -m kite_connect.trading.kill_switch "$ACTION" --reason "$REASON"

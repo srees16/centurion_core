@@ -189,9 +189,10 @@ book's own G4, the drawdown rule and NIFTY:
   entries beyond 20% from the episode peak, halve exposure beyond 30%, cash
   beyond 35%; re-arms on a 60-session high.
 
-**Hold the live book to**: tracking error ≤ 8% / yr, Sharpe ≥ 1.0,
-CAGR ≥ 20%, MaxDD ≤ 30% (soft, U5; not in a 2008-type crisis, U22),
-Calmar ≥ 0.7, realised costs ≤ 1.5× the model. Realistic expectation (5 Nov
+**Hold the live book to**: tracking error ≤ 8% / yr, realised costs ≤ 1.5×
+the model. **Aspiration** (your call, 5 Nov 2026: what the book aims to
+reach in the near future, not a gate): Sharpe ≥ 1.0, CAGR ≥ 20%, Calmar ≥ 0.7,
+MaxDD ≤ 30% (soft, U5; not in a 2008-type crisis, U22). Realistic expectation (5 Nov
 2026, plan 5bt): the 2008–25 walk-forward, live-like and as run (idle cash
 earns nothing, D2's haircut, buys funded only by free cash, LN-T11) gives
 CAGR ~10.9%, Sharpe ~0.41, MaxDD ~31%; 2017–25 alone ~15.8% / ~0.81. The

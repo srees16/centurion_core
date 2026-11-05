@@ -1520,6 +1520,58 @@ def test_the_game_day_broker_keeps_kites_rules():
     assert lk.held("CCC") == 5 and lk.orders()[0]["status"] == "CANCELLED" and lk.events["locked_unfilled"] == 1
 
 
+@pytest.mark.slow
+def test_a_missed_session_during_a_bonus_credit_keeps_the_ledger_true(store_path):
+    """Game day GD1: INOXWIND's 3:1 bonus (ex 24 May 2024), an exit of the deliverable 8 shares filled at the next
+    open, and that night's session lost (broker down).  The next session must adopt the sale from the broker's
+    quantity, not count the awaited bonus as held, so the ledger ends where the broker is."""
+    from tools import game_day as gd
+
+    out = gd.run("faults", "2024-05-02", "2024-05-31", {"2024-05-27": "down"})
+    assert out["checks"]["ledger_matches_broker"], out["ledger_vs_broker"]
+    assert out["checks"]["no_unexplained_reconcile"] and out["events"].get("corporate_action", 0) >= 1
+
+
+@pytest.mark.parametrize("ssh_down, egress, backup_ip, expect", [
+    ("", {"1080": "1.1.1.1", "1081": "2.2.2.2"}, "2.2.2.2", ("socks5h://127.0.0.1:1080", "1.1.1.1", 0)),
+    ("primary", {"1081": "2.2.2.2"}, "2.2.2.2", ("socks5h://127.0.0.1:1081", "2.2.2.2", 0)),
+    ("", {"1080": "9.9.9.9", "1081": "2.2.2.2"}, "2.2.2.2", ("socks5h://127.0.0.1:1081", "2.2.2.2", 0)),
+    ("primary backup", {}, "2.2.2.2", ("", "1.1.1.1", 1)),
+    ("primary", {"1081": "2.2.2.2"}, "", ("", "1.1.1.1", 1)),
+], ids=["primary", "primary-down", "primary-wrong-ip", "both-down", "backup-unregistered"])
+def test_the_kite_tunnel_falls_back_to_the_secondary_static_ip(tmp_path, ssh_down, egress, backup_ip, expect):
+    """ZR2: deployment/oracle-proxy/static_ip_tunnel.sh takes the primary host only when a call through it leaves from
+    its registered IP, else the secondary's; it exports the proxy and the IP in use, and fails when neither works."""
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    if shutil.which("bash") is None:
+        pytest.skip("bash not available")
+    stubs = tmp_path / "bin"
+    stubs.mkdir()
+    (stubs / "ssh").write_text('#!/bin/sh\nfor a; do last="$a"; done\n'
+                               'case " $SSH_DOWN " in *" ${last#kitetunnel@} "*) exit 255;; esac\nexit 0\n')
+    (stubs / "curl").write_text('#!/bin/sh\nwhile [ $# -gt 0 ]; do [ "$1" = --socks5-hostname ] && p="${2##*:}"; '
+                                'shift; done\neval "ip=\\${EGRESS_$p:-}"\n[ -n "$ip" ] && echo "$ip" || exit 7\n')
+    (stubs / "timeout").write_text('#!/bin/sh\nshift\nexec "$@"\n')
+    (stubs / "pgrep").write_text("#!/bin/sh\nexit 1\n")
+    for f in stubs.iterdir():
+        f.chmod(0o755)
+    env = {"PATH": f"{stubs}:/usr/bin:/bin", "HOME": str(tmp_path), "SSH_DOWN": ssh_down,
+           "CENTURION_PROXY_SSH_KEY": "key", "CENTURION_PROXY_HOST": "kitetunnel@primary",
+           "CENTURION_PROXY_HOST_KEY": "primary ssh-ed25519 AAAA", "CENTURION_KITE_STATIC_IP": "1.1.1.1",
+           "CENTURION_PROXY_HOST_2": "kitetunnel@backup", "CENTURION_PROXY_HOST_KEY_2": "backup ssh-ed25519 BBBB",
+           "CENTURION_KITE_STATIC_IP_2": backup_ip, **{f"EGRESS_{p}": ip for p, ip in egress.items()}}
+    script = Path(__file__).resolve().parents[1] / "deployment" / "oracle-proxy" / "static_ip_tunnel.sh"
+    out = subprocess.run(["bash", "-c", f'. "{script}"; kite_tunnel; rc=$?; '
+                                        'printf "%s|%s|%s" "${CENTURION_KITE_PROXY:-}" "$CENTURION_KITE_STATIC_IP" "$rc"'],
+                         env=env, capture_output=True, text=True, timeout=60)
+    proxy, ip, rc = out.stdout.strip().splitlines()[-1].split("|")
+    assert (proxy, ip, int(rc)) == expect, out.stdout + out.stderr
+    assert "1.1.1.1" not in out.stdout.replace("|1.1.1.1|", "") and "2.2.2.2" not in out.stdout.replace("|2.2.2.2|", "")
+
+
 def test_circuit_locks_known_answers():
     """No range and a moved close is a lock; a flat day, a ranging day or a missing bar is not (RB8)."""
     from nse_engine.costs import circuit_locks

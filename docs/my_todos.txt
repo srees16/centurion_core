@@ -266,7 +266,10 @@ Analyze & fix gaps:
 3. Idle cash earns nothing in paper and live. That alone costs 1.5 points of CAGR (Sharpe 0.43 vs 0.54)
 
 ~~
-Prepare plan of action to test and validate below observations since they need no research trial and can potentially move the numbers in the direction of golden target:
+
+Analyze below thought process and validate if it fits the current implementation and make centurion robust
+
+Prepare plan of action to test and validate below observations since they need no research trial and can potentially move the numbers towards achieving golden target:
 
 1. Put idle cash in a liquid fund (LIQUIDCASE sweep): +1.5 points of CAGR on the live path. I think this waits on Zerodha's answer to Q5.
 2. Exercise the market-state exit and the drawdown rule on the order path, and add a per-session order count and value cap. Paper has never run either rule.

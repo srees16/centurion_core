@@ -309,9 +309,12 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
         to.  Paper trading on live Kite data is allowed (you confirmed).
      3. DONE 5 Nov: emailed Zerodha support 12 questions (A funds at the open, B pre-open and
         closing auction, C API orders, D GTTs, E static IP).  Reply forwarded 5 Nov (ZR1): Q1-Q6, Q8,
-        Q11 and Q12 unanswered.  5 Nov: you sent 6 follow-up questions (margin check and same-open sale
-        credit, ETF AMO release time, a funds rejection, token expiry, GTTs in an outage, a second static
-        IP).  Forward Claude the reply.
+        Q11 and Q12 unanswered.  5 Nov: you sent 6 follow-up questions; DONE 5 Nov, answered (ZR2).
+        5 Nov: backup static IP host DONE: AWS Lightsail Mumbai ($5/month, your call after the free-tier
+        check), tunnel user installed (secondary), hand check: tunnel opens, egress MATCHES its static IP,
+        other destinations refused.  GitHub secrets CENTURION_PROXY_HOST_2 / _HOST_KEY_2 and variable
+        CENTURION_KITE_STATIC_IP_2 set (checked with gh).  Whitelisted as secondary in
+        developers.kite.trade (you, 5 Nov).  The failover is live once you merge it (5 Nov, merging).
         The answers set LN-T11's buffer, LN-T29 (Q2 picks sweep policy A or B') and GT2H.
         Q4 and the 09:00 check, Q5 and Q6 are the ST2 block's, still unsent.
         - a holding moved to series BZ: can it be sold as CNC through the Kite
@@ -1400,6 +1403,38 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+5 Nov   ZR2  Zerodha's answers to the 6 follow-ups (forwarded 5 Nov).  Each checked against the code:
+             1. CNC buy AMO margin is blocked at release (09:00); don't rely on a sell AMO's proceeds before it
+                executes; executed proceeds are usable the same day.  LN-T11 stands as built (buys from free
+                cash only); FND1 measured its cost at 0.30 pt.
+             2. ETF AMOs go at 09:15 (continuous market), stock AMOs at 09:00 (pre-open).  So a sleeve ETF
+                fills in the market at 09:15, not at the auction open: cost model 3 already holds ETF fills
+                within 3% of the close, and G4 measures the rest.  An ETF sale cannot fund that morning's stock
+                buys (released earlier), which LN-T11 already assumes.  The "assumed adverse" item is confirmed.
+             3. A funds rejection is final for that order; the engine re-plans the buy the next night and AL4
+                emails it.  No change.
+             4. The access token lasts until about 06:00 IST next morning.  Every live run (19:00-22:05 IST)
+                is inside it; the Saturday 07:30 IST run skips the live step, and a live session checks "already
+                ran" before the login.  No change.
+             5. GTTs are skipped, not evaluated late, in an outage.  Covered: the engine exits a name whose day's
+                low touched its stop (engine.exit_reason), so the next morning's AMO sells it, a session late.
+             6. A primary and a secondary static IP may be registered; the registration may change once in 7
+                days.  Your action: a second static IP on another provider (the review's 27 Nov item).  The
+                code took one proxy; your call 5 Nov: fail over to a backup.  Built (uncommitted):
+                deployment/oracle-proxy/static_ip_tunnel.sh, sourced by the live-session and kill-switch steps, takes
+                the primary host only when a call through it leaves from CENTURION_KITE_STATIC_IP, else the
+                backup (CENTURION_PROXY_HOST_2 / _HOST_KEY_2 / CENTURION_KITE_STATIC_IP_2, same tunnel key), and
+                exports the IP in use so the session's egress check still guards every order; no IP printed.
+                The live step fails (and emails) when neither works, as before; the kill switch never waits on
+                it.  setup_tunnel_user.sh takes "secondary"; README section 5.  Test: five cases on stub
+                ssh/curl (primary, primary down, wrong egress, both down, backup unregistered); fails with the
+                IP check removed.  Your steps: README section 5.
+5 Nov   GT3E Your calls after FND1/FND2 closed the sweep (docs/Golden target rebuild evidence.md, owner's decisions):
+             1 revised: the milestone basis is 2008-25 live-like as run (no sweep, D2 haircut, LN-T11 funding),
+             10.9% / 0.41 today.  8 revised: scale past the canary only if the as-run book (no sweep) beats
+             50/50 NIFTY and gold after tax (plan 5bu's line).  The golden target (1.4 / 35%) and section 7's
+             Sharpe >= 1.0 / CAGR >= 20% stay as aspirations to reach in the near future, not gates
+             (paper_trade_strategy.md section 7 reworded).
 5 Nov   GL1  Pre-go-live "do now" items, your go (uncommitted).  Done so far: the fill audit and the session cap.
              Fill audit (LN-T21b): run_nse_engine fill-audit replays every paper opening order of deployed,
              candidate and e4 since 7 Sep through live's DAY limit (buys 1% over the decision close, sells 5%
@@ -1423,8 +1458,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              night's intended orders against the order book (LN-T10), the kill switch refuses BUYs and lets
              exits go, the canary-drift dry run (LN-T13).  Stale figures (5 Nov): the core budget (protocol
              table, this file's goal header, the alpha note) and the live expectation (paper_trade_strategy
-             section 7, goal header) now say the one live-like basis, 10.9% / 0.41 (FND1/FND2).  Left for your
-             call: section 7's "hold the live book to Sharpe >= 1.0, CAGR >= 20%" sits far above that basis.
+             section 7, goal header) now say the one live-like basis, 10.9% / 0.41 (FND1/FND2).  Section 7's
+             Sharpe >= 1.0 / CAGR >= 20%: kept as an aspiration, your call (GT3E).
              Pre-registrations (5 Nov, plan 5bu MON1, 19:11 IST): cumulative gap bands at 60/120/250 live
              sessions (breach G(n) < -2 sigma sqrt(n), sigma fixed from the paper book's G4 at RA1), the monthly
              universe rank IC (read at 12 months), the yearly after-tax line against 50/50 NIFTYBEES-GOLDBEES
@@ -1439,7 +1474,29 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              (NSE/FAOP/76186), cash by several relays: market and limit 9:00-9:05, limit only to 9:10 with a
              random close, matching 9:10-9:12.  Unconfirmed: market-order priority in the auction, ETF AMOs
              released at 9:15 (Zerodha did not answer; stays "assumed adverse").
-             Still to do: the replay game day (running).
+             Replay game day (5 Nov): tools/game_day.py runs live_session.run_live_session, night after night,
+             real orders to SimKite (a Kite account on the store's as-printed bars: AMOs released at the open,
+             buys checked against the cash free before it, live's DAY-limit and stop-GTT fill rules, circuit
+             locks, T1 settlement, splits and bonuses from the store's table with GTTs cancelled, as Kite does),
+             an in-memory book; no email, alert, database or Neon kill switch.  All PASS at Rs 3 lakh:
+               2008 (246 nights): regime off 220 nights and its exits sent; 25.2% drawdown, the drawdown rule
+                 halted buys 107 nights; 45 orders, none twice, none rejected; 10 stops filled, 1 gapped
+                 through its limit and exited the next night; ledger = broker.
+               2020 (15 Jan-30 Jun, 113 nights): regime off 60 nights, 21 exits; drawdown 14.4% (the rule
+                 rightly quiet); 100 orders, none twice or rejected; 15 stops; a lower-circuit lock left one
+                 sell unfilled and it went the next night; ledger = broker.
+               Faults (May-Jul 2024, 52 nights): the same night run twice (21 May, 10 Jun) sends nothing more;
+                 broker down (27 May) fails loudly, sends nothing, the next night reconciles; every order x50
+                 (3 Jun): the session cap refuses all, nothing sent; kill switch (4 Jun): no buy sent.
+             GD1, found and fixed: a missed session while a bonus credit was pending (INOXWIND 3:1, ex 24 May
+             2024; the exit of the 8 deliverable shares filled 27 May, the night lost) counted the awaited
+             bonus as held, so the sale went unbooked and the ledger kept 8 phantom shares (alerted daily, no
+             wrong order).  live_session: the awaited credit counts as held only for names with no order
+             unaccounted for; the broker's own quantity decides otherwise, and a gap blocks buys.  Slow test
+             replays that window (fails without the fix).  Also fixed in the simulator before the verdicts:
+             it had missed the bonus (NSE's previous close was not adjusted that day).
+             Rerun before each rung change or engine release: python -m tools.game_day --scenario <2008|2020|faults>.
+             All of GL1's "do now" items are done.
 5 Nov   MC2  Rule D's band on the as-run basis (your call; uncommitted).  The deployed and candidate MC1 references
              credited idle cash at the liquid rate (13.0% / 0.60) while paper and live run without a sweep; now
              mc_bands.DEPLOYED_IDLE_CASH_SWEEP = False: 11.1% / 0.43, rule C's basis.  config/mc_bands.json rebuilt;
