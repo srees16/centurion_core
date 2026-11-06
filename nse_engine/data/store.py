@@ -296,12 +296,14 @@ def fingerprint(sources: Dict[str, List[Path]]) -> str:
     return h.hexdigest()[:20]
 
 
-def _safe(parser, path: Path) -> Optional[pd.DataFrame]:
+def _parse(parser, path: Path) -> pd.DataFrame:
+    """Parse one archive file.  A file that will not parse stops the build and names itself: skipping it, as the
+    build once did, silently removed that session's bars and let returns run across the gap (tracker DQ1).  All
+    18,199 archive files parsed when this changed (6 Nov 2026), so no build that passed before fails now."""
     try:
         return parser(read_raw_text(path))
-    except Exception as exc:  # corrupt file must not kill the whole build
-        logger.error("failed to parse %s: %s", path, exc)
-        return None
+    except Exception as exc:
+        raise ValueError(f"cannot parse {path}: {exc}; re-download or delete the file, then rebuild") from exc
 
 
 def restricted_prints(archive_root: PathLike, end: str) -> pd.DataFrame:
@@ -310,7 +312,7 @@ def restricted_prints(archive_root: PathLike, end: str) -> pd.DataFrame:
     parts = []
     for year in years:
         for p in year_sources(archive_root, year)["equity"]:
-            df = _safe(parse_udiff_bhavcopy if p.name.startswith("udiff") else parse_legacy_bhavcopy, p)
+            df = _parse(parse_udiff_bhavcopy if p.name.startswith("udiff") else parse_legacy_bhavcopy, p)
             if df is not None:
                 parts.append(df.loc[df["series"].isin(FOR_CAUSE_SERIES), ["date", "symbol", "close"]])
     out = pd.concat(parts, ignore_index=True)
@@ -340,30 +342,32 @@ def build_year_frames(sources: Dict[str, List[Path]], keep_series: Sequence[str]
     eq_parts, mto_parts, full_parts, idx_parts = [], [], [], []
     for p in sources.get("equity", []):
         parser = parse_udiff_bhavcopy if p.name.startswith("udiff") else parse_legacy_bhavcopy
-        df = _safe(parser, p)
+        df = _parse(parser, p)
         if df is not None:
+            if df.empty:                                  # a header with no bars is a missing session, not a quiet one
+                raise ValueError(f"{p} holds no equity bars; re-download it or list its date in PARTIAL_SESSIONS")
             if len(df) < PARTIAL_SESSION_ROWS:
                 logger.warning("%s has only %d rows: a session for a few instruments? If so, add its date to "
                                "nse_engine.data.store.PARTIAL_SESSIONS", p.name, len(df))
             eq_parts.append(df[df["series"].isin(keep_series)])
     for p in sources.get("delivery", []):
         if p.name.startswith("mto"):
-            df = _safe(parse_mto, p)
+            df = _parse(parse_mto, p)
             if df is not None:
                 mto_parts.append(df[df["series"].isin(keep_series)])
         elif p.name.startswith("full"):
-            df = _safe(parse_full_bhavcopy, p)
+            df = _parse(parse_full_bhavcopy, p)
             if df is not None:
                 full_parts.append(df[df["series"].isin(keep_series)])
     for p in sources.get("indices", []):
         file_date = pd.to_datetime(_date_of(p), format="%Y%m%d", errors="coerce")
-        df = _safe(lambda text, fd=file_date: parse_index_close(text, None if pd.isna(fd) else fd), p)
+        df = _parse(lambda text, fd=file_date: parse_index_close(text, None if pd.isna(fd) else fd), p)
         if df is not None:
             idx_parts.append(df)
     ca_parts = []
     for p in sources.get("corpact", []):
         file_date = pd.to_datetime(_date_of(p), format="%Y%m%d", errors="coerce")
-        df = _safe(lambda text, fd=file_date: reference.parse_corporate_actions(text, fd), p)
+        df = _parse(lambda text, fd=file_date: reference.parse_corporate_actions(text, fd), p)
         if df is not None and len(df):
             ca_parts.append(df[df["series"].isin(keep_series)])
 

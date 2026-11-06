@@ -257,7 +257,7 @@ Read doc in full. Extract the ideas that fit centurion_core (Indian stocks modul
 
 ~~~~~~~~~~~~~
 
-Analyze & fix gaps:
+Analyze & fix if there are gaps in below:
 1. It lags rebounds.
    It kept only 37% of the 2008–10 rise and 60% of the 2016–20 rise.
    In weak-market states it is only 49% invested.
@@ -292,3 +292,9 @@ REJECT: no live capital, and the configuration (679cbd0c) is not re-tuned.
 ~~~~~~~
 
 Sell test: no "Record sell path" run exists yet. Log in to Kite, and tonight after 20:00 place AMO SELL 1 HDFCBANK at today's close × 0.995 for Friday. The test's GTT step and evening record follow on Friday.
+
+
+
+- verify if centurion requires implied volatility surface, volatility clustering and modern portfolio theory to enhance the existing workflow and could make it robust. validate them before discarding, give crisp details on why they were discarded.
+
+- pdf files to be analyzed

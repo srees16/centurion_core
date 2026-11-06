@@ -6914,6 +6914,173 @@ bid/ask.
   put, and NS1-2 showed the put leg costs more than it pays (book Sharpe 0.60
   to 0.34). No new angle. Closed, not re-tested.
 
+## 5ca. BT7: seven backtest strategies (India tracker BT7; your ask "validate and ensure they do not add value before discarding"; pre-registered 06 Nov 2026, 22:11 IST, before any run)
+
+**Status.** Event and factor studies; no change to any book (RA1F). N = 8 here. A
+pass earns a stage 2, written and timestamped before it runs (an engine run under
+the diversifier gate, or minute data for H4 and H7), never adoption. A fail leaves
+no code; the result stays in the tracker.
+
+**Already decided, not re-run.** Pairs with a short leg: not viable below Rs 2
+crore (U28, RSK1; backlog COINT1), so only the long leg is tested (H2). SUE
+earnings drift is GT7 (5aa), queued; H3 is the price-reaction form, a different
+signal. DT1 (5aq) failed a 20-close breakout and RSI(14) < 30; H1 adds the
+compression condition and H5 uses a 20-session z and a 5-session hold.
+
+**Data and window.** The deployed configuration (679cbd0c), adjusted data loaded
+from 2006-01-02 to its end (2025-12-31; 2026 is not loaded), the point-in-time
+universe mask (`compute_universe_panel`), sector snapshots (SB2), results
+`available_from` (filings from 2012), and run `20261017T110547431678Z_679cbd0c`
+for the book's entries. Gates are read on 2013-25 events; 2008-12 is reported.
+Nothing after the decision day t is read for a signal.
+
+**Swing events (H1, H2, H3, H5).** A universe member on t; once per stock per
+horizon. Fill at the open of t+1, horizon H sessions open to open; a name that
+stops trading exits at its last close. Excess over the equal-weight universe of
+t over the same window, net of 34.6 bp a round trip (statutory on Rs 25,000 a
+side plus 3 bp spread each way, as 5ar). Daily mean of the day's events,
+Newey-West lag H.
+- H1 volatility compression breakout (new): bandwidth sd20/mean20 of close at t-1
+  at or below the 10th percentile of its previous 250 sessions (200 valid), and
+  close[t] above the highest high of t-20..t-1. H = 20.
+- H2 pairs divergence, long leg (published: Gatev, Goetzmann & Rouwenhorst 2006):
+  at each month-end, a stock's most correlated same-sector peer (250-session daily
+  returns, correlation >= 0.8, 230 valid). Daily in the next month, z of
+  log(P_a / P_b) over 60 sessions to t; event z[t] <= -2 < z[t-1]: buy the
+  laggard a. H = 20. The peer's gross excess is reported (the untradeable leg).
+- H3 earnings-announcement-return drift (published: Brandt, Kishore, Santa-Clara &
+  Venkatachalam 2008): t0 = first `available_from` of a quarter's result; EAR =
+  close[t0+1] / close[t0-2] - 1 less the universe's; event when EAR is at or above
+  the 80th percentile of the EARs completed in the previous 250 sessions (200 of
+  them); fill at the open of t0+2. H = 60.
+- H5 z-score mean reversion (published short-term reversal: Jegadeesh 1990,
+  Lehmann 1990): z = (close - mean20) / sd20 to t; event z[t] <= -2 < z[t-1].
+  H = 5.
+
+**H6 RSI rotation momentum (new, factor).** Each month-end, members ranked on
+Wilder RSI(14); the top quintile, equal weight, bought at the next open and held to
+the open after the next month-end. Monthly excess over the equal-weight universe,
+less 25 bp a side on the top quintile's turnover; Newey-West lag 3. Top minus
+bottom is reported.
+
+**H4 gap continuation (new, intraday).** g = open[t] / close[t-1] - 1, 2% <= |g| <=
+15%, member at t-1, the bar not locked (high above low). Trade in the gap's
+direction from open[t] to close[t]: the signed return, net of 16.6 bp (Zerodha
+intraday: brokerage 0.03% a side, STT 0.025% on the sell, exchange, stamp, SEBI and
+GST about 10.6 bp, plus 3 bp spread each way). Raw, not hedged: the trade a book
+would make; the excess over the universe's same-day move is reported. Daily mean,
+Newey-West lag 5. A fill at the printed open is generous; a pass needs minute data.
+
+**Close to open (published: Cliff, Cooper & Gulen 2008; Lou, Polk & Skouras 2019).**
+Bought at the close of t, sold at the open of t+1, every session.
+- H7 index: NIFTY 50's open[t+1] / close[t] - 1, the index opens from the call
+  auction; net of a NIFTYBEES round trip on Rs 3 lakh (statutory 2.86 bp) plus 2
+  bp spread each way. ETF opens in the bhavcopy are stray first prints (D4), so the
+  index stands in; a pass needs the ETF's minute prices. Its intraday leg and buy
+  and hold are reported.
+- H8 stocks: the equal-weight universe's close[t] to open[t+1], net of 34.6 bp.
+Raw net mean per night, Newey-West lag 5.
+
+**Pass.** New ideas (H1, H4, H6): t >= 3 in the claimed direction. Published (H2,
+H3, H5, H7, H8): t >= 2.58 (Bonferroni for five, two-sided 0.01). Both: the same
+sign in 2013-19 and 2020-25, and at least 200 events (100 months for H6).
+
+**The book's route (H1, H2, H5, H6), also a pass at |t| >= 3.** The book's fresh
+entries with the signal in the 5 sessions to the decision (H6: in the top quintile
+at the last month-end) against its other fresh entries; 20-session excess from the
+fill's open, gross; Welch's t.
+
+**Addendum (06 Nov 2026, 22:16 IST, before any H2 number existed).** The first run
+gave H2 no events: the point-in-time sector snapshots begin 14 Sep 2026 (SB2), so
+no same-sector peer exists in 2006-25. H2 is replaced, not re-tuned (N stays 8):
+the peer is the most correlated universe member of any sector, same correlation
+bar (>= 0.8, 230 valid of 250); everything else as above. The other seven results
+were read before this note and do not change.
+
+**Result (06 Nov 2026).** 2013-25, net, Newey-West t; `data/nse_engine/bt7/`.
+
+| | Events | Mean | t | 2013-19 / 2020-25 | Verdict |
+|---|---|---|---|---|---|
+| H1 compression breakout, 20 sessions | 5,162 | -0.88% | -4.16 | -0.85 / -0.91 | FAIL |
+| H2 pairs laggard (addendum), 20 | 545 | +0.14% | +0.24 | -0.48 / +0.87 | FAIL |
+| H3 earnings-return drift, 60 | 2,637 | +1.22% | +2.39 | +0.54 / +2.06 | FAIL (bar 2.58) |
+| H4 gap continuation, intraday | 45,331 | -0.86% | -22.86 | -1.09 / -0.60 | FAIL |
+| H5 z-score reversion, 5 | 19,961 | -0.63% | -7.65 | -0.64 / -0.62 | FAIL |
+| H6 RSI rotation, a month | 154 months | -0.24% | -1.21 | -0.04 / -0.47 | FAIL |
+| H7 NIFTY close to open, a night | 3,207 | +0.050% | +4.48 | +0.06 / +0.04 | PASS, stage 1 |
+| H8 stocks close to open, a night | 3,219 | -0.14% | -11.04 | -0.16 / -0.13 | FAIL |
+
+The book's route: H1 -0.26% (t -0.23, 74 entries), H2 no flagged entry, H5 +6.0%
+(t +2.38, 17 entries), H6 +0.11% (t +0.19): none passes. H4's gaps reverse: gross
+-75 bp in the gap's direction for up gaps, -92 bp for down gaps, -117 bp for gaps of
+3% or more. H2's peer leg earns +0.02% gross: no convergence from either side. H7:
+gross 11.6 bp a night against 6.6 bp of cost (break-even 11.6), intraday leg -6.5
+bp; net CAGR 13.0% against NIFTY's price return of 12.3%, Sharpe 0.65 against 0.40
+(6.5% rate), volatility 9.6% against 16.2%, 11 of 13 years positive (2022 -9.4%),
+correlation 0.57 with the same day's close-to-close move. Index data starts
+Feb 2012, so 2008-12 is one year.
+
+**H7's stage 2 (not run; needs data).** A pass on the index is not a tradeable
+result: the close is the last 30 minutes' weighted average and the open comes from
+the call auction, while a NIFTYBEES order fills at the 15:2x and 9:15 prices. Stage
+2, pre-registered before it runs: NIFTYBEES minute prices (INT1A's vendor ask),
+bought in the last minutes and sold in the first, at the real spread, then the
+engine's diversifier gate against the deployed book, after tax (a nightly round
+trip is likely business income). Until then nothing changes.
+
+**Stage 2, BT7-S2 (pre-registered 07 Nov 2026, 00:45 IST, before any return from
+the minute data was computed).** *Prior, missed when H7 was written:* Y3 (5s, 9
+Oct) held NIFTY overnight on a sentiment condition, on the same index open and
+close at futures costs: DSR 0.884 (bar 0.95), and beside the book +0.22 Sharpe at
+p 0.15 (DG1, RT1): FAIL. H7 is its unconditional sibling. Stage 2 asks what Y3 did
+not: whether the night survives NIFTYBEES's own prices, and whether the
+unconditional, funded form passes the gate. No new trial (BT7's N stays 8).
+
+*Data.* Kite minute candles, NIFTYBEES, Feb 2015 to Dec 2025, traded prices
+only, split-adjusted by Kite (the 10:1 split of 19 Dec 2019 is in the levels).
+Sessions with fewer than 200 candles (Muhurat, the 10 Jul 2017 outage) are not
+trade days; a night runs from one trade day's close to the next one's open.
+
+*Trade.* Buy at the volume-weighted typical price ((H+L+C)/3) of the 15:25-15:29
+candles; sell at that of 09:16-09:20 on the next trade day (the 09:15 candle is
+skipped, D4). A window that traded nothing uses its last candle's close; a
+session missing a window drops that night, counted. The ex-dividend night of 18
+Feb 2015 is credited Rs 0.80 a unit (Rs 8 before the split).
+
+*Cost.* A NIFTYBEES round trip on Rs 3 lakh at dated statutory rates (as H7)
+plus 3 bp of spread each way (H7 used 2).
+
+*Data stop.* A night beyond +/-8% while NIFTY's own night moved less than 4%
+stops the run: a price problem, not a result.
+
+*S2a, tradeable.* Mean net a night > 0 with Newey-West (lag 5) t >= 2.58, the
+same sign in 2015-19 and 2020-25, at least 1,000 nights. Reported: the index's
+night on the same nights (stage 1's measure), the gap, the break-even cost.
+
+*S2b, only if S2a passes.* The diversifier gate under GT13
+(`diversifier_gate.evaluate`, both books, Sharpe up at p <= 0.10 on each). The
+stream is a funded sleeve: the night's net return dated to the morning it is
+sold, and nothing on idle cash (a Kite account pays none), so the gate's
+liquid-rate credit for a sleeve is cancelled. DSR reported at N = 8.
+
+*Reported, not gated.* After tax as business income: 30% of each year's net
+gain, losses set off within the year.
+
+A fail at S2a or S2b closes H7: the minute file and `data/nse_engine/bt7/` are
+deleted; the tracker keeps the record.
+
+**Stage 2 result (07 Nov 2026): S2a FAIL, H7 closed.** 2,687 nights (Feb 2015 to
+Dec 2025; one dropped for a missing window; 15 short or special sessions not
+traded). Gross +1.2 bp a night against 8.7 bp of cost: net -7.5 bp (t -6.12),
+2015-19 -7.8 bp (t -6.02), 2020-25 -7.3 bp (t -3.71), every year negative (-4.4%
+to -24.8%). On the same nights the index's night is +11.9 bp. Both add up to the
+same session (NIFTYBEES +1.2 night + 3.8 day = +4.9 bp; the index +11.9 - 7.1 =
++4.8 bp), so the data agree and only the split differs: the index's overnight
+return is an artefact of its closing average and auction open, not something an
+order can earn. S2b was not run. Y3's Sharpe (5s) and any study of index or
+bhavcopy opens against closes carry the same artefact (YZ1's split, H4's gap
+reversal): INT1C must measure on minute prices.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast
