@@ -523,3 +523,55 @@ def test_fama_macbeth_refuses_a_variable_with_no_variation():
     panel[day][1]["ln_me"] = 1.0
     with pytest.raises(ValueError, match="collinear"):
         fama_macbeth(panel, ["ln_me"])
+
+
+def test_probability_of_ruin_known_answers():
+    """RSK1: a book that loses 1% every day is ruined within a year; one that gains 0.1% never is."""
+    from nse_engine.mc_bands import ruin
+
+    down = ruin(pd.Series([-0.01] * 1500), horizons=(252,), sims=200)["252"]
+    assert down == {"p_drawdown_25": 1.0, "p_drawdown_35": 1.0, "p_drawdown_50": 1.0, "p_ruin_below_half": 1.0,
+                    "p_end_below_start": 1.0}
+    up = ruin(pd.Series([0.001] * 1500), horizons=(252,), sims=200)["252"]
+    assert set(up.values()) == {0.0}
+    with pytest.raises(ValueError, match="too few"):
+        ruin(pd.Series([0.001] * 100), horizons=(1260,), sims=10)
+
+
+def test_tail_risk_tells_a_fat_tail_from_a_normal_one():
+    """RSK1: a normal sample reads as normal (excess kurtosis near 0, expected shortfall near the normal's); a
+    Student t with 3 degrees of freedom reads as fat (high kurtosis, shortfall above the normal's, Hill near 3)."""
+    from nse_engine.mc_bands import tail_risk
+
+    rng = np.random.default_rng(11)
+    normal = tail_risk(pd.Series(rng.normal(0.0004, 0.01, 50_000)))
+    assert abs(normal["excess_kurtosis"]) < 0.2 and 0.93 < normal["es_vs_normal"] < 1.07
+    fat = tail_risk(pd.Series(rng.standard_t(3, 50_000) * 0.006))
+    assert fat["excess_kurtosis"] > 3 and fat["es_vs_normal"] > 1.2 and 2.0 < fat["hill_tail_index"] < 4.5
+    with pytest.raises(ValueError, match="too few"):
+        tail_risk(pd.Series(rng.normal(0, 0.01, 100)))
+
+
+def test_cscv_pbo_known_answers():
+    """The core gate had no test: trials that are all noise overfit about half the time (PBO near 0.5); one
+    trial with a real edge among noise is picked in sample and holds out of sample (PBO near 0)."""
+    from nse_engine.validation.pbo import cscv_pbo
+
+    rng = np.random.default_rng(5)
+    noise = pd.DataFrame(rng.normal(0.0, 0.01, (4000, 16)))
+    assert 0.3 < cscv_pbo(noise, n_splits=8)["pbo"] < 0.7
+    edge = noise.copy()
+    edge[0] = rng.normal(0.002, 0.01, 4000)
+    assert cscv_pbo(edge, n_splits=8)["pbo"] < 0.05
+
+
+def test_since_start_shows_the_rupees_it_is():
+    """The summary's "Since start": the return and the rupee change on the initial capital, in full under a lakh,
+    in lakh or crore above; nothing invented for a book with no value yet."""
+    from nse_engine.books import NA, _inr_change, _since_cell
+
+    assert _since_cell({"value": 3_527_881, "initial": 3_500_000, "return": 3_527_881 / 3_500_000 - 1}) == \
+        "+0.80% (+₹27,881)"
+    assert _since_cell({"value": 22_079_502, "initial": 20_000_000, "return": 0.1039751}) == "+10.40% (+₹20.80 L)"
+    assert _inr_change(-29_394) == "-₹29,394" and _inr_change(-2.5e7) == "-₹2.50 Cr" and _inr_change(np.nan) == NA
+    assert _since_cell({"value": np.nan, "initial": 3_500_000, "return": np.nan}) == "n/a"

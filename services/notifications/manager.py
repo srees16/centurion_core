@@ -667,6 +667,19 @@ class NotificationManager:
         pnl = float(report.get("pnl") or 0.0)
         pnl_pct = float(report.get("pnl_pct") or 0.0)
         pnl_color = "#15803d" if pnl >= 0 else "#dc2626"
+        # A book with a futures leg, gilt or MCX sleeve or options overlay: its whole value is the book's result;
+        # ``pnl`` is the shares alone and is labelled so (the summary table's "Since start" is the whole book).
+        whole = next(((label, s) for key, label in (("futures", "futures"), ("bonds", "gilts"), ("mcx", "MCX trend"),
+                                                     ("options", "options overlay"))
+                      for s in [report.get(key) or {}] if s and not s.get("error") and s.get("nav") is not None), None)
+        book_row = []
+        if whole is not None:
+            label, s = whole
+            start = float(s.get("initial") or 0.0)
+            if start > 0:
+                gain, color = float(s["nav"]) - start, "#15803d" if float(s["nav"]) >= start else "#dc2626"
+                book_row = [(f"Book P&amp;L (shares + {label})",
+                             f"<b style='color:{color};'>{inr(gain)} ({float(s['nav']) / start - 1:+.2%})</b>")]
 
         fills_html = table(
             f"Filled at the open ({len(filled)})", ["Symbol", "Side", "Qty", "Price", "Costs"],
@@ -697,10 +710,13 @@ class NotificationManager:
         activity = "" if (filled or stops or queued or cancelled) else (
             "<p style='margin-top:18px;font-size:13px;color:#6b7280;'>No fills, stops or new orders this session.</p>")
 
-        rows = [
-            ("Equity", f"{inr(report.get('equity'))} <span style='color:#9ca3af;'>(start "
-                       f"{inr(report.get('initial_capital'))})</span>"),
-            ("Total P&amp;L", f"<b style='color:{pnl_color};'>{inr(pnl)} ({pnl_pct:+.2f}%)</b>" + (
+        rows = book_row + [
+            ("Equity" if whole is None else "Shares equity",
+             f"{inr(report.get('equity'))} <span style='color:#9ca3af;'>(start "
+             f"{inr(report.get('initial_capital'))})</span>"),
+            ("Total P&amp;L" if whole is None else "Shares P&amp;L",
+             (f"<b style='color:{pnl_color};'>{inr(pnl)} ({pnl_pct:+.2f}%)</b>" if whole is None
+              else f"{inr(pnl)} ({pnl_pct:+.2f}%)") + (
                 f" <span style='color:#9ca3af;'>· closed trades {inr(report['realised_pnl'])} "
                 f"({report.get('closed_trades', 0)}), open positions {inr(pnl - float(report['realised_pnl']))}</span>"
                 if report.get("realised_pnl") is not None else "")),

@@ -579,3 +579,33 @@ class TestReadableEmail:
 
         once = readable(self.HTML)
         assert readable(once) == once and once.count("<head>") == 1
+
+
+class TestBookPnlInTheDailyReport:
+    """A book with a sleeve or overlay leads with its whole value's P&L and labels the shares as shares; a plain
+    book keeps "Total P&L" (6 Nov 2026: the futures book read "Total P&L -₹43,638" while it was up ₹20.8 lakh)."""
+
+    BASE = {"session": "2026-11-04", "deployment": "x", "equity": 15_956_362, "initial_capital": 16_000_000,
+            "cash": 1, "pnl": -43_638, "pnl_pct": -0.27, "max_drawdown_pct": 3.0, "open_positions": 20,
+            "filled": [], "cancelled": [], "stops": [], "queued": [], "notes": [], "alerts": []}
+    FUT = {"nav": 22_079_502, "initial": 20_000_000, "day_pnl": 445_963, "exposure": 1.73, "notional": 23_192_137,
+           "legs": 4, "biggest_pct": 0.37, "futures_cash": 6_356_653, "margin": 4_638_427, "margin_pct": 0.21,
+           "futures_pnl": 582_210, "costs": 0, "roll_costs": 0, "metrics": {}, "holdings": [], "fills": [], "queued": []}
+
+    def _rows(self, report):
+        import re
+        from services.notifications.manager import NotificationManager
+
+        _, html = NotificationManager.__new__(NotificationManager).render_engine_daily_report(report)
+        return [(k, re.sub("<[^>]+>", "", v)) for k, v in
+                re.findall(r"<td[^>]*>([^<]*)</td><td[^>]*>(.*?)</td>", html)]
+
+    def test_a_futures_book_leads_with_its_whole_value(self):
+        rows = self._rows({**self.BASE, "futures": self.FUT})
+        assert rows[0] == ("Book P&amp;L (shares + futures)", "₹2,079,502.00 (+10.40%)")
+        labels = [k for k, _ in rows]
+        assert "Shares P&amp;L" in labels and "Total P&amp;L" not in labels
+
+    def test_a_plain_book_keeps_total_pnl(self):
+        labels = [k for k, _ in self._rows(self.BASE)]
+        assert "Total P&amp;L" in labels and not any(k.startswith("Book P&amp;L") for k in labels)

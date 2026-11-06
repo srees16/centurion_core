@@ -70,6 +70,7 @@ import logging
 import math
 import os
 import tempfile
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -96,16 +97,36 @@ def live_schema() -> str:
     return (os.environ.get(ENV_LIVE_SCHEMA) or DEFAULT_LIVE_SCHEMA).strip()
 
 
+#: Live books whose tables this process has ensured, by (database manager, schema): ``ensure_tables`` is 15
+#: statements, each a pool checkout, ping and transaction, and ran on every call - the Kite page's account list,
+#: each account's login status and the login callback paid it per request (tracker KL1).
+_LIVE_BOOKS: Dict[Tuple[int, str], Any] = {}
+_LIVE_BOOKS_LOCK = threading.Lock()
+
+
 def live_book(schema: Optional[str] = None):
-    """The live book's Neon store (tables created on first use)."""
+    """The live book's Neon store; its tables are ensured on the first use in each process, not on every call.
+    A book is kept only once a read confirms the store answered, so a first call during an outage is retried."""
     from database.connection import get_db_manager
     from database.paper_cloud import PaperCloudSync
 
     if not (os.getenv("CENTURION_DATABASE_URL") or os.getenv("DATABASE_URL")):
         raise RuntimeError("CENTURION_DATABASE_URL is not set: the live book is recorded in Neon")
-    book = PaperCloudSync(get_db_manager(), schema=schema or live_schema())
-    book.ensure_tables()
-    return book
+    mgr = get_db_manager()
+    key = (id(mgr), schema or live_schema())
+    with _LIVE_BOOKS_LOCK:
+        book = _LIVE_BOOKS.get(key)
+        if book is not None:
+            return book
+        book = PaperCloudSync(mgr, schema=key[1])
+        book.ensure_tables()
+        try:
+            book.read_state()
+        except Exception as exc:                          # noqa: BLE001 - not kept: the next call ensures again
+            logger.warning("live book %s not confirmed after ensuring its tables: %s", key[1], exc)
+            return book
+        _LIVE_BOOKS[key] = book
+        return book
 
 
 # ── the ledger ──────────────────────────────────────────────────

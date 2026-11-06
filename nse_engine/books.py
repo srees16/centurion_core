@@ -742,6 +742,20 @@ def _inr_short(v: Any) -> str:
     return f"₹{v / 1e7:.2f} Cr" if abs(v) >= 1e7 else f"₹{v / 1e5:.2f} L"
 
 
+def _inr_change(v: Any) -> str:
+    """A signed rupee change: in full under a lakh ('+₹27,881'), in lakh or crore above ('-₹20.80 L')."""
+    if not _finite(v):
+        return NA
+    sign = "+" if v >= 0 else "-"
+    return f"{sign}₹{abs(v):,.0f}" if abs(v) < 1e5 else sign + _inr_short(abs(v))
+
+
+def _since_cell(r: Dict[str, Any]) -> str:
+    """The book's return since its start with the rupees it is, e.g. '+0.80% (+₹27,881)'."""
+    gain = r["value"] - r["initial"] if _finite(r.get("value")) and _finite(r.get("initial")) else np.nan
+    return _pct(r["return"]) + (f" ({_inr_change(gain)})" if _finite(gain) else "")
+
+
 def _sleeve_late(d: DayBook, session: date) -> bool:
     """The F&O leg (futures or options) not yet marked at ``session``'s close: NSE's file came late."""
     s = d.sleeve or {}
@@ -1016,8 +1030,8 @@ def _summary_body(columns: Sequence[str], table: Sequence[Sequence[Any]], findin
             + f"<p style='font-size:12px;color:#666;margin-top:18px;'>{footer}</p>")
 
 
-_FOOTER = ("Since start: the book's value against its initial capital (a book with a sleeve or overlay, its whole "
-           "value). NIFTY 50: the index over the same sessions.")
+_FOOTER = ("Since start: the book's value against its initial capital, and the rupees it is (a book with a sleeve "
+           "or overlay, its whole value). NIFTY 50: the index over the same sessions.")
 
 
 def build_daily(days: Sequence[DayBook], nifty: Optional[pd.Series], session: date,
@@ -1030,7 +1044,7 @@ def build_daily(days: Sequence[DayBook], nifty: Optional[pd.Series], session: da
         findings.append(ra1)
     table = [[r["book"], _dmy(r["started"]), _inr_short(r["initial"]),
               _inr_short(r["value"]) + (f" ({_dmy(r['asof'])})" if r["asof"] and r["asof"] < session else ""),
-              _pct(r["return"]), _pct(r["nifty"]), r["dd"], r["g4"], r["today"]] for r in rows]
+              _since_cell(r), _pct(r["nifty"]), r["dd"], r["g4"], r["today"]] for r in rows]
     stale = [r["book"] for r in rows if r.get("today") == "not updated for this session"]
     behind = sum(1 for r in rows if _finite(r["alpha"]) and r["sessions"] >= 2 and r["alpha"] < 0)
     n_alerts = sum(1 for f in findings if f.startswith("Alert ("))
@@ -1243,7 +1257,7 @@ def build_weekly(days: Sequence[DayBook], nifty: Optional[pd.Series], session: d
     table = [[r["book"], _inr_short(r["initial"]),
               _inr_short(r["value"]) + (f" ({_dmy(r['asof'])})" if r["asof"] and r["asof"] < session else ""),
               _pct(_week_return(by_name[r["book"]].paper.equity, r["initial"], session)),
-              f"{_pct(r['return'])} since {_dmy(r['started'])}", _pct(r["nifty"]), _versus_cell(r["book"], report),
+              f"{_since_cell(r)} since {_dmy(r['started'])}", _pct(r["nifty"]), _versus_cell(r["book"], report),
               (lambda t: f"{t['t']:+.2f} ({t['p_two_sided']:.2f})" if "t" in t else NA)(
                   (sig.get(r["book"]) or {}).get("test") or {}),
               (lambda m: f"{_pct_label(m['return_pct'])} / {_pct_label(m['drawdown_pct'])}" if m else NA)(mc.get(r["book"])),
