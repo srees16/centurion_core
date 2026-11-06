@@ -2088,6 +2088,40 @@ def _go_live(monkeypatch, state, gate):
     return ls.go_live_status(_StatusBook(state), _StatusBook({"paper_gate": json.dumps(gate)}), trial_gates={})
 
 
+def test_the_live_book_ensures_its_tables_once_per_process(monkeypatch):
+    """KL1: ensure_tables (about 15 statements) ran on every live_book() call, so the Kite login and the Kite page
+    waited seconds per request.  Now once per schema and process, and only once a read confirms the store answered;
+    a first call during an outage is retried on the next."""
+    from kite_connect.trading import live_session as ls
+
+    made = []
+
+    class Book:
+        def __init__(self, mgr, schema=None):
+            self.schema, self.ensured = schema, 0
+            made.append(self)
+
+        def ensure_tables(self):
+            self.ensured += 1
+
+        def read_state(self):
+            if down["now"]:
+                raise ConnectionError("store down")
+            return {}
+
+    down = {"now": True}
+    monkeypatch.setenv("CENTURION_DATABASE_URL", "postgresql://test")
+    monkeypatch.setattr("database.connection.get_db_manager", lambda: "mgr")
+    monkeypatch.setattr("database.paper_cloud.PaperCloudSync", Book)
+    monkeypatch.setattr(ls, "_LIVE_BOOKS", {})
+    ls.live_book()
+    down["now"] = False
+    first, again = ls.live_book(), ls.live_book()
+    assert len(made) == 2 and first is again, "the outage call was not kept; the next was, and is reused"
+    assert ls.live_book("live_family") is not first and len(made) == 3
+    assert [b.ensured for b in made] == [1, 1, 1]
+
+
 def test_go_live_status_says_ready_only_when_every_real_check_passes(monkeypatch):
     done = _go_live(monkeypatch, _go_live_state(), {"verdict": "PASS", "sessions": 60})
     assert done["ready"] and not done["live"] and done["ladder"] is None

@@ -1407,6 +1407,16 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+6 Nov   KL1  Slow Kite page after the TOTP login (your report).  Root cause: live_session.live_book() ran
+             ensure_tables on every call (about 15 statements, each a pool checkout with a ping and its own
+             transaction): the login callback (storing the token), the Kite page's account list and each
+             account's login status and holdings paid it per request.  Measured from this Mac against Neon
+             (us-east-2): 8-13 s per call, 15 statements.  Fix (uncommitted): tables ensured once per schema
+             and process, the book kept only once a read confirms the store answered (a first call in an
+             outage retries); later calls 0.1 ms, so a request pays only its own query (about 1 s from the
+             Mac, a fraction of that from the server, also in the US).  The server ensures them in a
+             background thread at start-up (api/main.py), so the first login after a deploy does not wait.
+             Test: once per schema and process, not kept on a failed read (fails with the cache removed).
 6 Nov   UI1  Frontend for this session's changes (your call: #1-#3 of the scope; #4, a live-book page, after the
              canary starts).  Uncommitted, both repos.  #1 backup static IP: /kite/accounts setup returns
              static_ip_secondary (CENTURION_KITE_STATIC_IP_2 on the HF Space, set by hand: deploy does not sync
@@ -1418,6 +1428,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              panel no longer says "instant execution" (MARKET orders carry Kite's price protection, MP1).
              Checks: backend tests (monitors null before live, the stored band and IC once live, JSON without
              NaN), fast suite; frontend tsc clean.  Not checked in a browser (needs live data).
+             DONE 6 Nov: both repos merged to main (frontend PRs #129, #130); you set CENTURION_KITE_STATIC_IP_2
+             on the HF Space.
 5 Nov   MON1 Live monitors built (your "start the monitors"; plan 5bu), uncommitted: nse_engine/live_monitor.py.
              Gap band: G4's daily gap (live less the live-rule reference) summed to the latest checkpoint (60,
              120, 250, every 250) against -2 sigma sqrt(n); WATCH at 60 (an email alert), BREACH from 120
