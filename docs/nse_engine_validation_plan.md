@@ -6710,6 +6710,210 @@ drawdown. One walk-forward cannot separate cause from path, but the rule set
 before the run decides: no exclusion. Exitability stays with the existing
 controls (circuit-lock handling in fills, the session cap, stops).
 
+## 5bw. J1: refill exits alone (India tracker J1, U20; your decision 2 of 5 Nov 2026; pre-registered 06 Nov 2026, 18:54 IST, before any run)
+
+**Claim.** Ranks 21–40 earn as much as the top 20 (GT2A), yet a slot freed by
+an exit waits in cash until the next rebalance. Refilling it at once raises
+deployment in rising markets, where the book holds most names, without
+leverage, a new signal or an exposure tilt. A return claim: decision 7's
+strict gate.
+
+**Change, one setting.** `portfolio.refill_exits` true; nothing else moves.
+On a non-rebalance session a slot freed by an exit is refilled from the rank
+list at its rebalance weight, within the allocator's gross, never in a
+drawdown-rule halt or at regime scale 0 (the engine's existing rule, E1). E4
+paper-trades refill bundled with exit rank 60, which failed in GT2B, so E4's
+fate does not decide this (the review's change of record to U20).
+
+**When and against what.** Week of 11 Jan 2027, after RA1 (14 Dec), V3 and
+the January re-baseline (LN-T30 locked circuits, OPS1A, for-cause exits;
+cost model 5 is void, the sweep closed in FND1/FND2), against the configuration
+they leave live (the base). If V3 settles refill (E4 promoted), J1 is not run
+and its slot stays unused.
+
+**Runs.** The base's walk-forward machinery unchanged: its grid, 18 folds
+anchored from 2007, one-year first training window, 12-month tests,
+`store_ext2006`, `excess_sharpe` selection, on Kaggle, with refill true at
+every grid point (selection runs as for the base). The base is re-run on
+today's code first and must reproduce its recorded fold hashes. Then each
+fold's selected test configuration is re-run locally with `funding="live"`
+(LN-T11, FND1), for the base and for J1.
+
+**Basis.** The milestone's (your decision 1, revised 5 Nov): 2008–25
+live-like as run: idle cash earns nothing, D2's haircut on the invested
+share, buys funded only by free cash (`funding="live"`).
+
+**Pass, all of them (decision 7, strict):**
+1. J1's excess Sharpe above the base's, with `diversifier_gate.bootstrap_p`
+   ≤ 0.025 (one-sided, the bootstrap form of t ≥ 2).
+2. J1's Sharpe above the base's in 2008–12 (the failing era).
+3. J1's recorded 2013–25 run: DSR ≥ 0.95 at the core's N after the trial
+   (62), widened for autocorrelation (AC1); the core family's PBO ≤ 30% with
+   it added.
+
+**Reported, not gating.** CAGR, MaxDD, Calmar, alpha against NIFTY TRI,
+2013–25 and 2017–25, trades a year, mean invested, the same comparison on
+the model's funding, the passive NIFTY and gold hurdle after tax (MON1's
+line).
+
+**Power, stated before the run.** With two correlated 18-year books, a true
++0.10 Sharpe passes a t ≥ 2 test about 16–26% of the time (the review's
+calc): a fail is likely even if refill helps.
+
+**Fail.** U20 is dropped; `portfolio.refill_exits` is removed once E4 no
+longer needs it (after V3); not re-tuned. A PBO above 30% closes the core
+family for the year. **Pass.** 60 paper sessions on the configuration with
+refill, then the canary rules, at a configuration change that restarts the
+live G4 window: not before about April 2027.
+
+## 5bx. J4: the half-step in risk-off rebounds (India tracker J4; your decisions 2 and 5 of 5 Nov 2026; pre-registered 06 Nov 2026, 18:54 IST, before any run)
+
+**Claim.** The book's weakness is rebound lag (37% of the 2008–10 rebound
+captured): after a crash the regime exit keeps it in cash while the market
+climbs. Holding a capped index position in risk_off while NIFTY is rising
+captures part of the rebound without changing the core. A return claim:
+strict gate. Prior is modest: R11 bought 2008's bear rallies, and GT2C found
+NIFTY did not beat the liquid rate in the states it held.
+
+**Family.** The overlay family (GT2C), configuration 2 of 3; arithmetic on
+the recorded walk-forward, on the Mac (A). Decision 5 waives MIT1's "no
+exposure may be added" for this rule only, capped at 25%.
+
+**Rule, fixed now.**
+- Weekly, on each week's last session close: if the regime state is
+  risk_off, the drawdown rule is normal (`dg.guard_dates`, as A1G and GT2C),
+  and NIFTY's 21-session price return is above 0, the target is NIFTYBEES at
+  25% of the book's equity, from idle capital only (never above 100% gross);
+  otherwise the target is 0.
+- Out at once, not weekly, when the regime leaves risk_off (the core
+  re-enters) or the drawdown rule leaves normal; the core's buys are funded by
+  selling NIFTYBEES at the same open (GT2C).
+- Timing: decided on the close, filled at the next open, credited from the
+  session after (GT2C's two-session lag both ways).
+- Return: NIFTY 50 TRI less 0.05% a year; costs at dated statutory charges
+  plus 5 bp a side; D2's haircut on what it holds.
+- Size check, stated now: 25% × a −45% leg is −11.25% of the book, within
+  the 10–15% overlay cycle cap.
+
+**Base and basis.** The book J1 and MV1 leave (run by 5 Feb 2027, after
+them), its recorded walk-forward stitched 2008–25, on the milestone basis
+(as run, D2's haircut, free-cash funding); the regime state rebuilt from the
+engine on `store_ext2006` and checked (every regime-exit day follows a
+risk_off close).
+
+**Pass, all of them (decision 7, strict, with GT2C's gate 2 kept):**
+1. On 2008–25: CAGR, excess Sharpe and alpha against NIFTY TRI all higher
+   than the base, with `bootstrap_p` ≤ 0.025 on the Sharpe difference.
+2. Sharpe and Calmar not lower in at least 2 of the 3 eras (2008–12,
+   2013–19, 2020–25).
+3. The overlay's worst loss over any one holding cycle at most 15% of the
+   book's equity at its entry.
+
+**Reported, not gating.** MaxDD, weeks held, mean weight, the 2008–10 and
+2020 rebound capture against the base, NIFTY's 30 worst weeks, the overlay's
+cost a year.
+
+**Fail.** No code; no third try (the family's last slot stays for a new
+source). **Pass.** Built as an overlay switch, then 60 paper sessions; it
+counts as a promotion trial.
+
+## 5by. CC1: counter-cyclical investing, Phases 0–1 (India tracker CC1; your ask "validate it, then decide"; read rule fixed 06 Nov 2026, 19:08 IST, before any return was read)
+
+**Question.** Does buying when the market or a sector is cheap and holding
+back when it is dear carry information the book could use? Phases 0–1 are a
+look (the pipeline's free look with a read rule): nothing recorded, no family
+budget spent, no configuration chosen. They decide whether Phase 2 (at most
+two configurations in a new family, CC, each pre-registered separately) is
+worth a run.
+
+**Prior, stated now.** Low. R11 (crash re-entry), GT4 (value), NS1-1
+(beaten-down deletions) and GT2C (idle capital into NIFTY) failed; GT2A found
+sold winners keep winning. Valuation is known to predict 5–10 year returns
+far better than 1 year.
+
+**Data (Phase 0).** NSE's daily index files in the archive, 21 Feb 2012 to
+31 Dec 2025 (2026 sealed): P/E, P/B and dividend yield of NIFTY 50 and of 12
+sectors (Auto, Bank, Energy, Financial Services, FMCG, IT, Infrastructure,
+Media, Metal, Pharma, PSU Bank, Realty), names mapped across NSE's renames
+("S&P CNX Nifty" = Nifty 50, "CNX Finance" = Nifty Financial Services,
+"CNX X" = Nifty X). Nothing before 2012 exists here, and NSE's history
+endpoints refuse automated clients: the 2008–11 gap is stated, not filled
+(decision 4).
+- **Break check.** NSE moved to consolidated earnings around April 2021. A
+  series is unusable if its median day-on-day change across 2021-03-25 to
+  2021-04-09 differs from the price's by more than 5%; then the next measure
+  in the order P/B, dividend yield (inverted), P/E is used.
+  *Amended 06 Nov 2026, 19:10 IST, after Phase 0's series were built and before any return was read:* a
+  median cannot see a one-day jump, which is what a method change makes, so the check is the largest
+  single-day gap between the measure's log change and the price's (inverted for the dividend yield) over
+  24 Mar to 9 Apr 2021, a break at 5% or more; a sector with no usable measure is left out. Result: NIFTY
+  50 P/B (gap 0.8%); P/B for Auto, Energy, FMCG, Financial Services, Infrastructure, Metal, PSU Bank,
+  Pharma and Realty; Bank on its dividend yield (P/B 8.5%, yield 1.0%); IT (P/B 7.7%, yield 24%, P/E
+  14%) and Media (P/B 6.1%, yield 233%, no P/E) left out: read 2 ranks 10 sectors, 3 cheapest and 3
+  dearest.
+- **Measure.** V = the series' percentile against its own trailing 1,260
+  sessions (at least 504), so valuation is judged against its own recent
+  range; low V = cheap.
+
+**Read 1, the market.** Each session from the first with V, NIFTY 50 TRI's
+return over the next 252 sessions, grouped by V's quintile (fixed cut points
+0.2, 0.4, 0.6, 0.8). Spread = cheapest-quintile mean less dearest-quintile
+mean; Newey-West t with 252 lags (overlapping windows).
+
+**Read 2, sectors.** At each month-end, the 3 sectors with the lowest V and
+the 3 with the highest (ties by name); spread = the 3 cheapest's mean price
+return over the next 252 sessions less the 3 dearest's, averaged across
+month-ends; Newey-West t with 12 lags.
+
+**Decision rule.** Phase 2 runs only for a read whose spread is positive with
+t ≥ 1.5: read 1 gates CC-A (the book-level valuation overlay), read 2 gates
+CC-B (the beaten-down sector sleeve). Below that, the idea is discarded
+for this book and recorded here; nothing is coded. Power, stated now: about
+11 independent years, so only a large effect can clear even t 1.5.
+
+**Result (06 Nov 2026): both reads fail; counter-cyclical investing is
+discarded for this book, Phase 2 not run, nothing coded.**
+
+| Read | Result | Bar |
+|---|---|---|
+| 1. Market: NIFTY 50 TRI's next 252 sessions by P/B quintile (24 Feb 2014 – 26 Dec 2024, 2,668 sessions) | cheapest +47.6%, then 21.7%, 12.9%, 14.1%, dearest +7.6%: spread 40.0 points, NW t 1.12 | t ≥ 1.5 |
+| 2. Sectors: 3 cheapest less 3 dearest, next 252 sessions (130 month-ends) | +0.22% a year, NW t 0.06, positive 55% of months | t ≥ 1.5 |
+
+- Read 1's spread is one episode. The cheapest quintile holds 162 sessions,
+  nearly all around the March 2020 crash, while the dearest holds 1,216: in
+  a rising market NIFTY's P/B sits near the top of its own 5-year range most
+  of the time. The order of the quintiles is suggestive, but a single rebound
+  cannot be told from a rule, and 2008 is outside the data.
+- Holding back when dear has no case here: the dearest quintile still
+  returned 7.6% a year, about the liquid rate, so trimming would at best trade
+  equity for cash at no gain.
+- Read 2 finds no information: cheap sectors did not beat dear ones.
+- The closest testable form, buying the market in a risk-off rebound once
+  NIFTY turns up, is J4 (5bx), already pre-registered for January.
+Temporary script and extracted series deleted.
+
+## 5bz. OPT2: covered calls, cash-secured puts, verticals and collars, closed at Phase 0 (India tracker OPT2; your brief "find out whether options strategies are wrong for Centurion"; closure accepted 06 Nov 2026, 19:55 IST)
+
+A desk check: no configuration pre-registered or run, no trial spent (options
+N stays 20). Lot sizes from `fo_store` at 31 Dec 2025: one stock-option lot is
+Rs 2.9–9.4 lakh (median 6.6, 208 underlyings); a NIFTY lot is 65 units, about
+Rs 17 lakh. A 20-name book holds about Rs 0.15 lakh a name at Rs 3 lakh and
+Rs 1.5 lakh at Rs 30 lakh. The store has closes and settlements only, no
+bid/ask.
+- **A, covered calls on holdings:** no name's lot fits one position at either
+  size (a full book needs about Rs 1.3–1.9 crore). The index form, a short
+  NIFTY call against the book, is A1, which passed (RT1, A1G) and paper-trades
+  as book a1. Closed, not re-tested; revisit near Rs 1.5 crore (your call).
+- **B, cash-secured puts as entry:** the same lot problem, and a prior against
+  it: assignment comes when the stock falls, so it buys the momentum names
+  that fade and misses the ones that run. Closed, not re-tested.
+- **C, verticals for futures exposure:** the deployed book holds no futures
+  (GT8, U36, L7 closed); the standalone directional form is O5–O8's regime
+  debit spreads (Sharpe −0.54 / −0.44). Closed, not re-tested.
+- **D, collar:** stock collars fail on lots; an index collar is A1 plus a long
+  put, and NS1-2 showed the put leg costs more than it pays (book Sharpe 0.60
+  to 0.34). No new angle. Closed, not re-tested.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast

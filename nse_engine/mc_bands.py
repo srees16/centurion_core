@@ -15,6 +15,18 @@ Each book's reference is its live-like walk-forward record (the honest base, nev
 ``BLOCK`` sessions, so volatility clusters and runs survive; ``SEED`` fixed).  Only the percentiles are kept, in
 ``config/mc_bands.json``: the Saturday job has no research data and reads that file.  Rebuild it on the research
 machine after a re-baseline: ``python -m nse_engine.mc_bands build``.
+
+``risk`` (tracker RSK1) reads the same references for two things the bands do not show:
+
+* probability of ruin: over 1, 3 and 5 years of the same bootstrap, the chance of a drawdown deeper than 25%, 35%
+  and 50%, of the book ever falling below half its starting capital, and of ending below its start.  The
+  references are the strategy's own returns: the deployment's drawdown rule, rule D and the kill criteria act on
+  top of them in paper and live, so these are the odds before those controls;
+* fat tails: skew, excess kurtosis and the Jarque-Bera p of daily returns; the 1% expected shortfall measured
+  against the one a normal distribution with the same mean and volatility gives; the Hill tail index of the worst
+  5% of days (below 4, a fat left tail; below 2, an infinite variance); the worst day, week and month.
+
+    python -m nse_engine.mc_bands risk      # research machine; writes data/nse_engine/mc_risk.json
 """
 
 from __future__ import annotations
@@ -34,6 +46,11 @@ logger = logging.getLogger(__name__)
 
 SIMS, BLOCK, SEED = 5000, 20, 7
 HORIZONS = (5, 10, 15, 20, 30, 40, 50, 60, 80, 100, 125, 150, 200, 252, 378, 504, 756)
+RUIN_HORIZONS = (252, 756, 1260)                      # 1, 3 and 5 years
+RUIN_DRAWDOWNS = (0.25, 0.35, 0.50)
+RUIN_FLOOR = 0.5                                      # ruin: the book below half its starting capital
+TAIL_SHARE = 0.05                                     # the worst 5% of days for the Hill index
+RISK_PATH = "data/nse_engine/mc_risk.json"
 PCTS = (1, 2, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 98, 99)
 BANDS_PATH = "config/mc_bands.json"
 #: Idle cash in the deployed and candidate references.  False: it earns nothing, as paper and live run today
@@ -85,21 +102,87 @@ def bands(returns: pd.Series, horizons: Sequence[int] = HORIZONS, sims: int = SI
     """Percentiles (``PCTS``) of the cumulative return and of the maximum drawdown over each horizon, from
     ``sims`` stationary block-bootstrap paths of ``returns``' real days."""
     x = pd.Series(returns, dtype="float64").dropna().to_numpy()
-    n, rng = len(x), np.random.default_rng(seed)
+    rng = np.random.default_rng(seed)
     out: Dict[str, Dict[str, list]] = {"return": {}, "drawdown": {}}
     for h in horizons:
-        paths = np.empty((sims, h))
-        for s in range(sims):
-            k = 0
-            while k < h:
-                start, length = rng.integers(n), min(int(rng.geometric(1.0 / block)), h - k)
-                paths[s, k:k + length] = x[(start + np.arange(length)) % n]
-                k += length
-        eq = np.cumprod(1.0 + paths, axis=1)
-        dd = (eq / np.maximum.accumulate(np.maximum(eq, 1.0), axis=1) - 1.0).min(axis=1)    # the start counts as a peak
+        eq, dd = _paths(x, h, sims, block, rng)
         out["return"][str(h)] = [round(float(v), 5) for v in np.percentile(eq[:, -1] - 1.0, PCTS)]
         out["drawdown"][str(h)] = [round(float(v), 5) for v in np.percentile(dd, PCTS)]
     return out
+
+
+def _paths(x: np.ndarray, h: int, sims: int, block: int, rng: np.random.Generator):
+    """``sims`` stationary block-bootstrap equity paths of ``h`` sessions from ``x``'s real days (mean block
+    ``block``), and each path's maximum drawdown, the start counting as a peak."""
+    n = len(x)
+    paths = np.empty((sims, h))
+    for s in range(sims):
+        k = 0
+        while k < h:
+            start, length = rng.integers(n), min(int(rng.geometric(1.0 / block)), h - k)
+            paths[s, k:k + length] = x[(start + np.arange(length)) % n]
+            k += length
+    eq = np.cumprod(1.0 + paths, axis=1)
+    dd = (eq / np.maximum.accumulate(np.maximum(eq, 1.0), axis=1) - 1.0).min(axis=1)
+    return eq, dd
+
+
+def ruin(returns: pd.Series, horizons: Sequence[int] = RUIN_HORIZONS, sims: int = SIMS, block: int = BLOCK,
+         seed: int = SEED) -> Dict[str, Dict[str, float]]:
+    """Probability of ruin from the same bootstrap as the bands: per horizon, the share of paths whose drawdown
+    passes each of ``RUIN_DRAWDOWNS``, that ever fall below ``RUIN_FLOOR`` of the start, and that end below it."""
+    x = pd.Series(returns, dtype="float64").dropna().to_numpy()
+    if len(x) < 2 * max(horizons) // 5:
+        raise ValueError(f"{len(x)} sessions are too few to resample {max(horizons)}-session paths")
+    rng = np.random.default_rng(seed)
+    out = {}
+    for h in horizons:
+        eq, dd = _paths(x, h, sims, block, rng)
+        row = {f"p_drawdown_{int(d * 100)}": round(float((dd <= -d).mean()), 4) for d in RUIN_DRAWDOWNS}
+        row["p_ruin_below_half"] = round(float((eq.min(axis=1) < RUIN_FLOOR).mean()), 4)
+        row["p_end_below_start"] = round(float((eq[:, -1] < 1.0).mean()), 4)
+        out[str(h)] = row
+    return out
+
+
+def tail_risk(returns: pd.Series, tail_share: float = TAIL_SHARE) -> Dict[str, float]:
+    """How fat the daily returns' tails are, against a normal distribution with the same mean and volatility."""
+    from scipy import stats
+
+    r = pd.Series(returns, dtype="float64").dropna()
+    if len(r) < 250:
+        raise ValueError(f"{len(r)} sessions are too few to read the tails")
+    x = r.to_numpy()
+    mu, sd = float(x.mean()), float(x.std(ddof=1))
+    q01 = float(np.quantile(x, 0.01))
+    es_hist = float(x[x <= q01].mean())
+    z = stats.norm.ppf(0.01)
+    es_norm = mu - sd * stats.norm.pdf(z) / 0.01            # the normal's 1% expected shortfall
+    losses = np.sort(-x[x < 0])[::-1]
+    k = max(int(round(tail_share * len(x))), 10)
+    hill = float(1.0 / np.mean(np.log(losses[:k] / losses[k]))) if len(losses) > k else float("nan")
+    wk = (1 + r).rolling(5).apply(np.prod, raw=True) - 1
+    mo = (1 + r).rolling(21).apply(np.prod, raw=True) - 1
+    return {"sessions": int(len(x)), "skew": round(float(stats.skew(x)), 3),
+            "excess_kurtosis": round(float(stats.kurtosis(x)), 2),
+            "jarque_bera_p": float(stats.jarque_bera(x).pvalue),
+            "var_1pct": round(q01, 4), "es_1pct": round(es_hist, 4), "es_1pct_if_normal": round(es_norm, 4),
+            "es_vs_normal": round(es_hist / es_norm, 2), "hill_tail_index": round(hill, 2),
+            "worst_day": round(float(x.min()), 4), "worst_week": round(float(wk.min()), 4),
+            "worst_month": round(float(mo.min()), 4)}
+
+
+def risk(path: str = RISK_PATH) -> Dict[str, Any]:
+    """Probability of ruin and fat tails for every book's reference, written to ``path`` (research data)."""
+    doc = {"created_at": datetime.now(timezone.utc).isoformat(), "sims": SIMS, "block": BLOCK, "seed": SEED,
+           "basis": "each book's live-like walk-forward reference (as the bands); before the drawdown rule, "
+                    "rule D and the kill criteria", "books": {}}
+    for name, r in reference_returns().items():
+        r = r.dropna()
+        doc["books"][name] = {"reference": f"{r.index[0].date()} to {r.index[-1].date()}, {len(r)} sessions",
+                              "ruin": ruin(r), "tails": tail_risk(r)}
+    Path(path).write_text(json.dumps(doc, indent=1) + "\n")
+    return doc
 
 
 def build(path: str = BANDS_PATH) -> Dict[str, Any]:
@@ -150,11 +233,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m nse_engine.mc_bands", description=__doc__.strip().splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("build", help=f"rebuild {BANDS_PATH} from the research data (research machine)")
+    sub.add_parser("risk", help=f"probability of ruin and fat tails per book, to {RISK_PATH} (research machine)")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     if args.cmd == "build":
         doc = build()
         print(json.dumps({k: v["reference"] for k, v in doc["books"].items()}, indent=1))
+    elif args.cmd == "risk":
+        print(json.dumps(risk()["books"], indent=1))
     return 0
 
 

@@ -213,6 +213,25 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("Database init skipped: %s", exc)
 
+    if db_url_set:
+        # The live books' tables, ensured once per process (KL1), in the background: the first Kite login or
+        # Kite page after a deploy would otherwise wait for it (about 15 statements per book).
+        import threading
+
+        def _warm_live_books():
+            try:
+                from kite_connect.auth import accounts
+                from kite_connect.trading.live_session import live_book
+
+                live_book()
+                for acct in accounts.load().values():
+                    live_book(acct.schema)
+                logger.info("Live books ready")
+            except Exception as exc:                      # noqa: BLE001 - a request then ensures them itself
+                logger.warning("Live book warm-up skipped: %s", exc)
+
+        threading.Thread(target=_warm_live_books, name="live-book-warm-up", daemon=True).start()
+
     logger.info("Centurion API ready")
     yield
     logger.info("Centurion API shutting down ...")

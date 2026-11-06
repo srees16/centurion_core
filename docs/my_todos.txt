@@ -265,23 +265,6 @@ Analyze & fix gaps:
 2. It loses money in sideways markets. It earns 2% a year there, below the 6.5% risk-free rate, because the market-state switch flips often and the costs add up.
 3. Idle cash earns nothing in paper and live. That alone costs 1.5 points of CAGR (Sharpe 0.43 vs 0.54)
 
-~~
-
-Analyze below thought process and validate if it fits the current implementation and make centurion robust
-
-Prepare plan of action to test and validate below observations since they need no research trial and can potentially move the numbers towards achieving golden target:
-
-1. Put idle cash in a liquid fund (LIQUIDCASE sweep): +1.5 points of CAGR on the live path. I think this waits on Zerodha's answer to Q5.
-2. Exercise the market-state exit and the drawdown rule on the order path, and add a per-session order count and value cap. Paper has never run either rule.
-3. Audit fill rates by opening gap: limit buys may miss stocks that gap up, which could eat the live edge.
-4. Track the live-vs-backtest gap cumulatively at 60, 120 and 250 sessions, so a slow leak shows up.
-5. Use the January core slots on:
-   higher deployment in bull markets (+0.5 to +1.5 points);
-   the half-step overlay for rebounds;
-   MV1, which carries the earnings filter.
-
-Whether this changes anything is mostly your call on decisions 1, 2 and 7 in the GT3 list: the milestone basis, the January slots and GT7, and the strict or "not lower" gate.
-
 ~~~~~~~
 
 Note for me:
