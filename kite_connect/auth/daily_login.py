@@ -44,6 +44,7 @@ TOKEN_EXPIRY = time(6, 0)                         # 06:00 IST, Kite Connect
 KEY_TOKEN, KEY_LOGIN_AT, KEY_USER = "kite_access_token", "kite_login_at", "kite_user_id"
 ENV_TOKEN_KEY, ENV_PROXY, ENV_USER = "CENTURION_KITE_TOKEN_KEY", "CENTURION_KITE_PROXY", "CENTURION_KITE_USER_ID"
 ENV_STATIC_IP = "CENTURION_KITE_STATIC_IP"        # the IP registered with Zerodha (Oracle reserved IP)
+ENV_STATIC_IP_2 = "CENTURION_KITE_STATIC_IP_2"    # the secondary, used when the first is down (ZR2)
 ENV_LIVE_MODE = "CENTURION_LIVE_MODE"             # off | dry_run | live
 LOGIN_URL = "https://kite.zerodha.com/connect/login?v=3&api_key={api_key}"
 

@@ -24,7 +24,7 @@ trials never enter another family's PBO or deflated-Sharpe matrix.
 
 | Family | Registry | Budget and status |
 |---|---|---|
-| Core (the live engine and its variants) | `data/nse_engine/runs` | **Closed until January**: GT2B used the last configuration on 31 Oct 2026; V3's forward gate is not a new configuration. January, after RA1 and V3 (your decision 2, 5 Nov 2026): J1 refill exits, J2 GT11 (only if its screen hits at least 1% of buys, counted by 11 Dec), J3 MV1, **one configuration each**; J4, the half-step, runs in the overlay family. GT9 and GT7 withdrawn; the quality veto waits. The cap is the family's PBO ≤ 30%, at 29.2% (at the bar). |
+| Core (the live engine and its variants) | `data/nse_engine/runs` | **Closed until January**: GT2B used the last configuration on 31 Oct 2026; V3's forward gate is not a new configuration. January, after RA1 and V3 (your decision 2, 5 Nov 2026): J1 refill exits and J3 MV1, **one configuration each** (J2 GT11 withdrawn 5 Nov: 0.71% of buys); J4, the half-step, runs in the overlay family. GT9 and GT7 withdrawn; the quality veto waits. The cap is the family's PBO ≤ 30%, at 29.2% (at the bar). |
 | Options (U32) | `data/nse_engine/runs_options` | **At most 3 configurations per source**, one round each (O5, O6, …). N = 17 after O8; PBO 14.1%. Rounds needing bid/ask, calendars or weeklies wait for the OX bridge. |
 | Equity sleeves | `data/nse_engine/runs_<sleeve>` (O9: `runs_sepa`) | At most 3 configurations per sleeve. A new sleeve gets its own registry. |
 | Commodity (GT5, MCX futures) | `data/nse_engine/runs_mcx` | At most 3 configurations. N = 2 after GT5 (12 Oct, plan 5y: both FAIL, closed); the third stays unused unless a new source justifies it. |
