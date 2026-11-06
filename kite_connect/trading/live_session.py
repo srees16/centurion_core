@@ -72,7 +72,7 @@ import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -1001,13 +1001,25 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
         mc_alert = _mc_rule_d(state, history, ahead, report)
         if mc_alert:
             critical.append(mc_alert)
+        try:                                              # MON1 (plan 5bu): monthly universe rank IC
+            from nse_engine import live_monitor as lm
+
+            ics = json.loads(state.get(lm.IC_STATE_KEY) or "{}")
+            new = lm.score_due_ics(data, cfg, history.index[0], ics)
+            if new:
+                ics.update(new)
+                ahead[lm.IC_STATE_KEY] = json.dumps(ics)
+                report["notes"].append(lm.ic_summary(ics)["line"])
+        except Exception as exc:                          # noqa: BLE001 - a monitor never stops a session
+            report["alerts"].append(f"rank IC (MON1) not scored tonight: {exc}")
         if gate is not None:
             from nse_engine import paper_gate as pg
             report["gate"] = (pg.one_line(gate) + " (vs live's order rules; vs the model, for information: "
                               + f"{gate.get('model_reference') or 'n/a'})")
             ahead[pg.STATE_KEY] = pg.summary_json(gate, updated_at=datetime.now(timezone.utc).isoformat(),
                                                   config_hash=dep.engine.config_hash(),
-                                                  model_reference=gate.get("model_reference"))
+                                                  model_reference=gate.get("model_reference"),
+                                                  gap_band=gate.get("gap_band"))
         if decision.flow:
             today_flow = float(decision.flow)
             ledger["capital"] = float(decision.capital)
@@ -1318,7 +1330,31 @@ def go_live_status(book=None, paper_book=None, trial_gates: Optional[Dict[str, d
                   "since": lstate.since}
     return {"ready": all(ok for _, ok, _ in checks), "live": bool(state.get(LIVE_LEDGER_KEY)), "ladder": ladder,
             "canary_capital": cl.RUNGS[0], "checks": [{"name": n, "ok": ok, "detail": d} for n, ok, d in checks],
-            "coverage": _control_coverage(paper_book)}
+            "coverage": _control_coverage(paper_book), "monitors": _monitors(state)}
+
+
+def _monitors(state: Dict[str, str]) -> Optional[Dict[str, Any]]:
+    """MON1 (plan 5bu) as the last live session left them in the live book's state: the gap band and the monthly
+    rank IC.  None before the first live session; a field is None until that monitor has a reading."""
+    from nse_engine import live_monitor as lm
+    from nse_engine import paper_gate as pg
+
+    if not state.get(LIVE_LEDGER_KEY):
+        return None
+    try:
+        band = (json.loads(state.get(pg.STATE_KEY) or "null") or {}).get("gap_band")
+    except ValueError:
+        band = None
+    try:
+        ics = json.loads(state.get(lm.IC_STATE_KEY) or "{}")
+    except ValueError:
+        ics = {}
+    gap = ({k: band.get(k) for k in ("status", "line", "hold", "checkpoint", "sessions")} if isinstance(band, dict)
+           else None)
+    ic = {k: v for k, v in lm.ic_summary(ics).items() if k in ("months", "mean", "t", "verdict", "line")} if ics else None
+    if ic is not None:
+        ic = {k: (None if isinstance(v, float) and not math.isfinite(v) else v) for k, v in ic.items()}
+    return {"gap_band": gap, "rank_ic": ic}
 
 
 def _trial_gates(dep) -> Dict[str, dict]:
@@ -1405,6 +1441,12 @@ def _ladder_step(ex, data, view, dep, ledger: dict, state: Dict[str, str], book,
             gate["model_reference"] = pg.one_line(pg.evaluate(window, model.returns, fills=fills,
                                                               reference_trades=model.trades, sessions=sessions))
             ramp = cl.ramp_checks(window[window.index >= pd.Timestamp(lstate.since)], ref.returns, fills, ref.trades)
+            from nse_engine import live_monitor as lm      # MON1 (plan 5bu): the cumulative gap band
+
+            both = pd.concat({"live": pg._dated(window).pct_change(), "ref": pg._dated(ref.returns)},
+                             axis=1, join="inner").dropna()
+            ramp["gap_band"] = lm.gap_band(both["live"] - both["ref"], lm.load_sigma(), os.environ.get(lm.ACK_ENV))
+            gate["gap_band"] = ramp["gap_band"]           # kept with the live G4 summary, for the web page
         except Exception as exc:                          # noqa: BLE001 - the ladder then holds
             logger.warning("live G4 unavailable: %s", exc)
     dd, _ = ex.drawdown_decision(session, marked["equity"])

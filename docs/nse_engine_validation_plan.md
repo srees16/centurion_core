@@ -6667,6 +6667,49 @@ the live book's return after tax against a passive hurdle:
 **Built before each is first read:** the gap bands by the 60th live session,
 the rank IC by the first live month-end, the after-tax line by 31 March 2027.
 
+## 5bv. T2T1: no new buys in trade-for-trade stocks (India tracker T2T1; your call 5 Nov 2026 after GT11C, "do T2T1"; pre-registered 05 Nov 2026, 23:14 IST, before any code or run)
+
+**Why.** A risk rule for exitability, not a return claim: a stock in
+trade-for-trade (series BE: GSM stage I and above, ASM long-term stage IV)
+has 5% bands and locks at its circuits more often. GT11C found 0.71% of the
+walk-forward's buys in such stocks at the decision close.
+
+**Rule (`portfolio.no_t2t_buys`, off by default and hash-neutral).** A stock
+whose series at the decision close is BE is never newly selected (it joins
+the day's blocked names, so neither a rebalance nor a refill picks it), and a
+held one is never added to (its target is capped at its current weight).
+Exits, stops and the metal sleeves are unchanged. The engine reads the series
+from the store (`MarketData.t2t`, not part of the data hash).
+
+**Test (decision 7's "not lower" tier; no core slot, no family budget).** On
+R4b's 18 walk-forward folds (`wf_stitched_r4b.json`), each fold's recorded test
+configuration over its test window, today's code and data, stitched 2008–25,
+live-like as run (idle cash earns nothing, D2's haircut on the invested
+share): M (the rule off) against T (on). Reference runs, never recorded.
+- **Pass:** T's excess Sharpe at least M's less 0.005 (rounding noise) on
+  2008–25. Reported, not gating: CAGR, MaxDD, both halves, the buys the rule
+  removed.
+- **Pass leads to:** the rule in the deployed configuration only on your
+  go-ahead, between RA1 (14 Dec) and the canary's first live session (a
+  configuration change restarts the paper or live G4 window). **Fail:** the
+  switch and its code are removed; the record stays here.
+
+**Result (05 Nov 2026): FAIL; the switch and its code removed.**
+
+| Run | CAGR | Excess Sharpe | MaxDD | 2008–16 | 2017–25 | Buys |
+|---|---|---|---|---|---|---|
+| M (rule off) | 11.15% | 0.428 | −32.8% | 6.06% / −0.005 | 16.46% / 0.837 | 3,139 |
+| T (rule on) | 10.60% | 0.383 | −33.4% | 5.79% / −0.029 | 15.63% / 0.773 | 3,138 |
+
+T − M is −0.045 Sharpe (the bar: no worse than −0.005), lower in both halves,
+and MaxDD is no better. The buy count is unchanged: the blocked names were
+replaced by the next-ranked ones, which did worse. Stocks reach
+trade-for-trade after surging, so for this momentum book they were winners
+as often as traps, and the exitability the rule bought did not show in the
+drawdown. One walk-forward cannot separate cause from path, but the rule set
+before the run decides: no exclusion. Exitability stays with the existing
+controls (circuit-lock handling in fills, the session cap, stops).
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast

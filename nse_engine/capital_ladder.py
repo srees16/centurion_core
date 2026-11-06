@@ -315,6 +315,11 @@ def evaluate(state: LadderState, session: str, *, gate: Optional[Dict[str, Any]]
                             f"(needs {RAMP_RATIO_LOW:g} to {RAMP_RATIO_HIGH:g})")
     if drawdown_state != "normal":
         blockers.append(f"drawdown rule {drawdown_state}")
+    band = (ramp or {}).get("gap_band") or {}
+    if band.get("status") in ("WATCH", "BREACH"):         # MON1 (plan 5bu): a slow leak G4 cannot see
+        d.alerts.append(band["line"])
+    if band.get("hold"):
+        blockers.append(band["line"])
     if kill:
         blockers.append("a kill criterion holds")
     top = state.rung >= len(RUNGS) - 1
