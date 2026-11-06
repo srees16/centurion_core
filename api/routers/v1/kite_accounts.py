@@ -122,6 +122,8 @@ async def list_accounts(request: Request, user: dict = Depends(require_session))
     return {"accounts": rows,
             "setup": {"redirect_url": _callback_url(request),
                       "static_ip": os.environ.get(daily_login.ENV_STATIC_IP) or None,
+                      # the backup (ZR2): every account's whitelist needs both, or its orders fail over to nothing
+                      "static_ip_secondary": os.environ.get(daily_login.ENV_STATIC_IP_2) or None,
                       "rungs": list(RUNGS),
                       "terms": {"version": terms.TERMS_VERSION, "items": list(terms.TERMS)},
                       "registration_missing": accounts.registration_missing()}}

@@ -2114,6 +2114,24 @@ def test_go_live_status_shows_the_rung_once_live(monkeypatch):
     assert got["live"]
     assert got["ladder"] == {"rung": 1, "rungs": 5, "capital": 300_000.0, "sessions": 12, "sessions_needed": 60,
                              "since": "2026-12-15"}
+    assert got["monitors"] == {"gap_band": None, "rank_ic": None}, "live, no reading yet"
+
+
+def test_go_live_status_shows_the_live_monitors(monkeypatch):
+    """MON1 on the web page: the gap band the last live session stored with its G4 summary, and the rank IC."""
+    from kite_connect.trading.live_session import LIVE_LEDGER_KEY
+    from nse_engine import live_monitor as lm
+    from nse_engine.paper_gate import STATE_KEY as G4
+
+    assert _go_live(monkeypatch, _go_live_state(), {"verdict": "PASS", "sessions": 60})["monitors"] is None
+    band = lm.gap_band(pd.Series([-0.001] * 130), 0.003)
+    state = _go_live_state(**{LIVE_LEDGER_KEY: "{}", G4: json.dumps({"verdict": "PASS", "gap_band": band}),
+                              lm.IC_STATE_KEY: json.dumps({"2027-01-29": 0.06})})
+    got = _go_live(monkeypatch, state, {"verdict": "PASS", "sessions": 60})["monitors"]
+    assert got["gap_band"]["status"] == "BREACH" and got["gap_band"]["hold"] and got["gap_band"]["checkpoint"] == 120
+    assert got["rank_ic"]["months"] == 1 and got["rank_ic"]["mean"] == pytest.approx(0.06)
+    assert got["rank_ic"]["t"] is None, "a NaN t is sent as null, never as NaN JSON"
+    json.dumps(got, allow_nan=False)
 
 
 def test_control_coverage_counts_only_what_the_paper_record_ran():
