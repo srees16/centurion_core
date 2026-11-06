@@ -254,3 +254,126 @@ def test_a_factor_that_covers_only_part_of_the_move_is_reported():
     assert got.set_index("symbol").at["HIT", "move"] == pytest.approx(46.0 / 234.0 - 1.0)
     assert partial_adjustments(close, None).empty
 
+
+
+# ── DQ1: every NSE file format, parsed against values read by hand from the real file (6 Nov 2026) ──────────
+
+LEGACY_CM = """SYMBOL,SERIES,OPEN,HIGH,LOW,CLOSE,LAST,PREVCLOSE,TOTTRDQTY,TOTTRDVAL,TIMESTAMP,TOTALTRADES,ISIN,
+RELIANCE,EQ,888.1,896.05,884.3,885.55,884.95,887.9,1675827,1490461120.25,02-JAN-2015,31269,INE002A01018,
+SBIN,EQ,314.35,318.3,314.35,315.25,315.6,314,9935094,3147388629.9,02-JAN-2015,79553,INE062A01020,
+"""
+UDIFF_CM = """TradDt,BizDt,Sgmt,Src,FinInstrmTp,FinInstrmId,ISIN,TckrSymb,SctySrs,XpryDt,FininstrmActlXpryDt,StrkPric,OptnTp,FinInstrmNm,OpnPric,HghPric,LwPric,ClsPric,LastPric,PrvsClsgPric,UndrlygPric,SttlmPric,OpnIntrst,ChngInOpnIntrst,TtlTradgVol,TtlTrfVal,TtlNbOfTxsExctd,SsnId,NewBrdLotQty,Rmks,Rsvd1,Rsvd2,Rsvd3,Rsvd4
+2025-01-02,2025-01-02,CM,NSE,STK,3045,INE062A01020,SBIN,EQ,,,,,STATE BANK OF INDIA,795.00,802.40,787.00,801.20,802.25,793.20,,801.20,,,11398319,9071709128.05,206144,F1,1,,,,,
+2025-01-02,2025-01-02,CM,NSE,STK,2885,INE002A01018,RELIANCE,EQ,,,,,RELIANCE INDUSTRIES LTD,1221.25,1244.45,1220.00,1241.80,1240.55,1221.25,,1241.80,,,15486276,19115027208.35,271108,F1,1,,,,,
+"""
+MTO = """Security Wise Delivery Position - Compulsory Rolling Settlement
+10,MTO,02012025,1270292470,0002626
+20,1944,RELIANCE,EQ,15486276,9771015,63.09
+20,2063,SBIN,EQ,11398319,5725585,50.23
+"""
+INDEX_2013 = """Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,Closing Index Value,Points Change,Change(%),Volume,Turnover (Rs. Cr.),P/E,P/B,Div Yield
+S&P CNX Nifty,01-01-2013,5937.65,5963.9,5935.2,5950.85,45.75,.77,77902745,3298.74,18.82,3.16,1.39
+"""
+INDEX_2025 = """Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,Closing Index Value,Points Change,Change(%),Volume,Turnover (Rs. Cr.),P/E,P/B,Div Yield
+Nifty 50,01-01-2025,23637.65,23822.8,23562.8,23742.9,98.1,.41,154921938,14266.26,21.88,3.54,1.27
+"""
+CORPACT = """SERIES,SYMBOL,SECURITY,RECORD_DT,BC_STRT_DT,BC_END_DT,EX_DT,ND_STRT_DT,ND_END_DT,PURPOSE
+BE,GARFIBRES,Garware TFL,03/01/2025, , ,03/01/2025, , ,BONUS 4:1                
+"""
+LEGACY_FO = """INSTRUMENT,SYMBOL,EXPIRY_DT,STRIKE_PR,OPTION_TYP,OPEN,HIGH,LOW,CLOSE,SETTLE_PR,CONTRACTS,VAL_INLAKH,OPEN_INT,CHG_IN_OI,TIMESTAMP,
+FUTIDX,NIFTY,29-Jan-2015,0,XX,8352.25,8470.9,8352.25,8458.4,8458.4,384440,810571.13,21427925,287375,02-JAN-2015,
+OPTIDX,NIFTY,29-Jan-2015,8300,CE,150.3,220.5,150.3,209.2,209.2,168391,357419.22,2362700,-615600,02-JAN-2015,
+"""
+UDIFF_FO = """TradDt,BizDt,Sgmt,Src,FinInstrmTp,FinInstrmId,ISIN,TckrSymb,SctySrs,XpryDt,FininstrmActlXpryDt,StrkPric,OptnTp,FinInstrmNm,OpnPric,HghPric,LwPric,ClsPric,LastPric,PrvsClsgPric,UndrlygPric,SttlmPric,OpnIntrst,ChngInOpnIntrst,TtlTradgVol,TtlTrfVal,TtlNbOfTxsExctd,SsnId,NewBrdLotQty,Rmks,Rsvd1,Rsvd2,Rsvd3,Rsvd4
+2025-01-02,2025-01-02,FO,NSE,IDF,35006,,NIFTY,,2025-01-30,2025-01-30,,,NIFTY25JANFUT,23911.00,24314.00,23863.10,24282.65,24270.10,23897.85,24188.65,24282.65,12424650,-845800,339021,204499154340.00,145919,F1,25,,,,,
+2025-01-02,2025-01-02,FO,NSE,IDO,46343,,NIFTY,,2025-01-30,2025-01-30,24000.00,CE,NIFTY25JAN24000CE,335.05,547.60,304.95,523.00,515.50,327.45,24188.65,523.00,3699375,-462850,231589,141456425822.50,88641,F1,25,,,,,
+"""
+
+
+def _row(df, **match):
+    m = df
+    for k, v in match.items():
+        m = m[m[k] == v]
+    assert len(m) == 1, f"expected one row for {match}, got {len(m)}"
+    return m.iloc[0]
+
+
+@pytest.mark.parametrize("parser, text", [("parse_legacy_bhavcopy", LEGACY_CM), ("parse_udiff_bhavcopy", UDIFF_CM)],
+                         ids=["legacy", "udiff"])
+def test_both_bhavcopy_formats_parse_to_the_printed_numbers(parser, text):
+    from nse_engine.data import store
+
+    df = getattr(store, parser)(text)
+    r = _row(df, symbol="RELIANCE")
+    expect = ({"date": "2015-01-02", "open": 888.1, "high": 896.05, "low": 884.3, "close": 885.55, "prev_close": 887.9,
+               "volume": 1675827, "value_inr": 1490461120.25, "trades": 31269}
+              if parser == "parse_legacy_bhavcopy" else
+              {"date": "2025-01-02", "open": 1221.25, "high": 1244.45, "low": 1220.0, "close": 1241.8,
+               "prev_close": 1221.25, "volume": 15486276, "value_inr": 19115027208.35, "trades": 271108})
+    assert str(r["date"].date()) == expect.pop("date")
+    assert r["series"] == "EQ" and r["isin"] == "INE002A01018"
+    for k, v in expect.items():
+        assert r[k] == pytest.approx(v), k
+    assert not store.invalid_bars(df).any()
+
+
+def test_delivery_parses_and_agrees_with_the_same_days_bhavcopy():
+    from nse_engine.data.store import parse_mto, parse_udiff_bhavcopy
+
+    d = _row(parse_mto(MTO), symbol="RELIANCE")
+    assert str(d["date"].date()) == "2025-01-02"                          # 02012025 is day first
+    assert (d["traded_qty"], d["deliv_qty"], d["deliv_pct"]) == (15486276, 9771015, 63.09)
+    assert d["traded_qty"] == _row(parse_udiff_bhavcopy(UDIFF_CM), symbol="RELIANCE")["volume"]
+
+
+@pytest.mark.parametrize("text, date, close", [(INDEX_2013, "2013-01-01", 5950.85), (INDEX_2025, "2025-01-01", 23742.9)],
+                         ids=["2013-names", "2025-names"])
+def test_index_files_map_both_eras_names_to_one_index(text, date, close):
+    from nse_engine.data.store import parse_index_close
+
+    r = _row(parse_index_close(text, pd.Timestamp(date)), index_name="NIFTY50")   # 'S&P CNX Nifty' = 'Nifty 50'
+    assert r["close"] == pytest.approx(close) and str(r["date"].date()) == date
+
+
+def test_corporate_action_dates_are_day_first():
+    from nse_engine.data.reference import classify_purpose, parse_corporate_actions
+
+    r = _row(parse_corporate_actions(CORPACT, pd.Timestamp("2025-01-02")), symbol="GARFIBRES")
+    assert str(pd.Timestamp(r["ex_date"]).date()) == "2025-01-03", "03/01/2025 is 3 January, not 1 March"
+    assert classify_purpose(str(r["purpose"]))["factor"] == pytest.approx(0.2), "a 4:1 bonus: 5 shares for 1"
+
+
+@pytest.mark.parametrize("parser, text, expiry, lot", [("parse_legacy_fo", LEGACY_FO, "2015-01-29", None),
+                                                       ("parse_udiff_fo", UDIFF_FO, "2025-01-30", 25)],
+                         ids=["legacy", "udiff"])
+def test_both_fo_formats_parse_futures_and_options(parser, text, expiry, lot):
+    from nse_engine.data import fo_store
+
+    opt, fut = getattr(fo_store, parser)(text)
+    f, o = fut.iloc[0], opt.iloc[0]
+    assert len(fut) == 1 and len(opt) == 1
+    assert str(pd.Timestamp(f["expiry"]).date()) == expiry and str(pd.Timestamp(o["expiry"]).date()) == expiry
+    if parser == "parse_legacy_fo":
+        assert (f["close"], f["settle"], f["oi"]) == (8458.4, 8458.4, 21427925)
+        assert f["value_inr"] == pytest.approx(810571.13e5), "VAL_INLAKH is in lakh"
+        assert (o["strike"], o["option_type"], o["close"], o["oi"]) == (8300, "CE", 209.2, 2362700)
+    else:
+        assert (f["close"], f["settle"], f["oi"]) == (24282.65, 24282.65, 12424650)
+        assert (o["strike"], o["option_type"], o["close"], o["oi"]) == (24000, "CE", 523.0, 3699375)
+        assert f["lot_size"] == lot
+
+
+def test_a_file_that_will_not_parse_stops_the_build_and_names_itself(tmp_path):
+    """DQ1 regression: the build used to log the failure and skip the file, so that session's bars vanished."""
+    from nse_engine.data.store import build_year_frames
+
+    good, bad = tmp_path / "cm20150102.csv", tmp_path / "cm20150105.csv"
+    good.write_text(LEGACY_CM)
+    bad.write_text(LEGACY_CM.replace("TIMESTAMP", "TIME_STAMP"))           # a renamed column: NSE changed the file
+    with pytest.raises(ValueError, match="cm20150105"):
+        build_year_frames({"equity": [good, bad], "delivery": [], "indices": [], "corpact": []})
+    empty = tmp_path / "cm20150106.csv"
+    empty.write_text(LEGACY_CM.splitlines()[0] + "\n")                        # a header and no bars
+    with pytest.raises(ValueError, match="no equity bars"):
+        build_year_frames({"equity": [good, empty], "delivery": [], "indices": [], "corpact": []})
+    build_year_frames({"equity": [good], "delivery": [], "indices": [], "corpact": []})   # a clean file still builds

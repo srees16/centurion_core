@@ -373,6 +373,8 @@ def erase(account_id: str, book=None) -> None:
         raise AccountError(f"refusing to drop schema {acct.schema!r}")
     with get_db_manager().get_session() as session:
         session.execute(text(f'DROP SCHEMA IF EXISTS "{acct.schema}" CASCADE'))
+    from kite_connect.trading.live_session import forget_live_book
+    forget_live_book(acct.schema)
 
 
 def api_secret(acct: Account) -> str:
