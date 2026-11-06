@@ -129,6 +129,14 @@ def live_book(schema: Optional[str] = None):
         return book
 
 
+def forget_live_book(schema: str) -> None:
+    """Drop the cached live book for ``schema`` once the schema itself is dropped (``accounts.erase``): an account
+    id comes from the holder's name, so a re-registration reuses the schema, and its tables must be ensured again."""
+    with _LIVE_BOOKS_LOCK:
+        for key in [k for k in _LIVE_BOOKS if k[1] == schema]:
+            del _LIVE_BOOKS[key]
+
+
 # ── the ledger ──────────────────────────────────────────────────
 
 def load_ledger(state: Dict[str, str], capital: Optional[float]) -> dict:
@@ -136,9 +144,9 @@ def load_ledger(state: Dict[str, str], capital: Optional[float]) -> dict:
     raw = state.get(LIVE_LEDGER_KEY)
     if raw:
         return json.loads(raw)
-    if not capital or capital <= 0:
-        raise RuntimeError(f"first live session: give the book's capital (--capital or {ENV_LIVE_CAPITAL}); "
-                           "the ladder's first rung is Rs 3,00,000")
+    if capital is None or not math.isfinite(float(capital)) or float(capital) <= 0:   # NaN and inf too: stored for ever
+        raise RuntimeError(f"first live session: give the book's capital (--capital or {ENV_LIVE_CAPITAL}), "
+                           f"got {capital!r}; the ladder's first rung is Rs 3,00,000")
     return {"capital": float(capital), "cash": float(capital), "positions": {}, "entries": {}, "stops": {},
             "stop_basis": {}, "symbols": [], "session": ""}
 
@@ -162,6 +170,13 @@ def apply_fills(ledger: dict, fills: List[dict], session, dp_charge_inr: float,
     day = pd.Timestamp(session).date().isoformat()
     if once and str(ledger.get("session") or "") >= day:
         return ledger                                   # this session's fills are already in
+    for f in fills:                                     # a fill at 0 booked free shares, at NaN a NaN cash: refuse both
+        if f.get("status") == "FILLED" and int(f.get("quantity") or 0) > 0:
+            px = float("nan") if f.get("fill_price") is None else float(f["fill_price"])
+            if not (math.isfinite(px) and px > 0):
+                raise ValueError(f"{f.get('symbol')} {f.get('side')} x{f.get('quantity')} (order "
+                                 f"{f.get('order_id') or '-'}) filled at {f.get('fill_price')!r}: nothing is recorded; "
+                                 "book it with live_session --reconcile SYM=QTY@PX at the contract note's price")
     led = {**ledger, "positions": dict(ledger.get("positions") or {}), "symbols": list(ledger.get("symbols") or []),
            "entries": dict(ledger.get("entries") or {}), "stops": dict(ledger.get("stops") or {}),
            "stop_basis": dict(ledger.get("stop_basis") or {}), "recent_stops": dict(ledger.get("recent_stops") or {})}
@@ -1646,8 +1661,10 @@ def main(argv=None) -> int:
                 sym, rest = item.split("=", 1)
                 qty, px = rest.split("@", 1)
                 items[sym.strip().upper()] = (int(qty), float(px))
+                if int(qty) < 0 or not (math.isfinite(float(px)) and float(px) > 0):
+                    raise ValueError(item)
             except ValueError:
-                ap.error(f"--reconcile {item!r}: expected SYM=QTY@PX, e.g. INFY=40@1512.5")
+                ap.error(f"--reconcile {item!r}: expected SYM=QTY@PX with QTY 0 or more and PX a positive price, e.g. INFY=40@1512.5")
         rbook = live_book(acct.schema if acct else None)
         led = load_ledger(rbook.read_state(), None)
         led, rows = manual_reconcile(led, items, pd.Timestamp(datetime.now(timezone.utc).date()),

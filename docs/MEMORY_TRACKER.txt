@@ -282,13 +282,20 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
         the weekly refresh writes it (step iv_snapshot, about 11 minutes, after the F&O
         store); refresh_status.json shows its last date.  After 45 days the scan refuses
         a stale rank and says so in its log.
- >>> INT1A MINUTE DATA (budget Rs 50,000 approved 1 Nov, all in)
+ >>> INT1A MINUTE DATA: ON HOLD 6 Nov, your call.  Vendors quoted about Rs 70,000 against the Rs 50,000
+     approved; you are not paying it.  Next: check whether Kite's historical API (already in the Kite Connect
+     subscription) gives NIFTYBEES minute bars far enough back for BT7-S2: DONE 7 Nov, Kite has minute
+     history from 2015, downloaded (BT7-S2).  Your local .env now has ZERODHA_API_KEY.  CENTURION_KITE_TOKEN_KEY rotated 7 Nov (your call):
+     new key in local .env and GitHub (00:16 IST), and on the HF Space (you, 7 Nov; Space restarted).  No family accounts were registered, so only the 6 Nov login was lost.  Expired futures and options
+     (INT1A's first purpose) have no free source, so INT1B-E stay parked.  Items 1-4 below kept for reference.
+ >>> (was) INT1A MINUTE DATA (budget Rs 50,000 approved 1 Nov, all in)
      1. DONE 5 Nov: emailed support@truedata.in and support@globaldatafeeds.in (quote and samples).
         The second address is unverified: if it bounces, use globaldatafeeds.in's chat.
      2. Forward Claude the replies and sample files.  They are checked against
         the bhavcopy before you pay anything.
      3. Buy from the one confirmed, then say "do INT1A".  What the budget buys,
         in order: expired futures, then their bid/ask, then expired options.
+     4. (6 Nov) NIFTYBEES minute bars: not needed, Kite had them free; BT7-S2 closed 7 Nov.
  >>> AFTER YOU MERGE KES1 (plan 5be)
      1. DONE 2 Nov: CENTURION_SKIP_DONE_RUNS = true is set.  Backup runs stop on
         a finished night, about 70 GB a month less cache egress.  To undo:
@@ -984,6 +991,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  7. BACKLOG (after the queue)
 --------------------------------------------------------------------------------
+[x] P3  BT7-S2 CLOSED 7 Nov: FAIL (plan 5ca stage 2).  NIFTYBEES minute prices, 2,687 nights 2015-25: gross
+             +1.2 bp a night against 8.7 bp of cost, net -7.5 bp (t -6.12), every year negative.  The index's
+             +11.9 bp night is its closing average and auction open, not an earnable return.  Folder deleted.
 [ ] P3  COINT1 Co-integrated pairs on single-stock futures (RSK1, 6 Nov): only once U28 reopens futures shorts
              (Rs 2 crore and above); then a pre-registered look first, against the register's NOT VIABLE row.
 [ ] P3  OPT2-CC Covered calls on the book's holdings (your call 6 Nov, plan 5bz): revisit when live capital
@@ -1413,6 +1423,139 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+7 Nov   BT7-S2 NIFTY close-to-open on tradeable prices (plan 5ca stage 2, pre-registered 00:45 IST; no new
+             trial): FAIL, H7 closed, no code, data and scripts deleted.  Data: NIFTYBEES minute candles from
+             Kite's historical API (free with Kite Connect; none before 2015), 2,687 nights Feb 2015-Dec 2025.
+             Bought on the 15:25-15:29 volume-weighted price, sold on 09:16-09:20 (the stray 09:15 print
+             skipped): gross +1.2 bp a night, cost 8.7 bp, net -7.5 bp (t -6.12), both halves negative,
+             -4% to -25% every year.  The index on the same nights: +11.9 bp.  Both total +4.8 / +4.9 bp a
+             session, so the data agree; the index's overnight return is an artefact of its 30-minute closing
+             average and auction open.  Missed when H7 was registered: Y3 (O4, 9 Oct) already failed the gate
+             on the same index prices (p 0.15); its 1.04 Sharpe carried this artefact too.  New: any study of
+             index or bhavcopy opens against closes (YZ1's split, H4's gap reversal) needs minute prices
+             before it is believed; INT1C must measure on them.  Also: Kite serves minute history of listed
+             instruments from 2015 at no cost (your local .env now holds ZERODHA_API_KEY and the rotated key).
+6 Nov   BT7  Seven backtest strategies (your ask; plan 5ca, pre-registered 22:11 IST, N = 8, 2013-25, 2026 not
+             loaded; deployed config 679cbd0c).  Seven FAIL, discarded, no repo code: compression breakout -0.88%
+             net over 20 sessions (t -4.16); pairs laggard, long leg only (shorts closed below Rs 2 crore) +0.14%
+             (t +0.24; addendum 22:16: no point-in-time sectors before 14 Sep 2026, so any-sector peers);
+             earnings-return drift +1.22% over 60 (t +2.39, bar 2.58, both halves positive: a near miss, not
+             re-tuned; GT7's SUE version stays queued); gap continuation intraday -0.86% net (t -22.9): gaps
+             REVERSE, -75 bp up and -92 bp down gross, -117 bp at 3%+; z-score reversion -0.63% over 5 (t -7.65);
+             RSI rotation -0.24% a month (t -1.21); stocks close to open -0.14% a night net (+20 bp gross
+             against 34.6 bp of cost).  The book's route passes nowhere (z-score flagged entries +6.0%, t +2.38,
+             17 entries).  One stage-1 PASS: NIFTY close to open, +5.0 bp a night net (t +4.48, 11 of 13 years,
+             both halves), CAGR 13.0% against the index's 12.3%, Sharpe 0.65 against 0.40, vol 9.6%; the edge is
+             11.6 bp gross against 6.6 bp of NIFTYBEES cost, and measured on the index (30-minute-average close,
+             call-auction open), not on prices a NIFTYBEES order gets.  Not adopted: stage 2 needs NIFTYBEES
+             minute data (backlog BT7-S2, INT1A item 4).  New: the gap fade is the strongest effect found here,
+             but it is a new hypothesis (INT1C, minute data), not a result.  Scripts and results:
+             data/nse_engine/bt7/ (deleted 7 Nov with H7's stage-2 fail).
+6 Nov   QM1  quant-models robustness review (your ask; github.com/davidalmeida90/quant-models, MIT, read only,
+             nothing run or copied).  Educational models (Black-Scholes, Greeks, Heston, GARCH, HRP, risk-based
+             allocation, time-series momentum, Monte Carlo) plus quant-options-tools/loop.py, which wires the five
+             repos already reviewed (OpenBB, tradingview-mcp, QuantLib, TradingAgents, vectorbt) into one demo.
+             Ideas: refuse a non-paper account or port before connecting (ibkr_engine.connect), a max-notional
+             check before any broker call (route), fills read from executions because a cancelled parent can
+             carry correct fills (send), signed slippage per fill against the signal price, target minus the
+             broker's position, a fills JSONL, ffill(limit=3), ex-ante vol for sizing, seeded Monte Carlo, an
+             explicit survivorship warning.  All already in Centurion: live_orders_allowed and dry-run guards (LS2),
+             manual_value_refusal and the session cap, CANCELLED-with-fills read as partial from filled_quantity,
+             impact_bps per fill and the fill audit, broker holdings in planning, paper_fills in Neon, lagged vols,
+             seeded RNG, survivorship tests.  No gap needing a change now.  Found, not fixed (engine sizing, frozen
+             under RA1F): core_weights and sleeve_weights replace a zero or NaN vol with the median of ALL vols,
+             the zeros included, so a zero-vol name gets a lower vol and a larger weight (one sleeve at 0 and one at
+             10%: 2/3 to the broken one, not 1/2), and all-zero vols give NaN weights.  Measured on the deployed
+             book (679cbd0c, 2013-25, 973 rebalances): never fired, so the fix (median of the valid vols only,
+             fail loudly when none is valid) changes no recorded number; held for after the 14 Dec verdict or your
+             go-ahead.  Skipped: option pricing and Greeks (OPT2 closed), the in-sample 43/79 MA pair (an overfit
+             example; DSR and pre-registration guard us), HRP / min-variance (unchecked SLSQP results, no
+             zero-variance guard: weaker than ours).
+6 Nov   QVT1 QuantLib / TradingAgents / vectorbt robustness review (your ask; QuantLib modified BSD, TradingAgents
+             Apache 2.0, vectorbt Apache 2.0 + Commons Clause; read only, nothing run or copied).  Ideas: QuantLib
+             close() (ULP tolerance), explicit rounding modes, NSE holiday calendar, business-day conventions,
+             QL_REQUIRE pre/postconditions; vectorbt is_close / add_nb (snap float noise), size_granularity,
+             process_order_nb's state checks (cash not NaN, price finite and > 0, position finite) before any
+             order, Logs records, set_seed; TradingAgents as_of clamps on every dated request, "unavailable, not
+             empty" coverage gaps, live-only profiles withheld from historical runs, API keys scrubbed from HTTP
+             errors.  Already in Centurion: whole-share sizing with a 1e-6 tolerance (engine.py) and cash
+             scale-down that never overspends; round_to_tick with modes; ticks from Kite's dump; point-in-time
+             sectors (SB2) and survivorship tests; decide at close, fill next open; cost model 4; seeded RNG
+             everywhere (no unseeded call found); trial registry with git sha; nse_calendar with the RB7 missing-
+             year alert.  Gap found and closed (uncommitted, live_session.py; RA1F-eligible: no output change for
+             valid fills, config hash unchanged): apply_fills booked a FILLED row at price 0 as free shares (cash
+             unchanged) and at NaN wrote a NaN cash; --reconcile SYM=QTY@nan wrote NaN to Neon directly.  Both now
+             refused before the ledger is touched, naming the order and the --reconcile fix.  Tests: 5 refused
+             prices, unfilled rows need no price, a known-answer buy/capped sell, a seeded 300-session property
+             check of the cash identity, 5 refused reconcile inputs; the 10 refusal cases fail with the fix
+             reverted.  Finding: QuantLib's NSE 2026 calendar lists 19 Feb, 19 Mar, 1 Apr and 26 Aug as holidays;
+             the store has a bhavcopy for each (NSE traded), so it is not a trading calendar for us; ours matches
+             the store for every 2026 weekday to 6 Nov.  Skipped: Decimal money (DQ1), a ULP comparison library
+             (the three tolerances in use are deliberate), QuantLib pricing (options closed, OPT2), LLM agents (no
+             testable edge; research protocol), key scrubbing (Kite's api_key is public; Sentry drops query strings).
+6 Nov   RA1F RA1 freeze scope (your decision, 6 Nov; replaces the options brief's blanket "do not touch the deployed
+             book, live_session.py or config").  Frozen until the RA1 verdict (14 Dec): the deployed book's config and
+             config hash; engine and strategy code, sizing, stops, the cost model and the D2 haircut; anything that
+             changes the paper book's orders, fills or recorded metrics.  Allowed: a fix that refuses bad input or
+             repairs plumbing (caches, alerts, logging, UI) with no output change for valid input, on five
+             conditions: a regression test, its own tracker entry, the config hash unchanged, the fast suite green,
+             and the next nightly dry run checked.  A fix that would move any number the paper book records waits
+             for the verdict, or goes to you first.  TVM1's two fixes qualify; merge them as their own commit.
+6 Nov   TVM1 tradingview-mcp robustness review (your ask; github.com/tradesdontlie/tradingview-mcp, MIT, read only,
+             nothing run or copied).  It drives TradingView Desktop over the Chrome DevTools Protocol; its robustness
+             ideas: safeString / requireFinite at every boundary ("invalid values corrupt cloud state permanently"),
+             whitelist validation before any side effect, retry with backoff plus a liveness check before reusing a
+             cached client, a lock serialising calls that mutate shared state, poll-until-changed after an action,
+             cleanup on a failed start, per-item failure isolation in batches, timeouts on every subprocess.  Weak
+             spots not to copy: batch and replay step report success when nothing happened; streams retry
+             connection errors silently.  Already in Centurion: order_refusal / whole_share_refusal (finite,
+             positive, whole), idempotency tags and dedupe, circuit breaker and kill switch, ticks from Kite's dump
+             with the slab fallback (LN-T12), pool_pre_ping on every engine, timeouts on every network and live-path
+             subprocess call, workflow concurrency on the paper / live run, SQL identifiers code-defined or
+             regex-guarded, refused orders raised as alerts, the GD1 reconcile after fills.  Gaps found and closed
+             (uncommitted, live_session.py and accounts.py; no output change for valid input): (1) load_ledger took
+             NaN and inf as capital (--capital is float(), which parses "nan"): the first real session would store a
+             NaN ledger in Neon for every later session; now refused with the value named.  (2) accounts.erase drops
+             the schema but KL1's cache kept it as ensured; ids come from names, so a re-registration under the same
+             name wrote to missing tables until a restart; erase now forgets it (forget_live_book).  Both
+             regression tests fail with the fix reverted.  Skipped as not needed: a source-audit test for SQL
+             interpolation (the few identifiers are constants or regex-checked), backoff on Kite reads (the circuit
+             breaker and dedupe already cover sends).
+6 Nov   DQ1  OpenBB robustness review (your ask; github.com/openbq-org/OpenBB, the renamed OpenBB-finance, Apache 2.0,
+             read only, nothing run or copied).  OpenBB is a data aggregator: typed query/data models per provider,
+             EmptyDataError, SecretStr credentials, a 10 s default HTTP timeout (no retries), unit tags, recorded
+             HTTP fixtures in provider tests; no Decimal money, naive dates, no OHLC sanity checks, and nothing on
+             execution, risk or backtests.  Already in Centurion: every HTTP call has a timeout (AST scan: none
+             missing); secrets are Fernet-encrypted and never in a repr; OHLC checks (invalid_bars, RB1) stricter
+             than OpenBB's.  Gap found and closed (uncommitted): the store build logged a file that would not parse
+             and SKIPPED it, silently removing that session's bars; a header-only bhavcopy only warned.  Both now
+             stop the build and name the file (store._parse; restricted_prints too).  No output changes: all
+             18,199 archive files parse (5,167 equity, 5,167 MTO, 3 full, 3,634 index, 4,228 corporate actions).
+             Gap two: no NSE parser had a test.  Known-answer tests on real excerpts of all seven formats (legacy
+             and UDiFF equity, MTO, index names of 2013 and 2025, corporate actions, legacy and UDiFF F&O), checked
+             against the printed numbers: MTO's traded quantity equals the same day's bhavcopy volume, 03/01/2025
+             is 3 January, VAL_INLAKH is lakh, the UDiFF F&O lot is read.  The fail-loud test fails under the old
+             skip.  Skipped as not needed: Decimal money (float64 is exact to the paise far beyond Rs 1 crore and
+             prices are tick-rounded), pydantic models (the store validates frames), unit tags.
+6 Nov   UI3  Fly Kite "Live Quotes" lookup (your ask: fix or remove; frontend, uncommitted).  The tab quoted a fixed
+             four (DEFAULT_IND_TICKERS) and its search only filtered those rows, though the backend quotes any NSE
+             symbol (/api/v1/kite/quotes).  New components/kite/quote-watchlist.tsx: add any symbols (comma or
+             space separated, M&M and BAJAJ-AUTO style allowed), a remove (x) per symbol, at most 50; a symbol
+             Kite returns no quote for is reported "Not found on NSE" and dropped; the list is kept in this
+             browser (localStorage, falls back to the four).  The table's own box is now "Filter this list".
+             tsc clean; not run in a browser (needs your login and a Kite session).
+6 Nov   OF2  Volume / delta / TPO stack transcript (your ask; follows OF1).  New against OF1: TPO and single prints
+             (time at price), low-volume nodes, and the three stacked as a retest zone (absorbed sellers, a fast
+             rejection, then long).  Built and tested in the scratchpad only (profile_stack.py, 11 tests; each rule
+             fails its test when removed), not in the repo: it needs intraday bars with each bar's aggressor split,
+             and Centurion has daily bhavcopies (OF1: delta and absorption not buildable; its daily value-area test
+             failed, t -1.23).  Found: read per price bin, the stack contradicts itself (a low-volume node cannot
+             hold an outlying delta, since a bin's delta never exceeds its volume); the working reading is an
+             outlier BAR of the last leg whose range crosses the node and the single prints.  No thresholds in the
+             video (z 2, 25% of the median, 30-minute TPO, 3 bars are assumptions).  Value to the book now: none
+             testable; it is an intraday entry-timing setup, not a swing signal.  Path: INT1A data (ask the vendors
+             for tick or bid/ask history, which delta needs; minute OHLCV alone gives only a proxy), then at most one
+             of INT1C's three pre-registered ideas, on the gate.  No trial spent.
 6 Nov   UI2  Fly Kite page (your ask; frontend, uncommitted).  The "Carver Pipeline" card removed: the nightly
              workflow has run the NSE engine (cloud_paper_runner.py --engine) since CENTURION_NSE_ENGINE=true on 16
              Sep, so CarverPipeline trades nothing; the card read fields the endpoint does not return (vol_target,

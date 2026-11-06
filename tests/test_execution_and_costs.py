@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 
 import numpy as np
 import pandas as pd
@@ -2120,6 +2121,151 @@ def test_the_live_book_ensures_its_tables_once_per_process(monkeypatch):
     assert len(made) == 2 and first is again, "the outage call was not kept; the next was, and is reused"
     assert ls.live_book("live_family") is not first and len(made) == 3
     assert [b.ensured for b in made] == [1, 1, 1]
+
+
+def test_erasing_an_account_forgets_its_cached_live_book(monkeypatch):
+    """erase drops the account's schema, but KL1's cache still said its tables were ensured: a holder re-registering
+    under the same name (same id, same schema) would write to tables that no longer exist until a restart."""
+    from dataclasses import asdict
+    from kite_connect.auth import accounts
+    from kite_connect.trading import live_session as ls
+
+    class Book:
+        def __init__(self, mgr, schema=None):
+            self.schema = schema
+
+        def ensure_tables(self):
+            pass
+
+        def read_state(self):
+            return {}
+
+    class Registry:
+        def __init__(self):
+            self.state = {accounts.REGISTRY_KEY: json.dumps({"ravi": asdict(accounts.Account("ravi", "Ravi", "AB1234", "k"))})}
+
+        def read_state(self):
+            return self.state
+
+        def sync_state(self, kv):
+            self.state.update(kv)
+            return True
+
+    dropped = []
+
+    class Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def execute(self, stmt):
+            dropped.append(str(stmt))
+
+    class Manager:
+        def get_session(self):
+            return Session()
+
+    monkeypatch.setenv("CENTURION_DATABASE_URL", "postgresql://test")
+    monkeypatch.setattr("database.connection.get_db_manager", lambda: Manager())
+    monkeypatch.setattr("database.paper_cloud.PaperCloudSync", Book)
+    monkeypatch.setattr(ls, "_LIVE_BOOKS", {})
+    ls._LIVE_BOOKS.update({("m", "live_ravi"): Book(None, "live_ravi"), ("m", "live_other"): Book(None, "live_other")})
+    accounts.erase("ravi", book=Registry())
+    assert dropped == ['DROP SCHEMA IF EXISTS "live_ravi" CASCADE']
+    assert [k[1] for k in ls._LIVE_BOOKS] == ["live_other"], "only the dropped schema is forgotten"
+
+
+@pytest.mark.parametrize("capital", [None, 0, -300000.0, float("nan"), float("inf"), float("-inf")])
+def test_a_first_ledger_needs_a_positive_finite_capital(capital):
+    """--capital is parsed with float(), which takes "nan" and "inf"; NaN passed `not capital or capital <= 0`, so the
+    first real session stored a ledger with NaN capital and cash in Neon, read back by every later session."""
+    from kite_connect.trading.live_session import load_ledger
+
+    with pytest.raises(RuntimeError, match="give the book's capital"):
+        load_ledger({}, capital)
+
+
+def _fill(sym, side, qty, px, status="FILLED"):
+    return {"status": status, "symbol": sym, "side": side, "quantity": qty, "fill_price": px, "order_id": "o1"}
+
+
+@pytest.mark.parametrize("px", [0.0, -1512.5, float("nan"), float("inf"), None])
+def test_a_fill_without_a_real_price_is_refused_and_nothing_is_booked(px):
+    """A FILLED row at price 0 added the shares at no cost (cash unchanged); at NaN the ledger's cash became NaN,
+    stored in Neon for every later session.  Both now stop before the ledger is touched (vectorbt's pre-checks)."""
+    from kite_connect.trading.live_session import apply_fills
+
+    led = {"capital": 3e5, "cash": 3e5, "positions": {"TCS": 5}, "symbols": ["TCS"]}
+    with pytest.raises(ValueError, match="INFY BUY x10 .* nothing is recorded"):
+        apply_fills(led, [_fill("TCS", "SELL", 5, 4000.0), _fill("INFY", "BUY", 10, px)], "2026-11-06", 15.93)
+    assert led == {"capital": 3e5, "cash": 3e5, "positions": {"TCS": 5}, "symbols": ["TCS"]}
+
+
+def test_unfilled_rows_need_no_price():
+    from kite_connect.trading.live_session import apply_fills
+
+    led = {"capital": 3e5, "cash": 3e5, "positions": {}, "symbols": []}
+    out = apply_fills(led, [_fill("INFY", "BUY", 10, 0.0, status="REJECTED"), _fill("TCS", "BUY", 0, None)],
+                      "2026-11-06", 15.93)
+    assert (out["cash"], out["positions"], out["session"]) == (3e5, {}, "2026-11-06")
+
+
+def test_fills_book_the_known_cash_and_cap_a_sale_at_the_holding():
+    from kite_connect.trading.live_session import apply_fills
+    from nse_engine.costs import statutory_cost
+
+    day = pd.Timestamp("2026-11-06")
+    led = {"capital": 3e5, "cash": 3e5, "positions": {"TCS": 5}, "symbols": ["TCS"]}
+    out = apply_fills(led, [_fill("INFY", "BUY", 10, 1512.5), _fill("TCS", "SELL", 8, 4000.0)], day, 15.93)
+    want = (3e5 - 15125.0 - statutory_cost(15125.0, "BUY", day, 15.93, symbol="INFY")
+            + 20000.0 - statutory_cost(20000.0, "SELL", day, 15.93, symbol="TCS"))  # 5 held: 5 sold, not 8
+    assert out["cash"] == pytest.approx(want, abs=1e-6) and out["positions"] == {"INFY": 10}
+
+
+def test_random_valid_fills_keep_the_ledger_finite_and_the_cash_identity():
+    """Property check (seeded, 300 sessions of random valid fills): cash stays finite, positions whole and non-negative,
+    and cash = start - what the buys cost + what the sells raised, sells capped at the holding."""
+    from kite_connect.trading.live_session import apply_fills
+    from nse_engine.costs import statutory_cost
+
+    rng = np.random.default_rng(20261106)
+    led = {"capital": 3e5, "cash": 3e5, "positions": {}, "symbols": []}
+    cash = 3e5
+    days = pd.bdate_range("2025-01-01", periods=300)
+    for day in days:
+        fills, held = [], dict(led["positions"])
+        for _ in range(int(rng.integers(0, 4))):
+            sym, side = str(rng.choice(["INFY", "TCS", "SBIN"])), str(rng.choice(["BUY", "SELL"]))
+            qty, px = int(rng.integers(1, 50)), float(np.round(rng.uniform(1.0, 20000.0), 2))
+            fills.append(_fill(sym, side, qty, px))
+            q = qty if side == "BUY" else min(qty, held.get(sym, 0))
+            if q > 0:
+                held[sym] = held.get(sym, 0) + (q if side == "BUY" else -q)
+                value = q * px
+                cash += (-value - statutory_cost(value, "BUY", day, 15.93, symbol=sym) if side == "BUY"
+                         else value - statutory_cost(value, "SELL", day, 15.93, symbol=sym))
+        led = apply_fills(led, fills, day, 15.93)
+        assert math.isfinite(led["cash"]) and all(isinstance(q, int) and q > 0 for q in led["positions"].values())
+    assert led["cash"] == pytest.approx(cash, abs=1e-4)
+
+
+@pytest.mark.parametrize("item", ["INFY=40@nan", "INFY=40@0", "INFY=40@-5", "INFY=-1@1512.5", "INFY=40@inf"])
+def test_reconcile_refuses_a_price_or_quantity_that_cannot_be_booked(item, capsys):
+    """--reconcile INFY=40@nan wrote a NaN cash straight to Neon; refused now, before any book is read."""
+    from kite_connect.trading import live_session as ls
+
+    with pytest.raises(SystemExit) as exit_:
+        ls.main(["--reconcile", item])
+    assert exit_.value.code == 2 and "PX a positive price" in capsys.readouterr().err
+
+
+def test_a_first_ledger_starts_with_its_capital_in_cash():
+    from kite_connect.trading.live_session import load_ledger
+
+    led = load_ledger({}, 300000.0)
+    assert (led["capital"], led["cash"], led["positions"]) == (300000.0, 300000.0, {})
 
 
 def test_go_live_status_says_ready_only_when_every_real_check_passes(monkeypatch):
