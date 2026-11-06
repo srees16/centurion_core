@@ -592,6 +592,7 @@ test closes a stream for good. The others say what would reopen them.
 | Pairs / sector-neutral futures | — | desk | — | 0 | NOT VIABLE (Sharpe ~0.1) | — |
 | Option premium selling, naked | — | desk (and O2–O4) | — | — | NOT VIABLE; never-list | — |
 | Intraday options | OX | bar (swing only) | — | 0 | CLOSED | — |
+| Covered calls, cash-secured puts, verticals, collars (OPT2, plan 5bz) | — | desk (Phase 0) | — | 0 | CLOSED (6 Nov), not re-tested: no stock-option lot (Rs 2.9–9.4 lakh, median 6.6) fits a position at Rs 3–30 lakh; the index forms are A1 (on paper) or repeat O5–O8 and NS1-2; no futures in the book to hedge | Covered calls: revisit near Rs 1.5 crore |
 | USDINR and G-sec futures | — | bar (RBI exposure rule; no liquidity) | — | 0 | CLOSED | A rule change |
 | Weekly reversal, ban list, dividend capture, IPO drift | — | desk | — | 0 | NOT VIABLE | — |
 | US stocks | US5, US6 | test | 2013–25; 2007–25 reported | 3 | FAIL (17 Oct); on hold | Your restart |

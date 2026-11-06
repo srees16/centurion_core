@@ -984,6 +984,12 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  7. BACKLOG (after the queue)
 --------------------------------------------------------------------------------
+[ ] P3  COINT1 Co-integrated pairs on single-stock futures (RSK1, 6 Nov): only once U28 reopens futures shorts
+             (Rs 2 crore and above); then a pre-registered look first, against the register's NOT VIABLE row.
+[ ] P3  OPT2-CC Covered calls on the book's holdings (your call 6 Nov, plan 5bz): revisit when live capital
+             nears Rs 1.5 crore, when a 20-name book's positions reach one stock-option lot (median Rs 6.6
+             lakh at end-2025; recheck lot sizes then).  Then pre-register (<= 3 configurations, options
+             family), show how it differs from A1 and O2-O8, and test beside the book.   Prompt: do OPT2-CC
  OPTIONS PLAN (OX).  P1 from 17 Oct (your call, U36; it was P3 by your call
  of 11 Oct).  Goal: a defined-risk options sleeve uncorrelated with the
  core, the one visible route to the golden target's Sharpe.
@@ -1314,7 +1320,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              gold when it trends).  It also removes the flat-equity case
              DD1 guards against.
 [x] P1  IC2  DONE 26 Oct: cost models stamped and respected (section 8).
-[ ] P3  U20  Refill exits: now tested through E4 / D5 in the queue (was a
+[ ] P3  U20  Refill exits: pre-registered as J1 (plan 5bw, 6 Nov), week of 11 Jan.  Was: now tested through E4 / D5 in the queue (was a
              decision due ~24 Dec).  Drop it if E4 fails.
 [x] P3  E3   CLOSED 17 Oct: MTF dropped by your call (L11).  Was: MTF-levered
              variant, only after U20 (b), ~24 Dec.
@@ -1407,6 +1413,66 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+6 Nov   UI2  Fly Kite page (your ask; frontend, uncommitted).  The "Carver Pipeline" card removed: the nightly
+             workflow has run the NSE engine (cloud_paper_runner.py --engine) since CENTURION_NSE_ENGINE=true on 16
+             Sep, so CarverPipeline trades nothing; the card read fields the endpoint does not return (vol_target,
+             idm, forecast_sources, DD gates: blank or NaN on the page).  Its hook and type removed with it; the
+             backend Carver code and endpoint stay (dead-code rule: no removal without a study).  Quick Trade moved
+             below the Quotes / Holdings / Positions / Orders tabs.  tsc clean.
+6 Nov   PNL1 The nightly email's P&L (your observation; uncommitted).  "Since start" was already the cumulative
+             return, but in % only; it now carries the rupees, e.g. "+0.80% (+₹27,881)", "+10.40% (+₹20.80 L)"
+             (daily and Saturday tables; books._since_cell).  Found: each book's own section headed "Total P&L"
+             with the shares alone, so for the four books with a futures leg, gilt or MCX sleeve or options overlay
+             it disagreed with the summary (4 Nov: futures "Total P&L" -₹43,638 / -0.27% while the book was up
+             ₹20.80 lakh / +10.40%; MCX shares +2.70% vs book +1.81%).  Now those books lead with a bold
+             "Book P&L (shares + <sleeve>)" and label the shares "Shares equity / Shares P&L"; the plain books keep
+             "Total P&L".  Tests: the rupee cell; both report shapes.
+6 Nov   RSK1 Validation audit of 12 techniques (your ask), each against code, tests and recorded results.
+             Already in place: walk-forward (R4b, 18 folds 2008-25); parameter sensitivity (scorecard, OF1's 14
+             neighbours: a plateau, fragile only at stop ATR 6->3 and a third signal group); survivorship (SB3,
+             for-cause exits, delisted names); look-ahead (decide at the close, fill the next open; tests
+             test_signals_causal, test_universe_lookahead, the share count); autocorrelation (AC1-widened DSR,
+             Newey-West in every study); Monte Carlo (MC1 bands, block bootstrap; SHUF1 1,000 orderings);
+             slippage (cost model 4's square-root impact, LN-T21 live fill rules, the fill audit, MON1's gap
+             band); drawdown (the 20/30/35 rule, rule D, MC drawdown bands); cross-validation (CSCV for PBO, the
+             walk-forward; purged k-fold is for fitted ML labels, which the engine has none of).
+             Built now (uncommitted): mc_bands risk (probability of ruin, fat tails) and three tests, plus the
+             first test of cscv_pbo (it had none): noise reads near 0.5, a real edge near 0.  Ruin, before the
+             drawdown rule, rule D and the kill criteria, deployed as-run 2008-25: drawdown past 25% 2% / 11% /
+             18% over 1 / 3 / 5 years, past 35% 0 / 2 / 3%, past 50% and below half the capital ~0; a loss 20% /
+             9% / 4%.  The 1.75x futures book: past 35% 4 / 18 / 30%, which bears out GT8/U36's closure.  Fat
+             tails in every book: skew -1.6, excess kurtosis 13, the worst 1% of days 1.7x a normal's, Hill index
+             2.3; worst day -7.8%, week -15.7%, month -19.8%.  No control rests on a normal assumption (DSR takes
+             skew and kurtosis, the bands and ruin resample real days, A1's loss is defined), but the bootstrap
+             cannot make a day worse than history's worst, and a tail index of 2.3 says one can come.
+             Not applicable: co-integration (pairs and stat-arb need a short leg; retail cannot short stocks
+             overnight and U28 closes single-stock futures shorts below Rs 2 crore; the register's pairs row is
+             NOT VIABLE); backlog COINT1, at that capital.
+6 Nov   OPT2 Covered calls, cash-secured puts, verticals, collars (your brief; plan 5bz): CLOSED at Phase 0, your
+             call, no trial (options N stays 20).  Stock-option lots Rs 2.9-9.4 lakh (median 6.6) against about
+             Rs 0.15-1.5 lakh a position at Rs 3-30 lakh: none fits.  A's index form is A1 (on paper); B buys the
+             names that fade; C has no futures to hedge and repeats O5-O8's debit spreads; D adds NS1-2's losing
+             put to A1.  Covered calls: revisit near Rs 1.5 crore (OPT2-CC, backlog).
+6 Nov   CC1  Counter-cyclical investing (your ask: validate, then decide; plan 5by, read rule fixed 19:08 IST before any
+             return; break check amended 19:10, before any return).  A look, no trial, no family budget.  Data:
+             NSE index files 2012-25 (P/E, P/B, yield), NIFTY 50 on P/B, 10 sectors (IT and Media left out: every
+             measure breaks at NSE's April 2021 change).  Read 1 (market, next-year TRI by P/B quintile): cheapest
+             +47.6% to dearest +7.6%, spread 40 points but NW t 1.12 (needed 1.5): one episode, the March 2020
+             crash, holds most of the cheapest quintile.  Read 2 (3 cheapest vs 3 dearest sectors): +0.22%, t 0.06.
+             DISCARDED for this book: Phase 2 not run, nothing coded, temporary data deleted.  Holding back at
+             highs has no case (the dearest quintile still made 7.6%, about cash).  The closest testable form is
+             J4 (rebound half-step, plan 5bx), already queued for January.
+6 Nov   J1J4 Pre-registered (your ask; plan 5bw J1, 5bx J4, 18:54 IST, before any run).  J1: portfolio.refill_exits
+             alone, week of 11 Jan after RA1, V3 and the re-baseline (not run if V3 promotes E4), the base's
+             walk-forward on Kaggle plus a funding="live" re-run of each fold; on the milestone basis.  Pass,
+             decision 7 strict: higher Sharpe with bootstrap_p <= 0.025 (t >= 2), higher in 2008-12, DSR >= 0.95
+             at N 62 (AC1) and core PBO <= 30%.  J4: the half-step, overlay family 2 of 3, by 5 Feb: weekly, in
+             risk_off with NIFTY's 21-session return > 0 and the drawdown rule normal, NIFTYBEES at 25% from
+             idle capital; out at once when the regime or the rule changes.  Pass: CAGR, Sharpe and alpha all
+             higher with bootstrap_p <= 0.025, Sharpe and Calmar not lower in 2 of 3 eras, worst cycle loss
+             <= 15%.  Stricter than the review's table (bootstrap_p <= 0.10 for J1, "not lower" for J4): your
+             decision 7 puts return claims on the strict gate.  Relax by a dated addendum before any run if you
+             prefer.  The slot GT11 freed stays unused (my recommendation; each trial raises the bar).
 6 Nov   KL1  Slow Kite page after the TOTP login (your report).  Root cause: live_session.live_book() ran
              ensure_tables on every call (about 15 statements, each a pool checkout with a ping and its own
              transaction): the login callback (storing the token), the Kite page's account list and each
