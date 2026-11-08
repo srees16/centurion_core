@@ -6923,7 +6923,7 @@ no code; the result stays in the tracker.
 
 **Already decided, not re-run.** Pairs with a short leg: not viable below Rs 2
 crore (U28, RSK1; backlog COINT1), so only the long leg is tested (H2). SUE
-earnings drift is GT7 (5aa), queued; H3 is the price-reaction form, a different
+earnings drift is GT7 (5aa), withdrawn 5 Nov; H3 is the price-reaction form, a different
 signal. DT1 (5aq) failed a 20-close breakout and RSI(14) < 30; H1 adds the
 compression condition and H5 uses a 20-session z and a 5-session hold.
 
@@ -7080,6 +7080,55 @@ return is an artefact of its closing average and auction open, not something an
 order can earn. S2b was not run. Y3's Sharpe (5s) and any study of index or
 bhavcopy opens against closes carry the same artefact (YZ1's split, H4's gap
 reversal): INT1C must measure on minute prices.
+
+## 5cb. GF1: the opening gap's fade on minute prices (India tracker GF1; INT1C idea 1 of 3; your go 07 Nov 2026; pre-registered 07 Nov 2026, 00:56 IST, before any data was downloaded)
+
+**Why.** BT7's H4 (5ca) found stock gaps reversing 75-92 bp intraday on bhavcopy
+prices, but stage 2 showed that bhavcopy opens and closes can manufacture such
+splits. Who loses: an opening gap is set by overnight orders in the call auction;
+if it overshoots, those orders pay the fade. This tests it on prices an order gets.
+
+**Scope, under 5av's rules.** The test: NIFTYBEES, intraday (MIS), long or short;
+no dead names, so no survivorship question. Stocks: an information look only,
+never a pass route, because Kite's minute history holds no delisted names (5av:
+single stocks join only with them). Intraday family N = 2 (both looks count).
+2026 is not downloaded.
+
+**Data (INT1A's checks, on Kite's free minute history).** Minute candles Feb 2015
+to Dec 2025: NIFTYBEES, and for the look the universe members of
+`compute_universe_panel` (deployed config) still listed on Kite. A session counts
+only if its minutes reproduce the bhavcopy's high and low within 0.5% and volume
+within 5%; one that fails is refused, never filled, and counted. Sessions under
+200 candles (Muhurat, outages) are not traded. Stop and report if under 90% of
+NIFTYBEES's sessions pass or fewer than 5 years remain.
+
+**Rule.** Prior close C = the volume-weighted typical price ((H+L+C)/3) of
+15:25-15:29 on the previous trade day; open O = that of 09:16-09:20 (the stray
+09:15 print skipped, D4). Gap g = O / C - 1. Event: |g| >= 0.5% for NIFTYBEES,
+>= 2% for stocks (as H4). Trade against the gap, filled on the next bar: entry =
+the volume-weighted typical price of 09:21-09:25, exit = that of 15:10-15:14
+(flat by 15:15). A window that traded nothing uses its last close; a session
+missing a window is dropped and counted.
+
+**Cost.** Zerodha intraday on Rs 3 lakh a side (NIFTYBEES: brokerage Rs 20 or
+0.03%, whichever is lower; STT 0.001% on the sell side for an equity ETF;
+exchange, SEBI, stamp 0.003% on the buy, GST 18%; stocks: STT 0.025% on the sell
+side) plus 3 bp of spread each way. Robustness at 6 bp each way.
+
+**Pass (5av, INT1C), NIFTYBEES only.** Net mean per event > 0 with Newey-West
+(lag 5, on the daily series) t >= 3; the same sign in 2015-19 and 2020-25; net
+Sharpe still positive at 6 bp each way; DSR >= 0.95 at N = 2; then the 5.1
+diversifier gate beside the book (both books, `bootstrap_p` <= 0.10), the stream
+a funded sleeve with nothing earned on idle cash, as BT7-S2. At least 200 events.
+
+**Reported, not gated.** The follow (the same trade with the gap); the stocks'
+look (net mean, t, both halves); the share of the bhavcopy-measured H4 reversal
+that remains on minute prices.
+
+**After.** A fail closes the idea (INT1C keeps 2 slots), and the data and code
+are deleted. A pass moves to INT1B (a proper simulator with next-bar fills,
+circuit halts and look-ahead traps), then INT1D's 60 paper sessions; it is never
+adopted from this look.
 
 ## 6. Stage D — Paper trading (60–90 trading days)
 

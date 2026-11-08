@@ -154,7 +154,7 @@ ST2, LN-T2
 
 You are implementing logic described in a video transcript.
 
-"<TRANSCRIPT HERE>"
+"<>"
 
 TASK: implement as code or review my code against it or build checks/validation or extract the algorithm as is relevant to the above transcript
 

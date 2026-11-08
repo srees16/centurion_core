@@ -191,6 +191,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  3. DECISIONS TAKEN (27 Sep)
 --------------------------------------------------------------------------------
+  U39  (7 Nov) Your rule: Claude challenges every request before working on it: its value to the
+       Ind (or US) module, prior tests and decisions in the trackers and plan, its cost in trials,
+       freezes and time.  Counter-productive, duplicate or low-value: a crisp "disagree, because..."
+       and a better alternative, then your call.  Recorded in CLAUDE.md and Claude's memory.
   U38  (31 Oct) Your calls: manual orders capped at Rs 2 lakh of new risk (MO1);
        intraday may run without 2008 data, the gap stated, worst days it holds
        used instead (INT1).
@@ -994,6 +998,11 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 [x] P3  BT7-S2 CLOSED 7 Nov: FAIL (plan 5ca stage 2).  NIFTYBEES minute prices, 2,687 nights 2015-25: gross
              +1.2 bp a night against 8.7 bp of cost, net -7.5 bp (t -6.12), every year negative.  The index's
              +11.9 bp night is its closing average and auction open, not an earnable return.  Folder deleted.
+[ ] P2  GF1  Opening-gap fade on minute prices (plan 5cb, pre-registered 7 Nov 00:56 IST; INT1C idea 1 of
+             3, intraday N = 2).  MONDAY 9 Nov, after your Kite login: Claude downloads Kite's free minute
+             history 2015-25 (NIFTYBEES about 70 requests; the universe's listed stocks about 20,000, in the
+             background, about 2 hours), runs INT1A's bhavcopy checks, then the test.  Pass route NIFTYBEES
+             only (stocks: information, no delisted names).  Pass -> INT1B, never adoption.   Prompt: do GF1
 [ ] P3  COINT1 Co-integrated pairs on single-stock futures (RSK1, 6 Nov): only once U28 reopens futures shorts
              (Rs 2 crore and above); then a pre-registered look first, against the register's NOT VIABLE row.
 [ ] P3  OPT2-CC Covered calls on the book's holdings (your call 6 Nov, plan 5bz): revisit when live capital
@@ -1086,7 +1095,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              deceleration test, losing-streak step-down, +/-3 swings at
              the base's right edge.  It runs after V3, against the configuration V3
              leaves live.                                Prompt: do MV1
-[ ] P3  GT7  Earnings-drift overlay on the core ranking (needs GT1; core
+[x] P3  GT7  WITHDRAWN 5 Nov (your decision 2; tracker 856).  Was: Earnings-drift overlay on the core ranking (needs GT1; core
              family: one configuration, after V3).  Pre-registered 11 Oct
              14:17 IST (plan 5aa): standardised unexpected earnings (SUE) as
              a fourth forecast group, ranked like the other rank groups; no
@@ -1265,7 +1274,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              - then live, under protocol 6.4's live-tracking condition
                (12 months: keep it or shorten it, your call).
                                                         Prompt: do L11
-[ ] P3  GT9  Costs and tax: staggered rebalance tranches and wider exit
+[x] P3  GT9  WITHDRAWN 5 Nov (your decision 2; tracker 856).  Was: Costs and tax: staggered rebalance tranches and wider exit
              bands (core family, one configuration, after V3); 20% STCG
              takes ~5 pts a year.
 [x] P3  GT11 WITHDRAWN 5 Nov (your call, GT11C: 0.71% of buys; no list history).  Was: Exclusion filters (NSE ASM/GSM lists; promoter pledge > 20%)
@@ -1423,6 +1432,56 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+8 Nov   COV1 Test coverage (your ask: SonarQube / Grafana).  Neither adopted: SonarQube's value here is coverage,
+             which coverage.py gives in CI with no server; its smells on 178k lines (mostly legacy) are noise;
+             Grafana would duplicate the Fly Kite / Trade Center pages, the README scorecard and the emails, and
+             need Neon credentials in a third party.  Measured (fast suite): 19% overall, live path 24-95%;
+             gtt_stops.py (live stop-losses) 14%.  Done (uncommitted; RA1F-eligible, tests and CI only): 13 GTT
+             tests in test_execution_and_costs.py on a fake broker (placement on the tick, the circuit floor,
+             unchanged / modified / deduped, refusals with nothing sent, the kill switch's cap, broker refusals
+             alerted, the slab fallback, reconcile with orphans, scope, book caps and a blind broker): gtt_stops
+             14% -> 88% (core-only venv); 6 of 6 mutants caught.  tests.yml now runs the suite under coverage
+             and fails if any of 20 live-path files drops below its 8 Nov level less 2 points (a ratchet; it
+             failed as it should on a simulated drop).  Found, not fixed: tools/game_day._isolate patches
+             order_service, kill_switch, alerts, the database and the environment for good, so a local run that
+             includes the slow game-day test breaks later pacing tests (CI skips slow tests).
+7 Nov   QI1  "Intro to quant trading" video (EV, Sharpe, log returns, AR(1) by OLS and gradient descent, order
+             book, taking and making; your ask): not adopted, no repo code (9 scratch tests, deleted).  Everything
+             applicable already exists (trade EV and win rate in the scorecard, excess Sharpe, log returns, cost
+             model 4's spread floor and impact, rank thresholds, capped weights); market making and hourly
+             frequency scaling need intraday HFT access a Rs 3 lakh Kite account lacks.  Transcript errors: game
+             2's "$35" gives EV +$8 (the stated +1.25c needs $3.05); -6.6% is -16.7%; the spread is 2, not 3.
+7 Nov   DVP1 "Drift VWAP pullback" prop-firm video (NQ futures, 5/15-minute, your ask): not adopted, no repo code.
+             Built and tested in the scratchpad (session VWAP from 9:30, the three drift conditions, first
+             counter-candle trigger, next-open entry, 80/40 and 80/50 point exits, the guardrails, a challenge
+             Monte Carlo; 14 tests).  Out of scope: US futures (US module on hold, advisory only), intraday (an
+             INT1C slot; no free expired NIFTY-futures minutes), and its goal is passing prop challenges, not
+             returns (the presenter: unlikely to make money on own capital).  Its 64% win rate sits 4 points
+             over the 60% break-even of 866 / 1,300; the 93.6% in 4 attempts assumes independent attempts.
+7 Nov   MCP1 Permutation-test video (Masters' in-sample and walk-forward Monte Carlo permutation tests; your ask):
+             not adopted, no repo code.  Built and tested in the scratchpad (bar permutation with one shared
+             shuffle, Donchian optimiser, both tests, 12 tests: planted trend passes, noise fails, no look-ahead).
+             Already covered: services/research/mc_permutation_test.py (position shuffle, best-of-N, walk-
+             forward factory; legacy research) and the engine's gates (DSR at the effective N, PBO, walk-forward
+             2017-25, the sealed 2026 holdout).  Centurion pre-registers one configuration per trial, so there is
+             no optimiser for the in-sample test to judge; on a 3,000-stock panel with listings and delistings
+             the bar permutation needs identical indexes and would scramble listing spans; about 6 hours an
+             engine configuration at 1,000 permutations.  Found: the legacy engine's p-values are k/N and can
+             read 0; the correct form is (k+1)/(N+1) (legacy only, not changed).  Also corrected 7 Nov: GT7 was
+             withdrawn 5 Nov; BT7, VC1 and plan 5ca had called it queued.
+7 Nov   VC1  Volatility clustering / GARCH diagnostic (your ask; no trial, no code, deleted).  2008-25:
+             clustering confirmed: a NIFTY move over 2.5% on 2.2% of days, 23.4% of days after one (10.5x);
+             stocks over 2 sd 3.0x.  GARCH(1,1), t errors: NIFTY alpha 0.07 beta 0.91, half-life 28 days;
+             the WF book alpha 0.21 beta 0.75, half-life 17, nu 4.8.  Out of sample 2016-25, GARCH beats
+             VT1's 20-day realised vol: the book QLIKE -0.09 next day (DM t -3.51), -0.10 over 20 days (t
+             -2.48); NIFTY next day t -2.89, 20 days t -1.22.  Not adopted: VT1's loss (Sharpe 0.60 -> 0.38)
+             came from cutting exposure before rebounds, not from a poor forecast; a GARCH vol target would be
+             a core trial (none before January) and ranks below MV1 and J1.  MON1's fixed band on D2's
+             stressed gap (a proxy): de-meaned breaches at 60 sessions 4.5% against 2.3% nominal, mostly in
+             volatile spells; scaling the band by the book's volatility makes it worse (6.8%), so it is not a
+             clustering problem and the band stays as designed (a WATCH line at 60).
+             Same day, the GARCH reel's code (19 tests, reel numbers reproduced: 1.58%, 13.5 days, 6.4x) was
+             built in the scratchpad only; your call: not added to the repo (a closed idea leaves no code).
 7 Nov   BT7-S2 NIFTY close-to-open on tradeable prices (plan 5ca stage 2, pre-registered 00:45 IST; no new
              trial): FAIL, H7 closed, no code, data and scripts deleted.  Data: NIFTYBEES minute candles from
              Kite's historical API (free with Kite Connect; none before 2015), 2,687 nights Feb 2015-Dec 2025.
@@ -1440,7 +1499,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              net over 20 sessions (t -4.16); pairs laggard, long leg only (shorts closed below Rs 2 crore) +0.14%
              (t +0.24; addendum 22:16: no point-in-time sectors before 14 Sep 2026, so any-sector peers);
              earnings-return drift +1.22% over 60 (t +2.39, bar 2.58, both halves positive: a near miss, not
-             re-tuned; GT7's SUE version stays queued); gap continuation intraday -0.86% net (t -22.9): gaps
+             re-tuned; GT7, the SUE version, was withdrawn 5 Nov); gap continuation intraday -0.86% net (t -22.9): gaps
              REVERSE, -75 bp up and -92 bp down gross, -117 bp at 3%+; z-score reversion -0.63% over 5 (t -7.65);
              RSI rotation -0.24% a month (t -1.21); stocks close to open -0.14% a night net (+20 bp gross
              against 34.6 bp of cost).  The book's route passes nowhere (z-score flagged entries +6.0%, t +2.38,
