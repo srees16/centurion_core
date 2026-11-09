@@ -30,6 +30,33 @@ jobs:
       - name: Install the test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements-core.txt
+          pip install -r requirements-core.txt "coverage==7.6.10"
       - name: Run the fast suite
-        run: python -m pytest tests -q -m "not slow"
+        run: python -m coverage run --source=nse_engine,kite_connect -m pytest tests -q -m "not slow"
+      # A ratchet, not a target: the code that sends orders, places stops or gates live trading may not lose
+      # tests.  Each floor is the file's coverage on 8 Nov 2026 less 2 points; raise one when tests are added.
+      - name: Live-path coverage floors
+        run: |
+          python -m coverage json -q -o coverage.json
+          python - <<'EOF'
+          import json, sys
+          FLOORS = {
+              "kite_connect/trading/order_service.py": 66, "kite_connect/trading/live_session.py": 22,
+              "kite_connect/trading/nse_engine_executor.py": 43, "kite_connect/trading/gtt_stops.py": 86,
+              "kite_connect/trading/kill_switch.py": 91, "kite_connect/trading/nse_instruments.py": 82,
+              "kite_connect/trading/order_status.py": 73, "kite_connect/auth/daily_login.py": 21,
+              "kite_connect/auth/accounts.py": 32, "nse_engine/engine.py": 69, "nse_engine/costs.py": 85,
+              "nse_engine/portfolio.py": 83, "nse_engine/data/store.py": 47, "nse_engine/capital_ladder.py": 75,
+              "nse_engine/live_rules.py": 25, "nse_engine/live_monitor.py": 72, "nse_engine/deployment.py": 48,
+              "nse_engine/mc_bands.py": 55, "nse_engine/nse_calendar.py": 93, "nse_engine/universe.py": 83,
+          }
+          files = json.load(open("coverage.json"))["files"]
+          low = []
+          for path, floor in FLOORS.items():
+              got = files.get(path, {}).get("summary", {}).get("percent_covered", 0.0)
+              print(f"{path:48s} {got:5.1f}%  (floor {floor}%)")
+              if got < floor:
+                  low.append(f"{path}: {got:.1f}% < {floor}%")
+          if low:
+              sys.exit("coverage fell below its floor:\n  " + "\n  ".join(low))
+          EOF

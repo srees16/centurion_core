@@ -38,7 +38,7 @@ import sys
 from collections import Counter
 from datetime import date
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Callable, Dict, List, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -387,10 +387,38 @@ class MemoryBook:
 
 # ---------------------------------------------------------------------------------------------- the run
 
-def _isolate(alerts: List[tuple]) -> None:
-    """Nothing leaves the process: no email, alert, order record, database or latched kill switch."""
+#: Environment variables a replay pops or sets; ``_isolate``'s undo puts each back as it was (or absent).
+ISOLATED_ENV = ("CENTURION_DATABASE_URL", "DATABASE_URL", "CENTURION_EMAIL_USER", "CENTURION_EMAIL_PASS",
+                "CENTURION_PAPER_TRADE", "CENTURION_NSE_ENGINE_LIVE", "CENTURION_GO_LIVE_OVERRIDE",
+                "CENTURION_KILL_SWITCH")
+
+
+def _isolate(alerts: List[tuple]) -> Callable[[], None]:
+    """Nothing leaves the process: no email, alert, order record, database or latched kill switch.
+
+    Returns the undo: every patched attribute, the instruments cache and the environment as they were, so a
+    replay inside a longer process (a test session) leaves the modules it borrowed untouched (tracker GD2).
+    """
     from kite_connect.trading import kill_switch, nse_instruments, order_service
     from services.notifications import alerts as al
+    import database.connection as dbc
+
+    saved = [(order_service, n, getattr(order_service, n))
+             for n in ("_persist_to_db", "_send_order_email", "_is_nse_market_open", "ORDERS_PER_SECOND")]
+    saved += [(kill_switch, "state", kill_switch.state), (al, "alert", al.alert), (dbc, "get_db_manager", dbc.get_db_manager)]
+    saved_env = {name: os.environ.get(name) for name in ISOLATED_ENV}
+    saved_cache = dict(nse_instruments._cache)
+
+    def undo() -> None:
+        for obj, name, value in saved:
+            setattr(obj, name, value)
+        for name, value in saved_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        nse_instruments._cache.clear()
+        nse_instruments._cache.update(saved_cache)
 
     order_service._persist_to_db = lambda *a, **k: None
     order_service._send_order_email = lambda *a, **k: None
@@ -400,8 +428,6 @@ def _isolate(alerts: List[tuple]) -> None:
     al.alert = lambda severity, key, title, lines=(), book=None, once=False: alerts.append((severity, title)) or True
     nse_instruments._cache.clear()
 
-    import database.connection as dbc
-
     def no_db():
         raise RuntimeError("game day: the database is never opened")
     dbc.get_db_manager = no_db
@@ -409,6 +435,7 @@ def _isolate(alerts: List[tuple]) -> None:
         os.environ.pop(name, None)
     os.environ.update({"CENTURION_PAPER_TRADE": "false", "CENTURION_NSE_ENGINE_LIVE": "true",
                        "CENTURION_GO_LIVE_OVERRIDE": "true", "CENTURION_KILL_SWITCH": "false"})
+    return undo
 
 
 def _bars(store: str, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
@@ -423,12 +450,20 @@ def _bars(store: str, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
 
 
 def run(scenario: str, start: str, end: str, faults: Dict[str, str]) -> dict:
+    """The replay, isolated; whatever happens, everything it patched is put back before it returns."""
+    alerts: List[tuple] = []
+    undo = _isolate(alerts)
+    try:
+        return _replay(scenario, start, end, faults, alerts)
+    finally:
+        undo()
+
+
+def _replay(scenario: str, start: str, end: str, faults: Dict[str, str], alerts: List[tuple]) -> dict:
     from kite_connect.trading import live_session as ls
     from kite_connect.trading import nse_engine_executor as nee
     from nse_engine.deployment import load_deployment
 
-    alerts: List[tuple] = []
-    _isolate(alerts)
     s0, s1 = pd.Timestamp(start), pd.Timestamp(end)
     dep = load_deployment()
     store = "data/nse_engine/store_ext2006" if s0.year < 2012 else dep.engine.data.store_dir

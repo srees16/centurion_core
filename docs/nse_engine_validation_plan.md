@@ -6231,6 +6231,96 @@ scans or other layouts), 2013–22.
 - Reading: not worth doing at any rung; no tendering rule for the book.
   Scratch code and downloads removed.
 
+**NS1-8 pre-registration (09 Nov 2026, 14:03 IST, your go "do NS1-8 now,
+capped at half a day"; written before any offer document was read).** A hand
+table, no trial, no repo code; scratch files deleted with the reading.
+- Events: (A) SAST open offers (2011 Takeover Code), public announcement (PA)
+  2013–25; (B) delisting offers, initial announcement 2013–25. NSE-listed
+  targets with a store price on the entry day. 2026 stays sealed.
+- Trade A: buy at the store close of the first session after the PA; tender
+  everything; accepted fraction a = min(1, offer size ÷ shares tendered) from
+  the post-offer advertisement, paid the final offer price; the rest sold at
+  the close of the 10th session after the tendering period ends. A withdrawn
+  offer: sold at the close of the session after the withdrawal notice.
+- Trade B: buy as in A after the initial announcement; tender at the floor
+  price. Success: the final exit price for every share, at the 10th session
+  after the bid window. Failure or rejection: sold at the close of the 2nd
+  session after the result.
+- Costs: 0.5% a side for impact in these small names plus STT 0.1% on each
+  buy and sale, stamp and exchange charges; tax 20% of any positive event P&L,
+  losses get no credit (conservative).
+- Tradable: median traded value over the 20 sessions before the PA of at
+  least Rs 5 lakh a day.
+- Per event: net return r and days held h; annualised return on capital
+  deployed = sum(r) ÷ sum(h) × 365.
+- Adopted as a paper candidate only if A or B meets all of the following:
+  - at least 10% a year after tax on capital deployed (the liquid fund earns
+    about 6.5%);
+  - positive in both 2013–19 and 2020–25;
+  - no event worse than −10% (your bounded-tail rule, sleeve = one event);
+  - at least 5 tradable events a year on average.
+  B also reports its failure rate and worst case.
+- Stop rule: if SEBI's documents give fewer than 100 open offers with a
+  readable acceptance (or B fewer than 30 outcomes) by 16:30 IST, stop and
+  report the data gap. Hard stop 18:30 IST.
+- Amendment (14:12 IST, before any price or acceptance was read; data access
+  only). SEBI's filing listing refuses scripted paging ("Unauthorized Request
+  Blocked"), and it is not worked around. The store holds no open offers and
+  only 10 delisting rows. Events come instead from SEBI's monthly open-offer
+  statistics (statistics/open-offers/<mon><yyyy>.html): announcement date,
+  tendering window, offer size, price and the acquirer's stake after a full
+  response. Acceptance is bounded, not read:
+  - low: a_min = offer size ÷ (100% − the acquirer's pre-offer stake), as if
+    every other holder tenders;
+  - high: a = 1.
+  A passes only if it passes at a_min. It fails if it fails even at a = 1.
+  Between the two is "inconclusive"; that is not a pass.
+  Targets are matched by name to NSE symbols (EQUITY_L and symbol changes).
+  Targets delisted since are missed, and that is reported. B (delisting
+  offers) has no comparable statistics page, so it is reported as a data gap.
+- Note (14:16 IST, while building the table, before the verdict was read):
+  - Some pages swap the price and value columns, and the headers cannot be
+    trusted. The price is the column that, times the share count,
+    reproduces the other within 2%; 72 ambiguous rows are dropped.
+  - Six rows dated their announcement after the tendering window opened
+    (SEBI typos); they are dropped.
+  - The return is linear in acceptance, but not always rising: when the
+    stock ends above the offer price, full acceptance is the worse case. So
+    the bounds are each event's minimum and maximum of r(a_min) and r(1).
+
+**NS1-8 result (09 Nov 2026, 14:17 IST; hand table, no trial): FAIL, not
+adopted.**
+- Data:
+  - SEBI's statistics: 654 offers, by tendering date Apr 2013–Feb 2025,
+    with gaps Sep 2015–Mar 2016 and Mar 2024 (about 11.2 years).
+  - 118 matched an NSE name (most targets are BSE-only small companies).
+  - 58 were tradable events with prices: 25 not trading at the
+    announcement, 25 with no NSE prices in the window, 10 under Rs 5 lakh a
+    day.
+  - About 5.2 events a year.
+  - Median holding 128 days. Median offer premium over the entry close
+    +0.8%: the market prices the offer on the next session. Median a_min 46%.
+- Results, per year on capital deployed, after costs and tax:
+
+  | Bound | Per year | 2013–19 | 2020–25 | Worst event | Hit rate |
+  |---|---|---|---|---|---|
+  | Low | −10.6% | −5.0% | −20.0% | −25.2% (AUTOAXLES 2022) | 33% |
+  | High | +12.9% | +7.9% | +21.3% | −11.7% (NDTV 2022) | 60% |
+
+  The high bound picks, for each event, whichever acceptance helps, so it
+  overstates what can actually be reached.
+- Information only, not pre-registered, entering only when the offer is more
+  than 2% above the entry: 27 events (2.4 a year). Low +2.2% a year, high
+  +19.6%. Below the liquid fund at the low bound, and under 5 events a year.
+- Reading:
+  - Fails at the low bound on every criterion except the event count.
+  - Fails even at the high bound on the tail rule (−11.7% against −10%).
+  - The spread is usually priced away by the first close, and about half
+    the shares come back to fall with the stock.
+- B, delisting offers: not tested. There is no statistics source, and the
+  store has 10 rows against the 30 required: a data gap, closed with NS1-8.
+- Scratch code and pages deleted.
+
 **NS1-10 check (3 Nov 2026; desk, no trial): fails, closed.**
 - Data: none in hand (the store has MCX only). NCDEX's bhavcopy page is
   rendered in the browser; no file or API link was found to script 2008–25
@@ -6923,7 +7013,7 @@ no code; the result stays in the tracker.
 
 **Already decided, not re-run.** Pairs with a short leg: not viable below Rs 2
 crore (U28, RSK1; backlog COINT1), so only the long leg is tested (H2). SUE
-earnings drift is GT7 (5aa), queued; H3 is the price-reaction form, a different
+earnings drift is GT7 (5aa), withdrawn 5 Nov; H3 is the price-reaction form, a different
 signal. DT1 (5aq) failed a 20-close breakout and RSI(14) < 30; H1 adds the
 compression condition and H5 uses a 20-session z and a 5-session hold.
 
@@ -7080,6 +7170,72 @@ return is an artefact of its closing average and auction open, not something an
 order can earn. S2b was not run. Y3's Sharpe (5s) and any study of index or
 bhavcopy opens against closes carry the same artefact (YZ1's split, H4's gap
 reversal): INT1C must measure on minute prices.
+
+## 5cb. GF1: the opening gap's fade on minute prices (India tracker GF1; INT1C idea 1 of 3; your go 07 Nov 2026; pre-registered 07 Nov 2026, 00:56 IST, before any data was downloaded)
+
+**Why.** BT7's H4 (5ca) found stock gaps reversing 75-92 bp intraday on bhavcopy
+prices, but stage 2 showed that bhavcopy opens and closes can manufacture such
+splits. Who loses: an opening gap is set by overnight orders in the call auction;
+if it overshoots, those orders pay the fade. This tests it on prices an order gets.
+
+**Scope, under 5av's rules.** The test: NIFTYBEES, intraday (MIS), long or short;
+no dead names, so no survivorship question. Stocks: an information look only,
+never a pass route, because Kite's minute history holds no delisted names (5av:
+single stocks join only with them). Intraday family N = 2 (both looks count).
+2026 is not downloaded.
+
+**Data (INT1A's checks, on Kite's free minute history).** Minute candles Feb 2015
+to Dec 2025: NIFTYBEES, and for the look the universe members of
+`compute_universe_panel` (deployed config) still listed on Kite. A session counts
+only if its minutes reproduce the bhavcopy's high and low within 0.5% and volume
+within 5%; one that fails is refused, never filled, and counted. Sessions under
+200 candles (Muhurat, outages) are not traded. Stop and report if under 90% of
+NIFTYBEES's sessions pass or fewer than 5 years remain.
+
+**Rule.** Prior close C = the volume-weighted typical price ((H+L+C)/3) of
+15:25-15:29 on the previous trade day; open O = that of 09:16-09:20 (the stray
+09:15 print skipped, D4). Gap g = O / C - 1. Event: |g| >= 0.5% for NIFTYBEES,
+>= 2% for stocks (as H4). Trade against the gap, filled on the next bar: entry =
+the volume-weighted typical price of 09:21-09:25, exit = that of 15:10-15:14
+(flat by 15:15). A window that traded nothing uses its last close; a session
+missing a window is dropped and counted.
+
+**Cost.** Zerodha intraday on Rs 3 lakh a side (NIFTYBEES: brokerage Rs 20 or
+0.03%, whichever is lower; STT 0.001% on the sell side for an equity ETF;
+exchange, SEBI, stamp 0.003% on the buy, GST 18%; stocks: STT 0.025% on the sell
+side) plus 3 bp of spread each way. Robustness at 6 bp each way.
+
+**Pass (5av, INT1C), NIFTYBEES only.** Net mean per event > 0 with Newey-West
+(lag 5, on the daily series) t >= 3; the same sign in 2015-19 and 2020-25; net
+Sharpe still positive at 6 bp each way; DSR >= 0.95 at N = 2; then the 5.1
+diversifier gate beside the book (both books, `bootstrap_p` <= 0.10), the stream
+a funded sleeve with nothing earned on idle cash, as BT7-S2. At least 200 events.
+
+**Reported, not gated.** The follow (the same trade with the gap); the stocks'
+look (net mean, t, both halves); the share of the bhavcopy-measured H4 reversal
+that remains on minute prices.
+
+**After.** A fail closes the idea (INT1C keeps 2 slots), and the data and code
+are deleted.
+
+**Note (09 Nov 2026, 11:18 IST, before any return was computed).** The bhavcopy
+check's first run scaled volume by the split factor as well as price; Kite's
+minute history adjusts prices for splits and bonuses but not volumes (NIFTYBEES:
+minute high / bhavcopy high 0.1 before the 2019 split, minute volume / bhavcopy
+volume 0.99-1.00 in every year). The check now compares split-adjusted prices
+and raw volumes. The tolerances and the stop rule are unchanged.
+
+**Amendment (09 Nov 2026, 11:48 IST, your call, before any return was computed).**
+With volumes fixed, 88.9% of NIFTYBEES's full sessions passed (volume 99.6%, high
+and low 89.3%), under the 90% stop line. In all 287 failures the bhavcopy's range
+was wider than the minutes' (its low below every minute in 70%, by a median 1.17%;
+its high above every minute in 33%); the minutes never traded outside it: stray
+ETF prints in the reference (D4), not broken minute data. The high/low check is
+now one-sided: a session fails if a minute bar trades more than 0.5% outside the
+bhavcopy's high or low, or volume differs by more than 5%. Everything else as
+pre-registered. A pass moves to INT1B (a proper simulator with next-bar fills,
+circuit halts and look-ahead traps), then INT1D's 60 paper sessions; it is never
+adopted from this look.
 
 ## 6. Stage D — Paper trading (60–90 trading days)
 

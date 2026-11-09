@@ -48,5 +48,12 @@ data and coding assistants". Read it before changing code. The essentials:
     results never move; keep any new US behaviour behind such a switch.
 - **Tests:** `python -m pytest tests -q -m "not slow"`.
 - **Communication:** be candid when something misses the goal or is
-  premature, and keep summaries crisp. Keep `docs/MEMORY_TRACKER.txt`
+  premature, and keep summaries crisp.
+- **Challenge every request first** (owner's rule, 7 Nov 2026): before any
+  work, gauge whether it adds value to the Ind stocks module (or US, when
+  applicable): CAGR, Sharpe, robustness, workflow. Search the trackers and
+  `docs/nse_engine_validation_plan.md` for prior tests and decisions. Weigh
+  its cost (trials, freezes, guards, time against go-live work). If it is
+  counter-productive, a duplicate or low-value, say so crisply with the
+  reason and a better alternative, and ask before proceeding. Keep `docs/MEMORY_TRACKER.txt`
   (India) and `docs/US_MEMORY_TRACKER.txt` (US) current.
