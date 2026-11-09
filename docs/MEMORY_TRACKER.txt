@@ -269,6 +269,23 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
+ >>> SELL TEST, WED 11 - FRI 13 NOV (ST2 step 3, closes LN-T2; your call 9 Nov)
+     Status 9 Nov: "Record sell path" has never run (gh: 0 runs), so the 3-4 Nov restart did not
+     complete (you confirmed 9 Nov: pending on you); the first live session refuses to start until it does.  10 Nov is an NSE holiday.
+     0. Before Wed: Holdings shows the HDFCBANK shares settled (2 per test).  If any 3-4 Nov sell
+        went through, tell Claude first: a past day's orders cannot be recorded (Kite's API
+        returns only today's), and the buy is topped up to 4 by Wed 15:30.
+     1. Wed 11 Nov, after 20:00: AMO SELL 1 HDFCBANK, NSE, CNC, LIMIT at Wednesday's close x
+        0.995 (round to Rs 0.05).
+     2. Thu 12 Nov, TEST 1: 09:00 Kite login; ~09:10 the AMO COMPLETE (note its order ID);
+        after 09:15 GTT Single SELL qty 1, trigger = LTP x 0.997, limit = trigger x 0.996 (note the
+        GTT ID; if not triggered by 14:30, modify to the new LTP); its sell COMPLETE.  Evening:
+        Actions > Record sell path (DDPI date from Console, AMO order ID, GTT ID); Claude checks
+        the run.  After 20:00: AMO SELL 1 for Friday (Thursday's close x 0.995).
+     3. Fri 13 Nov, TEST 2: the same, on the 2 remaining shares; Record sell path that evening.
+     4. Fallback for a failed leg: Mon 16 / Tue 17 Nov.  Every order quantity 1, never "Exit" or
+        sell-all; a screenshot to Claude before each swipe.  Afterwards delete any GTT left.
+     Full steps and the why: the SELL TEST block further down.
  >>> ZERODHA: ORDER-RATE THRESHOLD (added 8 Nov, your call; you contact them)
      Ask, in one ticket: "Under SEBI's 2025 framework for retail algorithmic trading and NSE's
      implementing circulars, (1) what orders-per-second rate makes an API strategy need exchange
@@ -551,6 +568,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
          Tue 10 Nov).
        2 Nov, your call: restart.  AMO after 20:00 Mon 2 Nov (no AMO can
          reach today's open), TEST 1 Tue 3 Nov, TEST 2 Wed 4 Nov.
+       9 Nov: not recorded (Record sell path 0 runs); re-dated, your call: AMO Wed 11 Nov, TEST 1
+         Thu 12, TEST 2 Fri 13, fallback 16-17 Nov (block at the top of section 4).
      The original plan, whose steps stand (only the dates moved):
      Why one day per test: Record sell path reads both orders from Kite,
      whose API returns only that day's orders.  So the AMO SELL and the GTT
@@ -1461,6 +1480,25 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+9 Nov   UI5  Five book labs removed (your ask: Financial ML, Test & Tune, Aronson Lab, Ehlers DSP, Vince Risk;
+             uncommitted, both repos).  Studied first: each lab was a chapter-by-chapter demo (references/<book>/
+             applied, 126 files incl. cached US parquet and PNGs) on US sample tickers, imported only by
+             api/routers/v1/labs.py; neither engine nor any book, workflow or test used them.  What the books
+             contribute already lives elsewhere and stays: nse_engine/validation (Aronson detrending, HAC t and
+             multiple testing, DSR, PBO/CSCV, walk-forward, mc_bands; MCP1 covered Masters' permutation tests)
+             and the legacy strategy code (strategies/ehlers_dsp, services/research/aronson_validator,
+             services/risk/vince_*; used by the Carver pipelines, R21A and the IND/US routers).  Not in the
+             engines and not needed: triple-barrier / meta-labelling, fractional differencing, optimal f (full
+             Kelly 3.9x rejected, SG1), Ehlers filters as signals (an open idea in plan 5, legacy code kept).
+             Removed: references/, labs.py, the gateway include, the five heavy-route entries in api/main.py,
+             database/service.py's lab-history helpers, _config.yml's exclude, README section 10 (now a note)
+             and its mentions; frontend: the five pages and hooks, their constants, types, sidebar icons and
+             nav entries; next.config.js redirects old lab links to /.  Kept: Crypto, RAG Engine, RL Bot,
+             Settings' Vince insurance fields (legacy config).  Left in place: old lab rows in Neon
+             backtest_results (strategy_id *_batch) and their R2 figures.  Checks: 647 fast tests pass, the API
+             imports, next build (37 pages) and tsc clean.
+             Also deleted (your OK): three empty files from the 3 Nov commit (the NS1 "Keep" leftovers),
+             nse_engine/index_events.py, nse_engine/promoter_buys.py, kite_connect/options/tail_hedge.py.
 9 Nov   UI4  Compounder, Harvest, Portfolio and R22 Infusion pages retired (your ask; centurion_core-fe,
              uncommitted).  They ran the legacy Yahoo backtest (survivorship-biased, not the deployed engine;
              "R-series figures are not evidence") and Harvest's "Infuse" button only showed a toast.  Removed

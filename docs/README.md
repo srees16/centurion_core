@@ -28,8 +28,7 @@ ETF sleeves, traded swing and positional, never intraday.
   - Fly Kite for Zerodha accounts;
   - news and sentiment analysis;
   - strategy backtests;
-  - RAG document intelligence;
-  - Financial ML.
+  - RAG document intelligence.
 
   The older Carver pipeline is kept for research.
 - **US stocks.** In research. The US module sends advisory emails only;
@@ -109,13 +108,13 @@ This creates all 14 tables in the `centurion_rag` database: `analysis_runs`, `ne
 
 ---
 
-### Step 5 — Start MinIO (Docker) — for backtest, Financial ML & Test-and-Tune charts
+### Step 5 — Start MinIO (Docker) — for backtest charts
 
 ```powershell
 docker run -d --name centurion-minio -p 9004:9000 -p 9002:9001 -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin123 minio/minio:latest server /data --console-address ":9001"
 ```
 
-The `centurion-backtests` bucket is auto-created on first use. It stores backtest strategy charts, Financial ML figures.
+The `centurion-backtests` bucket is auto-created on first use. It stores backtest strategy charts.
 
 ---
 
@@ -792,7 +791,7 @@ Next.js 16 Frontend (primary — port 3000)
   ├── React 19, TypeScript, Tailwind CSS 4, TanStack Query v5
   ├── JWT auth (Zustand store) + next-themes dark/light mode
   ├── API proxy rewrites → FastAPI backend (port 9001)
-  └── Pages: US/IND Stocks, Financial ML, Test & Tune, RAG Engine, Settings
+  └── Pages: US/IND Stocks, RL Bot, Crypto, RAG Engine, Settings
 
 FastAPI Backend (port 9001)
   ├── /api/v1/* — 50+ REST + SSE endpoints
@@ -1540,8 +1539,6 @@ details = minio.list_runs_detailed()         # metadata: size, chart count, stra
 | **Crypto** | `crypto` | Isolated crypto strategies (default: ETH, BTC, LTC); Binance data, separate cache |
 | **History** | `history` | 3 tabs: Analysis Runs (drill-down), Trading Signals (filterable), Backtest Results (with MinIO charts) |
 | **RAG** | `rag` | PDF upload, query input with KB source selector, streaming response, code applicator |
-| **Financial ML** | `finance_ml` | 19 AFML chapter analyses — data structures, labeling, feature importance, HRP, CSCV, and more |
-| **Test & Tune** | `testune_ts` | 7 chapter analyses from *Testing and Tuning Market Trading Systems* (Timothy Masters) |
 | **Indian Main** | `ind_main` | Indian equities analysis dashboard with auto-order execution for STRONG_BUY signals |
 | **NSE Screener** | `screener` | 3-stage NSE screener → IntegratedScorer verdicts → risk-managed order placement (auto or manual) |
 | **Indian Equities** | `ind_kite` | Live quotes, order book, positions, holdings, option chain, RSI scanner (Kite Connect) |
@@ -1607,45 +1604,11 @@ Anyone can create an account at **/signup** (`api/users.py`, stored in Neon as `
 
 ## 10. Financial ML & Test-and-Tune
 
-Two book-based quantitative research modules share the same UI pattern — tabbed chapter analyses, async background pre-computation, MinIO figure persistence, and PostgreSQL result storage.
-
-### Financial ML (AFML)
-
-Based on *Advances in Financial Machine Learning* by Marcos López de Prado. 19 chapter scripts in `financial_ML/applied/` covering:
-
-| Tab | Chapters |
-|-----|----------|
-| Data Structures | Financial Data Structures, Triple-Barrier Labeling, Sample Weights |
-| Features | Fractional Differentiation, Feature Importance, Structural Breaks, Entropy, Microstructure |
-| Modeling | Ensemble Methods, Cross-Validation, Hyper-Parameter Tuning, Bet Sizing |
-| Backtesting | Dangers of Backtesting, Synthetic Backtesting, Backtest Statistics, Strategy Risk |
-| Portfolio | ML Asset Allocation (HRP) |
-| Computation | Multiprocessing & Vectorization, Brute Force & Quantum |
-
-Next.js page: `frontend/app/(dashboard)/financial-ml/page.tsx` — Route: `/financial-ml` — with ticker input (Default / Manual / CSV), calendar popover date pickers, chapter selection, spinner progress, and collapsible results
-
-### Test & Tune (TTMTS)
-
-Based on *Testing and Tuning Market Trading Systems* by Timothy Masters (2018). 7 chapter scripts in `testune_trade_sys/applied/` covering:
-
-| Tab | Chapters |
-|-----|----------|
-| Foundations | Introduction (returns, future leak, percent wins), Pre-Optimization Issues (stationarity, entropy) |
-| Optimization | Optimization Issues (elastic-net, differential evolution), Post-Optimization Issues (StocBias, sensitivity) |
-| Performance Estimation | Unbiased Performance (walk-forward, CSCV), Trade-Based Analysis (BCa bootstrap, drawdown bounds) |
-| Statistical Testing | Permutation Tests (return/price/bar permutation, walk-forward permutation) |
-
-C++ algorithms from the book are converted to Python (NumPy/SciPy). Each chapter has a companion reading in `testune_trade_sys/readings/`.
-
-Next.js page: `frontend/app/(dashboard)/test-tune/page.tsx` — Route: `/test-tune`
-
-### Shared Architecture
-
-Both modules follow the same pattern:
-- `sample_data.py` — Data generators with yfinance caching to `_cache/` (parquet)
-- `applied/chNN_*.py` — Chapter scripts with algorithm functions and a `main()` entry point
-- `readings/chNN_*.md` — Companion documentation
-- Chapter execution via `importlib`, matplotlib figure capture (PNG bytes), MinIO + PostgreSQL persistence
+Removed 9 Nov 2026 (tracker UI5), with the Aronson, Ehlers and Vince labs: the five
+book-chapter demos ran on US sample tickers and fed neither the Ind nor the US module.
+What the engines use from those books lives in `nse_engine/validation/` (Aronson's
+detrending, HAC t-tests, the deflated Sharpe, PBO, walk-forward) and in the legacy
+`services/` and `strategies/` code (Ehlers DSP, the Aronson validator, Vince metrics).
 
 ---
 
@@ -1807,20 +1770,6 @@ centurion_core/
 │   ├── derivatives/              # Options Straddle, VIX Calculator (standalone)
 │   ├── portfolio_analysis/       # Asset Allocation / SLSQP optimisation (standalone)
 │   └── risk_modelling/           # Monte Carlo / GBM simulation (standalone)
-│
-├── financial_ML/                 # AFML chapter analyses (López de Prado)
-│   ├── sample_data.py            # Data generators + yfinance caching (_cache/)
-│   ├── applied/                  # 19 chapter scripts (ch02–ch21)
-│   ├── readings/                 # Companion markdown docs
-│   ├── _cache/                   # Parquet price cache (git-ignored)
-│   └── _output/                  # Analysis outputs (git-ignored)
-│
-├── testune_trade_sys/            # Test & Tune chapter analyses (Timothy Masters)
-│   ├── sample_data.py            # Data generators + yfinance caching (_cache/)
-│   ├── applied/                  # 7 chapter scripts (ch01–ch07)
-│   ├── readings/                 # Companion markdown docs
-│   ├── _cache/                   # Parquet price cache (git-ignored)
-│   └── _output/                  # Analysis outputs (git-ignored)
 │
 ├── kite_connect/                 # Zerodha live trading (Indian markets)
 │   ├── auth/                     # Manual browser login, daily login (token in Neon), accounts, terms
@@ -2438,7 +2387,7 @@ A full REST API serves the Next.js frontend on a separate port (default `9001`).
 | Module | Prefix | Endpoints | Examples |
 |--------|--------|-----------|----------|
 | Health | `/api/health` | 1 | DB, RAG, Kite status check |
-| V1 Gateway | `/api/v1` | 50+ | `/analysis/run`, `/analysis/metrics`, `/macro/snapshot`, `/kite/auth`, `/fml/run`, `/verdict/run` |
+| V1 Gateway | `/api/v1` | 50+ | `/analysis/run`, `/analysis/metrics`, `/macro/snapshot`, `/kite/auth`, `/verdict/run` |
 | US Stocks | `/api/us-stocks` | 9 | `/analysis`, `/news`, `/sentiment`, `/backtest`, `/strategies` |
 | Indian Stocks | `/api/ind-stocks` | 11 | `/auth`, `/quotes`, `/orders`, `/positions`, `/option-chain` |
 | RAG Pipeline | `/api/rag` | 10 | `/ingest`, `/query`, `/collection/stats`, `/evaluate` |
