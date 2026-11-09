@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 
 import numpy as np
 import pandas as pd
@@ -1531,6 +1532,56 @@ def test_a_missed_session_during_a_bonus_credit_keeps_the_ledger_true(store_path
     out = gd.run("faults", "2024-05-02", "2024-05-31", {"2024-05-27": "down"})
     assert out["checks"]["ledger_matches_broker"], out["ledger_vs_broker"]
     assert out["checks"]["no_unexplained_reconcile"] and out["events"].get("corporate_action", 0) >= 1
+
+
+def _borrowed():
+    """What a game-day replay patches: the module attributes it replaces."""
+    import database.connection as dbc
+    from kite_connect.trading import kill_switch, order_service
+    from services.notifications import alerts as al
+
+    return {"persist": order_service._persist_to_db, "email": order_service._send_order_email,
+            "market_open": order_service._is_nse_market_open, "pace": order_service.ORDERS_PER_SECOND,
+            "kill": kill_switch.state, "alert": al.alert, "db": dbc.get_db_manager}
+
+
+def test_a_replays_isolation_is_undone_and_pacing_works_again(monkeypatch):
+    """GD2: _isolate patched order pacing (10 -> 10,000 a second), the database, alerts, the kill switch and the
+    environment for good, so a test session that ran the slow game-day test saw the pacing tests fail later."""
+    from kite_connect.trading import nse_instruments, order_service
+    from tools import game_day as gd
+
+    monkeypatch.setenv("CENTURION_PAPER_TRADE", "true")
+    monkeypatch.delenv("CENTURION_GO_LIVE_OVERRIDE", raising=False)
+    monkeypatch.setitem(nse_instruments._cache, "2026-11-09", {"INFY": 0.05})
+    before, cache_before = _borrowed(), dict(nse_instruments._cache)
+    alerts = []
+    undo = gd._isolate(alerts)
+    assert order_service.ORDERS_PER_SECOND == 10_000 and os.environ["CENTURION_GO_LIVE_OVERRIDE"] == "true"
+    assert nse_instruments._cache == {}
+    with pytest.raises(RuntimeError, match="never opened"):
+        __import__("database.connection", fromlist=["get_db_manager"]).get_db_manager()
+    undo()
+    after = _borrowed()
+    assert all(after[k] is before[k] or after[k] == before[k] for k in before), [k for k in before if after[k] != before[k]]
+    assert os.environ["CENTURION_PAPER_TRADE"] == "true" and "CENTURION_GO_LIVE_OVERRIDE" not in os.environ
+    assert dict(nse_instruments._cache) == cache_before
+    order_service._order_times.clear()
+    clock = _FakeClock()
+    for _ in range(11):
+        order_service._pace_orders(clock, clock.sleep)
+    assert clock.now == pytest.approx(1001.0)                  # the eleventh order waits its second again
+
+
+def test_a_replay_that_fails_still_puts_everything_back(monkeypatch):
+    from tools import game_day as gd
+
+    before = _borrowed()
+    monkeypatch.setattr(gd, "_replay", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("replay broke")))
+    with pytest.raises(RuntimeError, match="replay broke"):
+        gd.run("faults", "2024-05-02", "2024-05-31", {})
+    after = _borrowed()
+    assert all(after[k] is before[k] or after[k] == before[k] for k in before)
 
 
 @pytest.mark.parametrize("ssh_down, egress, backup_ip, expect", [

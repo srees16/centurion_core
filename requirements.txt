@@ -28,7 +28,7 @@ Backtesting
 chromadb
 sentence-transformers>=5.6.0
 PyMuPDF
-kiteconnect
+kiteconnect==5.1.0  # the version the order code is tested on and every workflow installs (CK1-P8, 9 Nov 2026)
 cryptography>=50.0.0
 pillow>=12.3.0
 tiktoken

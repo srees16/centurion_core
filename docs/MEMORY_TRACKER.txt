@@ -269,6 +269,15 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
+ >>> ZERODHA: ORDER-RATE THRESHOLD (added 8 Nov, your call; you contact them)
+     Ask, in one ticket: "Under SEBI's 2025 framework for retail algorithmic trading and NSE's
+     implementing circulars, (1) what orders-per-second rate makes an API strategy need exchange
+     registration / an algo ID, for a client using Kite Connect from a whitelisted static IP?  (2) Does
+     the count include modifications and cancellations, and GTT placements?  (3) Is it per client, per
+     API key or per static IP?  (4) If we stay at or below it, is anything else required from us
+     (registration, an empanelled-vendor route, a declaration)?"  Centurion caps itself at 10 orders a
+     second (order_service.ORDERS_PER_SECOND, GT2H).  Forward the reply; Claude updates the cap or the
+     INT1E plan to match.
  >>> MON 14 DEC 2026 - RA1 VERDICT DAY (plan 5ao, fixed 27 Oct 21:34 IST)
      Also that day (Claude, with you): fix the gap band's sigma (python -m nse_engine.live_monitor
      fix-sigma), then commit config/mon1_gap_sigma.json before the canary's first session (MON1).
@@ -819,10 +828,15 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              NS1-7 DONE 3 Nov (section 8): buyback tenders not worth doing.
              NS1-10 CLOSED 3 Nov (section 8): NCDEX check fails (no scriptable data,
              main contracts suspended since Dec 2021, thin rest).
-                                                         Prompt: do NS1-8, or wait for Q5 / RA1
+             NS1-8 FAILED 9 Nov (section 8): open offers priced by the first close, low bound
+             -10.6% a year; delisting offers have no data source.
+                                                         Left: NS1-5/6 (data first); else wait for Q5 / RA1
 [ ] P3  OPS1A At the next re-baseline: repair the partial corporate-action factors the load now
              warns about (ADANIENT 2015, HINDZINC 2011, ZEENEWS 2010, TRIVENI 2011 in the universe; 14
-             in all), checking each against the record first.  Moves the data hash.  Prompt: do OPS1A
+             in all), checking each against the record first.  Moves the data hash.
+             Also (CK1-P2, 9 Nov): do not infer a factor for a relisting after a long suspension with the
+             same ISIN and a nominal prev_close (CCCL 2024-09-03, ATLASCYCLE 2024-12-27, VIVIMEDLAB 2025-12-18).
+                                                             Prompt: do OPS1A
 [x]     GT2E FAILED 31 Oct: reshaped to the metals cap, not adopted (section 8).
 [x]     GT2F WITHDRAWN 31 Oct: REITs and InvITs stay closed under GT14 (11 Oct).
 [x]     GT2G WITHDRAWN 31 Oct: U28 closed single-stock futures shorts on 10 Oct
@@ -869,6 +883,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              - then quarterly with GT12's re-score: Jan, Apr, Jul, Oct;
              - and whenever a data source, broker rule or dependency
                changes.
+             First run 9 Nov: 32 of 44 pass (section 8 log, CK1).  Next: just
+             before D3 (~14 Dec), then January with GT12.
              Record each run in DONE as "CK1 <date>: n of N pass", with a
              follow-up ID per fail.  Already worth acting on: section 8,
              "Is the research backed up?"  The registries
@@ -965,11 +981,22 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                  Never: re-tune on the new year.  It enters as evidence;
                  the rules are not fitted to it.  Kaggle, medium-large.
                                                                  Prompt: do RF1
-#5  [ ] P2  X1   Execution: limit-at-open / sliced fills.  Shrinks the
+#5  [ ] P1  HC1  Re-estimate the D2 haircut from live fills (your call, 9 Nov).  D2 assumes a
+                 day's delay and twice the model's impact: 4-5 pts of CAGR and 0.2 Sharpe off
+                 every live-like figure (2008-25 as run 11.1% / 0.43 against the backtest's
+                 16.7% / 0.75).  At 60 live sessions (~mid-Mar 2027 if live starts mid-Dec),
+                 measure what the live book actually paid: fill price vs the decision close
+                 and vs the model's open (fill_audit, impact_bps per fill), missed fills, the
+                 MON1 gap against the reference.  Then one decision, written before the
+                 numbers are read: keep D2, or re-set its delay and impact multiple to what
+                 the fills show, with the bootstrap interval stated.  A re-set re-states the
+                 milestone basis and MC bands (a dated note, never silent).  Re-checked at 120
+                 and 250 sessions.  Feeds X1.                     Prompt: do HC1
+#6  [ ] P2  X1   Execution: limit-at-open / sliced fills.  Shrinks the
                  realised-vs-model cost gap (model 2.4-2.8%/yr of CAGR);
                  sized by G4's cost ratio.  Needs >= 30 real fills (~Jan).
                                                                   Prompt: do X1
-#6  [ ] P3  R9   Universe size 150 / 300 / 500 (+/-0.1)        Prompt: do R9
+#7  [ ] P3  R9   Universe size 150 / 300 / 500 (+/-0.1)        Prompt: do R9
  OCT-NOV  research and housekeeping while the books accumulate (no trials)
    Measured 1 Oct: 147k lines of Python; the trading engine is 9k.  Two
    modules hold the daily path: scheduler.py 3,211 lines / 30 jobs, all
@@ -998,11 +1025,13 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 [x] P3  BT7-S2 CLOSED 7 Nov: FAIL (plan 5ca stage 2).  NIFTYBEES minute prices, 2,687 nights 2015-25: gross
              +1.2 bp a night against 8.7 bp of cost, net -7.5 bp (t -6.12), every year negative.  The index's
              +11.9 bp night is its closing average and auction open, not an earnable return.  Folder deleted.
-[ ] P2  GF1  Opening-gap fade on minute prices (plan 5cb, pre-registered 7 Nov 00:56 IST; INT1C idea 1 of
-             3, intraday N = 2).  MONDAY 9 Nov, after your Kite login: Claude downloads Kite's free minute
-             history 2015-25 (NIFTYBEES about 70 requests; the universe's listed stocks about 20,000, in the
-             background, about 2 hours), runs INT1A's bhavcopy checks, then the test.  Pass route NIFTYBEES
-             only (stocks: information, no delisted names).  Pass -> INT1B, never adoption.   Prompt: do GF1
+[x] P2  GF1  FAILED 9 Nov (plan 5cb; section 8).  NIFTYBEES gap fade -12.3 bp net (t -3.16); INT1C keeps
+             2 of 3 slots.  Stock look (information only) finishing; then data and code are deleted.
+[ ] P2  MBA1 Minute-bar archive, going forward (SG1; your call 9 Nov): Kite drops a delisted name's minute
+             history, so keep the universe's bars from now on, survivorship-free.  Weekly GitHub Actions job,
+             the last 60 days per name (tolerates missed logins), published to a separate private Kaggle
+             dataset; ~55 MB a year.  Build after GF1's stock results (shares Kite's 3/s historical limit).
+                                                             Prompt: do MBA1
 [ ] P3  COINT1 Co-integrated pairs on single-stock futures (RSK1, 6 Nov): only once U28 reopens futures shorts
              (Rs 2 crore and above); then a pre-registered look first, against the register's NOT VIABLE row.
 [ ] P3  OPT2-CC Covered calls on the book's holdings (your call 6 Nov, plan 5bz): revisit when live capital
@@ -1432,6 +1461,148 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+9 Nov   UI4  Compounder, Harvest, Portfolio and R22 Infusion pages retired (your ask; centurion_core-fe,
+             uncommitted).  They ran the legacy Yahoo backtest (survivorship-biased, not the deployed engine;
+             "R-series figures are not evidence") and Harvest's "Infuse" button only showed a toast.  Removed
+             from IND_SUB_PAGES; next.config.js redirects the four routes to /ind-stocks (temporary, 307).
+             Page files and the backend strategy code kept.  Repurposing as a bear-buy / bull-booking planner
+             declined on evidence (NIFTY TRI 2006-25, a look, no trial): buying at a -20% drawdown, 5 episodes,
+             3-year return positive in all five (median +62% against +44% any day) but 2008 fell 48% more first;
+             at all-time highs the next year still made a median +11% (any day +13%), so profit booking has no
+             case (as CC1).  The testable form is J4 (January); a planner page only if J4 passes.  Also removed:
+             the empty ns17_scratch.py.  tsc clean.
+9 Nov   NS1-8 Open-offer arbitrage (plan 5bp; pre-registered 14:03, amended 14:12 and 14:16 before the verdict;
+             hand table, no trial): FAIL, not adopted.  SEBI's filing listing refuses scripted paging, not worked
+             around; events from SEBI's monthly open-offer statistics (654 offers Apr 2013-Feb 2025, gaps), 118
+             on NSE, 58 tradable (~5.2 a year), median 128 days.  Acceptance bounded between "everyone tenders"
+             and 100%: low bound -10.6% a year on capital after costs and tax (2013-19 -5.0%, 2020-25 -20.0%,
+             worst -25%), high bound +12.9% but worst event -11.7% (fails the -10% tail rule).  The median offer
+             premium is +0.8% by the first close, and ~half the shares come back.  Offers more than 2% above
+             the entry (information only): 2.4 a year, low bound +2.2%.  Delisting offers: no data source (10
+             store rows), closed as a data gap.  Scratch code and pages deleted.
+9 Nov   CK1F CK1 follow-ups (your ask).  F2: the 5 Oct dry run was skipped for no Kite login (run 37317274903 logged
+             it and sent the skip email); 21-23 Oct was the Neon outage.  Behaviour correct, no fix.  P2: the three
+             unexplained gaps are relistings after long suspensions, same ISIN, nominal exchange prev_close (CCCL
+             1.50 in May 2023 -> 10.90 on 3 Sep 2024 against 1.00; ATLASCYCLE 66.15 against 5.00 on 27 Dec 2024;
+             VIVIMEDLAB 26.60 against 1.00 on 18 Dec 2025).  The loader applies each as an inferred factor (source
+             5), rewriting their pre-suspension history; never held, BE series; fix with OPS1A at the next
+             re-baseline (it moves the data hash).  P8 (uncommitted): requirements.txt pinned kiteconnect==5.1.0;
+             the HF Space installs requirements.txt, so since its 6 Nov rebuild it most likely ran PyPI's 5.2.2
+             while every workflow, the tests and myenv run 5.1.0.  The pin takes effect at the next deploy.
+9 Nov   CK1  Health checklist, first run (docs/centurion_checklist.md; read-only): 32 of 44 pass, 8 partial, 2 fail,
+             2 not yet due (section 11 quarterly from January).  FAIL CK1-F1 (3a): walk-forward 2017-25 excess
+             Sharpe 1.031 vs the deployed config fixed 1.226, gap -0.195 (bar -0.05): the known in-sample edge of
+             a fixed config (the plateau question, GT review #7); V3 and RF1 decide, or the bar compares walk-
+             forward with walk-forward.  FAIL CK1-F2 (6a): 4 sessions with no dry run since 30 Sep (5 Oct cause
+             not recorded; 21-23 Oct Neon down).  PARTIAL: CK1-P1 trial-to-pre-registration mapping is spot
+             checks only; CK1-P2 three unexplained price gaps (CCCL 2024-09-03, ATLASCYCLE 2024-12-27,
+             VIVIMEDLAB 2025-12-18) never held but not recorded as reviewed; CK1-P3 runtimes mixed overall (2,925
+             local, 3,576 Kaggle; the deployed walk-forward is one environment); CK1-P4 fundamentals 2018-19
+             filings missing 15-20% (not explained); CK1-P5 sell test (ST2, yours); CK1-P6 one options demo on
+             record (O1d, 9 Oct); CK1-P7 Kite postbacks at go-live (AL5); CK1-P8 kiteconnect unpinned in
+             requirements.txt (workflows pin 5.1.0).  NOT YET DUE: paper sessions 34 of 60 (~14 Dec); 2027
+             holidays (LN-T31, December).  Passing, among others: deployed hash 679cbd0c approved (PBO 23.9%,
+             DSR 0.994); holdout opened once; causality and survivorship tests; Budget 2026 STT (futures 0.05%,
+             options 0.15% from 1 Apr); registry fingerprint unchanged; no missing sessions 2025-26 and all special
+             sessions present; refresh ok to 6 Nov; paper runs green; G4 PASS at 34 sessions; promote --check
+             refuses the candidate (28 sessions); 12 consecutive clean dry runs; kill-switch check 2 Nov and
+             dead-man drill 13 Oct; 0 secret-scanning alerts; HF / Neon / Kaggle / cache (4.4 of 10 GB) fine;
+             backups current; 152 GB free; CI green in ~4 min with the coverage floors; pins match; segments
+             NSE, BSE, NFO, BFO, MF (no MCX, not needed).
+9 Nov   MPT2 MPT at the stream level (your ask: IV surface, volatility clustering, MPT; information only, no trial,
+             no code).  IV surface: built 27 Oct (IVS1), its stock signals failed (IVX1); India VIX already in the
+             regime gate, A1G's guard and the email.  Clustering: VC1 (8 Nov).  MPT inside the stock book: MPT1
+             (N/T makes Markowitz singular) and HAN1 (Ledoit-Wolf lowered Sharpe 0.704 -> 0.647).  New test, the
+             core / metals split (2 streams, so estimation error is small): from the deployed backtest's weights,
+             unit-exposure streams 2008-25 (core 25.1% / 19.4% vol, metals 17.2% / 15.9%, correlation -0.01),
+             monthly re-splits on trailing 3 years, out of sample 2011-25, pre-cost, same gross: today's
+             regime-aware split 24.0% / Sharpe 1.22 / -22.0%; risk parity 16.8% / 1.07 / -10.2%; minimum
+             variance 16.5% / 1.04 / -9.3%; max Sharpe (means shrunk halfway) 16.4% / 0.84 / -23.0%; 50/50 17.3% /
+             1.04 / -13.0%.  Every static MPT split loses 0.15-0.38 Sharpe and 7 pts CAGR: it gives up the
+             allocator's regime timing (equity in uptrends, metals in risk_off).  Lower MaxDD is not a gate
+             (GT13).  Discarded with evidence.
+9 Nov   GD2  Game-day isolation leak fixed (your ask; uncommitted; tools and tests only, RA1F-eligible).
+             tools/game_day._isolate patched order pacing (10 -> 10,000 a second), order persistence and email,
+             the market clock, the kill switch's state, alerts, the database and 8 environment variables for
+             good, so a local run that included the slow game-day test broke the pacing tests after it.  Now
+             _isolate returns an undo (attributes, instruments cache, environment as they were, absent stays
+             absent) and run() calls it in a finally; the replay itself moved to _replay, unchanged.  Tests:
+             undo restores everything and the eleventh order waits its second again; a replay that raises
+             still restores; both fail with their guard removed.  The failing combination (slow replay, then
+             the pacing tests, one session) now passes; fast suite green.
+9 Nov   GAP1 Your three gaps (rebound lag, sideways losses, idle cash), checked on the deployed backtest 2008-25 (no
+             trial, no code).  (1) Bull days: 91% gross invested (core 65% + metals sleeve 26%, by design), 18.2 of
+             20 names; the gate is risk_on 80%, neutral 17% (scale 1.0), risk_off 3%.  The lag is bear-to-bull:
+             bear days hold 24% core (risk_off 66%).  In flight: J1 refill exits (week of 11 Jan), J4 half-step
+             in risk-off rebounds (by 5 Feb); R11 crash re-entry failed (28 Sep), gate tuning closed (R0).
+             (2) Sideways: costs are NOT the cause: 2.95% a year in sideways and in bull alike (turnover 14.6x
+             against 15.8x), although the gate switches 11.7 times a year there against 3.7 (neutral and risk_on
+             both scale 1.0, so most switches trade nothing).  Gross return is the gap: 5.3% a year against 29%.
+             (3) Idle cash: the sweep is closed for good (FND1 / FND2, 5 Nov; B'' recovered +0.15 pt of the
+             1.5); NS1-0b carry needs F&O lots (Rs 5-17 lakh).  Revisit idle cash only when capital makes lots
+             possible.  New: trading costs of ~3% of equity a year in every regime are the largest controllable
+             drag (X1, after 30 real fills).
+9 Nov   GF1  Opening-gap fade on Kite minute prices (plan 5cb, pre-registered 7 Nov 00:56 IST; intraday N = 2):
+             FAIL on its pass route.  Data: Kite's free minute history Feb 2015-Dec 2025 (no vendor).  INT1A
+             check: two dated notes before any return was read: (1) 11:18, my bug, Kite adjusts prices for
+             splits but not volumes; (2) 11:48, your call, the high/low check made one-sided after all 287
+             NIFTYBEES failures showed the bhavcopy range WIDER than the minutes' (stray ETF prints, D4; minutes
+             never outside it): 88.9% -> 99.5% of sessions pass, 10.8 usable years.  Result, 548 gaps >= 0.5%,
+             faded from 09:21-25 to 15:10-14: gross -3.6 bp (gaps slightly continue: up -3.3, down -4.0), net
+             -12.3 bp at 8.7 bp a round trip (t -3.16), 2015-19 -14.1, 2020-25 -11.4; Sharpe -1.28 at 6 bp a
+             side; DSR 0.001.  The follow (+3.6 bp gross) does not cover costs either.  INT1C keeps 2 of 3
+             slots.  Stock look (information only, survivors) running; reported when the download ends.
+9 Nov   AMM1 Thorp, "A Man for All Markets" (research_inbox epub, ~142k words, read in full): no code, no trial.
+             Replicated: Appendix C's rule-of-72 table (16 rows within 0.005; 72 + (R-8)/3; rule of 240; Shaw
+             15.48%), Appendix D (PNP net 1,379% / 15.1% a year vs 1,382% / 15.1%; S&P 544% / 10.2%; no losing
+             year in 20), Appendix E (stat arb return/risk 2.72 vs 2.73), Table 13 (arithmetic ~ geometric +
+             sigma^2/2), Kelly bet = edge / odds (Ch27).  Flag: PNP's gross column compounds to 2,612%, not the
+             printed 2,734%.  Already in Centurion: forecast / vol sizing (Kelly's shape, capped; full-book Kelly
+             3.9x and leverage rejected, SG1), verify against an independent source (the live ledger reconciles to
+             Kite, GD1), survivorship and backfill (SB3), the passive NIFTY + gold hurdle after tax (decision 8,
+             his indexing chapters), ruin avoidance.  Does not fit: MUD stat arb (most-up/most-down reversal,
+             market- and industry-hedged; needs shorts, and its long leg failed on NSE, BT7 H5), warrant and
+             convertible hedging (no Indian market; options closed), blackjack and roulette.
+8 Nov   FBR1 Taleb, "Fooled by Randomness" (research_inbox epub, ~75k words, read in full): no code, no trial.
+             Replicated: Table 3.1 (P(gain) = Phi((mu/sigma) sqrt t), within 0.34 pt at every scale; 241/239
+             minutes), Table 6.1 (EV -9.001), 10,000 coin-toss managers -> 312.5 survivors.  Centurion's own
+             Table 3.1 (as-run 2008-25, mu/sigma 0.96): a day 54.9% up, a month 61.6%, a quarter 61.1%, a year
+             77.8%; every rolling 3- and 5-year window positive (2-year 92%).  New: daily returns are skewed -1.59
+             while round trips are skewed +4.98 (hit 42.5%, win/loss 2.33, best 10% of trades = 74% of gross
+             wins): the left tail is portfolio-level, correlated gap-down days, not single trades; mc_bands'
+             block bootstrap and ES already carry it.  Every idea already in place: survivorship (SB3), data
+             snooping (trial counting, DSR, PBO, the sealed holdout), ruin and fat tails (mc_bands), monitoring at
+             60/120/250 sessions (MON1), negative-skew overlays capped at 10% (A1G).
+8 Nov   SG1  Structural gap to the golden target (your ask; diagnostics on the as-run series, no trial, no code).
+             Breadth: ~130 fresh bets a year, Sharpe 0.43 -> implied IC 0.037; Sharpe 1.4 needs ~1,400 independent
+             bets a year at this IC, or IC 0.12 at today's breadth.  Leverage on this exact series (8% / 15%
+             financing): 1.75x 12.4% / 6.6% CAGR at -54% MaxDD; 3x -76% / -86%; 5x at 15% wiped out Jul 2011;
+             12x and 20x wiped out in Jan 2008 (worst day -94% / -157%).  Full Kelly 3.9x, half 1.9x, before
+             estimation error.  NIFTY-futures hedge: beta 0.17 (the regime gate already holds cash in bear
+             markets), alpha 3.8%; hedged Sharpe 0.36 against 0.43, lower in every era; one lot (Rs 17.3 lakh)
+             hedges a Rs 1 crore book.  Not adopted: 12-20x leverage, a market-neutral hedge, short-horizon
+             breadth before GF1.  The short side in use: A1G's defined-risk NIFTY call spread (+0.015 Sharpe, in
+             sample, book a1).  A single-stock short leg stays COINT1 (>= Rs 2 crore).
+8 Nov   RT2  Zuckerman, "The Man Who Solved the Market" (2019; research_inbox epub, read in full): no code, no trial.
+             A history with method sketched only: data cleaning (Ch4), simulation before adding a signal (Ch4),
+             reversion as the core edge and kernel trend models (Ch4, Ch10), day-of-week effects on 5-minute bars
+             (Ch6, Ch8), one model for all assets (Ch8), slippage measured against a cost-free simulation (Ch8),
+             Kelly-style sizing by confidence (Ch5, Ch8), factor-neutral stat arb (Ch9), a simulator bug (S&P level)
+             behind live-vs-model losses (Ch10), capacity limits (Ch10, Ch13), basket-option leverage (Ch12), "right
+             50.75% of the time" (Ch14), trust the model (Ch13).  Already in Centurion, mostly more strictly: fail-
+             loud store (DQ1), pre-registered trials with DSR/PBO, one engine, the fill audit and D2 haircut, forecast
+             / vol sizing with caps, game day and MON1, the capital ladder, Rule D.  Does not fit: market-neutral
+             shorts (U28), leverage (GT8 closed), short-horizon breadth, proprietary data.  Short-term reversal failed
+             on NSE daily (BT7 H5).  Untested and not worth a trial: day-of-week effects (the rebalance runs on a
+             session count, so weekdays average out; the Friday-to-Monday form is an open-close artefact, BT7-S2).
+8 Nov   IL1  Lipton, Lucic & Sepp, "Unified Approach for Hedging Impermanent Loss of Liquidity Provision" (arXiv
+             2407.05146v2, research_inbox): does not fit, no code, no trial.  It prices and hedges Uniswap V2/V3
+             liquidity-provider losses: IL as a fixed-maturity claim (pp. 3-5), static replication with vanilla
+             options by Carr-Madan (p. 13), and closed forms under BSM and a log-normal SV model via the MGF
+             (pp. 17-26; code ArturSepp/StochVolModels).  Every premise fails for the Ind stocks book: no AMM pool,
+             no staking fees, no borrowed or short leg (U28), options closed at Rs 3 lakh (OPT2), and its hedge runs
+             on Deribit and crypto futures.  The one general tool, Carr-Madan replication of a smooth payoff, has no
+             payoff in the book to replicate.
 8 Nov   COV1 Test coverage (your ask: SonarQube / Grafana).  Neither adopted: SonarQube's value here is coverage,
              which coverage.py gives in CI with no server; its smells on 178k lines (mostly legacy) are noise;
              Grafana would duplicate the Fly Kite / Trade Center pages, the README scorecard and the emails, and
@@ -1444,7 +1615,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              and fails if any of 20 live-path files drops below its 8 Nov level less 2 points (a ratchet; it
              failed as it should on a simulated drop).  Found, not fixed: tools/game_day._isolate patches
              order_service, kill_switch, alerts, the database and the environment for good, so a local run that
-             includes the slow game-day test breaks later pacing tests (CI skips slow tests).
+             includes the slow game-day test breaks later pacing tests (CI skips slow tests).  FIXED 9 Nov (GD2).
 7 Nov   QI1  "Intro to quant trading" video (EV, Sharpe, log returns, AR(1) by OLS and gradient descent, order
              book, taking and making; your ask): not adopted, no repo code (9 scratch tests, deleted).  Everything
              applicable already exists (trade EV and win rate in the scorecard, excess Sharpe, log returns, cost
