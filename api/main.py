@@ -152,7 +152,6 @@ _USER_DENIED_WRITES = ("/stream/alerts",)
 #: HEAVY_LIMIT requests in HEAVY_WINDOW_S seconds, so a stolen session cannot run up the bill.
 _HEAVY = frozenset({("GET", "/api/v1/rag/query")} | {("POST", p) for p in (
     "/api/v1/analysis/run", "/api/v1/backtest/run", "/api/v1/verdict/run", "/api/v1/screener/run",
-    "/api/v1/fml/run", "/api/v1/tts/run", "/api/v1/aronson/run", "/api/v1/ehlers/run", "/api/v1/vince/run",
     "/api/v1/rl-bot/train", "/api/v1/rl-bot/evaluate", "/api/v1/options/overlay/scan", "/rag/query",
     "/rag/evaluate", "/rag/ingest", "/rag/ingest/directory", "/rag/reingest", "/api/v1/rag/upload",
     "/us-stocks/analysis", "/us-stocks/backtest", "/us-stocks/carver/pipeline", "/us-stocks/news",
