@@ -41,19 +41,21 @@ IST = timezone(timedelta(hours=5, minutes=30))
 logger = logging.getLogger("paper_heartbeat")
 
 
-def weekdays_behind(latest: Optional[date], today: date) -> int:
-    """Weekdays strictly between ``latest`` and ``today``, counting ``today`` itself.
+def sessions_behind(latest: Optional[date], now: datetime) -> int:
+    """NSE sessions the book has not traded: those after ``latest`` up to the last one completed at ``now``.
 
-    0 means the book is current (it traded today, or today is a weekend).
-    1 is a single missed weekday, which an NSE holiday explains.
-    2 or more means sessions were genuinely lost.
+    0 means the book is current; 1 is one session still due (a late or retried night run); 2 or more means
+    sessions were genuinely lost.  Holidays and weekends are not sessions, and today's session counts only
+    once the market has closed (HB2, 11 Nov 2026: counting weekdays, a heartbeat after midnight counted both
+    a Tuesday holiday and Wednesday's session, not yet due, and raised a false alarm).
     """
+    from services.execution.carver_pipeline import is_nse_trading_day, last_completed_nse_session
+
     if latest is None:
         return 0
-    n = 0
-    day = today
+    n, day = 0, last_completed_nse_session(now)
     while day > latest:
-        if day.weekday() < 5:
+        if is_nse_trading_day(day):
             n += 1
         day -= timedelta(days=1)
     return n
@@ -77,19 +79,20 @@ def check(max_behind: int = 1) -> dict:
     if snaps is not None and len(snaps) and "date" in snaps.columns:
         latest = max(str(d) for d in snaps["date"])
     latest_date = date.fromisoformat(latest) if latest else None
-    today = datetime.now(IST).date()
-    behind = weekdays_behind(latest_date, today)
+    now = datetime.now(IST)
+    today = now.date()
+    behind = sessions_behind(latest_date, now)
     return {
         "ok": behind <= max_behind,
         "stale": behind > max_behind,
         "latest_session": latest,
-        "weekdays_behind": behind,
+        "sessions_behind": behind,
         "today_ist": today.isoformat(),
         "last_run_at": str(state.get("last_run_at") or ""),
         "book_writer": str(state.get("book_writer") or ""),
         "reason": ("current" if behind == 0 else
-                   "one weekday behind (an NSE holiday explains this)" if behind == 1 else
-                   f"{behind} weekdays behind - sessions were missed"),
+                   "one NSE session behind (the night run may still be due)" if behind == 1 else
+                   f"{behind} NSE sessions behind - sessions were missed"),
     }
 
 
@@ -234,7 +237,7 @@ def main() -> int:
                "Check the database (Neon console) and the CENTURION_DATABASE_URL secret."])
         return 1
     alert(CRITICAL, "heartbeat_stale", f"Centurion paper book has not traded since {result.get('latest_session')}",
-          [f"The paper book is {result.get('weekdays_behind')} weekdays behind (today {result.get('today_ist')} IST).",
+          [f"The paper book is {result.get('sessions_behind')} NSE sessions behind (today {result.get('today_ist')} IST).",
            reason, f"Last run recorded: {result.get('last_run_at') or 'never'}.",
            "Check the Paper Trading Cron workflow and the 19:00 IST dispatch."])
     return 1
