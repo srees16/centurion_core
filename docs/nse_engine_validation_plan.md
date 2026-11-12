@@ -7237,6 +7237,34 @@ pre-registered. A pass moves to INT1B (a proper simulator with next-bar fills,
 circuit halts and look-ahead traps), then INT1D's 60 paper sessions; it is never
 adopted from this look.
 
+**Result (09 Nov 2026): FAIL, closed; INT1C keeps 2 of 3 slots.** Kite minute
+history Feb 2015-Dec 2025; 99.5% of NIFTYBEES's full sessions pass the check
+(10.8 usable years).
+- NIFTYBEES: 548 gaps of 0.5% or more. Gross fade -3.6 bp (gaps slightly
+  continue). Net -12.3 bp at 8.7 bp a round trip, t -3.16; 2015-19 -14.1,
+  2020-25 -11.4. Sharpe at 6 bp each way -1.28; DSR 0.001. The follow
+  (+3.6 bp gross) does not cover costs either.
+- Stocks (information only; survivors). 668 names on Kite, 101 delisted names
+  missing; 57% of full sessions pass the check (high/low 72%, volume 69%).
+  - All: 32,393 gaps of 2% or more, entered in the deployed universe. Gross
+    fade +25.7 bp, net +14.6 bp at 11.1 bp, t 4.7. 2015-19 +21.5, 2020-25
+    +8.6. +2.6 bp at 6 bp more each way. Gaps of 3% or more: +38.7 bp gross.
+    About a third of the bhavcopy H4 reversal (75 / 92 bp) remains on minute
+    prices.
+  - Information-only split, run after the stock look:
+    - Up-gaps (a short): t 5.2, 2015-19 +34.5, 2020-25 +13.4, but +0.9 bp at
+      6 bp more each way, and it needs intraday shorting, which Centurion
+      refuses.
+    - Down-gaps (the only long-only form): event mean +16.9 bp, but the daily
+      series has t -1.10 and both halves negative (-3.7, -7.4). The average
+      comes from a few crash days with many gaps that rebounded, the days
+      survivorship flatters most.
+  - Rerun on every full session, check ignored: the same picture (all t 4.8;
+    down-gaps t -1.94), so the 57% filter does not drive it.
+- Reading: no tradable form survives. The long side fails day by day, and the
+  short side is not allowed and vanishes at realistic cost. No INT1C idea
+  follows from it. Data and code deleted.
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast

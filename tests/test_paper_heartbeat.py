@@ -6,23 +6,32 @@ from datetime import date, datetime, timedelta, timezone
 import pandas as pd
 import pytest
 
-from tools.paper_heartbeat import check, weekdays_behind
+from tools.paper_heartbeat import check, sessions_behind
 
+IST = timezone(timedelta(hours=5, minutes=30))
 FRI, SAT, SUN, MON, TUE = (date(2026, 9, 18), date(2026, 9, 19), date(2026, 9, 20),
                            date(2026, 9, 21), date(2026, 9, 22))
 
 
-@pytest.mark.parametrize("latest,today,expected,why", [
-    (FRI, FRI, 0, "traded today"),
-    (FRI, SAT, 0, "Saturday: nothing was due"),
-    (FRI, SUN, 0, "Sunday"),
-    (FRI, MON, 1, "Monday evening before the run, or a Monday holiday"),
-    (FRI, TUE, 2, "Monday was lost"),
-    (date(2026, 9, 14), FRI, 4, "a whole week missed"),
-    (None, FRI, 0, "no book yet"),
+def _ist(d: date, hh: int = 0, mm: int = 0) -> datetime:
+    return datetime(d.year, d.month, d.day, hh, mm, tzinfo=IST)
+
+
+@pytest.mark.parametrize("latest,now,expected,why", [
+    (FRI, _ist(FRI, 20), 0, "traded today, after the close"),
+    (date(2026, 9, 17), _ist(FRI, 12), 0, "Friday's session is not over at noon"),
+    (FRI, _ist(SAT, 0, 15), 0, "Saturday: nothing was due"),
+    (FRI, _ist(MON, 0, 15), 0, "Monday after midnight: Monday's session is not due yet"),
+    (FRI, _ist(TUE, 0, 15), 1, "Monday's night run is still due (late or retried)"),
+    (FRI, _ist(date(2026, 9, 23), 0, 15), 2, "Monday and Tuesday were lost"),
+    (date(2026, 9, 11), _ist(FRI, 22), 4, "a whole week missed; Mon 14 Sep was a holiday, not a session"),
+    (date(2026, 11, 9), _ist(date(2026, 11, 11), 5, 13), 0,
+     "11 Nov 2026's false alarm: Tue 10 Nov an NSE holiday, Wednesday's session not yet due"),
+    (date(2026, 11, 9), _ist(date(2026, 11, 12), 5, 13), 1, "Wednesday 11 Nov's run is due by Thursday morning"),
+    (None, _ist(FRI, 20), 0, "no book yet"),
 ])
-def test_weekdays_behind(latest, today, expected, why):
-    assert weekdays_behind(latest, today) == expected, why
+def test_sessions_behind(latest, now, expected, why):
+    assert sessions_behind(latest, now) == expected, why
 
 
 class _Cloud:
@@ -47,17 +56,22 @@ def _at(monkeypatch, latest, today):
 
 def test_a_book_that_traded_today_is_healthy(monkeypatch):
     result = _at(monkeypatch, "2026-09-18", FRI)
-    assert result["ok"] and not result["stale"] and result["weekdays_behind"] == 0
+    assert result["ok"] and not result["stale"] and result["sessions_behind"] == 0
 
 
-def test_one_missed_weekday_is_tolerated_as_a_holiday(monkeypatch):
-    result = _at(monkeypatch, "2026-09-18", MON)
+def test_one_session_still_due_is_tolerated(monkeypatch):
+    result = _at(monkeypatch, "2026-09-18", TUE)        # Tuesday 00:00: Monday's night run still due
     assert result["ok"] and not result["stale"]
-    assert "holiday" in result["reason"]
+    assert "one NSE session behind" in result["reason"]
 
 
-def test_two_missed_weekdays_raise_the_alarm(monkeypatch):
-    result = _at(monkeypatch, "2026-09-18", TUE)
+def test_a_holiday_before_today_is_not_a_missed_session(monkeypatch):
+    result = _at(monkeypatch, "2026-11-09", date(2026, 11, 11))   # the 11 Nov 2026 false alarm
+    assert result["ok"] and not result["stale"] and result["sessions_behind"] == 0
+
+
+def test_two_missed_sessions_raise_the_alarm(monkeypatch):
+    result = _at(monkeypatch, "2026-09-18", date(2026, 9, 23))
     assert result["stale"] and not result["ok"]
     assert "missed" in result["reason"]
 

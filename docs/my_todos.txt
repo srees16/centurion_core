@@ -208,7 +208,7 @@ Rules:
 
 ~~~~~~~~~~~~
 
-DOC: ProjectX/centurion_core/research_inbox/A Man for All Markets
+DOC: ProjectX/centurion_core/research_inbox/<>
 
 Read doc in full. Extract the ideas that fit centurion_core (Indian stocks module) and use them to make it more robust. Depending on the content, that means implementing a method, replicating a result, auditing existing code against it, or adding validation. Skip what doesn't fit, and say why.
 
@@ -268,7 +268,7 @@ Log in to Kite every trading day. A missed login is a missed session, which coun
 Watch the nightly email. If G4 ever shows FAIL, say "diagnose G4".
 Finish the go-live conditions:
 5 clean dry runs: ask me for the dry-run log to see the current count.
-Sell path recorded: this is the AMO SELL 1 HDFCBANK test, still open.
+Sell path recorded: the INFY sell test below, still open.
 Put Rs 3 lakh in cash in the account before the first live session. Dry runs plan a Rs 3 lakh book whatever the account holds, so a shortfall only shows up on the first live day.
 Around mid-Dec, before the first live session:
 
@@ -282,4 +282,54 @@ REJECT: no live capital, and the configuration (679cbd0c) is not re-tuned.
 
 ~~~~~~~
 
-Sell test: no "Record sell path" run exists yet. Log in to Kite, and tonight after 20:00 place AMO SELL 1 HDFCBANK at today's close × 0.995 for Friday. The test's GTT step and evening record follow on Friday.
+SELL TEST WITH INFY (ST2 step 3, closes LN-T2; go-live waits on it)
+Why INFY: you hold none, so a wrong tap cannot sell your own shares (HDFCBANK).
+Rules for every step:
+  - Sells are always quantity 1. Never tap "Exit" or "Sell all".
+  - Exchange NSE, product CNC (Longterm), order type LIMIT.
+  - Send Claude a screenshot BEFORE every swipe.
+
+STEP 1 - before Wed 11 Nov, 09:15
+  [x] Add about Rs 4,000 to Kite by UPI (Funds > Add funds). DONE 11 Nov (Rs 3,500).
+      Cash was Rs 1,535; 4 INFY at ~Rs 1,154 = ~Rs 4,620 plus charges.
+
+STEP 2 - Wed 11 Nov, after 09:15 (market hours)
+  [x] Log in to Kite (from the morning email).
+  [x] Tell Claude "buy INFY now": Claude checks the price and gives the limit.
+  [x] BUY 4 INFY: NSE, CNC, LIMIT at Claude's price, quantity 4.
+  [x] Screenshot to Claude, then swipe. Orders shows it COMPLETE. DONE 11 Nov 12:34:
+      order 261111150993779, 4 INFY at avg Rs 1,152.80 (NSE, CNC).
+
+STEP 3 - Thu 12 Nov, evening
+  [ ] Holdings shows 4 INFY settled (not "T1").
+  [ ] After 20:00, ask Claude for the AMO price (Thursday's close x 0.995).
+  [ ] SELL 1 INFY as AMO: NSE, CNC, LIMIT at Claude's price, quantity 1, variety AMO.
+  [ ] Screenshot to Claude, then swipe. Orders shows it as an open AMO.
+
+STEP 4 - Fri 13 Nov, TEST 1
+  [ ] 09:00: log in to Kite (from the email). Record sell path needs that day's login.
+  [ ] ~09:10: Orders shows the AMO COMPLETE. Write down its ORDER ID: ______________
+  [ ] After 09:15: ask Claude for the GTT prices (trigger = price x 0.997,
+      limit = trigger x 0.996).
+  [ ] Create GTT > Single > SELL 1 INFY: NSE, CNC, trigger and limit from Claude.
+      Screenshot to Claude, then confirm. Write down the GTT ID: ______________
+  [ ] Wait until Orders shows the GTT's sell COMPLETE.
+      Not triggered by 14:30? Ask Claude for new prices and modify the GTT.
+  [ ] Evening: GitHub > Actions > "Record sell path" > Run workflow, with:
+        - DDPI activation date (from Console, where you checked it on 10 Oct)
+        - the AMO order ID
+        - the GTT ID
+      Tell Claude; Claude checks the run.
+  [ ] After 20:00: SELL 1 INFY as AMO again for Monday (ask Claude for the price).
+
+STEP 5 - Mon 16 Nov, TEST 2
+  [ ] Repeat STEP 4 on the last 2 INFY shares, then Record sell path that evening.
+
+STEP 6 - after TEST 2
+  [ ] Holdings shows 0 INFY. Delete any GTT still active on INFY.
+  [ ] Tell Claude "sell test done": Claude confirms both records and closes ST2 step 3 / LN-T2.
+
+Fallback for a failed leg: Tue 17 / Wed 18 Nov. Tell Claude the same day.
+
+~~~~~~~~
+

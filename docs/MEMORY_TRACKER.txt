@@ -269,22 +269,25 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
- >>> SELL TEST, WED 11 - FRI 13 NOV (ST2 step 3, closes LN-T2; your call 9 Nov)
+ >>> SELL TEST WITH INFY, WED 11 (BUY) - MON 16 NOV (ST2 step 3, closes LN-T2; your call 9 Nov)
      Status 9 Nov: "Record sell path" has never run (gh: 0 runs), so the 3-4 Nov restart did not
-     complete (you confirmed 9 Nov: pending on you); the first live session refuses to start until it does.  10 Nov is an NSE holiday.
-     0. Before Wed: Holdings shows the HDFCBANK shares settled (2 per test).  If any 3-4 Nov sell
-        went through, tell Claude first: a past day's orders cannot be recorded (Kite's API
-        returns only today's), and the buy is topped up to 4 by Wed 15:30.
-     1. Wed 11 Nov, after 20:00: AMO SELL 1 HDFCBANK, NSE, CNC, LIMIT at Wednesday's close x
-        0.995 (round to Rs 0.05).
-     2. Thu 12 Nov, TEST 1: 09:00 Kite login; ~09:10 the AMO COMPLETE (note its order ID);
-        after 09:15 GTT Single SELL qty 1, trigger = LTP x 0.997, limit = trigger x 0.996 (note the
-        GTT ID; if not triggered by 14:30, modify to the new LTP); its sell COMPLETE.  Evening:
-        Actions > Record sell path (DDPI date from Console, AMO order ID, GTT ID); Claude checks
-        the run.  After 20:00: AMO SELL 1 for Friday (Thursday's close x 0.995).
-     3. Fri 13 Nov, TEST 2: the same, on the 2 remaining shares; Record sell path that evening.
-     4. Fallback for a failed leg: Mon 16 / Tue 17 Nov.  Every order quantity 1, never "Exit" or
-        sell-all; a screenshot to Claude before each swipe.  Afterwards delete any GTT left.
+     complete (you confirmed 9 Nov: pending on you); the first live session refuses to start until it does.
+     Your call 9 Nov: test on INFY (TCS first, then INFY as cheaper), not HDFCBANK (34 HDFCBANK shares are
+     your own holding and could be sold by mistake).  Checked 9 Nov (Kite, read-only): no INFY held, no INFY order or GTT; INFY last
+     1,154.10; cash available Rs 1,535, so add about Rs 4,000 first (4 shares + charges).  10 Nov is an NSE holiday.
+     1. Before Wed 09:15: add about Rs 4,000 to the Kite account (UPI is instant).
+     2. DONE 11 Nov 12:34: BUY 4 INFY, NSE, CNC, LIMIT 1,156, filled at avg 1,152.80 (order 261111150993779).
+     3. Thu 12 Nov evening: Holdings shows 4 INFY settled (T1 0).  After 20:00: AMO SELL 1 INFY, NSE, CNC,
+        LIMIT at Thursday's close x 0.995 (Claude gives the price).
+     4. Fri 13 Nov, TEST 1: 09:00 Kite login; ~09:10 the AMO COMPLETE (note its order ID); after 09:15
+        GTT Single SELL qty 1, trigger = LTP x 0.997, limit = trigger x 0.996 (note the GTT ID; if not
+        triggered by 14:30, modify to the new LTP); its sell COMPLETE.  Evening: Actions > Record sell
+        path (DDPI date from Console, AMO order ID, GTT ID); Claude checks the run.  After 20:00: AMO SELL 1
+        INFY for Monday (Friday's close x 0.995).
+     5. Mon 16 Nov, TEST 2: the same, on the 2 remaining shares; Record sell path that evening.
+        Fallback for a failed leg: Tue 17 / Wed 18 Nov.
+     Every order quantity 1 on the sells, never "Exit" or sell-all on HDFCBANK; a screenshot to Claude
+     before each swipe.  Afterwards delete any GTT left.
      Full steps and the why: the SELL TEST block further down.
  >>> ZERODHA: ORDER-RATE THRESHOLD (added 8 Nov, your call; you contact them)
      Ask, in one ticket: "Under SEBI's 2025 framework for retail algorithmic trading and NSE's
@@ -1045,8 +1048,11 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              +1.2 bp a night against 8.7 bp of cost, net -7.5 bp (t -6.12), every year negative.  The index's
              +11.9 bp night is its closing average and auction open, not an earnable return.  Folder deleted.
 [x] P2  GF1  FAILED 9 Nov (plan 5cb; section 8).  NIFTYBEES gap fade -12.3 bp net (t -3.16); INT1C keeps
-             2 of 3 slots.  Stock look (information only) finishing; then data and code are deleted.
-[ ] P2  MBA1 Minute-bar archive, going forward (SG1; your call 9 Nov): Kite drops a delisted name's minute
+             2 of 3 slots.  Stock look done 9 Nov (information only): no tradable form (down-gaps t -1.1,
+             up-gaps need shorts and vanish at cost); data and code deleted.
+[-] P3  MBA1 ON HOLD 9 Nov (your call, after GF1's stock look found no tradable form): resume only when an
+             intraday idea needs survivorship-free stock minutes.  Was: Minute-bar archive, going forward (SG1;
+             your call 9 Nov): Kite drops a delisted name's minute
              history, so keep the universe's bars from now on, survivorship-free.  Weekly GitHub Actions job,
              the last 60 days per name (tolerates missed logins), published to a separate private Kaggle
              dataset; ~55 MB a year.  Build after GF1's stock results (shares Kite's 3/s historical limit).
@@ -1480,6 +1486,48 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+11 Nov  HB2  False "[Centurion would-be CRITICAL] paper book has not traded since 2026-11-09" (your report).  The
+             heartbeat (paper-heartbeat.yml, 00:15 IST, delivered 05:13) counted weekdays after the last session up
+             to today: Tue 10 Nov (NSE holiday) + Wed 11 (its session not yet due) = 2 > 1, so stale.  The book was
+             current (nightly_health: "session 2026-11-09 done").  Every weekday holiday raised it the morning after
+             (the post-midnight run always counts today).  Fixed (uncommitted; RA1F-eligible: alerting only, no
+             config, engine or book number): tools/paper_heartbeat.sessions_behind counts NSE sessions after the
+             last one traded up to the last completed session (carver_pipeline's calendar, holidays and Muhurat
+             included); result key sessions_behind; tolerance of one unchanged.  Tests: test_paper_heartbeat.py
+             (10 cases incl. this one), 651 fast tests pass, core-only venv passes, live check now "current".
+11 Nov  A1M  A1 margin check (your ask; Kite read-only, no order; no code).  A1's rule on 11 Nov 11:xx (NIFTY 25,295,
+             daily sigma 0.90%, 23 Nov expiry, 12 days): sell 26,900 CE (bid/ask 19.9/20.0, OI 93,795), buy
+             27,700 CE (5.7/8.0, OI 325: thin), lot 65.  Credit 11.9 pts at the touch (13.1 mid) = ~Rs 775 a lot;
+             max loss Rs 51,227 a lot (1.5% return on risk).  Kite basket margin: Rs 62,608 a lot with the hedge
+             (SPAN 30,528 + exposure 32,883), 1.22x the maximum loss; the short leg alone Rs 98,680 (Rs 99,170
+             if the short fills first).  Findings: (1) the a1 overlay treats the pledge as the maximum loss, 22%
+             under Kite's margin (exposure margin is not offset by the wing); (2) the wing must be bought first
+             (OX4); (3) at Rs 3 lakh, A1C's 10% cap allows Rs 30k of maximum loss, under one lot's Rs 51k: zero
+             lots, so A1 needs about Rs 5.1 lakh of book plus ~Rs 63k margin (exchange 50:50 cash rule: ask
+             Zerodha); (4) the a1 paper book has opened no spread yet: Oct skipped (no net credit at 1 day to
+             expiry), Nov skipped (no traded call above the 3-SD level, 27,826 against a highest traded 27,000
+             on 6 Nov), as the tested rule does; by RA1 it has at most one cycle.  F&O store's NIFTY matches
+             Kite's closes (21 Oct-6 Nov).  Paper numbers frozen (RA1F): nothing changed; feeds OX3 / OX4.
+11 Nov  QS1  Quantsapp (quantsapp.com free tools and platform; your ask): not adopted, no code.  A retail UI: no
+             data API or export (only an undocumented "Orders API"), so nothing to integrate (as Sensibull, SB1).
+             Already in Centurion: chain, Greeks, OI, IV rank (live_chain, theory, iv_history, overlay_scan),
+             PCR / max pain / OI build-up (positioning, fo_anomalies), structures with pre-trade checks, static-IP
+             routing (two IPs).  Against the protocol: its 186-million-combination optimiser (data mining), short
+             straddle / strangle writer (O2-O8 closed; check_limits refuses), discretionary "repair".  It does not
+             touch the real F&O blockers: Rs 3 lakh against Rs 2.9-9.4 lakh lots (OPT2), no expired-option history
+             (OX2), shorts closed (U28).  Optional, manual: the free strategy builder as an independent eye on A1G's
+             call-spread payoff and margin, and a spot check of our Greeks / IV against theirs.
+9 Nov   AX1  "5 proven strategies" Medium post (AlgoXpert, pasted by you; Medium refused automated access, 403,
+             not worked around): not adopted, no code, no trial.  Already in Centurion, mostly stricter: 5%
+             participation cap (its ">5% of volume"), cost model 4 + D2 haircut (its 5-15 bp), WF OOS/IS < 0.5
+             rejected (its WFE > 0.5), 18 years and 2,185 trades (its 3 years / 500), survivorship-free store
+             with spike and corporate-action checks, ATR stops, 8% weight cap, regime gate, scorecard (hit
+             rate, profit factor), MON1, sleeves, 60-session paper + canary ladder (its 1 month, scale at
+             Sharpe > 1: t ~ 0.3, noise).  Wrong for this book: win rate > 50% / Sharpe > 1.5 / MaxDD < 15% red
+             flags (trend book hits 43% with win/loss 2.4; MaxDD is never a gate), fixed 1:3 R:R.  Tested and
+             failed or closed: RSI + Bollinger reversal (BT7 H5), VIX/vol-targeted sizing (R3, VT1), HMM
+             regimes (legacy only, 5bp), order flow (OF1, needs tick data).  Its results (BTC MaxDD 18% -> 9%,
+             +0.10 Sharpe, 85% survival) are unverified marketing.  "RSI ❤0" is a rendering of "RSI < 30".
 9 Nov   UI5  Five book labs removed (your ask: Financial ML, Test & Tune, Aronson Lab, Ehlers DSP, Vince Risk;
              uncommitted, both repos).  Studied first: each lab was a chapter-by-chapter demo (references/<book>/
              applied, 126 files incl. cached US parquet and PNGs) on US sample tickers, imported only by
@@ -1589,7 +1637,12 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              faded from 09:21-25 to 15:10-14: gross -3.6 bp (gaps slightly continue: up -3.3, down -4.0), net
              -12.3 bp at 8.7 bp a round trip (t -3.16), 2015-19 -14.1, 2020-25 -11.4; Sharpe -1.28 at 6 bp a
              side; DSR 0.001.  The follow (+3.6 bp gross) does not cover costs either.  INT1C keeps 2 of 3
-             slots.  Stock look (information only, survivors) running; reported when the download ends.
+             slots.  Stock look (information only, survivors; 668 names, 101 delisted missing, 57% of sessions
+             pass the check): 32,393 gaps >= 2%, net +14.6 bp, t 4.7, 2015-19 +21.5 / 2020-25 +8.6, +2.6 bp at
+             6 bp more a side; ~a third of H4's bhavcopy reversal remains.  Split (information only): up-gaps
+             t 5.2 but need intraday shorts and net +0.9 bp at 6 bp more; down-gaps (long-only) daily t -1.1,
+             both halves negative (the event mean comes from crash days).  Same on all sessions (check ignored).
+             No tradable form; no INT1C idea follows.  data/nse_engine/gf1 (data and code) deleted 9 Nov.
 9 Nov   AMM1 Thorp, "A Man for All Markets" (research_inbox epub, ~142k words, read in full): no code, no trial.
              Replicated: Appendix C's rule-of-72 table (16 rows within 0.005; 72 + (R-8)/3; rule of 240; Shaw
              15.48%), Appendix D (PNP net 1,379% / 15.1% a year vs 1,382% / 15.1%; S&P 544% / 10.2%; no losing
