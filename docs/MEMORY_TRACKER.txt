@@ -269,7 +269,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
- >>> SELL TEST WITH INFY, WED 11 (BUY) - MON 16 NOV (ST2 step 3, closes LN-T2; your call 9 Nov)
+ >>> SELL TEST WITH INFY, WED 11 (BUY) - TUE 17 NOV (ST2 step 3, closes LN-T2; your call 9 Nov)
      Status 9 Nov: "Record sell path" has never run (gh: 0 runs), so the 3-4 Nov restart did not
      complete (you confirmed 9 Nov: pending on you); the first live session refuses to start until it does.
      Your call 9 Nov: test on INFY (TCS first, then INFY as cheaper), not HDFCBANK (34 HDFCBANK shares are
@@ -277,15 +277,16 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      1,154.10; cash available Rs 1,535, so add about Rs 4,000 first (4 shares + charges).  10 Nov is an NSE holiday.
      1. Before Wed 09:15: add about Rs 4,000 to the Kite account (UPI is instant).
      2. DONE 11 Nov 12:34: BUY 4 INFY, NSE, CNC, LIMIT 1,156, filled at avg 1,152.80 (order 261111150993779).
-     3. Thu 12 Nov evening: Holdings shows 4 INFY settled (T1 0).  After 20:00: AMO SELL 1 INFY, NSE, CNC,
-        LIMIT at Thursday's close x 0.995 (Claude gives the price).
-     4. Fri 13 Nov, TEST 1: 09:00 Kite login; ~09:10 the AMO COMPLETE (note its order ID); after 09:15
+     3. Settled only Fri 13 morning (T1 at 22:56 Thu), so TEST 1 moved: Fri 13 after 20:00 AMO SELL 1 INFY,
+        NSE, CNC, LIMIT 1,135.80 (Friday's close 1,141.50 x 0.995).  DONE 13 Nov 21:54: order 261113151379526, AMO REQ
+        RECEIVED (checked by API; HDFCBANK 34 untouched).
+     4. Mon 16 Nov, TEST 1: 09:00 Kite login; ~09:10 the AMO COMPLETE (note its order ID); after 09:15
         GTT Single SELL qty 1, trigger = LTP x 0.997, limit = trigger x 0.996 (note the GTT ID; if not
         triggered by 14:30, modify to the new LTP); its sell COMPLETE.  Evening: Actions > Record sell
         path (DDPI date from Console, AMO order ID, GTT ID); Claude checks the run.  After 20:00: AMO SELL 1
-        INFY for Monday (Friday's close x 0.995).
-     5. Mon 16 Nov, TEST 2: the same, on the 2 remaining shares; Record sell path that evening.
-        Fallback for a failed leg: Tue 17 / Wed 18 Nov.
+        INFY for Tuesday (Monday's close x 0.995).
+     5. Tue 17 Nov, TEST 2: the same, on the 2 remaining shares; Record sell path that evening.
+        Fallback for a failed leg: Wed 18 / Thu 19 Nov.
      Every order quantity 1 on the sells, never "Exit" or sell-all on HDFCBANK; a screenshot to Claude
      before each swipe.  Afterwards delete any GTT left.
      Full steps and the why: the SELL TEST block further down.
@@ -1486,6 +1487,38 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+13 Nov  EM3  Daily summary email: the trials' objective said once (your ask; uncommitted).  The same "Objective:
+             trial configuration ..." paragraph closed each of the six trial books' reports.  Now one line under
+             the findings ("Objective of the trial books (candidate, e4, ...): ..."; books.trials_objective, the
+             same 60 sessions / G4 / 0.05 wording from forward_gate's constants) and none in the trial sections;
+             the deployed book keeps its own (different) line, and a report sent on its own keeps its line.
+             How: the paragraph carries class book-objective (manager.render_engine_daily_report), which
+             books._book_sections lifts out of trial books.  Reports kept before the merge have no class, so the
+             first summary after the merge is the first without the repeats.  RA1F-eligible: email text only.
+             Tests in test_paper_book.py (real template); 653 fast tests pass; dry run on tonight's Neon data:
+             one line under the findings, and 0 trial lines once the reports carry the class.
+13 Nov  CRY2 "Binance API in Python" video (crypto module only; your ask): built, parked with CRY1, not adopted.
+             research_inbox/parked/crypto_live/rest_public.py: the public REST calls with pandas, no key (ping, server
+             time in UTC, ticker prices, exchange / symbol filters, order book as the video's bids-asks frame,
+             recent and historical trades, average price, 24-hour tickers) and check_order (suggestion: NOTIONAL /
+             MIN_NOTIONAL, LOT_SIZE, PRICE_FILTER replayed offline in Decimal).  live_stream.py gained the trade
+             stream and closed-candle OHLCV bars (k.x on).  Not built: account and order calls (need a signed
+             key; the crypto module does not trade), python-binance (requests is enough).  Found live: the video's
+             BTCBUSD is in BREAK (BUSD ended); exchangeInfo now uses NOTIONAL, not MIN_NOTIONAL; historicalTrades
+             needs no key on api.binance.com but 404s on data-api.binance.vision; handshakes from India take
+             3.6-5.7 s, sometimes over 10 s, so the stream now opens with 20 s and 3 first tries.  46 tests
+             (offline fixtures + live, both hosts), 3 of 3 live runs clean.  No value now (no consumer); adopt
+             with CRY1.  Video's advice not to use a VPN to reach binance.com stands (KYC).
+13 Nov  CRY1 Live Binance prices (video transcript, crypto module only; your ask): built, not adopted, parked (your call).
+             research_inbox/parked/crypto_live/ (git-ignored here; private centurion-research repo): live_stream.py
+             (combined kline stream, one-row frame per tick as the video, reconnect with backoff, TLS via certifi,
+             fails loud if the first connection cannot open) + test_live_stream.py (21 tests incl. live, both
+             stream.binance.com and data-stream.binance.vision).  Video bugs fixed: k.c is the running price until
+             k.x (closed); no reconnect (Binance drops at 24 h); websockets' own reconnect retried a TLS failure
+             silently forever (python.org macOS Python has no system roots).  No value now: no crypto paper book,
+             live strategy or ticker consumes it; backtests need history (the REST fetcher).  Before any use on the
+             HF Space, check Binance is reachable from it (Binance blocks US-hosted servers).  Adopt into
+             trading_strategies/crypto/ when the crypto work starts (a new test file needs your OK).
 11 Nov  HB2  False "[Centurion would-be CRITICAL] paper book has not traded since 2026-11-09" (your report).  The
              heartbeat (paper-heartbeat.yml, 00:15 IST, delivered 05:13) counted weekdays after the last session up
              to today: Tue 10 Nov (NSE holiday) + Wed 11 (its session not yet due) = 2 > 1, so stale.  The book was

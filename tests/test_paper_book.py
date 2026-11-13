@@ -609,3 +609,43 @@ class TestBookPnlInTheDailyReport:
     def test_a_plain_book_keeps_total_pnl(self):
         labels = [k for k, _ in self._rows(self.BASE)]
         assert "Total P&amp;L" in labels and not any(k.startswith("Book P&amp;L") for k in labels)
+
+    def _day(self, name, status, objective):
+        """A book's kept report (the real template) as the daily summary reads it."""
+        from types import SimpleNamespace
+
+        from services.notifications.manager import NotificationManager
+
+        subject, html = NotificationManager.__new__(NotificationManager).render_engine_daily_report(
+            {**self.BASE, "objective": objective})
+        return SimpleNamespace(book=SimpleNamespace(name=name, deployment=SimpleNamespace(status=status)),
+                               email={"session": "2026-11-04", "subject": subject, "html": html})
+
+    def test_the_trials_objective_is_said_once_under_the_findings(self):
+        """13 Nov 2026 (the owner's ask): the same paragraph closed each of the six trial books' reports."""
+        from datetime import date
+
+        from nse_engine import books as bk
+        from nse_engine.deployment import STATUS_CANDIDATE
+
+        trial = "Objective: trial configuration 2d64ba4c beside the deployed book."
+        own = "Objective: rehearse the deployed configuration 679cbd0c."
+        days = [self._day("deployed", "deployed", own), self._day("candidate", STATUS_CANDIDATE, trial),
+                self._day("e4", STATUS_CANDIDATE, trial.replace("2d64ba4c", "93cf6c4d"))]
+        assert trial in days[1].email["html"]                    # a report sent on its own still carries it
+        sections = bk._book_sections(days, date(2026, 11, 4))
+        assert "Objective: trial configuration" not in sections  # gone from every trial book's section
+        assert sections.count(own) == 1                          # the deployed book's own line stays
+        assert "Session 2026-11-04" in sections and sections.count("Open positions") == 3   # nothing else removed
+        once = bk.trials_objective(days)
+        assert once.startswith("Objective of the trial books (candidate, e4): ")
+        assert f"After {bk.fg.FORWARD_MIN_SESSIONS} sessions the forward gate decides" in once
+        assert f"within {bk.fg.WF_SHARPE_TOLERANCE} of the deployed one's." in once
+        body = bk._summary_body(["Book"], [["x"]], ["a finding"], "the footer", once)
+        assert body.count(once) == 1 and body.index("a finding") < body.index(once) < body.index("the footer")
+        assert "Objective" not in bk._summary_body(["Book"], [["x"]], ["a finding"], "the footer")
+
+    def test_no_trial_books_no_objective_line(self):
+        from nse_engine import books as bk
+
+        assert bk.trials_objective([self._day("deployed", "deployed", "Objective: rehearse.")]) == ""
