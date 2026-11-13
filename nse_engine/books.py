@@ -43,7 +43,7 @@ import pandas as pd
 
 from nse_engine import forward_gate as fg
 from nse_engine.config import EngineConfig
-from nse_engine.deployment import REPO_ROOT, Deployment, load_deployment
+from nse_engine.deployment import REPO_ROOT, STATUS_CANDIDATE, Deployment, load_deployment
 
 logger = logging.getLogger(__name__)
 
@@ -986,6 +986,33 @@ def _inner_body(html: str) -> str:
     return m.group(1) if m else html
 
 
+#: The class of the objective paragraph at the foot of a book's own report (``send_engine_session_email``).
+OBJECTIVE_CLASS = "book-objective"
+
+
+def _without_objective(html: str) -> str:
+    """A book's report without its objective paragraph: in the summary the trials' objective is said once."""
+    import re
+
+    return re.sub(rf"<p class='{OBJECTIVE_CLASS}'[^>]*>.*?</p>", "", html, flags=re.S)
+
+
+def _is_trial(book: Any) -> bool:
+    return getattr(getattr(book, "deployment", None), "status", None) == STATUS_CANDIDATE
+
+
+def trials_objective(days: Sequence[DayBook]) -> str:
+    """What the trial books are for, once for all of them (each book's own report says it of itself; under the
+    summary that was the same paragraph six times).  '' when no trial book runs."""
+    trials = [d.book.name for d in days if _is_trial(d.book)]
+    if not trials:
+        return ""
+    return (f"Objective of the trial books ({', '.join(trials)}): each runs its configuration beside the deployed "
+            f"book, on the same data and with no real money. After {fg.FORWARD_MIN_SESSIONS} sessions the forward "
+            "gate decides whether it replaces the deployed configuration: its paper gate (G4) must pass and its "
+            f"walk-forward Sharpe (2017-25) must be within {fg.WF_SHARPE_TOLERANCE} of the deployed one's.")
+
+
 def _book_sections(days: Sequence[DayBook], kept_on: date, what: str = "report") -> str:
     """Each book's own report under the summary, behind an index of links (an email cannot hold tabs: mail apps
     strip the scripts and most of the CSS they need; where in-message links are not followed, it scrolls)."""
@@ -998,6 +1025,8 @@ def _book_sections(days: Sequence[DayBook], kept_on: date, what: str = "report")
         e = d.email or {}
         if e.get("session") == kept_on.isoformat() and e.get("html"):
             body = _inner_body(e["html"])
+            if _is_trial(d.book):                         # said once, under the findings (``trials_objective``)
+                body = _without_objective(body)
             note = f"<p style='margin:2px 0 8px;font-size:12px;color:#666;'>{e.get('subject', '')}</p>"
         else:
             body = (f"<p style='font-size:13px;color:#666;'>No {what} kept for {_dmy(kept_on)}: the book did not run, "
@@ -1022,11 +1051,14 @@ def _email(title: str, subtitle: str, body: str, tracker: str) -> str:
             f"Centurion paper books &bull; {tracker} &bull; auto-generated</div></div></body></html>")
 
 
-def _summary_body(columns: Sequence[str], table: Sequence[Sequence[Any]], findings: Sequence[str], footer: str) -> str:
+def _summary_body(columns: Sequence[str], table: Sequence[Sequence[Any]], findings: Sequence[str], footer: str,
+                  objective: str = "") -> str:
     return (_html_table(columns, table)
             + "<h3 style='color:#1a1a2e;margin:22px 0 8px;'>Findings</h3>"
             + "<ul style='font-size:13px;color:#1f2937;padding-left:20px;margin:0;'>"
             + "".join(f"<li style='margin-bottom:6px;'>{f}</li>" for f in findings) + "</ul>"
+            + (f"<p style='margin-top:18px;padding:10px 12px;background:#f9fafb;border-left:3px solid #387ed1;"
+               f"font-size:13px;color:#374151;'>{objective}</p>" if objective else "")
             + f"<p style='font-size:12px;color:#666;margin-top:18px;'>{footer}</p>")
 
 
@@ -1056,8 +1088,10 @@ def build_daily(days: Sequence[DayBook], nifty: Optional[pd.Series], session: da
     footer = _FOOTER + (" Drawdown: G4's, the paper book against its same-period backtest. Each book's own report, "
                         "with its fills and orders, follows.")
     html = _email(f"Centurion &mdash; Paper books, {_dmy(session)}", f"{len(rows)} books, daily executive summary",
-                  _summary_body(DAILY_COLUMNS, table, findings, footer) + _book_sections(days, session), "tracker DS1")
-    text = _md_table(DAILY_COLUMNS, table) + "\n\n" + "\n".join(f"- {f}" for f in findings)
+                  _summary_body(DAILY_COLUMNS, table, findings, footer, trials_objective(days))
+                  + _book_sections(days, session), "tracker DS1")
+    text = (_md_table(DAILY_COLUMNS, table) + "\n\n" + "\n".join(f"- {f}" for f in findings)
+            + (f"\n\n{trials_objective(days)}" if trials_objective(days) else ""))
     return {"subject": subject, "html": html, "text": text, "rows": rows, "findings": findings, "stale": stale}
 
 

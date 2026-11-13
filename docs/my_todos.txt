@@ -110,17 +110,11 @@ You are the best quantitative trader, research analyst and strategist having 20+
 
 You are the  at THE most reputed quant trading firm in the world. You are designing centurion_core for 1 or 2 retail traders, a trading platform that would automatically trigger buy/sell orders based on fundamental analysis, technical analysis, qualitative analysis, macro-economic head & tail winds and event-driven news updates. Considering these requirements, perform the below tasks:
 
-audit, investigate and analyze the characteristics of a trading terminal of a highly reputable quant firm. Compare & contrast that with the current implementation of centurion_core app with focus "ind stocks module". Remember that centurion_core app is to be used by 1-2 users only. List out the implementation gaps in high level system design & architecture, stock analysis methodology along with low level technical details. Give readable and crisp details.
+audit, investigate and analyze the characteristics of a trading terminal of a highly reputable quant firm. Compare & contrast that with the current implementation of centurion_core app with focus Ind stocks. List out the implementation gaps in high level system design & architecture, stock analysis methodology along with low level technical details. Give readable and crisp details.
 
 audit the gaps in the current implementation of centurion_core with respect to the various layers & stages identified and give an action plan on implementation of the solutions with the potential computational costs, possible risks, technical limitations, trade off between alternatives and finally the reliability & quality of buy, hold & sell signals being the most accurate for Ind stocks.
 
 analyze if the current trading strategies, backtest strategies and techniques implemented from various pdf docs are practical to apply when triggering orders for ind stocks.
-
-
-~~~~~~
-
-1. binance api https://www.youtube.com/watch?v=ZiBBVYB5PuU
-                https://www.youtube.com/watch?v=P_SIZDsI3Ro
 
 ~~~~~~~
 
@@ -300,13 +294,14 @@ STEP 2 - Wed 11 Nov, after 09:15 (market hours)
   [x] Screenshot to Claude, then swipe. Orders shows it COMPLETE. DONE 11 Nov 12:34:
       order 261111150993779, 4 INFY at avg Rs 1,152.80 (NSE, CNC).
 
-STEP 3 - Thu 12 Nov, evening
-  [ ] Holdings shows 4 INFY settled (not "T1").
-  [ ] After 20:00, ask Claude for the AMO price (Thursday's close x 0.995).
+STEP 3 - Fri 13 Nov, evening (moved from Thu 12: the shares settled only on Fri morning)
+  [x] Holdings shows 4 INFY settled (not "T1"). DONE 13 Nov: quantity 4, T1 0.
+  [x] After 20:00: AMO price Rs 1,135.80 (Friday's close 1,141.50 x 0.995).
+      DONE 13 Nov 21:54: AMO order 261113151379526 (SELL 1 INFY, NSE, CNC, LIMIT 1,135.80), status AMO REQ RECEIVED.
   [ ] SELL 1 INFY as AMO: NSE, CNC, LIMIT at Claude's price, quantity 1, variety AMO.
   [ ] Screenshot to Claude, then swipe. Orders shows it as an open AMO.
 
-STEP 4 - Fri 13 Nov, TEST 1
+STEP 4 - Mon 16 Nov, TEST 1
   [ ] 09:00: log in to Kite (from the email). Record sell path needs that day's login.
   [ ] ~09:10: Orders shows the AMO COMPLETE. Write down its ORDER ID: ______________
   [ ] After 09:15: ask Claude for the GTT prices (trigger = price x 0.997,
@@ -320,16 +315,33 @@ STEP 4 - Fri 13 Nov, TEST 1
         - the AMO order ID
         - the GTT ID
       Tell Claude; Claude checks the run.
-  [ ] After 20:00: SELL 1 INFY as AMO again for Monday (ask Claude for the price).
+  [ ] After 20:00: SELL 1 INFY as AMO again for Tuesday (ask Claude for the price).
 
-STEP 5 - Mon 16 Nov, TEST 2
+STEP 5 - Tue 17 Nov, TEST 2
   [ ] Repeat STEP 4 on the last 2 INFY shares, then Record sell path that evening.
 
 STEP 6 - after TEST 2
   [ ] Holdings shows 0 INFY. Delete any GTT still active on INFY.
   [ ] Tell Claude "sell test done": Claude confirms both records and closes ST2 step 3 / LN-T2.
 
-Fallback for a failed leg: Tue 17 / Wed 18 Nov. Tell Claude the same day.
+Fallback for a failed leg: Wed 18 / Thu 19 Nov. Tell Claude the same day.
 
 ~~~~~~~~
 
+Don't immediately answer my question. First, identify what I'm actually trying to solve. Ask me the 3 most important questions that would help you give me a much better answer.
+
+I'm going to share an idea with you. Your job isn't to agree with me. Find the 5 biggest weaknesses, challenge my assumptions, identify what I'm overlooking, and tell me what could make this fail.
+
+I want to achieve [specific result]. Work backward from the desired outcome. Identify the exact steps, skills, tools, decisions, and milestones required to get there. Explain the most efficient path.
+
+I'm deciding between [option A] and [option B]. Build a decision framework that compares both options based on my priorities, risks, opportunity costs, and long-term consequences. Identify the option most likely to produce the best outcome.
+
+Look at [industry, skill, or business]. Identify 10 overlooked opportunities most people aren't paying attention to. Explain why each opportunity exists, who would pay for it, and how I could realistically capitalize on it.
+
+I want to master [skill] as efficiently as possible. Build a learning system using deliberate practice, active recall, spaced repetition, and real-world projects. Focus on the knowledge that creates the greatest practical advantage.
+
+Help me achieve [goal] consistently. Instead of giving me motivation or random tips, design a repeatable system with daily actions, triggers, checkpoints, feedback loops, and measurable progress.
+
+I'm going to give you [article, book, transcript, or document]. Don't just summarize it. Extract its most valuable insights, hidden assumptions, practical applications, counterintuitive lessons, and ideas I can use immediately.
+
+Act as my strategic advisor. Here's my current situation: [context]. Here's what I want to achieve: [goal]. Identify my biggest leverage points, the highest-impact actions, what I should stop doing, and the next 3 moves that would create the most progress.
