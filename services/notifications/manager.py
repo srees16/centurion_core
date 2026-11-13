@@ -859,8 +859,10 @@ class NotificationManager:
                       mode, "Paper trading &mdash; no real orders placed")
         mode = {"live": "LIVE", "live dry run": "live dry run"}.get(mode, "paper")
         session = report.get("session", "")
-        objective_html = (f"<p style='margin-top:18px;padding:10px 12px;background:#f9fafb;border-left:3px solid "
-                          f"#387ed1;font-size:13px;color:#374151;'>{report['objective']}</p>"
+        from nse_engine.books import OBJECTIVE_CLASS      # the daily summary lifts the trials' paragraph out by it
+
+        objective_html = (f"<p class='{OBJECTIVE_CLASS}' style='margin-top:18px;padding:10px 12px;background:#f9fafb;"
+                          f"border-left:3px solid #387ed1;font-size:13px;color:#374151;'>{report['objective']}</p>"
                           if report.get("objective") else "")
         html = f"""\
 <html><body style="font-family:Segoe UI,Arial,sans-serif;background:#f9fafb;padding:20px;">
