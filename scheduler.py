@@ -146,12 +146,25 @@ def _dispatch_nse_paper_workflow():
     except Exception:                                     # noqa: BLE001 - attempt anyway
         done = ""
     today_ist = datetime.now(_IST).date().isoformat()
+    reason = "hf scheduler 19:00 IST"
     if done and done >= today_ist:
-        logger.info("NSE paper dispatch: session %s already processed, skipping", done)
-        return
+        # FL1 (14 Nov 2026): the share books are done, but on a night NSE's F&O file came after 19:00 a levered
+        # book's futures leg is still waiting.  The retry then starts the run again (it only does what is left),
+        # so the leg is marked the same evening instead of depending on GitHub's crons, which arrive hours late.
+        try:
+            from tools.paper_heartbeat import futures_behind_tonight
+            late = futures_behind_tonight()
+        except Exception as exc:                          # noqa: BLE001 - unknown: leave it to the backup crons
+            logger.warning("NSE paper dispatch: futures legs unreadable (%s)", exc)
+            late = 0
+        if not late:
+            logger.info("NSE paper dispatch: session %s already processed, skipping", done)
+            return
+        reason = f"hf scheduler retry: {late} futures leg(s) not marked"
+        logger.info("NSE paper dispatch: session %s processed but %s", done, reason)
     workflow = os.environ.get("CENTURION_GH_WORKFLOW", "nse-paper-trading.yml")
     try:
-        http = _github_dispatch(workflow, {"reason": "hf scheduler 19:00 IST"}, token)
+        http = _github_dispatch(workflow, {"reason": reason}, token)
         ok = http == 204
         logger.info("NSE paper dispatch: %s (HTTP %s)", "started" if ok else "unexpected status", http)
         _save_run("nse_engine_dispatch", {"status": "success" if ok else "error", "http": http})

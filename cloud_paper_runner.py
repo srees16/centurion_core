@@ -589,6 +589,9 @@ def _engine_session(pt, dep, executor, as_of=None, previous_session=None, replay
             futures = _futures_overlay_session(pt, dep, session, plan)
             msg += (f" | futures nav={futures['nav']:.0f} legs={futures['legs']} exposure={futures['exposure']:.2f}"
                     f" calls={futures['margin_calls']}")
+            if futures.get("caught_up") or futures.get("skipped"):
+                msg += (f" caught_up={len(futures.get('caught_up') or [])}"
+                        f" not_caught_up={len(futures.get('skipped') or {})}")
         except FileNotFoundError as exc:              # tonight's F&O file is not out yet: a later run catches up
             logger.warning("Futures overlay deferred: %s", exc)
             futures = {"deferred": str(exc)[:300]}
@@ -713,20 +716,37 @@ def _futures_overlay_session(pt, dep, session: dict, plan) -> dict:
     cloud = pt._get_cloud()
     ledger = fo.load_ledger(cloud, dep.paper_capital_inr * cfg.reserve_share)
     day = pd.Timestamp(session["session"])
-    contracts = fo.session_contracts(os.environ.get("ARCHIVE_DIR", "data/nse_engine/archive"), day)
+    archive = os.environ.get("ARCHIVE_DIR", "data/nse_engine/archive")
     target = getattr(plan, "target", None) if plan is not None else None
     weights = dict(getattr(target, "weights", {}) or {})
-    symbols = sorted(set(weights) | set(ledger.legs) | set(ledger.pending))
+    symbols = sorted(set(weights) | set(ledger.legs) | set(ledger.pending) | set(ledger.weights))
     data = load_market_data(dep.engine.data.store_dir, (day - pd.Timedelta(days=150)).date().isoformat(),
                             day.date().isoformat(), symbols=symbols, min_median_value_inr=0.0, include_symbols=())
+    sessions = pd.DatetimeIndex(data.dates)
+    # FL1: the sessions the leg missed (NSE's file came after that night's last run) are run first, oldest first,
+    # and saved, so they stand even if tonight's file is not out yet either.
+    caught = {"caught_up": [], "skipped": {}}
+    if fo.missed_sessions(ledger, day, sessions):
+        rows = cloud.read_sessions(strict=True) if cloud is not None else None
+        book_rows = ({str(r["session_date"])[:10]: {"equity": r["equity"], "cash": r["cash"]}
+                      for _, r in rows.iterrows()} if rows is not None and len(rows) else {})
+        caught = fo.catch_up(ledger, cfg, day, sessions, lambda m: fo.session_contracts(archive, m), book_rows,
+                             lambda m, since: fo.spot_inputs(data, m, symbols, since=since), rule=dep.drawdown_rule)
+        if caught["caught_up"]:
+            fo.save_ledger(cloud, ledger)
+        logger.warning("Futures leg caught up %s; not caught up %s", caught["caught_up"] or "nothing",
+                       caught["skipped"] or "nothing")
+    contracts = fo.session_contracts(archive, day)
     dash = pt.dashboard()
     share_equity = float(dash.current_capital)
     summary = fo.run_session(
         ledger, cfg, day, contracts, share_equity=share_equity, share_invested=max(share_equity - float(pt.cash), 0.0),
         target_weights=weights, traded={o.symbol for o in (plan.orders if plan is not None else [])},
-        spot=fo.spot_inputs(data, day, symbols), sessions=pd.DatetimeIndex(data.dates), rule=dep.drawdown_rule)
+        spot=fo.spot_inputs(data, day, symbols, since=ledger.last_session), sessions=sessions,
+        rule=dep.drawdown_rule)
     fo.save_ledger(cloud, ledger)
     summary["initial"] = float(dep.paper_capital_inr)
+    summary.update(caught)
     return summary
 
 
@@ -955,6 +975,9 @@ def _email_engine_session(pt, dep, session: dict, snapshot: dict, shift: dict, g
                   [alerts[-1]], book=book)
         elif futures and futures.get("margin_calls"):
             alerts.append("MARGIN CALL: the futures leg no longer fitted its margin and was cut at the settle")
+        if futures and futures.get("skipped"):                # FL1: sessions the leg could not catch up
+            alerts.append("FUTURES LEG: session(s) missed and not caught up (the next row covers them): "
+                          + "; ".join(f"{d} ({why})" for d, why in sorted(futures["skipped"].items())))
         deferred = (["Futures leg: NSE's F&O bhavcopy was not out at this run; a later run tonight catches it up "
                      "(tomorrow's email shows it)"] if futures and futures.get("deferred") else [])
         if bonds and bonds.get("error"):

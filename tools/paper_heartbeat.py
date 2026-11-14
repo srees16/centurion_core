@@ -132,14 +132,49 @@ def nightly_health(now: Optional[datetime] = None) -> Tuple[bool, str]:
     return True, f"session {expected} done"
 
 
+def futures_legs_behind(books, states: dict, session: str) -> int:
+    """How many levered books' futures legs are not marked at ``session`` (their ledgers' ``last_session``).
+    A missing or unreadable ledger counts: the leg has not run."""
+    import json
+
+    from kite_connect.trading.futures_overlay import STATE_KEY
+
+    def marked(state: dict) -> str:
+        try:
+            return str(json.loads(state.get(STATE_KEY) or "{}").get("last_session") or "")
+        except (TypeError, ValueError):
+            return ""
+
+    return sum(marked(states.get(b.name) or {}) < session for b in books if getattr(b.deployment, "futures_overlay", None))
+
+
+def futures_behind_tonight(now: Optional[datetime] = None) -> int:
+    """For the app's 20:30 retry (FL1): the futures legs not yet marked at the last completed NSE session.
+    Raises when Neon cannot be read; the caller decides what that means."""
+    from database.connection import get_db_manager
+    from database.paper_cloud import PaperCloudSync
+    from nse_engine.books import discover_books
+    from services.execution.carver_pipeline import last_completed_nse_session
+
+    expected = last_completed_nse_session(now)
+    mgr = get_db_manager()
+    books = [b for b in discover_books() if b.deployment.paper_start_date <= expected
+             and getattr(b.deployment, "futures_overlay", None)]
+    states = {b.name: PaperCloudSync(mgr, schema=b.schema).read_state() or {} for b in books}
+    return futures_legs_behind(books, states, expected.isoformat())
+
+
 def session_finished(now: Optional[datetime] = None) -> Tuple[bool, str]:
     """(finished, why): is anything left for tonight's backup runs? (tracker KES1)
 
     Stricter than ``nightly_health``, where a no-login skip passes.  Finished
-    means every started book reached the last completed NSE session, the live
-    session ran for it (a no-login skip is not finished: a later login can still
-    run it) and the nightly email went.  Anything unreadable is not finished, so
-    the run goes ahead as it always did.  ``why`` reaches a public log: counts only.
+    means every started book reached the last completed NSE session, every
+    futures leg was marked at it (FL1, 14 Nov 2026: on a night NSE's F&O file is
+    late the leg is deferred to a backup run, and those were being stopped, so
+    the futures book lost 2-4 and 12-13 Nov), the live session ran for it (a
+    no-login skip is not finished: a later login can still run it) and the
+    nightly email went.  Anything unreadable is not finished, so the run goes
+    ahead as it always did.  ``why`` reaches a public log: counts only.
     """
     from database.connection import get_db_manager
     from database.paper_cloud import PaperCloudSync
@@ -152,14 +187,17 @@ def session_finished(now: Optional[datetime] = None) -> Tuple[bool, str]:
     live_on = (os.environ.get("CENTURION_LIVE_MODE") or "").strip().lower() in ("dry_run", "live")
     try:
         mgr = get_db_manager()
-        states = {b.name: PaperCloudSync(mgr, schema=b.schema).read_state() or {}
-                  for b in discover_books() if b.deployment.paper_start_date <= expected}
+        books = [b for b in discover_books() if b.deployment.paper_start_date <= expected]
+        states = {b.name: PaperCloudSync(mgr, schema=b.schema).read_state() or {} for b in books}
         live = PaperCloudSync(mgr, schema=live_schema()).read_state() or {} if live_on else {}
     except Exception as exc:                              # noqa: BLE001 - unreadable is not finished
         return False, f"Neon unreadable: {type(exc).__name__}"
     behind = sum(str(s.get("engine_last_session") or "") < session for s in states.values())
     if DEPLOYED not in states or behind:
         return False, f"{behind} of {len(states)} books behind {session}"
+    late = futures_legs_behind(books, states, session)
+    if late:
+        return False, f"{late} futures leg(s) not marked at {session} (NSE's F&O file was late)"
     if live_on and max(str(live.get(k) or "") for k in (LIVE_LAST_SESSION_KEY, LIVE_DRY_LAST_SESSION_KEY)) < session:
         return False, f"the live session has not run for {session}"
     if states[DEPLOYED].get(DAILY_STATE_KEY) != session:

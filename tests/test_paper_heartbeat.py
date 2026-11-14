@@ -140,6 +140,53 @@ def test_anything_left_undone_lets_the_backup_run_go(monkeypatch, state, why):
     assert not finished and why in reason
 
 
+def _finished_with_a_futures_book(monkeypatch, ledger):
+    """Friday night with a levered book whose share book is done and whose futures ledger is ``ledger``."""
+    from types import SimpleNamespace as Book
+
+    from kite_connect.trading.futures_overlay import STATE_KEY
+    from kite_connect.trading.live_session import LIVE_DRY_LAST_SESSION_KEY, live_schema
+    from nse_engine.books import DAILY_STATE_KEY
+    from tools.paper_heartbeat import session_finished
+
+    done = {"engine_last_session": FRI_SESSION}
+    states = {None: {**done, DAILY_STATE_KEY: FRI_SESSION},
+              "futures": {**done, **({} if ledger is None else {STATE_KEY: ledger})},
+              live_schema(): {LIVE_DRY_LAST_SESSION_KEY: FRI_SESSION}}
+
+    class Cloud:
+        def __init__(self, mgr, schema=None): self.schema = schema
+        def read_state(self): return states[self.schema]
+
+    start = date(2026, 10, 1)
+    books = [Book(name="deployed", schema=None, deployment=Book(paper_start_date=start)),
+             Book(name="futures", schema="futures",
+                  deployment=Book(paper_start_date=start, futures_overlay={"leverage": 1.75}))]
+    monkeypatch.setenv("CENTURION_LIVE_MODE", "dry_run")
+    monkeypatch.setattr("database.connection.get_db_manager", lambda: object())
+    monkeypatch.setattr("database.paper_cloud.PaperCloudSync", Cloud)
+    monkeypatch.setattr("nse_engine.books.discover_books", lambda: books)
+    return session_finished(FRI_NIGHT)
+
+
+@pytest.mark.parametrize("ledger", [
+    '{"last_session": "2026-10-29", "history": []}',      # the F&O file came late: the leg was deferred
+    None,                                                 # its first night, deferred: no ledger yet
+    '{"history": []}',                                    # a ledger that never marked a session
+    "not json",                                           # unreadable is not finished
+])
+def test_a_futures_leg_not_marked_tonight_keeps_the_backup_runs_on(monkeypatch, ledger):
+    """FL1 (14 Nov 2026): the backups were stopped with the futures leg deferred, and the futures book lost
+    five sessions (2-4 and 12-13 Nov)."""
+    finished, why = _finished_with_a_futures_book(monkeypatch, ledger)
+    assert not finished and why == f"1 futures leg(s) not marked at {FRI_SESSION} (NSE's F&O file was late)"
+
+
+def test_a_futures_leg_marked_tonight_lets_the_night_finish(monkeypatch):
+    ledger = '{"last_session": "%s", "history": [{"date": "%s"}]}' % (FRI_SESSION, FRI_SESSION)
+    assert _finished_with_a_futures_book(monkeypatch, ledger) == (True, f"session {FRI_SESSION} finished")
+
+
 def test_a_no_login_skip_is_not_finished(monkeypatch):
     """A later Kite login can still run the session, so the backups stay on (unlike ``nightly_health``)."""
     from kite_connect.trading.live_session import LIVE_DRY_LAST_SESSION_KEY, LIVE_SKIP_NOTIFIED_KEY
@@ -200,3 +247,57 @@ class TestSmtpCredentials:
         assert user == "bot@example.com"
         password.encode("ascii")        # smtplib does this; a stray NBSP used to raise here
         assert port == 587 and host == "smtp.gmail.com"
+
+
+@pytest.mark.parametrize("late,expected", [
+    (1, "hf scheduler retry: 1 futures leg(s) not marked"),      # FL1: the leg is waiting for NSE's late file
+    (0, None),                                                   # all done: the retry stays quiet, as before
+    (RuntimeError("neon down"), None),                           # unknown: left to the backup crons
+])
+def test_the_evening_retry_starts_a_run_only_for_a_futures_leg_still_waiting(monkeypatch, late, expected):
+    """The share books are done at 19:00; the 20:30 retry used to do nothing whatever the futures leg's state."""
+    pytest.importorskip("apscheduler")                           # the scheduler module is the app's, not the core's
+    import scheduler
+    import tools.paper_heartbeat as hb
+
+    class Cloud:
+        def read_state(self): return {"engine_last_session": "9999-12-31"}
+        def sync_state(self, state): return True
+
+    def behind():
+        if isinstance(late, Exception):
+            raise late
+        return late
+
+    sent = []
+    monkeypatch.setenv("CENTURION_GH_DISPATCH_TOKEN", "t")
+    monkeypatch.setattr("database.paper_cloud.get_paper_cloud", lambda: Cloud())
+    monkeypatch.setattr(hb, "futures_behind_tonight", behind)
+    monkeypatch.setattr(scheduler, "_github_dispatch", lambda wf, inputs, token: sent.append(inputs["reason"]) or 204)
+    monkeypatch.setattr(scheduler, "_save_run", lambda *a, **k: None)
+    scheduler._dispatch_nse_paper_workflow()
+    assert sent == ([expected] if expected else [])
+
+
+def test_futures_behind_tonight_counts_only_started_levered_books(monkeypatch):
+    from types import SimpleNamespace as Book
+
+    from kite_connect.trading.futures_overlay import STATE_KEY
+    import tools.paper_heartbeat as hb
+
+    states = {None: {}, "futures": {STATE_KEY: '{"last_session": "2026-10-29"}'}, "later": {}}
+
+    class Cloud:
+        def __init__(self, mgr, schema=None): self.schema = schema
+        def read_state(self): return states[self.schema]
+
+    dep = lambda start, fut: Book(paper_start_date=date.fromisoformat(start), futures_overlay=fut)
+    books = [Book(name="deployed", schema=None, deployment=dep("2026-10-01", None)),
+             Book(name="futures", schema="futures", deployment=dep("2026-10-01", {"leverage": 1.75})),
+             Book(name="later", schema="later", deployment=dep("2027-01-01", {"leverage": 1.75}))]
+    monkeypatch.setattr("database.connection.get_db_manager", lambda: object())
+    monkeypatch.setattr("database.paper_cloud.PaperCloudSync", Cloud)
+    monkeypatch.setattr("nse_engine.books.discover_books", lambda: books)
+    assert hb.futures_behind_tonight(FRI_NIGHT) == 1
+    states["futures"] = {STATE_KEY: '{"last_session": "%s"}' % FRI_SESSION}
+    assert hb.futures_behind_tonight(FRI_NIGHT) == 0
