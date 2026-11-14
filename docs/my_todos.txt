@@ -345,3 +345,11 @@ Help me achieve [goal] consistently. Instead of giving me motivation or random t
 I'm going to give you [article, book, transcript, or document]. Don't just summarize it. Extract its most valuable insights, hidden assumptions, practical applications, counterintuitive lessons, and ideas I can use immediately.
 
 Act as my strategic advisor. Here's my current situation: [context]. Here's what I want to achieve: [goal]. Identify my biggest leverage points, the highest-impact actions, what I should stop doing, and the next 3 moves that would create the most progress.
+
+~~~~~~
+
+analyze why a1's overlay hasn't traded yet. I expect that it improves centurion's performance steadily towards golden target
+
+how to ensure recursive self improvement of centurion_core
+
+add new rule to trigger system-2 thinking to ensure chain-of-thought before implementing the solution. 

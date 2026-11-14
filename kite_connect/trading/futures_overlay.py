@@ -21,6 +21,14 @@ Every session, after the share book has processed the day and planned the next (
 Costs are ``fno_costs.futures_charges`` plus impact from ``nse_engine.costs`` on the contract's traded value.
 The ledger is JSON in the book's ``paper_state`` (key ``futures_ledger``), with one history row per session.
 Paper only: nothing here can place an order.
+
+A session the leg missed (NSE's F&O file came after the night's last run: FL1, 14 Nov 2026) is caught up at the
+next run, before that night's session (``catch_up``): its orders fill at its own open, its contracts are
+marked, adjusted and rolled on its own prices, and the drawdown rule sees its NAV.  Only step 6 cannot be
+redone, because that night's plan is gone: the targets stay as they were (the last weights, nothing traded).
+Its row carries ``caught_up``.  A session that cannot be caught up (no file even now, or no share-book row)
+stays a gap: the next row carries ``gap_sessions``, and the adjustment in step 2 then spans the gap.  A leg
+found past its expiry stops the leg with an error rather than sit in the book unmarked.
 """
 
 from __future__ import annotations
@@ -192,6 +200,7 @@ def run_session(ledger: Ledger, cfg: OverlayConfig, day: pd.Timestamp, contracts
     start_nav = ledger.cash + share_equity            # before today's futures (first session: the start)
     if ledger.last_session == key:
         return {"session": key, "repeat": True, **(ledger.history[-1] if ledger.history else {})}
+    gap = len(missed_sessions(ledger, day, sessions))    # sessions the leg never ran (0 on an ordinary night)
     by = {s: g.sort_values("expiry") for s, g in contracts.groupby("symbol")}
 
     def contract(sym, expiry) -> Optional[pd.Series]:
@@ -246,6 +255,9 @@ def run_session(ledger: Ledger, cfg: OverlayConfig, day: pd.Timestamp, contracts
     for sym, leg in list(ledger.legs.items()):
         c = contract(sym, leg.expiry)
         if c is None:
+            if pd.Timestamp(leg.expiry) < day:            # it should have rolled roll_sessions before expiry
+                raise RuntimeError(f"{sym}: the {leg.expiry} future is past its expiry and was never rolled "
+                                   f"(sessions were missed before it); the futures book needs a rebuild by replay")
             continue
         settle = float(c["settle"])
         pnl += leg.qty * (settle - leg.ref)
@@ -345,6 +357,8 @@ def run_session(ledger: Ledger, cfg: OverlayConfig, day: pd.Timestamp, contracts
            "legs": len(ledger.legs), "biggest_pct": biggest / nav if nav > 0 else 0.0, "margin_calls": calls,
            "premium": premium, "premium_pct": premium / notional if notional > 0 else 0.0,
            "state": state, "scale": scale, "day_pnl": nav - prev_nav}
+    if gap:
+        row["gap_sessions"] = gap                        # this row's P&L covers gap + 1 sessions
     ledger.history.append(row)
     ledger.fills = (ledger.fills + fills)[-500:]
     ledger.last_session = key
@@ -353,6 +367,38 @@ def run_session(ledger: Ledger, cfg: OverlayConfig, day: pd.Timestamp, contracts
             "holdings": [{"symbol": s, "expiry": leg.expiry, "lots": round(leg.qty / leg.lot, 3),
                           "notional": leg.qty * leg.ref} for s, leg in sorted(ledger.legs.items())],
             "metrics": metrics(ledger)}
+
+
+def catch_up(ledger: Ledger, cfg: OverlayConfig, day: pd.Timestamp, sessions: pd.DatetimeIndex, contracts_for,
+             book_rows: Mapping[str, Mapping[str, float]], spot_for, rule=None) -> Dict:
+    """Run the sessions the leg missed before ``day``, oldest first (FL1); {"caught_up": [dates], "skipped":
+    {date: why}}.
+
+    ``contracts_for(session)`` returns that session's contracts or raises FileNotFoundError; ``book_rows`` maps
+    an ISO date to the share book's {"equity", "cash"} at that session's close (its ``paper_sessions`` row);
+    ``spot_for(session, since)`` is ``spot_inputs``.  Each caught-up session keeps the last targets and trades
+    nothing new (that night's plan is gone); everything else is that session's own.  A session without a file
+    or a share-book row is skipped and stays a gap."""
+    done: List[str] = []
+    skipped: Dict[str, str] = {}
+    for m in missed_sessions(ledger, day, sessions):
+        key = m.date().isoformat()
+        book = book_rows.get(key)
+        if book is None or not all(np.isfinite(float(book.get(k, np.nan))) for k in ("equity", "cash")):
+            skipped[key] = "the share book has no row for it"
+            continue
+        try:
+            contracts = contracts_for(m)
+        except FileNotFoundError:
+            skipped[key] = "no F&O bhavcopy for it"
+            continue
+        equity, cash = float(book["equity"]), float(book["cash"])
+        run_session(ledger, cfg, m, contracts, share_equity=equity, share_invested=max(equity - cash, 0.0),
+                    target_weights=dict(ledger.weights), traded=set(), spot=spot_for(m, ledger.last_session),
+                    sessions=sessions, rule=rule)
+        ledger.history[-1]["caught_up"] = True
+        done.append(key)
+    return {"caught_up": done, "skipped": skipped}
 
 
 def metrics(ledger: Ledger, rf: float = 0.065) -> Dict:
@@ -376,19 +422,34 @@ def metrics(ledger: Ledger, rf: float = 0.065) -> Dict:
     return out
 
 
-def spot_inputs(data, day: pd.Timestamp, symbols) -> Dict[str, Dict[str, float]]:
+def spot_inputs(data, day: pd.Timestamp, symbols, since: Optional[str] = None) -> Dict[str, Dict[str, float]]:
     """What ``run_session`` reads from the store for ``symbols`` on ``day``: opens, raw and adjusted closes
-    today and the session before, 60-day volatility."""
+    today and at the session the ledger last marked (``since``; the session before when it is that one, not
+    given or not in the store), 60-day volatility.  After a gap the "previous" closes are the ones the legs
+    were last marked at, so a bonus or split on a missed day still adjusts the contract (FL1)."""
     out: Dict[str, Dict[str, float]] = {}
     if day not in data.close.index:
         return out
     i = data.close.index.get_loc(day)
+    j = i - 1
+    if since:
+        last = pd.Timestamp(since)
+        if last in data.close.index and data.close.index.get_loc(last) < i:
+            j = data.close.index.get_loc(last)
     raw = data.close_unadj if data.close_unadj is not None else data.close
     for s in symbols:
         if s not in data.close.columns or i == 0:
             continue
         adj = data.close[s]
         vol = float(adj.iloc[max(0, i - 60): i + 1].pct_change().std())
-        out[s] = {"open": float(data.open[s].iloc[i]), "adj_close": float(adj.iloc[i]), "adj_prev": float(adj.iloc[i - 1]),
-                  "raw_close": float(raw[s].iloc[i]), "raw_prev": float(raw[s].iloc[i - 1]), "vol": vol}
+        out[s] = {"open": float(data.open[s].iloc[i]), "adj_close": float(adj.iloc[i]), "adj_prev": float(adj.iloc[j]),
+                  "raw_close": float(raw[s].iloc[i]), "raw_prev": float(raw[s].iloc[j]), "vol": vol}
     return out
+
+
+def missed_sessions(ledger: "Ledger", day: pd.Timestamp, sessions: pd.DatetimeIndex) -> List[pd.Timestamp]:
+    """The sessions after the ledger's last one and before ``day``: the ones the leg did not run (FL1)."""
+    if not ledger.last_session:
+        return []
+    last, day = pd.Timestamp(ledger.last_session), pd.Timestamp(day)
+    return [pd.Timestamp(s) for s in sessions if last < s < day]

@@ -1489,6 +1489,73 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+14 Nov  RS1  A second on-time trigger for the nightly run, as a conditional rescue (your call: option B;
+             uncommitted).  The workflow names a cron-job.org trigger "if one is configured"; none has fired
+             2-14 Nov and the tracker has no record of one, so this may be its first setup.  A plain dispatch
+             would run the whole night a second time every evening (dispatches are never gated: ~800 MB of
+             cache transfer a night, what KES1 removed).  Instead cron-job.org starts paper-heartbeat.yml
+             with rescue=true at 19:45 IST on weekdays: tools.paper_heartbeat --rescue starts "Paper Trading
+             Cron" only when a session closed today, tonight is not finished, and a run can do what is left
+             (books behind, the email, a live session with a Kite login, Neon unreadable).  It does nothing
+             when only a futures leg waits (the 20:30 retry and the crons take it), when the live session
+             waits for a login, or when a nightly run is queued or in progress.  It emails a WARNING when it
+             starts a run, and fails the job with a WARNING when it cannot.  session_finished now wraps
+             night_status (same answers).  The nightly workflow is not touched; paper-heartbeat.yml gains
+             the input, the step and actions: write for GITHUB_TOKEN.  22 tests in test_paper_heartbeat.py
+             (the workflow read as text: no PyYAML in the core install); 708 fast tests pass; core-only
+             passes; on real Neon: Saturday "nothing is due", Fri 13 Nov 19:45 "left to the 20:30 retry".
+             Not tested: the workflow on GitHub itself (after the merge, a Test run from cron-job.org).
+             Yours: a fine-grained token (Actions read/write, this repo only) and the cron-job.org job.
+14 Nov  FL2  Futures book: is the catch-up fix enough? (your ask; uncommitted).  No: FL1's gate fix restores the
+             backups, but those arrive 6-10 h late and a missed session can do more than leave a hole.
+             Confirmed from the logs: 12 and 13 Nov's 19:00 runs logged "Futures overlay deferred: no F&O
+             bhavcopy" (NSE's file straddles 19:00: 5 of 10 nights since 2 Nov); the scheduled runs came at
+             01:30-05:50 IST and exited in under a minute.
+             Validated the live ledger (read-only, against this Mac's store and F&O files): every leg's ref =
+             its 11 Nov settle; nav = share equity + futures cash on all 14 rows; no corporate action on a
+             held name since 19 Oct; no leg past expiry (all 23 Nov); no margin call.  Marked at 13 Nov's
+             settles the book is Rs 2,37,39,965 (+18.70%), not the Rs 2.34 Cr "as of 11 Nov" shown.
+             Hazards found in the code (none has bitten): a bonus or split on a missed day was never applied
+             to the contract; a leg whose roll window and expiry were missed sat in the book unmarked for
+             good; orders filled at the wrong day's open; the next row's multi-day P&L reads as one day.
+             Built: (1) catch-up: futures_overlay.catch_up runs each missed session before tonight's, with its
+             own file, share-book row (paper_sessions equity and cash), fills at its own open, marks, rolls,
+             adjustment and drawdown rule; only the targets stay as they were (that night's plan is gone);
+             rows carry caught_up; saved even if tonight's file is late too.  (2) spot_inputs(since=): after a
+             gap that cannot be closed the adjustment spans it; such a row carries gap_sessions.  (3) A leg
+             past its expiry raises ("needs a rebuild by replay"): FUTURES FAILED in the email, ledger
+             untouched.  (4) The Space's 20:30 retry now also starts a run when a futures leg is not marked
+             (paper_heartbeat.futures_behind_tonight), so catch-up is the same evening.
+             Checks: dry run on a copy of the live ledger: 12 and 13 Nov caught up, NAV to the rupee of the
+             independent mark, legs unchanged, no order.  Tests (the leg had none): 4 in test_paper_book.py
+             (a gap caught up = the unbroken run, row for row; an uncatchable gap with a 1:1 bonus; expiry;
+             no-gap identity), 4 more in test_paper_heartbeat.py.  686 fast tests pass; core-only passes.
+             RA1F: the futures trial book's recording and the Space's retry only; no deployed-book number.
+             After the merge Monday's run restores 12-13 Nov.  2-4 Nov stay lost (rows after them exist): only
+             a rebuild of the book by replay from 19 Oct would restore them (destructive; your call, not
+             proposed now).  Left: NSE's file later than both the 20:30 retry and the small-hours crons.
+             Also found: the 19:00 run is started by the Space alone (breadcrumb 13:30:06Z); the cron-job.org
+             19:30 trigger named in the workflow has not fired in 2-14 Nov.  Re-enable it (you).  Before
+             Wed 18 Nov matters: the legs roll 18-20 Nov and expire Mon 23 Nov.
+14 Nov  FL1  Found in the week-13-Nov review (your ask; analysis only, nothing changed).  (1) The futures book's
+             futures ledger has 14 rows for 19 sessions: 2, 3, 4, 12 and 13 Nov are missing, and the weekly
+             email values it "as of 11 Nov".  Cause: on a night NSE's F&O file is late the futures leg is
+             deferred to a backup run, but since 2 Nov (CENTURION_SKIP_DONE_RUNS, KES1) the backups stop once
+             the share books, the live session and the email are done: paper_heartbeat.session_finished does
+             not look at a sleeve's or overlay's ledger.  The next night marks at the new prices, so the value
+             catches up, but the missed days' rebalances and rolls never run and the daily series has gaps
+             (its t and MC band are on that series).  a1 is unaffected (its overlay replays from the store).
+             FIXED 14 Nov (your "resolve"; uncommitted): session_finished now also needs every futures leg
+             marked at the session (the futures ledger's last_session; missing or unreadable = not finished),
+             so the 20:05-22:05 backups run until the leg is done, as before KES1.  5 tests in
+             test_paper_heartbeat.py; 678 fast tests pass; core-only venv passes; on real Neon it now answers
+             "1 futures leg(s) not marked at 2026-11-13".  RA1F: gating only, no config, engine or deployed-
+             book number.  Limits: the five lost sessions cannot be rebuilt (the leg needs that night's plan
+             and share-book state); a file NSE publishes after the 22:05 run is still missed; on such a
+             night all three backups run (about 2.4 GB of cache transfer).  (2) RA1: the deployed book has
+             39 G4 sessions on 13 Nov; with 20 sessions to 14 Dec (24 Nov a holiday) the 60th falls on Tue 15
+             Dec, a session after the "14 Dec" written everywhere.  The rule is the 60th session, so the
+             verdict comes in the 15 Dec evening email unless the count differs by one.
 14 Nov  PG1  Platform gap review and its plumbing (your six asks; docs/platform_gap_review.md, new, your OK;
              uncommitted, both repos).  Corrected the 11 Nov audit, which used the 10 Oct gap register:
              fundamentals exist since 12 Oct (GT1; GT4 failed, GT7 withdrawn); the nightly run has three
@@ -1505,8 +1572,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                hand-placed orders.  The Space has no CENTURION_LIVE_MODE (checked 14 Nov): set dry_run now,
                live on go-live day with GitHub's variable (there it only labels alerts; no orders).
                DONE 14 Nov (you): Space variable = dry_run, Space RUNNING, /health deep 200; Neon moved
-               to Launch (your word; the plan and the $5 alert are not readable from here), 38 MB, all 12
-               schemas answer.
+               to Launch (confirmed by you 14 Nov: Launch, $5 spending alert, 0.25-1 CU, scale to zero on;
+               not readable from here), 38 MB, all 12 schemas answer.
              - Lock: constraints-hf.txt (226 pins) + Dockerfile.hf installs -c it.  The Space's pip layer was
                last built 9 Nov 09:29 UTC (build log: CACHED since), so the set was reproduced with uv
                (py3.11, linux x86_64, --exclude-newer that moment); with the lock today's resolution is

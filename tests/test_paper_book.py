@@ -682,3 +682,135 @@ class TestBookPnlInTheDailyReport:
         from nse_engine import books as bk
 
         assert bk.trials_objective([self._day("deployed", "deployed", "Objective: rehearse.")]) == ""
+
+
+class TestFuturesLegCatchUp:
+    """FL1 (14 Nov 2026): on a night NSE's F&O file came after the last run the futures leg lost the session
+    (2-4 and 12-13 Nov).  It now runs the sessions it missed before tonight's, and a gap it cannot close is
+    marked and cannot corrupt the contracts."""
+
+    import pandas as _pd
+
+    SESS = _pd.bdate_range("2026-12-07", periods=8)          # Mon 7 Dec .. Wed 16 Dec, no NSE holiday
+    E1, E2 = SESS[5], _pd.Timestamp("2027-01-26")            # the near contract expires on the sixth session
+    WEIGHTS = {"AAA": 0.5}
+
+    @classmethod
+    def _contracts(cls, i, lot=100.0, scale=1.0):
+        px = (100.0 + i) * scale
+        rows = [{"symbol": "AAA", "expiry": cls.E2, "open": px + 0.5 * scale, "settle": px + 1.0 * scale,
+                 "lot_size": lot, "value_inr": 4e8}]
+        if i <= 5:
+            rows.insert(0, {"symbol": "AAA", "expiry": cls.E1, "open": px - 0.5 * scale, "settle": px,
+                            "lot_size": lot, "value_inr": 5e8})
+        return pd.DataFrame(rows)
+
+    @classmethod
+    def _spot(cls, i, j=None, raw=None):
+        """The store's view on session i against session j (the one before unless given); ``raw`` overrides
+        the unadjusted closes {session: close} (a bonus)."""
+        j = i - 1 if j is None else j
+        adj = lambda k: 100.0 + k - 0.2
+        r = lambda k: (raw or {}).get(k, adj(k))
+        return {"AAA": {"open": adj(i) - 0.4, "raw_close": r(i), "raw_prev": r(j), "adj_close": adj(i),
+                        "adj_prev": adj(j), "vol": 0.02}}
+
+    @staticmethod
+    def _equity(i):
+        return 1_000_000.0 + 5_000.0 * i
+
+    def _night(self, fo, ledger, i, traded=(), contracts=None, spot=None):
+        eq = self._equity(i)
+        return fo.run_session(ledger, fo.OverlayConfig(), self.SESS[i], self._contracts(i) if contracts is None else contracts,
+                              share_equity=eq, share_invested=0.9 * eq, target_weights=self.WEIGHTS, traded=set(traded),
+                              spot=self._spot(i) if spot is None else spot, sessions=self.SESS)
+
+    def _book_rows(self, days):
+        return {self.SESS[i].date().isoformat(): {"equity": self._equity(i), "cash": 0.1 * self._equity(i)} for i in days}
+
+    def test_no_gap_nothing_is_missed_and_the_adjustment_reads_the_session_before(self):
+        from types import SimpleNamespace
+
+        from kite_connect.trading import futures_overlay as fo
+
+        ledger = fo.Ledger(cash=250_000.0)
+        assert fo.missed_sessions(ledger, self.SESS[3], self.SESS) == []               # no session yet
+        self._night(fo, ledger, 0, traded={"AAA"})
+        assert fo.missed_sessions(ledger, self.SESS[1], self.SESS) == []               # an ordinary next night
+        assert fo.missed_sessions(ledger, self.SESS[3], self.SESS) == list(self.SESS[1:3])
+        close = pd.DataFrame({"AAA": [10.0 + k for k in range(8)]}, index=self.SESS)
+        data = SimpleNamespace(close=close, close_unadj=close * 2, open=close - 0.5)
+        plain = fo.spot_inputs(data, self.SESS[4], ["AAA"])
+        assert plain == fo.spot_inputs(data, self.SESS[4], ["AAA"], since=self.SESS[3].date().isoformat())
+        assert plain == fo.spot_inputs(data, self.SESS[4], ["AAA"], since="") == fo.spot_inputs(
+            data, self.SESS[4], ["AAA"], since="2020-01-01")                           # not in the store: as before
+        gap = fo.spot_inputs(data, self.SESS[4], ["AAA"], since=self.SESS[1].date().isoformat())["AAA"]
+        assert (gap["adj_prev"], gap["raw_prev"]) == (11.0, 22.0) and gap["adj_close"] == plain["AAA"]["adj_close"]
+
+    def test_catching_up_gives_the_ledger_an_unbroken_run_would_have(self):
+        """Sessions 1 and 2 are missed (an order due at session 1's open, a roll due at session 2) and caught
+        up before session 3: every number matches the run that never missed them."""
+        from kite_connect.trading import futures_overlay as fo
+
+        straight = fo.Ledger(cash=250_000.0)
+        self._night(fo, straight, 0, traded={"AAA"})
+        for i in (1, 2, 3):
+            self._night(fo, straight, i)
+        assert straight.history[1]["futures_pnl"] != 0 and straight.legs["AAA"].expiry == str(self.E2.date())   # filled, rolled
+        assert straight.history[2]["roll_costs"] > 0
+
+        late = fo.Ledger(cash=250_000.0)
+        self._night(fo, late, 0, traded={"AAA"})
+        seen = []
+        res = fo.catch_up(late, fo.OverlayConfig(), self.SESS[3], self.SESS, lambda m: self._contracts(self.SESS.get_loc(m)),
+                          self._book_rows((1, 2)),
+                          lambda m, since: seen.append((m, since)) or self._spot(self.SESS.get_loc(m)))
+        assert res == {"caught_up": [self.SESS[1].date().isoformat(), self.SESS[2].date().isoformat()], "skipped": {}}
+        assert seen == [(self.SESS[1], self.SESS[0].date().isoformat()), (self.SESS[2], self.SESS[1].date().isoformat())]
+        self._night(fo, late, 3)
+        assert [r.pop("caught_up", False) for r in late.history] == [False, True, True, False]
+        assert late.history == straight.history and late.cash == straight.cash
+        assert late.legs == straight.legs and late.pending == straight.pending and late.fills == straight.fills
+        assert not any("gap_sessions" in r for r in late.history)
+
+    def test_a_session_that_cannot_be_caught_up_stays_a_marked_gap_and_a_bonus_in_it_still_adjusts(self):
+        from kite_connect.trading import futures_overlay as fo
+
+        ledger = fo.Ledger(cash=250_000.0)
+        self._night(fo, ledger, 0, traded={"AAA"})
+        self._night(fo, ledger, 1)
+        qty, lot, ref = ledger.legs["AAA"].qty, ledger.legs["AAA"].lot, ledger.legs["AAA"].ref
+
+        def contracts_for(m):                                # session 2's file never came; a 1:1 bonus fell on it
+            i = self.SESS.get_loc(m)
+            if i == 2:
+                raise FileNotFoundError("no F&O bhavcopy")
+            return self._contracts(i, lot=200.0, scale=0.5)
+
+        raw = {0: 99.8, 1: 100.8, 2: 50.9, 3: 51.4, 4: 51.9}   # the unadjusted close halves on session 2
+        res = fo.catch_up(ledger, fo.OverlayConfig(), self.SESS[4], self.SESS, contracts_for, self._book_rows((2, 3)),
+                          lambda m, since: self._spot(self.SESS.get_loc(m), self.SESS.get_loc(pd.Timestamp(since)), raw))
+        assert res == {"caught_up": [self.SESS[3].date().isoformat()],
+                       "skipped": {self.SESS[2].date().isoformat(): "no F&O bhavcopy for it"}}
+        row = ledger.history[-1]
+        assert row["gap_sessions"] == 1 and row["caught_up"] is True
+        leg = ledger.legs["AAA"]
+        assert leg.lot == pytest.approx(2 * lot, rel=0.02) and leg.qty == pytest.approx(2 * qty, rel=0.05)   # NSE's adjustment
+        assert abs(row["futures_pnl"]) < 0.05 * qty * ref     # two days' move, not the bonus read as a 50% loss
+        no_row = fo.catch_up(ledger, fo.OverlayConfig(), self.SESS[6], self.SESS, contracts_for, {},
+                             lambda m, since: self._spot(self.SESS.get_loc(m)))
+        assert set(no_row["skipped"].values()) == {"the share book has no row for it"} and not no_row["caught_up"]
+
+    def test_a_leg_past_its_expiry_stops_the_leg_loudly(self):
+        """Never rolled because the sessions before its expiry were missed: an error, not a contract that sits
+        in the book unmarked for good."""
+        from kite_connect.trading import futures_overlay as fo
+
+        ledger = fo.Ledger(cash=250_000.0)
+        self._night(fo, ledger, 0, traded={"AAA"})
+        self._night(fo, ledger, 1)
+        assert ledger.legs["AAA"].expiry == str(self.E1.date())
+        saved = ledger.to_json()
+        with pytest.raises(RuntimeError, match="past its expiry and was never rolled"):
+            self._night(fo, ledger, 6)                       # sessions 2-5, the roll window and the expiry, were lost
+        assert fo.Ledger.from_json(saved).last_session == self.SESS[1].date().isoformat()
