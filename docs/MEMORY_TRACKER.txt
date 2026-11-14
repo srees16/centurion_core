@@ -191,6 +191,25 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  3. DECISIONS TAKEN (27 Sep)
 --------------------------------------------------------------------------------
+  U41  (14 Nov) Your three rules, scoped by your answers the same day.  (1) Not to agree by default:
+       for an idea or strategy Claude names the biggest weakness, the assumption that may be false,
+       what you overlook and what could make it fail (added to U39).  (2) Objectives are planned
+       backward from the outcome: steps, skills, tools, decisions, milestones, the most efficient
+       path (added to U40).  (3) Ask before answering: for ideas, strategies, objectives, design
+       choices and anything ambiguous, costly or hard to undo, Claude first says what you are
+       really solving, asks up to 4 questions, then stops (read-only work only) until you answer;
+       operational, status and time-critical prompts get a direct answer with the assumption
+       stated.  One screen still limits every reply.  Recorded in CLAUDE.md and Claude's memory.
+       Copilot too (your ask, 14 Nov): its file in centurion_core had drifted ("never intraday", no
+       standing rules) and VS Code opens ProjectX, where none existed.  Now three files carry the
+       rules: centurion_core/.github/copilot-instructions.md (= CLAUDE.md below the title; a test in
+       test_config_identity.py fails on drift), ProjectX/.github/copilot-instructions.md (workspace
+       root, in no repository) and centurion_core-fe/.github/copilot-instructions.md.
+  U40  (14 Nov) Your rule: Claude thinks a solution through before implementing it ("system-2",
+       step by step): the real goal, the root cause confirmed from evidence and not inferred, an
+       alternative and why the chosen fix is better, what else it touches and how it can fail, how
+       it will be verified.  A short plan is shown first; if the evidence contradicts it, re-plan.
+       After U39's challenge, before any change.  Recorded in CLAUDE.md and Claude's memory.
   U39  (7 Nov) Your rule: Claude challenges every request before working on it: its value to the
        Ind (or US) module, prior tests and decisions in the trackers and plan, its cost in trials,
        freezes and time.  Counter-productive, duplicate or low-value: a crisp "disagree, because..."
@@ -1489,6 +1508,16 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+14 Nov  FL3  Futures catch-up, status (your asks "is it resolved", "start it now").  On main and deployed
+             (PR #332, Space updated 12:48 UTC, CI green); the gate on real Neon answers "1 futures leg(s) not
+             marked at 2026-11-13".  NOT yet exercised: no nightly session has run since the merge.  A manual
+             dispatch on Sat 14 Nov 20:44 IST (run 43609063596, your go) proved nothing: cloud_paper_runner
+             runs only the weekly checkpoint on a Saturday ("Saturday detected"), so no engine session and no
+             futures leg ran.  Claude's miss: it cited the 10 Nov holiday run as precedent without reading the
+             runner's Saturday branch (rule 9, the day it was made).  Every book identical before and after
+             (snapshots, sessions, ledgers, pending orders, cash); no email; ~9 min of Actions and one cache
+             save.  First real test: Mon 16 Nov 19:00 IST (catch up 12 and 13 Nov, then 16 Nov; expected 17
+             rows).  Claude checks the ledger after it.
 14 Nov  RS1  A second on-time trigger for the nightly run, as a conditional rescue (your call: option B;
              uncommitted).  The workflow names a cron-job.org trigger "if one is configured"; none has fired
              2-14 Nov and the tracker has no record of one, so this may be its first setup.  A plain dispatch
@@ -1506,6 +1535,11 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              passes; on real Neon: Saturday "nothing is due", Fri 13 Nov 19:45 "left to the 20:30 retry".
              Not tested: the workflow on GitHub itself (after the merge, a Test run from cron-job.org).
              Yours: a fine-grained token (Actions read/write, this repo only) and the cron-job.org job.
+             DONE 14 Nov (you): job 8863904 on cron-job.org, weekdays 19:45 IST.  Its test run at 19:51 IST
+             started Paper Heartbeat run 43604424581: the normal check skipped, the rescue step logged
+             "skipped (no session closed today: nothing is due)", no nightly run started.  Dated: the token
+             expires 13 Nov 2027; GitHub's API version 2022-11-28 (sent by cron-job.org, scheduler.py and
+             paper_heartbeat.py) is deprecated and ends 10 Mar 2028: move all three before then.
 14 Nov  FL2  Futures book: is the catch-up fix enough? (your ask; uncommitted).  No: FL1's gate fix restores the
              backups, but those arrive 6-10 h late and a missed session can do more than leave a hole.
              Confirmed from the logs: 12 and 13 Nov's 19:00 runs logged "Futures overlay deferred: no F&O
