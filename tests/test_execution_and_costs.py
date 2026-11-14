@@ -2609,3 +2609,133 @@ def test_deleting_every_stop_for_a_symbol_counts_what_went(gtt_env):
     k = _GttKite(gtts=[_gtt(1, "A", 90, 88, 5), _gtt(2, "A", 80, 78, 5), _gtt(3, "B", 70, 68, 5)])
     assert gs.delete_stop_gtts_for_symbol(k, "A", reason="exit") == 2 and list(k.gtts) == [3]
     assert gs.delete_stop_gtts_for_symbol(_GttKite(fail={"get_gtts"}), "A") == 0
+
+
+# ---------------------------------------------------------------- AL5: alerts from Kite's order postbacks
+
+def _postback(**over):
+    base = {"order_id": "2611160001", "status": "COMPLETE", "tradingsymbol": "INFY", "exchange": "NSE",
+            "transaction_type": "SELL", "order_type": "LIMIT", "product": "CNC", "variety": "regular",
+            "quantity": 5, "filled_quantity": 5, "average_price": 1140.5, "price": 1135.8, "tag": None,
+            "status_message": None}
+    return {**base, **over}
+
+
+def _triggered(gid, symbol, trigger, order_id, status="triggered"):
+    g = _gtt(gid, symbol, trigger, trigger * 0.996, 5, status=status)
+    g["orders"] = [{**g["orders"][0], "result": {"order_result": {"order_id": order_id, "status": "success"}}}]
+    return g
+
+
+def test_the_engines_own_tag_is_recognised():
+    from kite_connect.trading.nse_engine_executor import EngineExecutor
+    from kite_connect.trading.postback_alerts import is_engine_order
+
+    assert is_engine_order(EngineExecutor.order_tag("2026-12-15", "BUY", "M&M"))        # NE261215BMM
+    assert is_engine_order(EngineExecutor.order_tag("2026-12-15", "SELL", "BAJAJ-AUTO"))
+    assert not any(is_engine_order(t) for t in (None, "", "manual", "NEWS", "NE2612B", "OPT261215BNIFTY"))
+
+
+@pytest.mark.parametrize("status,reason,needle", [
+    ("REJECTED", "Insufficient funds. Required margin is 5000", "not enough cash at the 09:00 check"),
+    ("CANCELLED AMO", "", "no reason given"),
+    ("CANCELLED", "Order cancelled by exchange", "cancelled by exchange"),
+])
+def test_a_failed_engine_order_is_critical_with_kites_reason(status, reason, needle):
+    from kite_connect.trading.postback_alerts import classify
+    from services.notifications.alerts import CRITICAL
+
+    a = classify(_postback(status=status, status_message=reason, transaction_type="BUY", tag="NE261215BINFY",
+                           filled_quantity=0))
+    assert a["severity"] == CRITICAL and a["key"] == "postback_failed:2611160001"
+    assert a["title"].endswith("BUY 5 INFY") and needle in " ".join(a["lines"])
+
+
+@pytest.mark.parametrize("status", ["COMPLETE", "OPEN", "TRIGGER PENDING", "AMO REQ RECEIVED", "UPDATE"])
+def test_an_engine_order_that_did_not_fail_raises_nothing(status):
+    from kite_connect.trading.postback_alerts import classify
+
+    called = []
+    assert classify(_postback(status=status, tag="NE261215SINFY"), lambda: called.append(1) or {}) is None
+    assert not called                                     # its own sell is never looked up as a stop
+
+
+def test_a_filled_stop_warns_and_a_sale_by_hand_does_not():
+    from kite_connect.trading import postback_alerts as pa
+    from services.notifications.alerts import WARNING
+
+    k = _GttKite(gtts=[_triggered(11, "INFY", 1120.0, "2611160001"), _gtt(12, "TCS", 2400, 2390, 2),
+                       _triggered(13, "SBIN", 700.0, "", status="triggered"),         # triggered, no order named
+                       _triggered(14, "LT", 3000.0, "2611169999", status="active")])  # not triggered
+    stops = pa.triggered_stop_orders(k)
+    assert list(stops) == ["2611160001"]
+    a = pa.classify(_postback(), lambda: stops)
+    assert a["severity"] == WARNING and a["key"] == "postback_stop:2611160001"
+    assert a["title"] == "Centurion stop filled: SELL 5 INFY" and "trigger was 1120.0 (GTT 11" in a["lines"][0]
+    assert pa.classify(_postback(order_id="2611160002"), lambda: stops) is None       # sold by hand
+
+
+@pytest.mark.parametrize("over", [{"transaction_type": "BUY"}, {"product": "MIS"}, {"status": "OPEN"},
+                                  {"order_id": ""}, {"status": None}])
+def test_only_a_completed_cnc_sell_is_checked_against_the_stops(over):
+    from kite_connect.trading.postback_alerts import classify
+
+    called = []
+    assert classify(_postback(**over), lambda: called.append(1) or {}) is None and not called
+
+
+def test_an_unreadable_stop_list_still_warns_as_unconfirmed():
+    from kite_connect.trading.postback_alerts import classify
+    from services.notifications.alerts import WARNING
+
+    for lookup in (lambda: None, None):
+        a = classify(_postback(), lookup)
+        assert a["severity"] == WARNING and "outside the engine's orders" in a["title"]
+        assert "could not be read" in a["lines"][1]
+
+
+def test_handle_emails_each_order_once_and_never_raises(monkeypatch):
+    from kite_connect.trading import postback_alerts as pa
+    from services.notifications import alerts
+
+    sent = []
+    monkeypatch.setattr(alerts, "alert", lambda sev, key, title, lines=(), book=None, once=False:
+                        sent.append((sev, key, book, once)) or True)
+    rejected = _postback(status="REJECTED", status_message="RMS: margin exceeds", tag="NE261215BINFY",
+                         transaction_type="BUY")
+    assert pa.handle(rejected, None) == "postback_failed:2611160001"
+    assert sent == [(alerts.CRITICAL, "postback_failed:2611160001", "live", True)]
+    assert pa.handle(_postback(tag="NE261215SINFY"), None) is None and len(sent) == 1   # a normal fill: silence
+    boom = lambda: (_ for _ in ()).throw(RuntimeError("kite down"))
+    assert pa.handle(_postback(), boom) is None                                          # a lookup that raises
+    monkeypatch.setattr(alerts, "alert", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("smtp down")))
+    assert pa.handle(rejected, None) is None                                             # an email that raises
+
+
+def test_the_postback_route_answers_first_and_alerts_in_the_background(monkeypatch):
+    pytest.importorskip("fastapi")                        # the web stack is not in the core install (CI)
+    pytest.importorskip("httpx")
+    import hashlib
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from api.routers import streaming
+    from kite_connect.trading import postback_alerts as pa
+
+    seen = []
+    monkeypatch.setattr(pa, "handle", lambda p: seen.append(p))
+    monkeypatch.setattr(streaming, "_get_dispatcher", lambda: type("D", (), {"dispatch": lambda self, e: None})())
+    monkeypatch.setenv("ZERODHA_API_SECRET", "s3cret")
+    app = FastAPI()
+    app.include_router(streaming.router)
+    body = {"order_id": "2611160001", "order_timestamp": "2026-12-15 09:00:02", "status": "REJECTED",
+            "status_message": "Insufficient funds", "tradingsymbol": "INFY", "transaction_type": "BUY",
+            "tag": "NE261215BINFY", "quantity": 5}
+    good = hashlib.sha256(f"{body['order_id']}{body['order_timestamp']}s3cret".encode()).hexdigest()
+    with TestClient(app) as client:
+        assert client.post("/stream/postback", json={**body, "checksum": "bad"}).status_code == 403
+        assert not seen                                   # a forged postback alerts nobody
+        r = client.post("/stream/postback", json={**body, "checksum": good})
+    assert r.status_code == 200 and r.json()["success"] is True
+    assert len(seen) == 1 and seen[0]["tag"] == "NE261215BINFY" and seen[0]["status"] == "REJECTED"
