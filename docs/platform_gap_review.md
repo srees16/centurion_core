@@ -117,8 +117,9 @@ crons back it up 6-10 hours late, a dead man's switch emails if no run finishes 
 Sentry, a heartbeat, and now order postback alerts. Two weak links, both free to fix:
 - the heartbeat's own trigger: start it from the app's scheduler, like the nightly run;
 - a second on-time trigger: the cron-job.org job the workflow describes has not fired since
-  at least 2 Nov. Re-enable it (owner), so a restart of the app at 19:00 does not push the
-  run to the small hours.
+  at least 2 Nov. Built 14 Nov as a conditional rescue (tracker RS1): cron-job.org starts the
+  heartbeat workflow at 19:45 IST, which starts the nightly run only when it is still needed,
+  so an ordinary night costs a minute. The owner sets up the token and the job.
 
 ### 3.4 Deployment (A5)
 

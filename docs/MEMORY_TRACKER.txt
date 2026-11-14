@@ -1489,6 +1489,23 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+14 Nov  RS1  A second on-time trigger for the nightly run, as a conditional rescue (your call: option B;
+             uncommitted).  The workflow names a cron-job.org trigger "if one is configured"; none has fired
+             2-14 Nov and the tracker has no record of one, so this may be its first setup.  A plain dispatch
+             would run the whole night a second time every evening (dispatches are never gated: ~800 MB of
+             cache transfer a night, what KES1 removed).  Instead cron-job.org starts paper-heartbeat.yml
+             with rescue=true at 19:45 IST on weekdays: tools.paper_heartbeat --rescue starts "Paper Trading
+             Cron" only when a session closed today, tonight is not finished, and a run can do what is left
+             (books behind, the email, a live session with a Kite login, Neon unreadable).  It does nothing
+             when only a futures leg waits (the 20:30 retry and the crons take it), when the live session
+             waits for a login, or when a nightly run is queued or in progress.  It emails a WARNING when it
+             starts a run, and fails the job with a WARNING when it cannot.  session_finished now wraps
+             night_status (same answers).  The nightly workflow is not touched; paper-heartbeat.yml gains
+             the input, the step and actions: write for GITHUB_TOKEN.  22 tests in test_paper_heartbeat.py
+             (the workflow read as text: no PyYAML in the core install); 708 fast tests pass; core-only
+             passes; on real Neon: Saturday "nothing is due", Fri 13 Nov 19:45 "left to the 20:30 retry".
+             Not tested: the workflow on GitHub itself (after the merge, a Test run from cron-job.org).
+             Yours: a fine-grained token (Actions read/write, this repo only) and the cron-job.org job.
 14 Nov  FL2  Futures book: is the catch-up fix enough? (your ask; uncommitted).  No: FL1's gate fix restores the
              backups, but those arrive 6-10 h late and a missed session can do more than leave a hole.
              Confirmed from the logs: 12 and 13 Nov's 19:00 runs logged "Futures overlay deferred: no F&O

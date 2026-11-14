@@ -301,3 +301,125 @@ def test_futures_behind_tonight_counts_only_started_levered_books(monkeypatch):
     assert hb.futures_behind_tonight(FRI_NIGHT) == 1
     states["futures"] = {STATE_KEY: '{"last_session": "%s"}' % FRI_SESSION}
     assert hb.futures_behind_tonight(FRI_NIGHT) == 0
+
+
+# ---------------------------------------------------------------- RS1: the outside trigger's evening rescue
+
+THU_1945 = datetime(2026, 10, 29, 19, 45, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+
+
+def _decide(monkeypatch, status, now=THU_1945, kite_login=None):
+    import tools.paper_heartbeat as hb
+
+    monkeypatch.setattr(hb, "night_status", lambda n=None: status)
+    return hb.rescue_decision(now, kite_login=kite_login)
+
+
+@pytest.mark.parametrize("status,login,start,needle", [
+    (("books", "7 of 7 books behind 2026-10-29"), None, True, "books behind"),          # the 19:00 start never ran
+    (("email", "the nightly email for 2026-10-29 has not gone"), None, True, "email"),
+    (("unreadable", "Neon unreadable: OperationalError"), None, True, "Neon unreadable"),  # let a run find out
+    (("live", "the live session has not run for 2026-10-29"), True, True, "live session"),  # a late Kite login
+    (("live", "the live session has not run for 2026-10-29"), False, False, "no Kite login today"),
+    (("futures", "1 futures leg(s) not marked at 2026-10-29"), None, False, "20:30 retry"),
+    (("finished", "session 2026-10-29 finished"), None, False, "finished"),
+])
+def test_the_rescue_starts_a_run_only_for_what_a_run_can_still_do(monkeypatch, status, login, start, needle):
+    decided, why = _decide(monkeypatch, status, kite_login=login)
+    assert decided is start and needle in why
+
+
+@pytest.mark.parametrize("now,why", [
+    (datetime(2026, 10, 31, 19, 45, tzinfo=timezone(timedelta(hours=5, minutes=30))), "a Saturday"),
+    (datetime(2026, 11, 10, 19, 45, tzinfo=timezone(timedelta(hours=5, minutes=30))), "an NSE holiday"),
+    (datetime(2026, 10, 29, 14, 0, tzinfo=timezone(timedelta(hours=5, minutes=30))), "the market is still open"),
+])
+def test_the_rescue_does_nothing_when_no_session_closed_today(monkeypatch, now, why):
+    decided, reason = _decide(monkeypatch, ("books", "7 of 7 books behind"), now=now)
+    assert decided is False and "nothing is due" in reason, why
+
+
+def test_night_status_and_session_finished_agree(monkeypatch):
+    """The gate's answer is unchanged by the split: finished only when nothing is left."""
+    import tools.paper_heartbeat as hb
+
+    assert _finished(monkeypatch) == (True, f"session {FRI_SESSION} finished")
+    assert hb.night_status(FRI_NIGHT) == (hb.FINISHED, f"session {FRI_SESSION} finished")
+
+
+class _Api:
+    """GitHub's Actions API as the rescue calls it: every call recorded."""
+
+    def __init__(self, running=0, queued=0, dispatch=204, fail=()):
+        self.counts, self.dispatch, self.fail, self.calls = {"in_progress": running, "queued": queued}, dispatch, set(fail), []
+
+    def __call__(self, method, path, token, body=None):
+        self.calls.append((method, path, body))
+        if method in self.fail:
+            raise OSError("api down")
+        if method == "GET":
+            return 200, {"total_count": self.counts[path.split("status=")[1].split("&")[0]]}
+        return self.dispatch, None
+
+
+def test_the_rescue_starts_the_nightly_workflow_with_its_reason(monkeypatch):
+    import tools.paper_heartbeat as hb
+
+    monkeypatch.setattr(hb, "night_status", lambda n=None: ("books", "7 of 7 books behind 2026-10-29"))
+    api = _Api()
+    assert hb.rescue(THU_1945, token="t", api=api) == ("started", "7 of 7 books behind 2026-10-29")
+    method, path, body = api.calls[-1]
+    assert (method, path) == ("POST", "workflows/nse-paper-trading.yml/dispatches")
+    assert body == {"ref": "main", "inputs": {"reason": "rescue: 7 of 7 books behind 2026-10-29"}}
+
+
+@pytest.mark.parametrize("api,token,outcome,needle", [
+    (_Api(running=1), "t", "skipped", "a nightly run is in progress"),          # the 19:00 run is still going
+    (_Api(queued=1), "t", "skipped", "a nightly run is queued"),
+    (_Api(fail={"GET"}), "t", "started", "books behind"),                      # the run list unreadable: start it
+    (_Api(dispatch=422), "t", "failed", "HTTP 422"),
+    (_Api(fail={"POST"}), "t", "failed", "the dispatch failed: OSError"),
+    (_Api(), "", "failed", "no GITHUB_TOKEN"),
+])
+def test_the_rescue_leaves_a_running_night_alone_and_reports_a_failed_start(monkeypatch, api, token, outcome, needle):
+    import tools.paper_heartbeat as hb
+
+    monkeypatch.setattr(hb, "night_status", lambda n=None: ("books", "7 of 7 books behind 2026-10-29"))
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    got, why = hb.rescue(THU_1945, token=token, api=api)
+    assert got == outcome and needle in why
+    if outcome == "skipped":
+        assert not any(c[0] == "POST" for c in api.calls)
+
+
+@pytest.mark.parametrize("outcome,exit_code,alert_key", [
+    (("skipped", "session finished"), 0, None),
+    (("started", "7 of 7 books behind"), 0, "nightly_rescued"),
+    (("failed", "the dispatch answered HTTP 422"), 1, "nightly_rescue_failed"),
+])
+def test_the_rescue_command_alerts_when_it_acts_and_fails_the_job_only_when_it_could_not(monkeypatch, outcome,
+                                                                                         exit_code, alert_key):
+    import tools.paper_heartbeat as hb
+    from services.notifications import alerts
+
+    sent = []
+    monkeypatch.setattr(hb, "rescue", lambda: outcome)
+    monkeypatch.setattr(alerts, "alert", lambda sev, key, title, lines=(), **k: sent.append(key) or True)
+    monkeypatch.setattr("sys.argv", ["paper_heartbeat", "--rescue"])
+    assert hb.main() == exit_code and sent == ([alert_key] if alert_key else [])
+
+
+def test_the_heartbeat_workflow_runs_the_rescue_only_when_asked():
+    """Read as text: PyYAML is not in the core install the tests run on in CI."""
+    import re
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parent.parent / ".github/workflows/paper-heartbeat.yml").read_text()
+    assert re.search(r"\n      rescue:\n(?:\s+#.*\n)*\s+description: .*\n\s+required: false\n\s+type: boolean\n\s+default: false", text)
+    assert re.search(r"\npermissions:\n  contents: read\n  actions: write", text)   # to read the nightly's runs, start one
+    assert ("      - name: Check when the book last traded\n        if: ${{ !inputs.rescue }}\n"
+            "        run: python -m tools.paper_heartbeat\n") in text
+    assert ("      - name: Rescue - start tonight's run if it is needed\n        if: ${{ inputs.rescue }}\n"
+            "        env:\n          GITHUB_TOKEN: ${{ github.token }}\n"
+            "        run: python -m tools.paper_heartbeat --rescue") in text

@@ -22,6 +22,7 @@ is reported from outside GitHub too.
     python -m tools.paper_heartbeat                     # exits 1 when stale
     python -m tools.paper_heartbeat --ping              # the nightly job's dead man's switch ping
     python -m tools.paper_heartbeat --session-finished  # the backup runs' gate
+    python -m tools.paper_heartbeat --rescue            # the outside trigger: start tonight's run if it is needed
 """
 from __future__ import annotations
 
@@ -164,8 +165,18 @@ def futures_behind_tonight(now: Optional[datetime] = None) -> int:
     return futures_legs_behind(books, states, expected.isoformat())
 
 
+#: What ``night_status`` can find left undone, in the order it looks.
+FINISHED, UNREADABLE, BOOKS, FUTURES, LIVE, EMAIL = "finished", "unreadable", "books", "futures", "live", "email"
+
+
 def session_finished(now: Optional[datetime] = None) -> Tuple[bool, str]:
-    """(finished, why): is anything left for tonight's backup runs? (tracker KES1)
+    """(finished, why): is anything left for tonight's backup runs? (tracker KES1; ``night_status``)"""
+    what, why = night_status(now)
+    return what == FINISHED, why
+
+
+def night_status(now: Optional[datetime] = None) -> Tuple[str, str]:
+    """(what is left, why) for the last completed NSE session: ``FINISHED`` or the first thing undone.
 
     Stricter than ``nightly_health``, where a no-login skip passes.  Finished
     means every started book reached the last completed NSE session, every
@@ -191,18 +202,99 @@ def session_finished(now: Optional[datetime] = None) -> Tuple[bool, str]:
         states = {b.name: PaperCloudSync(mgr, schema=b.schema).read_state() or {} for b in books}
         live = PaperCloudSync(mgr, schema=live_schema()).read_state() or {} if live_on else {}
     except Exception as exc:                              # noqa: BLE001 - unreadable is not finished
-        return False, f"Neon unreadable: {type(exc).__name__}"
+        return UNREADABLE, f"Neon unreadable: {type(exc).__name__}"
     behind = sum(str(s.get("engine_last_session") or "") < session for s in states.values())
     if DEPLOYED not in states or behind:
-        return False, f"{behind} of {len(states)} books behind {session}"
+        return BOOKS, f"{behind} of {len(states)} books behind {session}"
     late = futures_legs_behind(books, states, session)
     if late:
-        return False, f"{late} futures leg(s) not marked at {session} (NSE's F&O file was late)"
+        return FUTURES, f"{late} futures leg(s) not marked at {session} (NSE's F&O file was late)"
     if live_on and max(str(live.get(k) or "") for k in (LIVE_LAST_SESSION_KEY, LIVE_DRY_LAST_SESSION_KEY)) < session:
-        return False, f"the live session has not run for {session}"
+        return LIVE, f"the live session has not run for {session}"
     if states[DEPLOYED].get(DAILY_STATE_KEY) != session:
-        return False, f"the nightly email for {session} has not gone"
-    return True, f"session {session} finished"
+        return EMAIL, f"the nightly email for {session} has not gone"
+    return FINISHED, f"session {session} finished"
+
+
+# ------------------------------------------------------------------ the evening rescue (tracker RS1)
+
+NIGHTLY_WORKFLOW = "nse-paper-trading.yml"
+
+
+def rescue_decision(now: Optional[datetime] = None, kite_login: Optional[bool] = None) -> Tuple[bool, str]:
+    """(start the nightly run?, why) for an outside trigger about 45 minutes after the 19:00 start (RS1).
+
+    The app's scheduler starts the nightly run; if the app is down at 19:00 nothing does until GitHub's own
+    crons arrive hours later.  This is the second on-time trigger, without a second full run on every
+    ordinary night: it starts one only when something a run can still do is left.
+    - not a trading day, or the market has not closed: nothing is due;
+    - the night is finished: nothing to do;
+    - only a futures leg waits for NSE's late file: left to the app's 20:30 retry and the backup crons;
+    - only the live session is left and nobody has logged in to Kite today (``kite_login`` False): a run
+      could not do it either;
+    - anything else (books behind, the email, a live session with a login, Neon unreadable): start it.
+    """
+    from services.execution.carver_pipeline import is_nse_trading_day, last_completed_nse_session
+
+    now = (now or datetime.now(IST)).astimezone(IST)
+    if not is_nse_trading_day(now.date()) or last_completed_nse_session(now) != now.date():
+        return False, "no session closed today: nothing is due"
+    what, why = night_status(now)
+    if what == FINISHED:
+        return False, why
+    if what == FUTURES:
+        return False, f"{why}: left to the 20:30 retry and the backup crons"
+    if what == LIVE:
+        if kite_login is None:
+            try:
+                from kite_connect.auth import daily_login
+                from kite_connect.trading.live_session import live_book
+                kite_login = bool(daily_login.token_status(live_book(), now)["valid"])
+            except Exception:                             # noqa: BLE001 - unknown: let the run find out
+                kite_login = True
+        if not kite_login:
+            return False, f"{why}, and there is no Kite login today for a run to use"
+    return True, why
+
+
+def _github(method: str, path: str, token: str, body: Optional[dict] = None):
+    """One GitHub REST call on this repository's Actions; (status, parsed JSON or None)."""
+    import json
+    import urllib.request
+
+    repo = os.environ.get("GITHUB_REPOSITORY", "srees16/centurion_core")
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{repo}/actions/{path}", method=method,
+        data=json.dumps(body).encode() if body is not None else None,
+        headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
+                 "X-GitHub-Api-Version": "2022-11-28", "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        raw = resp.read()
+        return resp.status, (json.loads(raw) if raw else None)
+
+
+def rescue(now: Optional[datetime] = None, token: Optional[str] = None, api=_github) -> Tuple[str, str]:
+    """Run the rescue: ("started" | "skipped" | "failed", why).  A nightly run already queued or in progress
+    is left to finish (an unreadable run list does not stop the rescue: a second run only re-plans)."""
+    start, why = rescue_decision(now)
+    if not start:
+        return "skipped", why
+    token = token or os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
+    if not token:
+        return "failed", "no GITHUB_TOKEN to start the run with"
+    try:
+        for status in ("in_progress", "queued"):
+            _, runs = api("GET", f"workflows/{NIGHTLY_WORKFLOW}/runs?status={status}&per_page=1", token)
+            if (runs or {}).get("total_count"):
+                return "skipped", f"{why}, but a nightly run is {status.replace('_', ' ')}"
+    except Exception as exc:                              # noqa: BLE001 - go on and start it
+        logger.warning("rescue: the run list could not be read (%s)", type(exc).__name__)
+    try:
+        http, _ = api("POST", f"workflows/{NIGHTLY_WORKFLOW}/dispatches", token,
+                      {"ref": os.environ.get("CENTURION_GH_REF", "main"), "inputs": {"reason": f"rescue: {why}"[:200]}})
+    except Exception as exc:                              # noqa: BLE001 - reported, with the exit code
+        return "failed", f"{why}; the dispatch failed: {type(exc).__name__}"
+    return ("started", why) if http == 204 else ("failed", f"{why}; the dispatch answered HTTP {http}")
 
 
 def ping(url: str, healthy: bool, why: str) -> bool:
@@ -251,6 +343,22 @@ def main() -> int:
         logger.info("dead man's switch: %s (%s)%s", "healthy" if healthy else "FAIL", why,
                     "" if sent else " - ping not delivered")
         return 0
+    if "--rescue" in sys.argv[1:]:                        # RS1: the outside trigger's 19:45 IST check
+        outcome, why = rescue()
+        logger.info("rescue: %s (%s)", outcome, why)
+        if outcome == "skipped":
+            return 0
+        from services.notifications.alerts import WARNING, alert
+
+        if outcome == "started":
+            alert(WARNING, "nightly_rescued", "Centurion: the nightly run was started by the rescue trigger",
+                  [f"At the 19:45 check tonight was not finished: {why}. The rescue started a run.",
+                   "If the books were behind, the app's 19:00 start did not run (the app down or restarting?)."])
+            return 0
+        alert(WARNING, "nightly_rescue_failed", "Centurion: the rescue trigger could not start the nightly run",
+              [why, "GitHub's own crons are the backup (they arrive in the small hours); or start "
+                    "'Paper Trading Cron' by hand from the Actions page."])
+        return 1
     if "--session-finished" in sys.argv[1:]:              # KES1: only a positive answer stops a run
         finished, why = session_finished()
         logger.info("session finished: %s (%s)", finished, why)
