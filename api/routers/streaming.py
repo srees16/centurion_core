@@ -23,6 +23,7 @@ from typing import Dict, List, Optional
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     HTTPException,
     Query,
@@ -382,7 +383,7 @@ async def websocket_tick_stream(websocket: WebSocket):
         "the Kite Developer Console: ``https://your-domain/stream/postback``."
     ),
 )
-async def kite_postback(payload: KitePostbackPayload, request: Request):
+async def kite_postback(payload: KitePostbackPayload, request: Request, background: BackgroundTasks):
     """
     Process an incoming Kite postback and dispatch the appropriate
     event through the WebhookDispatcher.
@@ -438,6 +439,12 @@ async def kite_postback(payload: KitePostbackPayload, request: Request):
         source="kite_postback",
     )
     dispatcher.dispatch(event)
+
+    # Tracker AL5: a rejected or cancelled engine order, or a filled stop, emails the owner now.  After the
+    # reply, off the event loop (it may read the GTTs and send an email); it never raises.
+    from kite_connect.trading.postback_alerts import handle as postback_alert
+
+    background.add_task(postback_alert, event_payload)
 
     logger.info(
         "Kite postback received: order=%s status=%s symbol=%s",

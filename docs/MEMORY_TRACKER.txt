@@ -932,7 +932,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
  order categories): email only, to you; subjects [Centurion CRITICAL] and
  [Centurion warning]; healthchecks.io free tier as the dead-man's switch;
  push channel deferred (AL6).  AL1-AL4 done 10 Oct; AL5 at go-live.
-[ ] P2  AL5  Orders, market hours, at go-live: Kite postbacks for the
+[x] P2  AL5  DONE 14 Nov (PG1, section 8; uncommitted): the alerts are wired; whether Kite posts back
+             GTT-triggered and hand-placed sells is read off the 16-17 Nov sell test.  Was: Orders,
+             market hours, at go-live: Kite postbacks for the
              engine's own orders (kite_tag): rejected or cancelled ->
              CRITICAL within a minute, a filled stop -> warning.  Postback URL
              set 10 Oct on your Kite app: https://srees16-centurion-core.hf.space
@@ -1487,6 +1489,40 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+14 Nov  PG1  Platform gap review and its plumbing (your six asks; docs/platform_gap_review.md, new, your OK;
+             uncommitted, both repos).  Corrected the 11 Nov audit, which used the 10 Oct gap register:
+             fundamentals exist since 12 Oct (GT1; GT4 failed, GT7 withdrawn); the nightly run has three
+             triggers (Space scheduler, cron-job.org, GitHub crons) and a dead man's switch; the Oct outage was
+             the health-check quota burn, fixed, and you went back to Neon Free on 2 Nov.  Your calls 14 Nov:
+             banner on Verdict / Screener; budget up to ~Rs 2,500 a month; fundamentals survey only.
+             Built (RA1F-eligible: no config, engine, sizing, cost or book number):
+             - AL5 DONE: kite_connect/trading/postback_alerts.py; /stream/postback now also classifies each
+               update after replying (BackgroundTasks): engine order (tag NE<yymmdd><B|S>..) REJECTED or
+               CANCELLED -> CRITICAL with Kite's reason and rejection_hint; a COMPLETE CNC sell that is a
+               triggered stop GTT's order -> WARNING; GTTs unreadable -> WARNING worded unconfirmed; else
+               nothing; once per order; never raises.  18 tests in test_execution_and_costs.py (route test
+               skips core-only).  Open until the first supervised sell: whether Kite posts back GTT and
+               hand-placed orders.  The Space has no CENTURION_LIVE_MODE (checked 14 Nov): set dry_run now,
+               live on go-live day with GitHub's variable (there it only labels alerts; no orders).
+               DONE 14 Nov (you): Space variable = dry_run, Space RUNNING, /health deep 200; Neon moved
+               to Launch (your word; the plan and the $5 alert are not readable from here), 38 MB, all 12
+               schemas answer.
+             - Lock: constraints-hf.txt (226 pins) + Dockerfile.hf installs -c it.  The Space's pip layer was
+               last built 9 Nov 09:29 UTC (build log: CACHED since), so the set was reproduced with uv
+               (py3.11, linux x86_64, --exclude-newer that moment); with the lock today's resolution is
+               identical, without it 18 packages already differ (fastapi, anthropic, arch 8 -> 9).  This
+               Mac's myenv differs from the Space on 99 of 226.  Two tests in test_paper_book.py fail a pin
+               that disagrees with the lock.  Not installed on Linux (Docker was off; a pip dry run was
+               stopped after ~200 MB on the hotspot).  After the deploy check login, Fly Kite, /health.
+             - Banner: components/common/legacy-notice.tsx on Ind Verdict and Screener (Screener's adds that
+               its orders are the user's own); tsc and next build clean.
+             Proposed, yours to do: Neon Launch before go-live (~Rs 200 a month at 38 MB and ~15 CU-hours;
+             Free suspends at quota).  Not recommended: the HF CPU upgrade (~Rs 1,950).  Later (after 14
+             Dec): heartbeat from the Space scheduler, a staging Space, the lock in the nightly's legacy
+             install, an engine-view page; after the first live weeks a live-only service on the Lightsail
+             host.  Fundamentals: buy nothing; extend the free NSE store only behind a pre-registered
+             hypothesis; the one paid lead is estimate revisions (NS1-9: ask Trendlyne, then ACE Equity);
+             every cheap API is restated data, unfit for backtests.  673 fast tests pass.
 13 Nov  EM3  Daily summary email: the trials' objective said once (your ask; uncommitted).  The same "Objective:
              trial configuration ..." paragraph closed each of the six trial books' reports.  Now one line under
              the findings ("Objective of the trial books (candidate, e4, ...): ..."; books.trials_objective, the
