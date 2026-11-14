@@ -26,8 +26,11 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements first for better caching
 # Both: requirements.txt starts with `-r requirements-core.txt`, so the
 # include must be in the build context or pip cannot open it.
-COPY requirements.txt requirements-core.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+# constraints-hf.txt pins every package, named or pulled in, to the versions
+# the Space was running on 9 Nov 2026 (tracker PG1): a rebuild no longer
+# floats to whatever is newest that day.
+COPY requirements.txt requirements-core.txt constraints-hf.txt ./
+RUN pip install --no-cache-dir -r requirements.txt -c constraints-hf.txt
 
 # Copy application code
 COPY . .

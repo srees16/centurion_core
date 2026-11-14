@@ -331,6 +331,39 @@ class TestDeploymentContext:
             for name in included:
                 assert name in text, f"{docker.name} installs requirements.txt but never copies {name}"
 
+    @staticmethod
+    def _pins(path):
+        """{normalised name: version} of the ``name==version`` lines of a requirements file."""
+        import re
+        out = {}
+        for line in path.read_text().splitlines():
+            m = re.match(r"^([A-Za-z0-9._-]+)(?:\[[^\]]*\])?==([^\s#;]+)", line.split("#")[0].strip())
+            if m:
+                out[re.sub(r"[-_.]+", "-", m.group(1)).lower()] = m.group(2)
+        return out
+
+    def test_the_space_installs_against_its_lock(self):
+        """PG1 (14 Nov 2026): the Space's web stack floated to the newest release at every package rebuild."""
+        from pathlib import Path
+        root = Path(__file__).resolve().parent.parent
+        docker = (root / "deployment" / "Dockerfile.hf").read_text()
+        assert "-r requirements.txt -c constraints-hf.txt" in docker
+        assert "constraints-hf.txt ./" in docker, "the build context must hold the lock, or pip cannot open it"
+        lines = [l.strip() for l in (root / "constraints-hf.txt").read_text().splitlines()
+                 if l.strip() and not l.startswith("#")]
+        lock = self._pins(root / "constraints-hf.txt")
+        assert len(lock) == len(lines) > 150, "every line of the lock is one exact pin"
+
+    def test_a_pin_and_the_lock_never_disagree(self):
+        """A pin moved in a requirements file but not in the lock fails the Space's build on the conflict."""
+        from pathlib import Path
+        root = Path(__file__).resolve().parent.parent
+        lock = self._pins(root / "constraints-hf.txt")
+        for name in ("requirements-core.txt", "requirements.txt"):
+            for pkg, version in self._pins(root / name).items():
+                assert lock.get(pkg) == version, (f"{name} pins {pkg}=={version} but constraints-hf.txt has "
+                                                  f"{lock.get(pkg)}: regenerate the lock (see its header)")
+
 
 class TestPartialClose:
     """G16: selling part of a lot must keep the entry time of the shares sold.
