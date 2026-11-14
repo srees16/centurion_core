@@ -13,8 +13,8 @@ measured costs, redundant infrastructure), not any firm's actual system.
 
 - **Research discipline is at par.** Pre-registration, a trial registry, deflated
   Sharpe and PBO, a sealed 2026 holdout, config hashes, canaries, paper before live.
-- **Infrastructure is better protected than the audit said.** Scheduling already has
-  three independent triggers and a dead man's switch. The real residual risks are a
+- **Infrastructure is better protected than the audit said.** The nightly run has an
+  on-time trigger, late backups and a dead man's switch. The real residual risks are a
   database that suspends at its free quota, and live-critical endpoints that share
   one free-tier app with the research pages.
 - **The methodology gap is breadth, and it is structural.** One price-momentum family
@@ -33,7 +33,7 @@ The audit took three items from the 10 Oct gap register, which was out of date.
 | The audit said | The record shows |
 |---|---|
 | No fundamentals or earnings dates | Since 12 Oct a point-in-time store from NSE filings: 166,910 quarterly results and 163,688 board-meeting dates, refreshed weekly (GT1). The value / quality sleeve failed (GT4); the earnings-surprise test was withdrawn (GT7) |
-| The nightly run depends on best-effort cron | Three triggers: the app's own scheduler (19:00 and 20:30 IST), cron-job.org (19:30) and four GitHub crons as backups, plus a healthchecks.io dead man's switch. Only the heartbeat runs on GitHub's cron alone |
+| The nightly run depends on best-effort cron | The app's own scheduler starts it on time at 19:00 IST (a 20:30 retry if it did not run), four GitHub crons are backups, and a healthchecks.io dead man's switch watches it. Corrected 14 Nov: the cron-job.org trigger the workflow describes (19:30) has not fired in 2-14 Nov, and the GitHub crons arrive 6-10 hours late, so there is one on-time trigger, not three |
 | The database outage shows a weak free tier | The 21-23 Oct outage was a self-inflicted quota burn (a health check that never let the database sleep), fixed on 21 Oct. The owner then tried the paid plan and returned to Free on 2 Nov |
 
 ## 2. Gap register, by priority
@@ -47,7 +47,7 @@ target against cost and effort. "Done" means built and tested on 14 Nov, uncommi
 |---|---|---|---|---|---|
 | A1 | A rejected or cancelled order is seen only in the evening run | High | Alerts from Kite's order postbacks within a minute (AL5) | Free | **Done** |
 | A2 | The app's packages floated to the newest release at every rebuild; this Mac tests different versions (99 of 226 differ) | High | A lock file used by the app's build, guarded by a test | Free | **Done** |
-| A3 | The database suspends when the free quota is used up; the day's Kite login and every book live in it | High | Neon's pay-as-you-go plan before go-live: no suspension, a day of restore history instead of 6 hours | About Rs 200 a month | Owner's action |
+| A3 | The database suspends when the free quota is used up; the day's Kite login and every book live in it | High | Neon's pay-as-you-go plan before go-live: no suspension, a day of restore history instead of 6 hours | About Rs 200 a month | **Done 14 Nov** (owner) |
 | A4 | Login callback, order postbacks and the scheduler share one free app with the research pages (ML, RAG): a heavy page or a rebuild can take the live path down | Medium | A small live-only service on the Lightsail host already paid for (static IP, Mumbai); the free app keeps the research pages | Rs 0 extra; 2-3 days | After go-live is stable |
 | A5 | A merge to `main` deploys straight to production | Medium | A second free Space fed from `develop`, without trading secrets; a health check after each deploy that alerts | Free; half a day | After 14 Dec |
 | A6 | The Verdict and Screener pages show a model the engine does not trade | Medium | A notice on both pages now; later an "engine view" page | Free | **Notice done** |
@@ -112,10 +112,14 @@ changes the Kite redirect and postback addresses, so not before the first live w
 
 ### 3.3 Scheduling and monitoring (A7)
 
-Already in place: three independent triggers for the nightly run, a dead man's switch that
-emails if no run finishes by 23:00, Sentry, a heartbeat, and now order postback alerts.
-The one weak link is the heartbeat's own trigger. Fix: start it from the app's scheduler,
-like the nightly run. No paid service is needed.
+Already in place: the app's scheduler starts the nightly run at 19:00 (retry 20:30), GitHub's
+crons back it up 6-10 hours late, a dead man's switch emails if no run finishes by 23:00,
+Sentry, a heartbeat, and now order postback alerts. Two weak links, both free to fix:
+- the heartbeat's own trigger: start it from the app's scheduler, like the nightly run;
+- a second on-time trigger: the cron-job.org job the workflow describes has not fired since
+  at least 2 Nov. Built 14 Nov as a conditional rescue (tracker RS1): cron-job.org starts the
+  heartbeat workflow at 19:45 IST, which starts the nightly run only when it is still needed,
+  so an ordinary night costs a minute. The owner sets up the token and the job.
 
 ### 3.4 Deployment (A5)
 
@@ -252,7 +256,7 @@ that orders sent from it are the user's own.
 | When | Item | Who |
 |---|---|---|
 | Now | Review and merge section 5 (two repositories) | Owner |
-| Before 14 Dec | A3: move the database to Neon Launch; keep the $5 alert | Owner |
+| Done 14 Nov | A3: the database is on Neon Launch, with the $5 alert | Owner |
 | Now, then go-live day | `CENTURION_LIVE_MODE` on the app: `dry_run` now, `live` with GitHub's variable (5.1) | Owner |
 | 16-17 Nov | Sell test: note whether a postback email arrives for the stop sell | Owner, Claude |
 | 14 Dec | RA1 verdict. Nothing above changes it | - |

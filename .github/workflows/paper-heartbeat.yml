@@ -13,9 +13,19 @@ on:
         required: false
         type: boolean
         default: false
+      rescue:
+        # Tracker RS1: the second on-time trigger of the nightly run.  cron-job.org starts this at 19:45 IST on
+        # weekdays; it starts "Paper Trading Cron" only when tonight is not finished and a run can still do
+        # what is left (tools.paper_heartbeat.rescue_decision), so an ordinary night costs a minute, not a
+        # second full run.
+        description: "Start tonight's paper run if it has not finished (the outside trigger's 19:45 IST check)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+  actions: write          # the rescue reads the nightly workflow's runs and may start one
 
 jobs:
   heartbeat:
@@ -39,4 +49,10 @@ jobs:
       # verified by importing both in a clean environment.
       - run: pip install --quiet -r requirements-core.txt
       - name: Check when the book last traded
+        if: ${{ !inputs.rescue }}
         run: python -m tools.paper_heartbeat
+      - name: Rescue - start tonight's run if it is needed
+        if: ${{ inputs.rescue }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -m tools.paper_heartbeat --rescue
