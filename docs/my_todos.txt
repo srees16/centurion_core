@@ -328,12 +328,6 @@ Fallback for a failed leg: Wed 18 / Thu 19 Nov. Tell Claude the same day.
 
 ~~~~~~~~
 
-Don't immediately answer my question. First, identify what I'm actually trying to solve. Ask me the 3 most important questions that would help you give me a much better answer.
-
-I'm going to share an idea with you. Your job isn't to agree with me. Find the 5 biggest weaknesses, challenge my assumptions, identify what I'm overlooking, and tell me what could make this fail.
-
-I want to achieve [specific result]. Work backward from the desired outcome. Identify the exact steps, skills, tools, decisions, and milestones required to get there. Explain the most efficient path.
-
 I'm deciding between [option A] and [option B]. Build a decision framework that compares both options based on my priorities, risks, opportunity costs, and long-term consequences. Identify the option most likely to produce the best outcome.
 
 Look at [industry, skill, or business]. Identify 10 overlooked opportunities most people aren't paying attention to. Explain why each opportunity exists, who would pay for it, and how I could realistically capitalize on it.
@@ -346,10 +340,4 @@ I'm going to give you [article, book, transcript, or document]. Don't just summa
 
 Act as my strategic advisor. Here's my current situation: [context]. Here's what I want to achieve: [goal]. Identify my biggest leverage points, the highest-impact actions, what I should stop doing, and the next 3 moves that would create the most progress.
 
-~~~~~~
-
-analyze why a1's overlay hasn't traded yet. I expect that it improves centurion's performance steadily towards golden target
-
-how to ensure recursive self improvement of centurion_core
-
-add new rule to trigger system-2 thinking to ensure chain-of-thought before implementing the solution. 
+~~~~~~~~

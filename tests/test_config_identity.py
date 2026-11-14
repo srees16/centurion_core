@@ -56,3 +56,16 @@ def test_config_round_trips_through_json():
     again = EngineConfig.from_dict(json.loads(cfg.to_json()))
     assert again.config_hash() == cfg.config_hash()
     assert again.universe.price_filter_unadjusted is True
+
+
+def test_copilot_reads_the_same_briefing_as_claude():
+    """The owner's working rules reach every coding assistant (14 Nov 2026): Copilot's file had drifted (it
+    still said "never intraday" two weeks after the amendment, and had none of the standing rules).  CLAUDE.md
+    is the source; the Copilot file is the same text under its own title."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    claude = (root / "CLAUDE.md").read_text().split("\n", 1)
+    copilot = (root / ".github" / "copilot-instructions.md").read_text().split("\n", 1)
+    assert claude[0].startswith("# Claude Code briefing") and copilot[0].startswith("# Copilot instructions")
+    assert copilot[1] == claude[1], "CLAUDE.md changed: copy its text below the title into .github/copilot-instructions.md"
