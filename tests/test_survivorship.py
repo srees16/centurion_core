@@ -407,3 +407,207 @@ def test_a_rights_issue_reads_the_face_value_of_its_own_date():
     assert fv.on("CCAVENUE", "2025-06-26") == 1.0                         # its rights issue: not today's Rs 10
     assert fv.on("CCAVENUE", "2026-10-13") == 10.0 and fv.on("CCAVENUE", "2020-01-01") == 1.0
     assert fv.on("NEW", "2025-06-26") == 2.0 and fv.on("GONE", "2025-06-26") is None
+
+
+# ── the nightly download (nse_engine/data/archive.py), against NSE's site in memory ──
+
+class _Site:
+    """NSE's archive host: ``pages`` {url: (status, bytes) or a list of them, served in turn}; the rest is a 404."""
+
+    def __init__(self, pages=None):
+        self.pages, self.asked, self.closed = dict(pages or {}), [], 0
+
+    def get(self, url, timeout=None):
+        from types import SimpleNamespace
+
+        self.asked.append(url)
+        page = self.pages.get(url, (404, b""))
+        if isinstance(page, list):
+            page = page.pop(0) if len(page) > 1 else page[0]
+        if isinstance(page, Exception):
+            raise page
+        return SimpleNamespace(status_code=page[0], content=page[1])
+
+    def close(self):
+        self.closed += 1
+
+
+def _zipped(name="data.csv", body=b"a,b\n1,2\n") -> bytes:
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(name, body)
+    return buf.getvalue()
+
+
+@pytest.fixture
+def mirror(tmp_path, monkeypatch):
+    """(the archive module, a mirror under tmp_path with no pacing or back-off, its site)."""
+    from nse_engine.data import archive
+
+    monkeypatch.setattr(archive.time, "sleep", lambda seconds: None)
+    site = _Site()
+    made = []
+    arch = archive.BhavcopyArchive(tmp_path, requests_per_second=0, max_retries=3,
+                                   session_factory=lambda: made.append(1) or site)
+    arch.sessions_made = made
+    return archive, arch, site
+
+
+def test_each_days_files_have_one_name_and_the_formats_overlap_only_at_their_boundary(tmp_path):
+    from datetime import date
+
+    from nse_engine.data.archive import ARCHIVE_HOST as H, candidate_files
+
+    (legacy,) = candidate_files(tmp_path, "equity", date(2013, 1, 15))
+    assert legacy.url == f"{H}/content/historical/EQUITIES/2013/JAN/cm15JAN2013bhav.csv.zip"
+    assert legacy.path == tmp_path / "equity" / "2013" / "cm20130115.csv.zip"
+    assert [c.fmt for c in candidate_files(tmp_path, "equity", date(2024, 7, 8))] == ["udiff", "legacy"]
+    assert [c.fmt for c in candidate_files(tmp_path, "equity", date(2024, 7, 5))] == ["legacy", "udiff"]
+    (udiff,) = candidate_files(tmp_path, "equity", date(2026, 11, 13))
+    assert udiff.url == f"{H}/content/cm/BhavCopy_NSE_CM_0_0_0_20261113_F_0000.csv.zip" and udiff.path.name == "udiff20261113.csv.zip"
+    mto, full = candidate_files(tmp_path, "delivery", date(2026, 11, 13))
+    assert (mto.url, full.url) == (f"{H}/archives/equities/mto/MTO_13112026.DAT",
+                                   f"{H}/products/content/sec_bhavdata_full_13112026.csv")
+    assert candidate_files(tmp_path, "indices", date(2026, 11, 13))[0].path.name == "ind20261113.csv"
+    pr = candidate_files(tmp_path, "corpact", date(2026, 11, 13))[0]
+    assert pr.url.endswith("/pr/PR131126.zip") and pr.path.name == "bc20261113.csv"
+    assert candidate_files(tmp_path, "fo", date(2026, 11, 13))[0].path.name == "udiff_fo20261113.csv.zip"
+    assert candidate_files(tmp_path, "participant", date(2026, 11, 13))[0].path.name == "poi20261113.csv"
+    with pytest.raises(ValueError, match="unknown kind"):
+        candidate_files(tmp_path, "bonds", date(2026, 11, 13))
+
+
+def test_every_day_is_a_candidate_session_weekends_included():
+    from datetime import date
+
+    from nse_engine.data.archive import session_dates
+
+    week = session_dates(date(2026, 1, 30), date(2026, 2, 2))                 # Fri, Sat, Sun (the Budget), Mon
+    assert week == [date(2026, 1, 30), date(2026, 1, 31), date(2026, 2, 1), date(2026, 2, 2)]
+    weekdays = session_dates(date(2013, 11, 1), date(2013, 11, 4), include_saturdays=False)
+    assert weekdays == [date(2013, 11, 1), date(2013, 11, 3), date(2013, 11, 4)]     # the Muhurat Sunday is listed
+
+
+def test_an_error_page_or_a_broken_zip_is_never_stored_as_data(tmp_path):
+    from nse_engine.data.archive import RemoteFile, looks_valid, transform_content
+
+    zip_path, csv_path = tmp_path / "cm.csv.zip", tmp_path / "ind.csv"
+    assert looks_valid(_zipped(), zip_path) and looks_valid(b"Index Name,Close\nNifty 50,24000\n", csv_path)
+    for bad in (b"", b"<html>Access Denied</html>", b"PK-not-really-a-zip"):
+        assert not looks_valid(bad, zip_path), bad
+    assert not looks_valid(b"  <!DOCTYPE html><html>resource not found</html>", csv_path)
+    pr = RemoteFile("corpact", "pr", "u", tmp_path / "bc.csv")
+    assert transform_content(pr, _zipped("Bc131126.csv", b"SERIES,SYMBOL\nEQ,INFY\n")) == b"SERIES,SYMBOL\nEQ,INFY\n"
+    assert transform_content(pr, _zipped("Pd131126.csv")).startswith(b"SERIES,SYMBOL,SECURITY,RECORD_DT")   # no actions that day
+    assert transform_content(pr, b"<html>denied</html>") is None and transform_content(pr, b"PK-broken") is None
+    eq = RemoteFile("equity", "udiff", "u", zip_path)
+    assert transform_content(eq, b"<html>denied</html>") is None and transform_content(eq, _zipped()) == _zipped()
+
+
+def test_a_file_is_fetched_once_and_a_holiday_is_remembered(mirror):
+    from datetime import date
+
+    archive, arch, site = mirror
+    day, today = date(2026, 11, 12), date(2026, 11, 20)
+    (cand,) = archive.candidate_files(arch.root, "equity", day)
+    site.pages[cand.url] = (200, _zipped())
+    assert arch.sync_one("equity", day, today) == "downloaded" and cand.path.read_bytes() == _zipped()
+    assert arch.sync_one("equity", day, today) == "skipped" and len(site.asked) == 1          # already here: no request
+    assert not list(cand.path.parent.glob(".*tmp*"))                                           # written whole
+    holiday = date(2026, 11, 10)
+    assert arch.sync_one("equity", holiday, today) == "holiday" and arch.is_missing("equity", holiday)
+    asked = len(site.asked)
+    assert arch.sync_one("equity", holiday, today) == "skipped" and len(site.asked) == asked    # one request, once
+    arch.save_missing()
+    assert archive.BhavcopyArchive(arch.root, session_factory=lambda: site).is_missing("equity", holiday)
+
+
+def test_a_file_not_out_yet_or_unusable_is_neither_stored_nor_called_a_holiday(mirror):
+    from datetime import date
+
+    archive, arch, site = mirror
+    today = date(2026, 11, 20)
+    assert arch.sync_one("equity", date(2026, 11, 19), today) == "not_published"                # inside the grace days
+    assert not arch.is_missing("equity", date(2026, 11, 19))
+    day = date(2026, 11, 12)
+    (cand,) = archive.candidate_files(arch.root, "equity", day)
+    site.pages[cand.url] = (200, b"<html>Access Denied</html>")
+    assert arch.sync_one("equity", day, today) == "failed" and not cand.path.exists() and not arch.is_missing("equity", day)
+    site.pages[cand.url] = (200, _zipped())                                                     # the equity session exists,
+    assert arch.sync_one("equity", day, today) == "downloaded"
+    assert arch.sync_one("indices", day, today) == "failed"                                     # so a missing index file is
+    assert not arch.is_missing("indices", day)                                                  # late, not a holiday (LN-T19)
+    assert arch.sync_one("indices", date(2026, 11, 10), today) == "holiday"
+
+
+def test_a_refused_request_is_retried_with_a_fresh_session_and_a_dead_site_gives_up(mirror):
+    from datetime import date
+
+    import requests
+
+    archive, arch, site = mirror
+    day = date(2026, 11, 12)
+    (cand,) = archive.candidate_files(arch.root, "equity", day)
+    site.pages[cand.url] = [(403, b"denied"), requests.ConnectionError("reset"), (200, _zipped())]
+    assert arch.sync_one("equity", day, date(2026, 11, 20)) == "downloaded"
+    assert len(site.asked) == 3 and len(arch.sessions_made) == 3 and site.closed == 2
+    site.pages["https://x/dead"] = [(503, b"")]
+    assert arch.fetch("https://x/dead") == (None, b"") and site.asked.count("https://x/dead") == 3     # max_retries
+    site.pages["https://x/odd"] = (400, b"bad request")
+    assert arch.fetch("https://x/odd") == (400, b"bad request")
+
+
+def test_near_the_format_change_the_other_format_is_tried(mirror):
+    from datetime import date
+
+    archive, arch, site = mirror
+    day = date(2024, 7, 10)
+    udiff, legacy = archive.candidate_files(arch.root, "equity", day)
+    site.pages[legacy.url] = (200, _zipped())
+    assert arch.sync_one("equity", day, date(2026, 11, 20)) == "downloaded"
+    assert legacy.path.exists() and not udiff.path.exists() and site.asked == [udiff.url, legacy.url]
+    assert arch.sync_one("equity", day, date(2026, 11, 20)) == "skipped"
+
+
+def test_a_day_with_no_equity_session_asks_for_nothing_else(mirror, monkeypatch):
+    from datetime import date
+
+    from nse_engine import nse_calendar
+
+    archive, arch, site = mirror
+    monkeypatch.setattr(nse_calendar, "special_session_dates", lambda: [])
+    monkeypatch.setattr(archive, "RECENT_GRACE", archive.timedelta(days=-10_000))        # every 404 is old enough
+    traded, holiday = date(2026, 11, 9), date(2026, 11, 10)
+    for kind in archive.KINDS:
+        cand = archive.candidate_files(arch.root, kind, traded)[0]
+        site.pages[cand.url] = (200, _zipped("Bc091126.csv") if kind in ("equity", "corpact") else b"a,b\n1,2\n")
+    counts = arch.sync(traded, holiday)
+    assert counts == {kind: {"downloaded": 1, "holiday": 1} for kind in archive.KINDS}
+    assert all("10112026" not in url and "101126" not in url for url in site.asked if "BhavCopy_NSE_CM" not in url)
+    assert (arch.root / "manifest" / "missing.json").exists() and arch.is_missing("delivery", holiday)
+    assert arch.sync(traded, holiday) == {kind: {"skipped": 2} for kind in archive.KINDS}
+
+
+def test_requests_are_spaced_by_the_rate_limit():
+    from nse_engine.data.archive import RateLimiter
+
+    now, slept = [100.0], []
+
+    def sleep(seconds):
+        slept.append(round(seconds, 3))
+        now[0] += seconds
+
+    limiter = RateLimiter(2.0, clock=lambda: now[0], sleep=sleep)                # at most two a second
+    limiter.wait()
+    limiter.wait()
+    now[0] += 0.2
+    limiter.wait()
+    now[0] += 5.0
+    limiter.wait()
+    assert slept == [0.5, 0.3]
+    free = RateLimiter(0, clock=lambda: now[0], sleep=sleep)
+    free.wait(), free.wait()
+    assert slept == [0.5, 0.3]

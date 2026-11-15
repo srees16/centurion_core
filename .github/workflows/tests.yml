@@ -45,16 +45,20 @@ jobs:
           python - <<'EOF'
           import json, sys
           FLOORS = {
-              "kite_connect/trading/order_service.py": 66, "kite_connect/trading/live_session.py": 48,
-              "kite_connect/trading/nse_engine_executor.py": 43, "kite_connect/trading/gtt_stops.py": 86,
+              "kite_connect/trading/order_service.py": 66, "kite_connect/trading/live_session.py": 54,
+              "kite_connect/trading/nse_engine_executor.py": 73, "kite_connect/trading/gtt_stops.py": 86,
               "kite_connect/trading/kill_switch.py": 91, "kite_connect/trading/nse_instruments.py": 82,
               "kite_connect/trading/order_status.py": 98, "kite_connect/auth/daily_login.py": 21,
-              "kite_connect/auth/accounts.py": 32, "nse_engine/engine.py": 69,
-              "nse_engine/costs.py": 89, "nse_engine/portfolio.py": 83,
-              "nse_engine/data/store.py": 49, "nse_engine/capital_ladder.py": 76,
-              "nse_engine/live_rules.py": 25, "nse_engine/live_monitor.py": 72,
-              "nse_engine/deployment.py": 56, "nse_engine/mc_bands.py": 55,
+              "kite_connect/auth/accounts.py": 32, "nse_engine/engine.py": 72,
+              "nse_engine/costs.py": 89, "nse_engine/portfolio.py": 84,
+              "nse_engine/data/store.py": 49, "nse_engine/capital_ladder.py": 81,
+              "nse_engine/live_rules.py": 98, "nse_engine/live_monitor.py": 72,
+              "nse_engine/deployment.py": 57, "nse_engine/mc_bands.py": 55,
               "nse_engine/nse_calendar.py": 93, "nse_engine/universe.py": 83,
+              "nse_engine/data/archive.py": 63, "kite_connect/trading/paper_trader.py": 68,
+              "kite_connect/trading/bond_sleeve.py": 93, "kite_connect/trading/mcx_sleeve.py": 90,
+              "kite_connect/trading/options_overlay.py": 91, "kite_connect/trading/futures_overlay.py": 77,
+              "nse_engine/books.py": 48,
           }
           files = json.load(open("coverage.json"))["files"]
           low = []

@@ -450,3 +450,137 @@ def test_clearing_the_step_down_needs_a_reason(night, capsys):
     assert night.book.state[MC_STEP_DOWN_KEY] == "2026-11-12"
     assert night.ls.main(["--clear-mc-step-down", "reviewed with the owner"]) == 0
     assert night.book.state[MC_STEP_DOWN_KEY] == "" and '"cleared": true' in capsys.readouterr().out
+
+
+# ── the ladder, rule D and the session's record ─────────────────
+
+@pytest.fixture
+def rule_d(monkeypatch):
+    """Rule D's surroundings: the breach streak it reads and the kill switch it sets."""
+    from types import SimpleNamespace
+
+    from kite_connect.trading import kill_switch
+    from nse_engine import capital_ladder as cl, mc_bands
+
+    n = SimpleNamespace(streak={"tripped": False, "streak": 12}, switched=[], switch_error=None, cl=cl)
+
+    def set_switch(on, reason, by=""):
+        if n.switch_error:
+            raise n.switch_error
+        n.switched.append((on, reason, by))
+
+    def streak(history, bands, book):
+        if isinstance(n.streak, Exception):
+            raise n.streak
+        return n.streak
+
+    monkeypatch.setattr(mc_bands, "load", lambda: {})
+    monkeypatch.setattr(cl, "mc_breach_streak", streak)
+    monkeypatch.setattr(cl, "mc_line", lambda res: f"MC floor: {res['streak']} sessions below the 5th percentile")
+    monkeypatch.setattr(kill_switch, "set_switch", set_switch)
+    return n
+
+
+def _report():
+    return {"session": DAY, "notes": [], "alerts": []}
+
+
+def test_rule_d_steps_the_book_down_once_and_only_the_owner_clears_it(rule_d):
+    from kite_connect.trading.live_session import _mc_rule_d
+
+    history, ahead, report = pd.Series(dtype="float64"), {}, _report()
+    assert _mc_rule_d({}, history, ahead, report) is None and ahead == {} and rule_d.switched == []
+    assert report["notes"] == ["MC floor: 12 sessions below the 5th percentile"] and report["alerts"] == []
+    rule_d.streak = {"tripped": True, "streak": 60}
+    report = _report()
+    msg = _mc_rule_d({}, history, ahead, report)
+    assert msg.startswith("RULE D STEP DOWN TO PAPER: MC floor: 60 sessions") and report["alerts"] == [msg]
+    assert "new buys refused, exits and stops still go" in msg
+    assert rule_d.switched == [(True, "rule D: MC floor: 60 sessions below the 5th percentile", "rule D (capital ladder)")]
+    import json
+
+    latch = json.loads(ahead[rule_d.cl.MC_STEP_DOWN_KEY])
+    assert (latch["session"], latch["streak"]) == (DAY, 60)
+    again, report = {}, _report()                                         # the next night: latched, said once
+    assert _mc_rule_d({rule_d.cl.MC_STEP_DOWN_KEY: ahead[rule_d.cl.MC_STEP_DOWN_KEY]}, history, again, report) is None
+    assert again == {} and report["alerts"] == [] and len(rule_d.switched) == 1
+
+
+def test_rule_d_never_stops_a_session_and_says_when_the_switch_could_not_be_set(rule_d):
+    from kite_connect.trading.live_session import _mc_rule_d
+
+    rule_d.streak, rule_d.switch_error = {"tripped": True, "streak": 61}, ConnectionError("neon down")
+    ahead, report = {}, _report()
+    msg = _mc_rule_d({}, pd.Series(dtype="float64"), ahead, report)
+    assert "The kill switch could NOT be set (neon down): turn it on by hand now." in msg
+    assert rule_d.cl.MC_STEP_DOWN_KEY in ahead                            # the latch still holds the book in paper
+    rule_d.streak = FileNotFoundError("config/mc_bands.json")
+    ahead, report = {}, _report()
+    assert _mc_rule_d({}, pd.Series(dtype="float64"), ahead, report) is None and ahead == {}
+    assert report["notes"] == ["rule D (MC floor) unavailable: config/mc_bands.json"]
+
+
+def test_the_ladders_flows_are_read_from_the_snapshots_and_bad_rows_count_as_none():
+    from kite_connect.trading.live_session import _equity_and_flows
+
+    snaps = pd.DataFrame({"date": ["2026-11-11", "2026-11-12T19:05:00", "2026-11-13"],
+                          "equity": [300_000.0, 301_000.0, 603_000.0],
+                          "snapshot_json": ['{"mode": "live"}', "not json", '{"flow": 300000}']})
+    eq, flows = _equity_and_flows(snaps)
+    assert eq.tolist() == [300_000.0, 301_000.0, 603_000.0] and flows.tolist() == [0.0, 0.0, 300_000.0]
+    for empty in (None, snaps.iloc[:0]):
+        eq, flows = _equity_and_flows(empty)
+        assert eq.empty and flows.empty
+
+
+def test_the_sessions_row_says_what_was_done_and_what_would_have_been():
+    from types import SimpleNamespace
+
+    from kite_connect.trading.live_session import _session_row
+
+    plan = SimpleNamespace(notes=["rebalance_day"], buys=[1, 2], sells=[1], stop_instructions=[1, 2, 3], skipped=[1],
+                           shift_multiplier=0.5, drawdown_state="halt", drawdown_pct=0.16)
+    report = {"session": DAY, "mode": "live dry run", "notes": ["n1"], "alerts": ["a1"], "external": [{"x": 1}],
+              "fills": [{"status": "FILLED"}, {"status": "CANCELLED"}, {"status": "REJECTED"}]}
+    row = _session_row(report, plan, {"cash": 500.0}, {"equity": 294_500.0, "open_positions": 4}, [1, 2, 3])
+    assert row["outcome"] == "[live dry run] 1 filled at the open, 2 not filled; would place 3 order(s)"
+    assert (row["planned_buys"], row["planned_sells"], row["queued"], row["filled"], row["cancelled"]) == (2, 1, 3, 1, 2)
+    assert (row["stops_triggered"], row["stops_armed"], row["skipped"], row["rebalance_day"]) == (1, 3, 1, True)
+    assert (row["shift_multiplier"], row["drawdown_state"], row["drawdown_pct"], row["notes"]) == (0.5, "halt", 0.16, "n1; a1")
+    idle = _session_row({**report, "mode": "live"}, None, {"cash": 500.0}, {"equity": 1.0, "open_positions": 0}, [])
+    assert idle["outcome"] == "[live] no plan" and idle["planned_buys"] == 0 and idle["shift_multiplier"] == 1.0
+
+
+def test_the_ladder_decides_every_night_with_or_without_a_gate(panel, monkeypatch):
+    """The live G4 needs a reference backtest; when it cannot be made the ladder still decides, and holds."""
+    from types import SimpleNamespace
+
+    from kite_connect.trading.live_session import ENV_LIVE_CAPITAL, _ladder_step
+    from nse_engine.config import EngineConfig
+
+    monkeypatch.delenv(ENV_LIVE_CAPITAL, raising=False)
+    dates = panel.dates
+    cfg = EngineConfig().replace(start=str(dates[300].date()), end=str(dates[-1].date()),
+                                 **{"universe.top_n_liquid": 40, "universe.min_history_days": 60,
+                                    "universe.liquidity_lookback_days": 40, "universe.min_median_value_inr": 0.0,
+                                    "universe.min_price_inr": 0.0})
+    session = dates[-1]
+    history = pd.Series([300_000.0, 300_600.0, 299_900.0, 301_200.0, 302_000.0], index=dates[-6:-1])
+    empty = pd.DataFrame()
+    book = SimpleNamespace(read_fills=lambda since_epoch=True, strict=False: empty,
+                           read_sessions=lambda since_epoch=True, strict=False: empty)
+    ex = SimpleNamespace(drawdown_decision=lambda day, equity: (None, None))
+    ledger, marked = {"capital": 300_000.0}, {"equity": 302_500.0}
+    dep = SimpleNamespace(reference_config=lambda: cfg, engine=cfg)
+    decision, gate, lstate = _ladder_step(ex, panel, panel, dep, ledger, {}, book, session, history, marked)
+    assert gate is not None and "model_reference" in gate and "gap_band" in gate
+    assert lstate.since == session.date().isoformat() and decision is not None
+
+    def no_reference():
+        raise RuntimeError("no reference configuration")
+
+    held, no_gate, _ = _ladder_step(ex, panel, panel, SimpleNamespace(reference_config=no_reference, engine=cfg),
+                                    ledger, {}, book, session, history, marked)
+    assert no_gate is None and held is not None
+    short, no_gate, _ = _ladder_step(ex, panel, panel, dep, ledger, {}, book, session, history.iloc[-2:], marked)
+    assert no_gate is None and short is not None                          # under three sessions: nothing to compare

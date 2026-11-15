@@ -1,6 +1,7 @@
 """The daily Kite login (kite_connect/auth/daily_login.py): the day's access token is stored only encrypted, is
 usable from the login until 06:00 IST the next morning and never after, belongs to one Zerodha user, and its
-reminder goes out only on a trading day when nobody has logged in."""
+reminder goes out only on a trading day when nobody has logged in.  And the connected accounts
+(kite_connect/auth/accounts.py): what may be registered, when Centurion may trade one, and how one is disconnected."""
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -176,3 +177,169 @@ def test_the_reminder_goes_out_only_on_a_trading_day_with_no_login(key, monkeypa
     with pytest.raises(RuntimeError, match="ZERODHA_API_KEY is not set"):
         dl.remind(_Book(), morning, send=send, mode="live")
     assert dl.login_url("k") == url
+
+
+# ── connected accounts (kite_connect/auth/accounts.py) ──────────
+
+@pytest.fixture
+def registry(key, monkeypatch):
+    """(the accounts module, the registry's book, each account's own live book by id)."""
+    from kite_connect.auth import accounts
+
+    from collections import defaultdict
+
+    books = defaultdict(_Book)                            # each account's own live book, made when first read
+    monkeypatch.setattr(accounts, "account_book", lambda acct: books[acct.id])
+    monkeypatch.setenv(dl.ENV_USER, "OWN001")
+    for name in accounts.REGISTRATION_ENV:
+        monkeypatch.delenv(name, raising=False)
+    return accounts, _Book(), books
+
+
+def _ann(accounts, book, **over):
+    fields = {"name": "Ann Lee", "zerodha_user_id": "ab1234", "api_key": "annkey12345", "api_secret": "annsecret12345",
+              "email": "ann@example.org", **over}
+    return accounts.add(book=book, **fields)
+
+
+def test_an_account_is_registered_with_its_secret_encrypted(registry):
+    accounts, book, _ = registry
+    ann = _ann(accounts, book, now=FRIDAY)
+    assert (ann.id, ann.zerodha_user_id, ann.mode, ann.capital) == ("ann_lee", "AB1234", "off", 0.0)
+    assert ann.created_at == "2026-11-13T19:00:00+05:30"
+    assert "annsecret12345" not in str(book.state) and accounts.api_secret(ann) == "annsecret12345"
+    assert "api_secret_enc" not in ann.public() and ann.schema == "live_ann_lee"
+    twin = _ann(accounts, book, zerodha_user_id="CD5678", email="")
+    assert twin.id == "ann_lee_2" and accounts._make_id("Primary", []) == "account" and accounts._make_id("!!", []) == "account"
+    assert [a.id for a in accounts.all_accounts(book)] == ["primary", "ann_lee", "ann_lee_2"]
+    assert accounts.get("", book).is_primary and accounts.get("ann_lee", book).name == "Ann Lee"
+    with pytest.raises(accounts.AccountError, match="no account 'nobody'"):
+        accounts.get("nobody", book)
+
+
+@pytest.mark.parametrize("over,why", [
+    ({"name": "  "}, "name: 1 to 40 characters"), ({"name": "x" * 41}, "name: 1 to 40 characters"),
+    ({"zerodha_user_id": "A1"}, "Zerodha user id"), ({"api_key": "short"}, "API key and secret"),
+    ({"api_secret": "has spaces in it"}, "API key and secret"), ({"email": "not-an-email"}, "email is not valid"),
+    ({"zerodha_user_id": "own001"}, "OWN001 is already connected"),          # the server's own account
+    ({"name": "Bo", "zerodha_user_id": "AB1234"}, "AB1234 is already connected"),
+    ({"name": "Bo", "zerodha_user_id": "ZZ0001", "owner": "u1"}, "one account per user"),
+])
+def test_a_registration_that_cannot_stand_is_refused_and_stores_nothing(registry, over, why):
+    accounts, book, _ = registry
+    _ann(accounts, book, owner="u1")
+    before = dict(book.state)
+    with pytest.raises(accounts.AccountError, match=why):
+        _ann(accounts, book, **over)
+    assert book.state == before
+
+
+def test_the_registry_survives_a_retired_field_and_unreadable_text(registry):
+    import json
+
+    accounts, book, _ = registry
+    ann = _ann(accounts, book)
+    stored = json.loads(book.state[accounts.REGISTRY_KEY])
+    stored["ann_lee"]["relation"] = "sister"                              # a field a later version dropped
+    book.state[accounts.REGISTRY_KEY] = json.dumps(stored)
+    assert accounts.load(book)["ann_lee"] == ann
+    book.state[accounts.REGISTRY_KEY] = "{not json"
+    assert accounts.load(book) == {} and accounts.managed(book) == []
+    with pytest.raises(RuntimeError, match="could not store the account registry"):
+        _ann(accounts, _Book(writes=False))
+
+
+def test_centurion_trades_an_account_only_with_its_holders_terms_and_its_own_registration(registry, monkeypatch):
+    from kite_connect.auth import terms
+    from nse_engine.capital_ladder import RUNGS
+
+    accounts, book, books = registry
+    ann = _ann(accounts, book)
+    assert accounts.trading_lock(accounts.primary_account()) == "" and accounts.trading_lock(ann, "off") == ""
+    with pytest.raises(accounts.AccountError, match="choose the capital first"):
+        accounts.update("ann_lee", mode="dry_run", book=book)
+    with pytest.raises(accounts.AccountError, match="capital must be a ladder rung"):
+        accounts.update("ann_lee", capital=RUNGS[0] + 1, book=book)
+    accounts.update("ann_lee", capital=RUNGS[0], book=book)
+    with pytest.raises(accounts.AccountError, match="has not accepted the current terms"):
+        accounts.update("ann_lee", mode="dry_run", book=book)
+    with pytest.raises(accounts.AccountError, match="these terms have changed"):
+        accounts.record_consent("ann_lee", "AB1234", "an-old-version", book=book)
+    with pytest.raises(accounts.AccountError, match="accepted by AB1234 only"):
+        accounts.record_consent("ann_lee", "ZZ9999", terms.TERMS_VERSION, book=book)
+    agreed = accounts.record_consent("ann_lee", "AB1234", terms.TERMS_VERSION, book=book, now=FRIDAY)
+    assert accounts.has_consent(agreed) and agreed.consent_at == "2026-11-13T19:00:00+05:30"
+    assert accounts.update("ann_lee", mode="dry_run", book=book).mode == "dry_run"
+    assert [a.id for a in accounts.managed(book)] == ["ann_lee"]
+    with pytest.raises(accounts.AccountError, match="live orders need Centurion's exchange empanelment"):
+        accounts.update("ann_lee", mode="live", book=book)                # dry runs only until registered (U35)
+    for name in accounts.REGISTRATION_ENV:
+        monkeypatch.setenv(name, "REG-1")
+    assert accounts.update("ann_lee", mode="live", book=book).mode == "live"
+    books["ann_lee"].state["live_ledger"] = '{"positions": {"INFY": 4}}'
+    with pytest.raises(accounts.AccountError, match="Centurion holds positions in Ann Lee's account"):
+        accounts.update("ann_lee", mode="off", book=book)
+    with pytest.raises(accounts.AccountError, match="mode must be one of"):
+        accounts.update("ann_lee", mode="turbo", book=book)
+    with pytest.raises(accounts.AccountError, match="no account"):
+        accounts.update("nobody", mode="off", book=book)
+
+
+def test_an_accounts_email_and_app_credentials_change_only_whole(registry):
+    accounts, book, _ = registry
+    _ann(accounts, book)
+    with pytest.raises(accounts.AccountError, match="rotate the API key and secret together"):
+        accounts.update("ann_lee", api_key="newkey12345", book=book)
+    with pytest.raises(accounts.AccountError, match="letters and digits"):
+        accounts.update("ann_lee", api_key="new key", api_secret="newsecret12345", book=book)
+    with pytest.raises(accounts.AccountError, match="email is not valid"):
+        accounts.update("ann_lee", email="nope", book=book)
+    changed = accounts.update("ann_lee", email=" a@b.co ", api_key="newkey12345", api_secret="newsecret12345", book=book)
+    assert (changed.email, changed.api_key, accounts.api_secret(changed)) == ("a@b.co", "newkey12345", "newsecret12345")
+    assert accounts.update("ann_lee", email="", book=book).email == ""
+
+
+def test_a_disconnect_keeps_or_sells_what_centurion_opened_and_nothing_else(registry, monkeypatch):
+    from kite_connect.auth import terms
+    from nse_engine.capital_ladder import RUNGS
+
+    accounts, book, books = registry
+    _ann(accounts, book)
+    accounts.update("ann_lee", capital=RUNGS[0], book=book)
+    accounts.record_consent("ann_lee", "AB1234", terms.TERMS_VERSION, book=book)
+    accounts.update("ann_lee", mode="dry_run", book=book)
+    with pytest.raises(accounts.AccountError, match="choose one of"):
+        accounts.disconnect("ann_lee", "burn", book=book)
+    books["ann_lee"].state["live_ledger"] = '{"positions": {"INFY": 4}}'
+    with pytest.raises(accounts.AccountError, match="selling needs the account in Live mode"):
+        accounts.disconnect("ann_lee", "next_open", book=book)
+    for name in accounts.REGISTRATION_ENV:
+        monkeypatch.setenv(name, "REG-1")
+    accounts.update("ann_lee", mode="live", book=book)
+    for bad in (0, 1, accounts.MAX_UNWIND_SESSIONS + 1):
+        with pytest.raises(accounts.AccountError, match="sell over 2 to"):
+            accounts.disconnect("ann_lee", "sessions", bad, book=book)
+    selling = accounts.disconnect("ann_lee", "sessions", 3, book=book)
+    assert (selling.mode, selling.unwind_sessions) == ("live", 3)          # managed while it sells
+    accounts.unwind_step("ann_lee", {"results": [{"status": "PLACED"}]}, dry_run=True, book=book)
+    accounts.unwind_step("ann_lee", {"results": [{"status": "PLACED", "type": "gtt_reconcile"}]}, dry_run=False, book=book)
+    assert accounts.get("ann_lee", book).unwind_sessions == 3              # a dry run or no sell placed does not count
+    accounts.unwind_step("ann_lee", {"results": [{"status": "PLACED"}]}, dry_run=False, book=book)
+    accounts.unwind_step("ann_lee", {"results": [{"status": "DUPLICATE"}]}, dry_run=False, book=book)
+    accounts.unwind_step("ann_lee", {"results": [{"status": "PLACED"}]}, dry_run=False, book=book)
+    assert accounts.get("ann_lee", book).unwind_sessions == 1              # never below the last session
+    accounts.unwind_step("ann_lee", {"unwound": True}, dry_run=False, book=book)
+    done = accounts.get("ann_lee", book)
+    assert (done.mode, done.unwind_sessions) == ("off", 0)
+    accounts.update("ann_lee", mode="live", book=book)
+    assert accounts.disconnect("ann_lee", "next_open", book=book).unwind_sessions == 1
+    assert accounts.update("ann_lee", mode="live", book=book).unwind_sessions == 0     # setting the mode cancels it
+    kept = accounts.disconnect("ann_lee", "keep", book=book)
+    assert (kept.mode, kept.unwind_sessions) == ("off", 0)
+    with pytest.raises(accounts.AccountError, match="has traded: disconnect it instead"):
+        accounts.remove("ann_lee", book=book, account_book=books["ann_lee"])
+    books["ann_lee"].state.clear()
+    accounts.update("ann_lee", mode="live", book=book)
+    assert accounts.disconnect("ann_lee", "next_open", book=book).mode == "off"        # nothing held: simply off
+    accounts.remove("ann_lee", book=book, account_book=books["ann_lee"])
+    assert accounts.load(book) == {}

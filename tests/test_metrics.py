@@ -575,3 +575,119 @@ def test_since_start_shows_the_rupees_it_is():
     assert _since_cell({"value": 22_079_502, "initial": 20_000_000, "return": 0.1039751}) == "+10.40% (+₹20.80 L)"
     assert _inr_change(-29_394) == "-₹29,394" and _inr_change(-2.5e7) == "-₹2.50 Cr" and _inr_change(np.nan) == NA
     assert _since_cell({"value": np.nan, "initial": 3_500_000, "return": np.nan}) == "n/a"
+
+
+# ── the books report (nse_engine/books.py): each book's numbers, and a trial against the deployed book ──
+
+def _days(n, start="2026-10-01"):
+    return pd.bdate_range(start, periods=n)
+
+
+def test_a_books_window_is_measured_from_its_own_first_session():
+    from nse_engine.books import window_metrics
+
+    equity = pd.Series([100.0, 110.0, 99.0, 104.5], index=_days(4))
+    nifty = pd.Series([24_000.0, 24_100.0, 24_300.0, 24_480.0], index=_days(4))
+    m = window_metrics(equity, nifty)
+    assert (m["sessions"], m["start"], m["end"]) == (4, _days(4)[0].date(), _days(4)[-1].date())
+    assert m["return"] == pytest.approx(0.045) and m["max_dd"] == pytest.approx(-0.10)
+    assert m["benchmark_return"] == pytest.approx(0.02) and m["alpha"] == pytest.approx(0.025)
+    assert m["vol"] > 0 and np.isfinite(m["sharpe"])
+    empty = window_metrics(pd.Series(dtype="float64"))
+    assert empty["sessions"] == 0 and empty["start"] is None and np.isnan(empty["return"])
+    one = window_metrics(pd.Series([100.0], index=_days(1)), nifty)
+    assert one["return"] == 0.0 and np.isnan(one["sharpe"]) and one["alpha"] == 0.0
+    assert np.isnan(window_metrics(equity, pd.Series([24_000.0], index=_days(1, "2020-01-01")))["alpha"])
+
+
+def test_a_trial_is_compared_with_the_deployed_book_on_their_common_sessions_only():
+    from nse_engine.books import T_SIGNIFICANT, pair_comparison
+
+    days = _days(6)
+    base = pd.Series([100.0, 101.0, 100.0, 102.0, 101.0, 103.0], index=days)
+    trial = pd.Series([200.0, 202.0, 201.0, 207.0, 206.0], index=days[1:])           # started a day later
+    c = pair_comparison(trial, base)
+    assert (c["sessions"], c["start"], c["end"]) == (5, days[1].date(), days[-1].date())
+    assert c["trial"]["return"] == pytest.approx(0.03) and c["base"]["return"] == pytest.approx(103 / 101 - 1)
+    assert c["diff_pts"] == pytest.approx(0.03 - (103 / 101 - 1))
+    assert c["correlation"] == pytest.approx(trial.pct_change().dropna().corr(base[days[1:]].pct_change().dropna()))
+    assert c["correlation"] < 0                                                   # these two move against each other
+    assert c["verdict"].startswith("ahead of the deployed book by 1.02% over 5 common sessions (t ")
+    assert ("within noise" in c["verdict"]) == (abs(c["t_stat"]) < T_SIGNIFICANT)
+    alone = pair_comparison(trial.iloc[-1:], base)
+    assert alone["verdict"] == "fewer than 2 common sessions" and np.isnan(alone["diff_pts"])
+    same = pair_comparison(base, base)
+    assert same["verdict"] == "level with the deployed book by 0.00% over 6 common sessions (too few sessions to judge)"
+
+
+def test_a_book_with_a_sleeve_is_scored_on_the_whole_book():
+    import json
+
+    from nse_engine.books import SLEEVE_LEDGERS, paper_book_from_frames
+
+    snaps = pd.DataFrame({"date": ["2026-11-12", "2026-11-11"], "equity": [302.0, 300.0]})    # the table's date: YYYY-MM-DD
+    plain = paper_book_from_frames("deployed", snaps, None, {})
+    assert plain.started and plain.equity.tolist() == [300.0, 302.0] and plain.last == pd.Timestamp("2026-11-12")
+    ledger = json.dumps({"history": [{"date": "2026-11-11", "nav": 400.0}, {"date": "2026-11-12", "nav": 404.0}]})
+    whole = paper_book_from_frames("gilt", snaps, None, {SLEEVE_LEDGERS[0]: ledger})
+    assert whole.equity.tolist() == [400.0, 404.0]                              # shares plus the sleeve
+    unstarted = paper_book_from_frames("new", None, None, None)
+    assert not unstarted.started and unstarted.last is None
+
+
+def test_the_forward_gate_waits_for_what_time_settles_and_fails_only_on_a_failed_check():
+    from nse_engine import forward_gate as fg, paper_gate as pg
+    from nse_engine.books import FAIL, PASS, PENDING, PaperBook
+
+    from nse_engine.books import gate_status
+
+    sessions = _days(fg.FORWARD_MIN_SESSIONS)
+    equity = pd.Series(100.0, index=sessions)
+    young = PaperBook("e4", equity.iloc[:5], sessions[:5], None)
+    base = PaperBook("deployed", equity, sessions, None)
+    waiting = gate_status(young, base, float("nan"), 1.2)
+    assert [c["status"] for c in waiting["checks"]] == [PENDING, PENDING, PENDING] and waiting["cleared"] is False
+    assert "no recorded same-window run" in waiting["checks"][2]["detail"]
+    failed_gate = {"verdict": pg.FAIL, "sessions": len(sessions), "book_last": str(sessions[-1].date())}
+    failing = gate_status(PaperBook("e4", equity, sessions, failed_gate), base, 0.9, 1.2)
+    assert failing["checks"][1]["status"] == FAIL and failing["checks"][2]["status"] == FAIL and not failing["cleared"]
+    assert failing["checks"][2]["detail"].endswith(", from the recorded runs")
+    close = gate_status(PaperBook("e4", equity, sessions, failed_gate), base, 1.2 - fg.WF_SHARPE_TOLERANCE / 2, 1.2)
+    assert close["checks"][2]["status"] == PASS
+
+
+def test_the_nightly_summary_has_a_row_for_every_book_and_says_when_one_is_behind_or_stale():
+    from datetime import date
+    from types import SimpleNamespace
+
+    from nse_engine.books import DayBook, PaperBook, build_daily, daily_rows
+
+    session = date(2026, 11, 13)
+    days = pd.bdate_range(end="2026-11-13", periods=4)
+    nifty = pd.Series([24_000.0, 24_100.0, 24_200.0, 24_480.0], index=days)
+
+    from pathlib import Path
+
+    from nse_engine.books import Book
+
+    def book(name, status="approved", start=date(2026, 11, 10)):
+        engine = SimpleNamespace(config_hash=lambda: f"{name}0000000"[:16])
+        return Book(name, Path(f"config/nse_engine_{name}.json"),
+                    SimpleNamespace(paper_start_date=start, status=status, engine=engine))
+
+    def paper(name, values, index):
+        return PaperBook(name, pd.Series(values, index=index, dtype="float64"), pd.DatetimeIndex(index), None)
+
+    deployed = DayBook(book("deployed"), paper("deployed", [3_500_000, 3_510_000, 3_520_000, 3_535_000], days), 3_500_000.0,
+                       activity={"outcome": "held: not a rebalance day, so no orders were planned"})
+    lagging = DayBook(book("e4", "candidate"), paper("e4", [3_500_000, 3_490_000, 3_480_000], days[:3]), 3_500_000.0)
+    unstarted = DayBook(book("new", "candidate", date(2026, 11, 20)), paper("new", [], days[:0]), 3_500_000.0)
+    rows = {r["book"]: r for r in daily_rows([deployed, lagging, unstarted], nifty, session)}
+    assert rows["deployed"]["return"] == pytest.approx(0.01) and rows["deployed"]["nifty"] == pytest.approx(0.02)
+    assert rows["deployed"]["alpha"] == pytest.approx(-0.01) and rows["deployed"]["g4"] == "no report yet"
+    assert rows["e4"]["asof"] == days[2].date() and rows["e4"]["nifty"] == pytest.approx(24_200 / 24_000 - 1)
+    assert (rows["new"]["g4"], rows["new"]["today"], rows["new"]["sessions"]) == ("not started", "starts 20-11-2026", 0)
+    out = build_daily([deployed, lagging, unstarted], nifty, session)
+    assert out["subject"].startswith("[Centurion Paper] Daily summary 13-11-2026: 3 books, 2 behind NIFTY 50")
+    assert ("(incomplete)" in out["subject"]) == bool(out["stale"])
+    assert len(out["rows"]) == 3 and "deployed" in out["html"] and "| deployed |" in out["text"].replace("  ", " ")

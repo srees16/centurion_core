@@ -501,3 +501,93 @@ def test_go_live_reads_the_paper_record_of_the_configuration_that_will_trade():
     assert go_live_evidence(old, "new", {})[0] is None                    # an old configuration's record never counts
     full = {"config_hash": "new", "sessions": N}
     assert go_live_evidence(full, "new", {"e4": trial}) == (full, "deployed paper book")
+
+
+# ---- how a live order fills (nse_engine/live_rules.py): the rules the fill audit and the game day share
+
+@pytest.mark.parametrize("side,open_,high,low,limit,outcome,price", [
+    ("BUY", 100.0, 103.0, 99.0, 101.0, "open", 100.0),                    # marketable in the call auction
+    ("BUY", 101.0, 103.0, 99.0, 101.0, "open", 101.0),                    # at the limit counts
+    ("BUY", 102.0, 103.0, 100.5, 101.0, "at_limit", 101.0),               # gapped over it, then traded through
+    ("BUY", 102.0, 103.0, 101.0, 101.0, "unfilled", None),                # touched, not through
+    ("SELL", 100.0, 101.0, 97.0, 99.0, "open", 100.0),
+    ("SELL", 98.0, 99.5, 97.0, 99.0, "at_limit", 99.0),
+    ("SELL", 98.0, 99.0, 97.0, 99.0, "unfilled", None),
+    ("BUY", float("nan"), 103.0, 99.0, 101.0, "unfilled", None),          # no bar that day
+    ("BUY", 102.0, 103.0, float("nan"), 101.0, "unfilled", None),
+])
+def test_a_day_limit_fills_at_the_open_or_at_its_limit_only_when_traded_through(side, open_, high, low, limit,
+                                                                                 outcome, price):
+    from nse_engine.live_rules import limit_fill
+
+    assert limit_fill(side, open_, high, low, limit) == (outcome, price)
+
+
+@pytest.mark.parametrize("open_,high,low,trigger,limit,outcome,price", [
+    (105.0, 106.0, 101.0, 100.0, 98.0, None, None),                        # never touched
+    (105.0, 106.0, 99.0, 100.0, 98.0, "at_trigger", 100.0),                # touched during the day
+    (99.0, 101.0, 97.0, 100.0, 98.0, "open", 99.0),                        # opened under the trigger, above the limit
+    (97.0, 98.5, 96.0, 100.0, 98.0, "at_limit", 98.0),                     # gapped under the limit, came back over it
+    (97.0, 97.9, 96.0, 100.0, 98.0, "unfilled", None),                     # gapped through and stayed: carried over
+    (105.0, 106.0, 99.0, float("nan"), 98.0, None, None),
+    (float("nan"), 106.0, 99.0, 100.0, 98.0, "at_trigger", 100.0),
+])
+def test_a_stop_gtt_fills_at_its_trigger_and_a_gap_through_its_limit_is_left_unfilled(open_, high, low, trigger,
+                                                                                      limit, outcome, price):
+    from nse_engine.live_rules import stop_gtt_fill
+
+    assert stop_gtt_fill(open_, high, low, trigger, limit) == (outcome, price)
+
+
+def _audit_inputs():
+    """Three decision closes of 100 on 12 Nov and what each session did on 13 Nov."""
+    bars = pd.DataFrame([
+        ("2026-11-12", "AT_OPEN", 99.0, 101.0, 98.0, 100.0, 99.0), ("2026-11-13", "AT_OPEN", 100.5, 102.0, 100.0, 101.5, 100.0),
+        ("2026-11-12", "GAPPED", 99.0, 101.0, 98.0, 100.0, 99.0), ("2026-11-13", "GAPPED", 102.0, 103.0, 100.5, 102.5, 100.0),
+        ("2026-11-12", "RAN", 99.0, 101.0, 98.0, 100.0, 99.0), ("2026-11-13", "RAN", 103.0, 105.0, 102.0, 104.0, 100.0),
+        ("2026-11-12", "EXDATE", 99.0, 101.0, 98.0, 100.0, 99.0), ("2026-11-13", "EXDATE", 50.0, 51.0, 49.0, 50.5, 50.0),
+        ("2026-11-12", "NOBAR", 99.0, 101.0, 98.0, 100.0, 99.0),
+        ("2026-11-12", "EXIT", 99.0, 101.0, 98.0, 100.0, 99.0), ("2026-11-13", "EXIT", 97.0, 98.0, 96.0, 96.5, 100.0),
+    ], columns=["date", "symbol", "open", "high", "low", "close", "prev_close"])
+    orders = pd.DataFrame([(s, "SELL" if s == "EXIT" else "BUY", "2026-11-12", "2026-11-13")
+                           for s in ("AT_OPEN", "GAPPED", "RAN", "EXDATE", "NOBAR", "EXIT")],
+                          columns=["symbol", "side", "decision_date", "session_date"])
+    return orders, bars
+
+
+def test_the_fill_audit_gives_every_paper_order_its_live_outcome_and_drops_none():
+    from nse_engine.live_rules import fill_audit
+
+    orders, bars = _audit_inputs()
+    tick = lambda price, mode: round(price, 2)                            # noqa: E731
+    audit = fill_audit(orders, bars, 0.01, 0.05, tick).set_index("symbol")
+    assert audit["outcome"].to_dict() == {"AT_OPEN": "open", "GAPPED": "at_limit", "RAN": "unfilled",
+                                           "EXDATE": "ex_date", "NOBAR": "no_bar", "EXIT": "open"}
+    assert audit.loc["GAPPED", ["limit", "fill_price", "open"]].tolist() == [101.0, 101.0, 102.0]
+    assert audit.loc["GAPPED", "gap"] == pytest.approx(0.02) and audit.loc["EXIT", "limit"] == 95.0
+    assert audit.loc["EXIT", "fill_price"] == 97.0 and pd.isna(audit.loc["RAN", "fill_price"])
+    with pytest.raises(ValueError, match="orders lack"):
+        fill_audit(orders.drop(columns="side"), bars, 0.01, 0.05, tick)
+    with pytest.raises(ValueError, match="bands must be fractions"):
+        fill_audit(orders, bars, 1.0, 0.05, tick)
+    with pytest.raises(ValueError, match="side 'HOLD'"):
+        fill_audit(orders.assign(side="HOLD"), bars, 0.01, 0.05, tick)
+    with pytest.raises(ValueError, match="decision close"):
+        fill_audit(orders, bars.assign(close=0.0), 0.01, 0.05, tick)
+
+
+def test_the_gap_terciles_compare_the_buys_that_gapped_most_with_the_rest():
+    from nse_engine.live_rules import gap_terciles
+
+    def audit(outcomes):
+        return pd.DataFrame({"side": "BUY", "gap": [g / 1000 for g in range(len(outcomes))], "outcome": outcomes})
+
+    even = gap_terciles(audit(["open"] * 4 + ["at_limit"] * 2 + ["open", "unfilled", "open"]))
+    assert (even["rated"], even["worst_tercile"], even["worst_fill_pct"], even["rest_fill_pct"]) == (9, "high", 66.7, 100.0)
+    assert even["shortfall_pts"] == 33.3 and even["verdict"] == "FAIL"
+    assert [t["tercile"] for t in even["terciles"]] == ["low", "mid", "high"] and even["terciles"][0]["at_open_pct"] == 100.0
+    clean = gap_terciles(audit(["open"] * 9 + ["ex_date", "no_bar"]))
+    assert clean["verdict"] == "PASS" and clean["shortfall_pts"] == 0.0 and clean["excluded"] == {"ex_date": 1, "no_bar": 1}
+    assert clean["orders"] == 11 and clean["rated"] == 9
+    assert gap_terciles(audit(["open", "open"]))["verdict"] == "INSUFFICIENT"
+    assert gap_terciles(audit(["open"] * 9), side="SELL")["orders"] == 0

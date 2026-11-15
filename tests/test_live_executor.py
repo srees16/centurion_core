@@ -395,3 +395,131 @@ def test_a_flat_book_rearms_after_its_sessions_and_a_falling_one_never_does():
     falling = DrawdownTracker(cfg)
     falling.update(100.0)
     assert all(falling.update(80.0 - 0.1 * i).state != NORMAL for i in range(40))
+
+
+# ── what the executor reads before it plans ─────────────────────
+
+def test_the_shift_multiplier_is_used_only_when_fresh_dated_and_sane(tmp_path):
+    import json
+
+    from kite_connect.trading.nse_engine_executor import SHIFT_STATE_MAX_AGE_SESSIONS, load_shift_multiplier
+
+    path = tmp_path / "shift.json"
+    assert load_shift_multiplier("2026-11-13", path=path) == (1.0, f"no distribution shift state at {path}")
+
+    def state(**over):
+        path.write_text(json.dumps({"position_size_multiplier": 0.5, "updated_at": "2026-11-12T19:05:00+05:30",
+                                    "verdict": "SHIFT", **over}))
+
+    state()
+    assert load_shift_multiplier("2026-11-13", path=path) == (0.5, "verdict=SHIFT updated 2026-11-12 (1 sessions ago)")
+    state(reality_gap_alerts=["costs 2.1x"])
+    assert load_shift_multiplier("2026-11-13", path=path)[1].endswith("; reality gap: costs 2.1x")
+    state()
+    assert load_shift_multiplier("2026-11-11", path=path) == (
+        1.0, "shift state updated 2026-11-12 after as_of 2026-11-11 (ignored)")        # a replay of an earlier night
+    week = SHIFT_STATE_MAX_AGE_SESSIONS                                               # weekdays, with no calendar given
+    assert load_shift_multiplier("2026-11-19", path=path)[0] == 0.5 and week == 5      # five sessions old: still used
+    stale = load_shift_multiplier("2026-11-20", path=path)
+    assert stale == (1.0, "stale shift state (updated 2026-11-12, 6 sessions old)")
+    sessions = pd.to_datetime(["2026-11-12", "2026-11-13", "2026-11-16"])             # the data's calendar ends on the 16th
+    assert load_shift_multiplier("2026-11-18", sessions=sessions, path=path)[1].endswith("(4 sessions ago)")
+    for bad in (0.0, 1.5, -0.2, float("nan")):
+        state(position_size_multiplier=bad)
+        assert load_shift_multiplier("2026-11-13", path=path)[0] == 1.0, bad
+    path.write_text("{not json")
+    assert load_shift_multiplier("2026-11-13", path=path) == (1.0, "malformed shift state (JSONDecodeError)")
+    path.write_text(json.dumps({"verdict": "OK"}))
+    assert load_shift_multiplier("2026-11-13", path=path) == (1.0, "malformed shift state (KeyError)")
+
+
+def test_the_brokers_book_is_read_in_engine_names_with_its_highest_stop(monkeypatch):
+    from types import SimpleNamespace
+
+    from kite_connect.trading import gtt_stops
+    from kite_connect.trading.nse_engine_executor import kite_book
+
+    kite = SimpleNamespace(
+        holdings=lambda: [{"tradingsymbol": "INFY", "average_price": 1150.0, "isin": "INE009A01021"},
+                          {"tradingsymbol": "HFCL-BE", "average_price": 80.0}],
+        margins=lambda segment: {"available": {"live_balance": 4_321.5, "cash": 9_999.0}})
+    monkeypatch.setattr(gtt_stops, "get_held_quantities", lambda k: {"INFY": 4, "HFCL-BE": 10, "HFCL": 5})
+    monkeypatch.setattr(gtt_stops, "list_stop_gtts", lambda k: [{"symbol": "INFY", "trigger": 1100.0},
+                                                               {"symbol": "INFY", "trigger": 1120.0},
+                                                               {"symbol": "HFCL-BE", "trigger": 70.0}])
+    book, cash = kite_book(kite)
+    assert cash == 4_321.5                                                            # what is free now, not the opening cash
+    assert book == {"INFY": {"quantity": 4, "avg_price": 1150.0, "stop_price": 1120.0, "stops_unknown": False,
+                             "isin": "INE009A01021"},
+                    "HFCL": {"quantity": 15, "avg_price": 80.0, "stop_price": 70.0, "stops_unknown": False, "isin": None}}
+
+    def down(k):
+        raise ConnectionError("gtt list down")
+
+    monkeypatch.setattr(gtt_stops, "list_stop_gtts", down)
+    blind, _ = kite_book(kite)
+    assert all(h["stop_price"] is None and h["stops_unknown"] is True for h in blind.values())   # unknown, not "no stop"
+    kite.margins = lambda segment: {"available": {"cash": 250.0}}
+    assert kite_book(kite)[1] == 250.0
+    kite.margins = lambda segment: None
+    assert kite_book(kite)[1] == 0.0
+
+
+def test_a_missing_index_or_sleeve_close_is_named_before_the_plan():
+    from types import SimpleNamespace
+
+    from kite_connect.trading.nse_engine_executor import presence_gaps
+    from nse_engine.config import EngineConfig
+
+    cfg = EngineConfig()
+    days = pd.bdate_range("2025-01-01", periods=260)
+    close = pd.DataFrame({"INFY": 100.0, "GOLDBEES": 60.0, "SILVERBEES": 70.0}, index=days)
+    index = pd.DataFrame({"NIFTY50": 24_000.0}, index=days)
+    assert presence_gaps(SimpleNamespace(close=close, index_close=index), cfg) == []
+    close.loc[days[-1], "SILVERBEES"] = float("nan")
+    index.loc[days[-1], "NIFTY50"] = float("nan")
+    last = days[-1].date().isoformat()
+    assert presence_gaps(SimpleNamespace(close=close, index_close=index), cfg) == [
+        f"NIFTY50: no close on {last}", f"SILVERBEES: no close on {last}"]
+    index.loc[days[-8:], "NIFTY50"] = float("nan")
+    many = presence_gaps(SimpleNamespace(close=close, index_close=index), cfg)[0]
+    assert many.endswith(f"{last} and 3 more of the last 200 sessions") and many.count("2026-") + many.count("2025-") == 5
+    assert presence_gaps(SimpleNamespace(close=close, index_close=index.rename(columns={"NIFTY50": "X"})), cfg)[0] == (
+        "NIFTY50: no index closes in the data")
+    assert presence_gaps(SimpleNamespace(close=close.iloc[:0], index_close=index), cfg) == []
+
+
+def test_the_live_books_equity_history_comes_from_its_snapshots():
+    from types import SimpleNamespace
+
+    from kite_connect.trading.nse_engine_executor import cloud_equity_history
+
+    rows = pd.DataFrame({"date": ["2026-11-12", "2026-11-11", "2026-11-12T19:05:00"], "equity": [301.0, 300.0, 302.5]})
+    history = cloud_equity_history(SimpleNamespace(read_snapshots=lambda: rows))
+    assert list(history.index.strftime("%Y-%m-%d")) == ["2026-11-11", "2026-11-12"] and list(history) == [300.0, 302.5]
+    for empty in (None, rows.iloc[:0], rows.drop(columns="equity")):
+        assert cloud_equity_history(SimpleNamespace(read_snapshots=lambda e=empty: e)).empty
+
+
+def test_the_drawdown_rule_is_replayed_over_the_books_own_history_each_night():
+    from kite_connect.trading.nse_engine_executor import EngineExecutor
+    from nse_engine.config import DrawdownConfig
+    from nse_engine.drawdown import HALT, NORMAL
+
+    history = {"2026-11-10": 100.0, "2026-11-11": 98.0, "2026-11-12": 84.0, "2026-11-13": 999.0, "2026-11-09": -5.0}
+    rule = DrawdownConfig(enabled=True)
+    ex = EngineExecutor(paper=True, equity_history_fn=lambda: history, drawdown_rule=rule)
+    decision, frame = ex.drawdown_decision(pd.Timestamp("2026-11-13"), 83.0)        # today's mark replaces today's row
+    assert (decision.state, decision.allow_entries, decision.sessions_in_state) == (HALT, False, 2)
+    assert decision.peak == 100.0 and decision.drawdown == pytest.approx(0.17) and len(frame) == 4
+    calm, _ = ex.drawdown_decision(pd.Timestamp("2026-11-11"), 99.0)
+    assert (calm.state, calm.allow_entries, calm.scale) == (NORMAL, True, 1.0)
+
+    def broken():
+        raise RuntimeError("snapshots unreadable")
+
+    alone, frame = EngineExecutor(paper=True, equity_history_fn=broken, drawdown_rule=rule).drawdown_decision(
+        pd.Timestamp("2026-11-13"), 83.0)
+    assert alone.state == NORMAL and len(frame) == 1                                 # the rule sees today only, and says so in the log
+    off = EngineExecutor(paper=True, equity_history_fn=lambda: history, drawdown_rule=DrawdownConfig(enabled=False))
+    assert off.drawdown_decision(pd.Timestamp("2026-11-13"), 83.0) == (None, None)

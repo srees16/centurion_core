@@ -276,6 +276,26 @@ def test_the_manual_limit_refuses_a_market_buy_it_cannot_value_but_never_an_exit
     assert manual_value_refusal(down, "X", "NSE", "SELL", 1, "MARKET", None, None, "CNC") is None
 
 
+@pytest.mark.lesson("L-UNPRICED", pattern="F1", date="2026-11-16", source="OR3",
+                    summary="The manual value limit valued an order with a last price of 0, or no price, at 0, "
+                            "so it passed")
+@pytest.mark.parametrize("ltp, kind, price, trigger", [
+    (0.0, "MARKET", None, None), (float("nan"), "MARKET", None, None), (-5.0, "MARKET", None, None),
+    (None, "MARKET", None, None),                          # Kite answered with no price
+    (1000.0, "LIMIT", None, None), (1000.0, "LIMIT", 0.0, None), (1000.0, "SL", float("inf"), 990.0),
+    (1000.0, "SL-M", None, None),                          # no trigger: refused, not an error
+])
+def test_the_manual_limit_refuses_an_order_it_cannot_price_and_never_an_exit(ltp, kind, price, trigger):
+    from kite_connect.trading.order_service import manual_value_refusal
+
+    broker = _ValueBroker(ltp=ltp)
+    got = manual_value_refusal(broker, "RELIANCE", "NSE", "BUY", 1, kind, price, trigger, "CNC")
+    assert got and got.startswith(f"cannot value this {kind} order against the manual limit")
+    assert manual_value_refusal(broker, "RELIANCE", "NSE", "SELL", 1, kind, price, trigger, "CNC") is None
+    assert manual_value_refusal(_ValueBroker(ltp=1000.0), "RELIANCE", "NSE", "BUY", 1, "MARKET", None, None,
+                                "CNC") is None                                   # a real price still passes
+
+
 def test_the_manual_limit_lets_a_verified_exit_go_and_caps_a_new_short(monkeypatch):
     from kite_connect.trading import order_service as gate
 

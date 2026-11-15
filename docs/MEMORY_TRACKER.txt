@@ -326,11 +326,12 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      2027).  ACCEPT: live may start at Rs 3 lakh (GT2I's canary; the rule itself stands as
      fixed, it read Rs 6 lakh) after 5 clean dry runs, on
      your go-ahead.  REJECT: no live capital; 679cbd0c is not re-tuned.
- >>> MERGES TO MAIN ON A RED SUITE (TS1, your call 15 Nov: block them)
-     The deploy now waits for the tests in code.  Blocking a merge is a GitHub setting on the repository:
-     Settings > Branches > add a rule for main > "Require status checks to pass" > pick "pytest" and
-     "pytest-all" (they appear after the first push that runs the new workflow).  Claude can set it with gh
-     once the two checks exist: say "set the branch rule".
+ >>> TESTS: THREE AREAS NEED YOUR CALL (TS2, 15 Nov): test, leave, or retire
+     1. Options research modules with no test (structures, backtest, signal_futures, book_rounds,
+        option_chain, fo_anomalies, the three strategy files, options_monitor: about 2,750 statements).
+        They are research tools, not the nightly path; the nightly A1 overlay is now tested.
+     2. Legacy services behind the legacy pages (services/research, signals, execution, risk: 0-6%).
+     3. The frontend (centurion_core-fe): no test script at all.
  >>> AFTER RA1: COST RATES (PL-15, found 14 Nov; lesson L-RATES-2026, review by 31 Dec)
      Four published rates are not in the cost models: NSE's charge on shares 0.00307% (model 0.00297%),
      futures 0.00183% (0.00173%), options 0.03553% (0.03503%), and the DP charge Rs 15.34 (15.93).  Small
@@ -1069,13 +1070,11 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                  412 functions; after filters, 75 non-strategy candidates
                  (1,083 lines); 17 strategy items and 2 ORM models kept.
                                                               Prompt: do H3b
-[ ] P1  TS2  Test gaps left by TS1, in this order (tests only; allowed under the freeze).  (1) Live: the
-             executor (46%), connected accounts (35%), the fill audit in live_rules (27%), the ladder and
-             rule D steps of the live session.  (2) Nightly: cloud_paper_runner (18%), the archive
-             download (0%), books.py (30%), the paper trader (46%), the bond and MCX sleeves.  (3) The
-             API's handlers (6%): the Kite, screener and Fly Kite routes behind the session check.
-             (4) Options (40%).  (5) Legacy services (0-6%) and the frontend (no tests): your call per
-             page, test or retire.                          Prompt: do TS2
+[ ] P3  TS2  Test gaps, after round three (15-16 Nov, section 8; tests only).  What is left is lower
+             value: ind_stocks routes (25%; the legacy analysis pages), the screener's read routes, the
+             runner's legacy pipeline, the paper trader's yfinance trailing stop and poll (legacy path).
+             After your answers in NEEDS YOU: the options research modules, the legacy services and
+             the frontend.                                  Prompt: do TS2
 [ ] P2  PL-14 After the sell test (ST2 step 3, 16-17 Nov) is complete: Zerodha contract notes against
              the cost model, fill by fill (docs/process_loop_plan.md).  First fixtures: the INFY buy of
              11 Nov and the test sells.  Closes open lesson L-COST-NOTES (review by 31 Dec).
@@ -1539,6 +1538,158 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+16 Nov  BR1  Branch rule on main set (your answers: main only; you may override; pull requests only; no
+             up-to-date requirement; your go "set the branch rule").  Repository ruleset 27330083, "main:
+             tests before merge", active: a pull request is required (0 approvals); the checks "pytest"
+             and "pytest-all" (GitHub Actions) must pass, the branch need not be up to date with main; the
+             admin role may override only when merging a pull request, so a direct push to main is refused
+             for everyone.  A ruleset, not classic protection: classic protection exempts an admin from
+             every rule at once.  Read back from GitHub: exactly these rules in force on main; develop has
+             none.  To change or remove it: Settings > Rules > Rulesets on GitHub, or ask Claude.
+16 Nov  OR3  The manual value limit refuses an order it cannot price (your call: "refuse an order it cannot
+             price"; uncommitted; OR2's finding).  order_service.manual_value_refusal now refuses an order
+             whose price is missing, 0, negative or not a number, for every order type, instead of valuing
+             it at 0 (under any limit).  Also fixed on the way: an SL-M order with no trigger raised an
+             error there (the API answered 500); it is now refused with a reason.  Exits are unchanged: a
+             CNC sell or a sell within a verified long returns before any pricing, so it is never refused.
+             Only the API calls this function (kite.manual_send: the manual route and the screener); the
+             engine's orders, the live session and the dry run do not.  Config hash unchanged.
+             Test (lesson L-UNPRICED): eight cases refused, the same sells allowed, a real price still
+             passes.  Run against the committed function, the 0 and NaN prices and the zero-priced LIMIT
+             passed and the SL-M without a trigger raised: the test fails on the old code.
+             Checks: fast suite green here; green on the core install from a copy of only the files git
+             would commit (order_service 68% covered, floor 66); green in the full-job environment with
+             skips forbidden.  Ledger 50 lessons, 42 guarded.
+16 Nov  OR2  The screener's Execute now passes the manual route's checks (your call: "route the screener through
+             the checks"; uncommitted).  The checks moved out of POST /api/v1/kite/orders into one function,
+             kite.manual_send (no intraday product 422, no same-day round trip 422, the kill switch with a
+             sell as an exit 423, the manual value limit 422, then order_service.place_order with dedupe
+             and exits marked), used by both routes, so they cannot drift apart.  The manual route's
+             order of checks and its answers are unchanged (its own tests pass as before).
+             POST /api/v1/screener/execute sends each approved plan through it, tagged by the plan and
+             the day: Execute pressed twice, or a repeated request after a 500, returns the first order
+             instead of a second.  The tag is 20 hex characters, so the kill switch's drain still cancels
+             a screener buy (RB6).  A refused plan comes back in "orders" with its reason and status;
+             nothing is sent for it.  The Screener page's response shape is unchanged.
+             Guard (L-ORDER-ROUTE): only manual_send may call order_service.place_order in the API, and
+             only the two routes call manual_send.  New tests: a screener plan over the value limit, one
+             that cannot be priced, one that would make a same-day round trip, one under the kill switch
+             and an intraday one are each refused and never sent; the same plans executed twice send each
+             order once through the real order gate; the tag is stable all day and drainable.
+             Not the engine, the deployed book, live_session.py or a configuration; config hash unchanged.
+             Checks: fast suite green here; green on the core install from a copy of only the files git
+             would commit; green in the full-job environment with skips forbidden.
+             FINDING (NEEDS YOU, small): the manual value limit prices a MARKET order at Kite's last price;
+             a price of 0 (or not a number) values the order at 0, under the limit, so it is not refused,
+             although the rule says an order it cannot value is refused.  Kite rarely returns 0 for a
+             listed stock.  Not changed (order_service is the live order path).
+16 Nov  OR1  POST /ind-stocks/orders retired (your call: "retire the ind-stocks order route"; uncommitted;
+             TS2c finding 1).  The handler and its request model (PlaceOrderRequest) are gone; the path
+             keeps its order book (GET) and cancel (DELETE), still admin-only.  The one manual order route
+             is POST /api/v1/kite/orders (value limit, duplicate check, exits marked: RB5, RB7).  Nothing
+             live called the retired route: the web app does not, and the old frontend/ folder in this
+             repo that typed one is a March scaffold that cannot build (no package.json, no API client)
+             and is excluded from the deploy; left as it is.  Not the engine, the deployed book,
+             live_session.py or a configuration (RA1F: a safety change with a test and this entry).
+             Guard (lesson L-ORDER-ROUTE): a test lists every API function that sends a Kite order and
+             fails on any other; checked on the committed file, it flags the retired route.  A second
+             test: POST /ind-stocks/orders now answers 405.  Ledger 49 lessons, 41 guarded.
+             Checks: fast suite green here; green on the core install from a copy of only the files git
+             would commit; green in the full-job environment with skips forbidden.
+             Left for you (NEEDS YOU): the screener's order route (POST /api/v1/screener/execute, used by
+             the legacy Screener page) also sends without the value limit or the duplicate check and
+             answers errors with a 500; it does only buy what the scorer approves.
+16 Nov  TS2c Test gaps, third round (your "do TS2"; uncommitted; tests and the workflow's floors only, no
+             production code changed).  17 new test functions (27 cases); the fast suite is 1,006 cases.
+             API: the owner's Kite routes (no session is a 409 everywhere; holdings mark what Centurion
+             bought, never more than is held; the ledger read is cached five minutes and an outage is
+             not; an expired token asks for a login; a dropped connection is retried once, then a 502;
+             the P&L view adds positions and holdings once each; session start, stop and a hand login
+             as another Zerodha user); the screener's order route (orders only for symbols the scorer
+             calls BUY or STRONG_BUY; a failed send is reported; no score, no order) and the monitor's
+             book choice.  Nightly: the Saturday email's gilt, MCX, options and futures blocks (the week
+             measured from the NAV before its first session; a broken ledger never stops the email);
+             the drift check (waits for 30 days and a reference; sizes by its most severe reading,
+             1.0 / 0.75 / 0.5; alerts once; the state kept in Neon for the next runner; a replayed
+             night dated that night) and the reality-gap thresholds.
+             Measured: the paper trader 66% -> 71%, the runner 45% -> 54%, the screener routes 12% ->
+             27%, the owner's Kite routes 27% -> 80%.  Floors raised (paper_trader 64 -> 68).
+             FINDING 1 (NEEDS YOU): a second manual order route, POST /ind-stocks/orders, sends through
+             order_service.place_order without three things the main route (POST /api/v1/kite/orders,
+             RB5) adds: the manual value limit (manual_value_refusal), the duplicate check (dedupe), and
+             a sell marked as an exit, so under the kill switch it refuses a sell (RB7: getting out is
+             always possible).  It answers an unexpected error with a 500, which a client may repeat.
+             The web app does not call it; only a direct API call with an admin token reaches it.  Not
+             changed: your choice between retiring it and routing it through the main route's checks.
+             FINDING 2 (no effect today): GET /api/v1/kite/session/status is defined twice in
+             api/routers/v1/kite.py; the first answers, the second (remaining_seconds, expiring_soon)
+             is unreachable.  The web app reads only "active".  Dead code: left, recorded.
+             Checks: green on the Mac; on the core install from a copy of only the files git would commit
+             (44 skips, all web / Kite / charts); in the full-job environment with skips forbidden; the 9
+             store guards (16 Nov).
+16 Nov  TS2b Test gaps, second round (your "do TS2"; uncommitted; tests and the workflow's floors only, no
+             production code changed).  25 new test functions (32 cases); the fast suite is 979 cases.
+             Live: rule D (steps down once, latched, only you clear it; a kill switch that cannot be set
+             is said in the alert; a missing band file never stops a session), the ladder step with and
+             without a live G4, the session's row, the ladder's flows.  Nightly: the runner's one-line
+             outcome per session, the weekly gate verdict (a young book is never called a pass), the
+             Saturday checkpoint (emails once, nothing for a week already done); the paper book through
+             a bonus, a consolidation (fraction paid in cash, an emptied lot closed) and a rename, each
+             once and kept across a restart; the books report (window metrics, a trial against the
+             deployed book on common sessions, the forward gate, the nightly summary's rows); a restore
+             from Neon keeps only the current book's rows, never starts a fresh book over an unreadable
+             one, and the live book's strict reads never guess.  API: connected accounts (a signed-up
+             user registers one, sees only their own, is told another's "does not exist", never sees a
+             secret; a store outage is a 503 with no detail); sign-in (one token per sign-in, logout
+             ends only that one, a wrong password and an unknown name answer alike, ten failures lock
+             the name, even against the right password).
+             Measured: books.py 30% -> 51%, paper_cloud 48% -> 61%, the runner 34% -> 45%, the paper
+             trader 59% -> 66%, the live session 51% -> 57%, the accounts routes 30% -> 81%.  Floors
+             raised (live_session 48 -> 54, paper_trader 56 -> 64, capital_ladder 76 -> 81, books.py new
+             at 48).
+             Finding, not fixed (frozen code; no engine book affected): the start-of-book filter
+             (paper_cloud._since_epoch and the restore) drops a row whose time is empty, although its
+             "or start" fallback reads as meant to keep it, because the date helper returns NaT, not
+             None.  Positions cannot lack a time (NOT NULL); fills can, but only the legacy pipeline's
+             stop writes one.  Your call after RA1: keep it, or keep such rows.
+             Three of my own expected values were wrong (the test data, not the code): corrected.
+             Checks: green on the Mac; on the core install from a copy of only the files git would commit
+             (33 skips, all web / Kite / charts); in the full-job environment with skips forbidden; the 9
+             store guards (16 Nov).
+15 Nov  TS2  Test gaps, first round (your "do TS2"; uncommitted; tests and the workflow's floors only, no
+             production code changed).  76 new test functions (128 cases); the fast suite is 947 cases.
+             Live: a nightly paper session end to end on synthetic data (orders fill at the next open,
+             never at the deciding close; a second run of a session only re-plans; missed sessions are
+             caught up in order and a pending order fills at its own open, LN-T7); what the executor reads
+             before a plan (shift multiplier, the broker's book, missing index or sleeve closes, the
+             drawdown replay); connected accounts (registration, terms, registration lock, disconnect and
+             unwind); the live fill rules, the fill audit and its tercile verdict.
+             Nightly: the runner's session step (each session recorded; a sleeve that fails or an F&O
+             file not yet out never fails the share book; counts-only public log), the daily email
+             (once per new session; a dead mail server fails nothing), the list of missed nights; the
+             gilt and MCX sleeves and the A1 options overlay (weights, cap, stale and revised data,
+             event list); the archive download against NSE's site in memory (file names, holidays
+             remembered, error pages and broken zips never stored, retries with a fresh session, no
+             requests on a day with no equity session).
+             API: the Kite login callback and the terms page (wrong user, spent token, unknown account,
+             forged or unticked ticket, store down); sign-up's validators (password policy, email, names,
+             mobile numbers, the whole form), its rate limit and its links.
+             Measured in CI's core job: executor 46% -> 76%, live fill rules 27% -> 100%, archive 0% ->
+             66%, paper trader 46% -> 59%, gilt sleeve 38% -> 95%, MCX sleeve 34% -> 93%, options overlay
+             32% -> 91%; in the full job: connected accounts 35% -> 83%, Kite login 24% -> 83%; the
+             runner 18% -> 34%.  Floors raised (executor 43 -> 73, live_rules 25 -> 98) and six files
+             given a floor for the first time.
+             Checks: green on the Mac, on the core install from a copy of only the files git would commit
+             (28 skips, all web / Kite), in the full-job environment with skips forbidden, and the 9
+             store guards.  TS1's two CI jobs have now run on GitHub (c1442c6: pytest and pytest-all both
+             green on Python 3.11); the deploy gate itself first runs on a push to main.
+             No bug found in production code by these tests.  Two of my own expected values were wrong
+             and corrected against the code's stated rule (the overlay sums weighted daily returns; the
+             MCX drift was 1.00%, not 0.99%).
+             Left (queue TS2): the live session's ladder and rule D steps in the fast suite; the runner's
+             weekly checkpoint, books.py (30%), the paper trader's corporate actions, renames and
+             trailing stops, paper_cloud (48%); the API's order, screener and account handlers.
+             Your call (NEEDS YOU): the options research modules at 0%, the legacy services, the frontend.
 15 Nov  TS1  Tests organised by functionality and run everywhere (your four answers, 15 Nov; uncommitted).  No
              production code changed: tests, tools, two workflows.  Your rule recorded: a bug fix keeps one
              regression test in an existing file; throwaway scripts are deleted.
