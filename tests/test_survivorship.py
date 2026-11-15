@@ -22,6 +22,10 @@ from nse_engine.data.store import build_year_frames, for_cause_exits, invalid_ba
 from nse_engine.engine import EngineCache, run_backtest
 from nse_engine.universe import compute_universe_panel
 
+pytestmark = pytest.mark.lesson(
+    "L-SB2", pattern="F5", date="2026-10-08", source="SB2",
+    summary="A backtest could see history through today's names: dead stocks, today's sector map")
+
 UNIVERSE = UniverseConfig(top_n_liquid=40, min_history_days=60, liquidity_lookback_days=40,
                           refresh_every_n_days=21, min_median_value_inr=0.0, min_price_inr=0.0)
 
@@ -363,6 +367,8 @@ def test_both_fo_formats_parse_futures_and_options(parser, text, expiry, lot):
         assert f["lot_size"] == lot
 
 
+@pytest.mark.lesson("L-DQ1", pattern="F1", date="2026-11-06", source="DQ1",
+                    summary="The store build skipped a file it could not parse and lost that session's bars")
 def test_a_file_that_will_not_parse_stops_the_build_and_names_itself(tmp_path):
     """DQ1 regression: the build used to log the failure and skip the file, so that session's bars vanished."""
     from nse_engine.data.store import build_year_frames
@@ -377,3 +383,27 @@ def test_a_file_that_will_not_parse_stops_the_build_and_names_itself(tmp_path):
     with pytest.raises(ValueError, match="no equity bars"):
         build_year_frames({"equity": [good, empty], "delivery": [], "indices": [], "corpact": []})
     build_year_frames({"equity": [good], "delivery": [], "indices": [], "corpact": []})   # a clean file still builds
+
+
+@pytest.mark.lesson("L-CAN1", pattern="F6", date="2026-10-20", source="CAN1",
+                    summary="A special session for 14 gold ETFs entered the store and shifted every later rebalance day")
+def test_a_session_for_a_few_instruments_stays_out_of_the_store(tmp_path):
+    from nse_engine.data import store
+
+    assert "20121111" in store.PARTIAL_SESSIONS                           # Dhanteras 2012, a Sunday
+    day = tmp_path / "equity" / "2012"
+    day.mkdir(parents=True)
+    for name in ("cm20121109.csv.zip", "cm20121111.csv.zip", "cm20121112.csv.zip"):   # the archive keeps all three
+        (day / name).write_text("x")
+    assert [p.name for p in store.year_sources(tmp_path, 2012)["equity"]] == ["cm20121109.csv.zip", "cm20121112.csv.zip"]
+
+
+@pytest.mark.lesson("L-LNT32", pattern="F6", date="2026-10-13", source="LN-T32",
+                    summary="A rights issue was priced with today's face value, so a later consolidation moved old prices")
+def test_a_rights_issue_reads_the_face_value_of_its_own_date():
+    from nse_engine.data.reference import FaceValues
+
+    fv = FaceValues(history={"CCAVENUE": [("2025-01-01", 1.0), ("2026-10-13", 10.0)]}, current={"NEW": 2.0})
+    assert fv.on("CCAVENUE", "2025-06-26") == 1.0                         # its rights issue: not today's Rs 10
+    assert fv.on("CCAVENUE", "2026-10-13") == 10.0 and fv.on("CCAVENUE", "2020-01-01") == 1.0
+    assert fv.on("NEW", "2025-06-26") == 2.0 and fv.on("GONE", "2025-06-26") is None

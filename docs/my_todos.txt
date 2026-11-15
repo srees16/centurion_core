@@ -124,7 +124,7 @@ analyze if the current trading strategies, backtest strategies and techniques im
 
 ~~~~~~~
 
-Reorder per priority for final go-live applicable to all the strategies, both current and future:
+Reorder as per priority for final go-live applicable to all the strategies, both current and future:
 Ensure centurion is survivorship bias free
 dataset dates cover all the way back to 2008 in both options n stocks do capture events like 2008 crash
 Backtest is exhaustive and robust
@@ -328,16 +328,8 @@ Fallback for a failed leg: Wed 18 / Thu 19 Nov. Tell Claude the same day.
 
 ~~~~~~~~
 
-I'm deciding between [option A] and [option B]. Build a decision framework that compares both options based on my priorities, risks, opportunity costs, and long-term consequences. Identify the option most likely to produce the best outcome.
-
-Look at [industry, skill, or business]. Identify 10 overlooked opportunities most people aren't paying attention to. Explain why each opportunity exists, who would pay for it, and how I could realistically capitalize on it.
-
-I want to master [skill] as efficiently as possible. Build a learning system using deliberate practice, active recall, spaced repetition, and real-world projects. Focus on the knowledge that creates the greatest practical advantage.
-
-Help me achieve [goal] consistently. Instead of giving me motivation or random tips, design a repeatable system with daily actions, triggers, checkpoints, feedback loops, and measurable progress.
-
-I'm going to give you [article, book, transcript, or document]. Don't just summarize it. Extract its most valuable insights, hidden assumptions, practical applications, counterintuitive lessons, and ideas I can use immediately.
-
-Act as my strategic advisor. Here's my current situation: [context]. Here's what I want to achieve: [goal]. Identify my biggest leverage points, the highest-impact actions, what I should stop doing, and the next 3 moves that would create the most progress.
+what do you recommend regarding the biggest weakness that the P1 guards have not yet caught anything in real use, resulting in building more checks before seeing them work for a week or two and risks adding process that nobody reads
 
 ~~~~~~~~
+
+give a crisp on how centurion Ind stocks module keeps up in future with the new trading days which could potentially drift in strategy, signals, backtest, out of sample results, forward walk and the metrics that were achieved based on the data store available

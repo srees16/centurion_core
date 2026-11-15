@@ -3,13 +3,27 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      skip_tests:
+        description: "Deploy without waiting for the tests (an emergency fix only; say why in the tracker)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
+  # The Space serves the order routes and the scheduler: nothing reaches it on a red suite (owner's call,
+  # 15 Nov 2026).  The nightly paper run is deliberately not gated: a broken test must never stop exits or stops.
+  tests:
+    name: Tests before the deploy
+    if: ${{ !inputs.skip_tests }}
+    uses: ./.github/workflows/tests.yml
+
   deploy-hf-spaces:
     name: Deploy to Hugging Face Spaces
+    needs: tests
+    if: ${{ always() && (needs.tests.result == 'success' || needs.tests.result == 'skipped') }}
     runs-on: ubuntu-24.04   # pinned: ubuntu-latest becomes Ubuntu 26 from 19 Oct 2026
     steps:
       - name: Checkout repo

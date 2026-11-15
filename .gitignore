@@ -64,6 +64,7 @@ mywinenv/
 !config/mc_bands.json
 !config/mon1_gap_sigma.json
 !config/nse_for_cause_exits.json
+!config/research_families.json
 !docs/books_register.csv
 !docs/metrics_journal.csv
 # NSE engine archives, parquet store and run directories (large, regenerable)
@@ -71,6 +72,7 @@ data/nse_engine/
 *.log
 logs/
 *.jsonl
+!docs/lessons.jsonl
 
 # ============ OS Files ============
 .DS_Store

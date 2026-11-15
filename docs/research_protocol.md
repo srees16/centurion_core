@@ -24,16 +24,21 @@ trials never enter another family's PBO or deflated-Sharpe matrix.
 
 | Family | Registry | Budget and status |
 |---|---|---|
-| Core (the live engine and its variants) | `data/nse_engine/runs` | **Closed until January**: GT2B used the last configuration on 31 Oct 2026; V3's forward gate is not a new configuration. January, after RA1 and V3 (your decision 2, 5 Nov 2026): J1 refill exits and J3 MV1, **one configuration each** (J2 GT11 withdrawn 5 Nov: 0.71% of buys); J4, the half-step, runs in the overlay family. GT9 and GT7 withdrawn; the quality veto waits. The cap is the family's PBO ≤ 30%, at 29.2% (at the bar). |
-| Options (U32) | `data/nse_engine/runs_options` | **At most 3 configurations per source**, one round each (O5, O6, …). N = 17 after O8; PBO 14.1%. Rounds needing bid/ask, calendars or weeklies wait for the OX bridge. |
+| Core (the live engine and its variants) | `data/nse_engine/runs` | **Closed until January**: GT2B used the last configuration on 31 Oct 2026; V3's forward gate is not a new configuration. January, after RA1 and V3 (your decision 2, 5 Nov 2026): J1 refill exits and J3 MV1, **one configuration each** (J2 GT11 withdrawn 5 Nov: 0.71% of buys); J4, the half-step, runs in the overlay family. GT9 and GT7 withdrawn; the quality veto waits. The cap is the family's PBO ≤ 30%, at 29.2% (at the bar), N = 61. |
+| Options (U32) | `data/nse_engine/runs_options` | **At most 3 configurations per source**, one round each (O5, O6, …). N = 20 after NS1-2 (2 Nov 2026); PBO 14.1% was measured at 17 configurations and has not been recomputed. Rounds needing bid/ask, calendars or weeklies wait for the OX bridge. |
 | Equity sleeves | `data/nse_engine/runs_<sleeve>` (O9: `runs_sepa`) | At most 3 configurations per sleeve. A new sleeve gets its own registry. |
 | Commodity (GT5, MCX futures) | `data/nse_engine/runs_mcx` | At most 3 configurations. N = 2 after GT5 (12 Oct, plan 5y: both FAIL, closed); the third stays unused unless a new source justifies it. |
 | Value (GT4) | `data/nse_engine/runs_value` | At most 3 configurations. N = 2 after GT4 (12 Oct, plan 5z: both FAIL, closed); the third is kept for a beta-hedged variant once capital covers a NIFTY lot. |
 | US core (US5, the India rules on US stocks) | `data/nse_engine/runs_us` | At most 3 configurations. N = 3 after round 1 (17 Oct, plan 5ad: all FAIL against SPY, closed). The next US idea starts its own family. |
 | Bonds (BD1, gilts) | `data/nse_engine/runs_bonds` | At most 3 configurations. N = 3 after BD1 (17 Oct, plan 5ag: all FAIL, closed). The cost of trading debt ETFs was modelled, not measured; a low-churn round would need your call. |
 | Leverage (L7, real stock futures) | `data/nse_engine/runs_leverage` | At most 3 configurations. N = 3 after L7-C (17 Oct, plans 5ae and 5af: all FAIL against L6's synthetic, closed). Its 2026 holdout is used (own lock, `runs_leverage/holdout.lock`). |
-| Intraday (INT1, your amendment 31 Oct 2026) | `data/nse_engine/runs_intraday` | At most 3 configurations per source. N = 0; opens with plan 5av. |
+| Intraday (INT1, your amendment 31 Oct 2026) | `data/nse_engine/runs_intraday` | At most 3 configurations per source. N = 2 after GF1 (9 Nov 2026, plan 5cb: FAIL); no registry yet. INT1C has 2 of its 3 idea slots left. |
 | Event studies (e.g. GT13) | none; the verdict goes in the plan | The study's hypotheses count as its N (GT13: N = 2). A study that becomes a sleeve then starts a family. |
+
+The counts in this table are checked (tracker PL0, PL-03): `config/research_families.json`
+holds each family's N, read from the registries by
+`python -m nse_engine.validation.families --write`, and a test fails when a row here states
+another N.
 
 **Budget rules:**
 - A family's PBO must stay ≤ 30%; aim for 10–20%.
@@ -47,6 +52,30 @@ trials never enter another family's PBO or deflated-Sharpe matrix.
 Write a timestamped section in `docs/nse_engine_validation_plan.md`
 containing:
 
+0. **Phase 0, the feasibility check, before anything else is written or
+   downloaded** (tracker PL0, PL-05; from 15 Nov 2026). Studies had begun
+   before their data was known to exist (NS1-4, NS1-8, NS1-10, BLK1) or
+   repeated an earlier test (H7 of BT7). So first:
+   - prior art: `python -m tools.prereg prior-art <words>` lists every
+     earlier tracker entry and journal verdict holding those words;
+   - the data: reachable by script and allowed by the source's terms; its
+     coverage of 2008–25 and its gaps; point-in-time or restated; delisted
+     names kept or not;
+   - a cost model for the instrument: exists, or to be built with the study;
+   - a verdict, **GO** or **STOP** with the reason. A STOP is a result: it
+     goes to the tracker and the journal with phase "0 feasibility".
+
+   `python -m tools.prereg check` (and a test) refuses a section
+   pre-registered from 15 Nov 2026 whose Phase 0 block is missing or
+   unfilled, and any section stamped later than now.
+
+   The time is never typed (PL-08; three were in the future).
+   `python -m tools.prereg new --id <ID> --title "<title>" --family <family>
+   --words <words>` prints this document's template with the family's trial
+   count and the prior art filled in. Fill it in a file, then add
+   `--body <file> --write`: the tool gives the section its number, stamps the
+   clock's time in the heading and adds it to the plan. That time is the
+   moment the complete section entered the plan.
 1. **The hypothesis.** Why the return should exist: a risk premium, a
    behavioural bias, or a structural flow. A pattern alone is not a
    hypothesis.
@@ -67,7 +96,9 @@ containing:
 5. **Costs and sizing.** Every instrument at its own current cost model,
    at its dated rates: `nse_engine.costs` for stocks and ETFs, `fno_costs`
    for F&O, and MCX's and bonds' own models (built with the stream if
-   missing; your rule, 17 Oct). Size against broker-feasible capital, never
+   missing; your rule, 17 Oct). `python -m nse_engine.validation.rates`
+   lists every dated rate with its source, and the published rates the
+   models do not apply yet (PL-15); a test holds the models to that table. Size against broker-feasible capital, never
    at the maximum loss alone (OX3).
 6. **Pass rules** (section 5) and what a pass leads to.
 
@@ -291,15 +322,48 @@ repeat crisis is measured, not guessed.
   `python -m nse_engine.journal experiment --ref <ID> --date <verdict date>
   --verdict <FAIL|CLOSED|NO-GO> --event "<what was tried>" --note "<the
   result in plain words>"`.
+  This step is checked (PL-01): `python -m nse_engine.journal check`, run
+  by a test, names every tracker verdict from 2 Nov 2026 with no row. It
+  reads an entry's opening words, so state the verdict there.
+- **The post-mortem (PL-06, rows from 15 Nov 2026):** the same command
+  takes `--phase-stopped` ("0 feasibility", "1 pre-registration", "2 run",
+  "3 gate" or "4 paper"), `--hours`, `--trials-used`, `--compute`,
+  `--earliest-stop` (the phase at which a check could have stopped it, and
+  which check), `--lesson-ids` (ids in `docs/lessons.jsonl`, or
+  "none: <why>"), `--cleanup`, `--idea-type` and `--market`. The first
+  five are required; the check names a row without them.
+- **The lesson (PL-02):** a lesson counts only when something executable
+  holds it. Mark its guard test `@pytest.mark.lesson("L-<id>", ...)` or add
+  it to `tools/lessons.py`, then `python -m tools.lessons build`.
+- **Cleanup (PL-07):** `python -m tools.study close --id <ID>` lists the
+  study's files; they are deleted after the owner approves.
+- **The store guards (PL-13):** the tests that need the data stores skip in
+  CI. Before a handover that touched the engine, the stores or the costs,
+  and at least weekly, run `python -m tools.guards` (about seven minutes on
+  the Mac). The preflight shows the last run and flags one that is over a
+  week old, failed, or skipped a guard.
+- **The cost rates (PL-15):** after each Budget (1 Feb) and each 1 April
+  and 1 October, read the published schedule against
+  `python -m nse_engine.validation.rates` and move its `CHECKED` date. A
+  rate that changed goes in `PENDING` with an open lesson until a new
+  cost-model version applies it.
 
 ## Pre-registration template
 
 ```
-## 5?. <title> (<tracker ID>; pre-registered <date, time IST>)
+## 5?. <title> (<tracker ID>; pre-registered <stamped by `tools.prereg new`>)
+Phase 0 (before anything else is written or downloaded):
+  Prior art: <ids and verdicts from `tools.prereg prior-art`, or "none found">
+  Data: <source>; reachable by script and allowed by its terms: <yes / no>
+  coverage 2008-25: <from - to, gaps>; point-in-time: <yes / no>; delisted names: <yes / no>
+  Cost model for this instrument: <exists, version / to be built>
+  Phase 0 verdict: <GO / STOP (reason)>
 Source / hypothesis: <why the return exists>
 Family and budget: <family>, <k> of <max> configurations; N before -> after
 Data and window: 2013-01-01..2025-12-31 (test); 2007-25 reported; 2026 sealed
 Rules: <exact, with every parameter; translations marked (A)>
 Costs and sizing: <cost model; broker-feasible sizing>
 Pass rules: gate 1 <...>; gate 2 <...>; then <paper / walk-forward>
+Stop rules and cap: <hours, downloads, what ends it early>
+Files this study will create: <paths, recorded with `tools.study start`; deleted with a FAIL after approval>
 ```

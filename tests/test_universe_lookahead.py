@@ -2,10 +2,15 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from conftest import truncate
 from nse_engine.config import UniverseConfig
 from nse_engine.universe import compute_universe_panel, select_universe
+
+pytestmark = pytest.mark.lesson(
+    "L-B1", pattern="F5", date="2026-09-18", source="B1",
+    summary="Back-adjusted prices let later corporate actions change past universe membership")
 
 CUT = "2021-06-30"          # the synthetic split happens after this date
 BASE = dict(top_n_liquid=25, min_history_days=60, liquidity_lookback_days=40,

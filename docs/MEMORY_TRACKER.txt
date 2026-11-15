@@ -326,6 +326,17 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      2027).  ACCEPT: live may start at Rs 3 lakh (GT2I's canary; the rule itself stands as
      fixed, it read Rs 6 lakh) after 5 clean dry runs, on
      your go-ahead.  REJECT: no live capital; 679cbd0c is not re-tuned.
+ >>> MERGES TO MAIN ON A RED SUITE (TS1, your call 15 Nov: block them)
+     The deploy now waits for the tests in code.  Blocking a merge is a GitHub setting on the repository:
+     Settings > Branches > add a rule for main > "Require status checks to pass" > pick "pytest" and
+     "pytest-all" (they appear after the first push that runs the new workflow).  Claude can set it with gh
+     once the two checks exist: say "set the branch rule".
+ >>> AFTER RA1: COST RATES (PL-15, found 14 Nov; lesson L-RATES-2026, review by 31 Dec)
+     Four published rates are not in the cost models: NSE's charge on shares 0.00307% (model 0.00297%),
+     futures 0.00183% (0.00173%), options 0.03553% (0.03503%), and the DP charge Rs 15.34 (15.93).  Small
+     and partly offsetting.  Your decision after the verdict: apply them as a new cost-model version (the
+     same-window configurations are then re-run, no new trials, as for models 2 and 3), or waive.
+     python -m nse_engine.validation.rates shows them.
  >>> A1 EVENT LIST: sleeves.EVENT_DATES holds 2027-02-01, the customary Budget date (added 1 Nov at your call, not yet
      announced).  Correct it if the date differs.  After it passes the nightly overlay alerts until the next is added.
  >>> OPTIONS PAGE (OPT1)
@@ -1058,6 +1069,26 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                  412 functions; after filters, 75 non-strategy candidates
                  (1,083 lines); 17 strategy items and 2 ORM models kept.
                                                               Prompt: do H3b
+[ ] P1  TS2  Test gaps left by TS1, in this order (tests only; allowed under the freeze).  (1) Live: the
+             executor (46%), connected accounts (35%), the fill audit in live_rules (27%), the ladder and
+             rule D steps of the live session.  (2) Nightly: cloud_paper_runner (18%), the archive
+             download (0%), books.py (30%), the paper trader (46%), the bond and MCX sleeves.  (3) The
+             API's handlers (6%): the Kite, screener and Fly Kite routes behind the session check.
+             (4) Options (40%).  (5) Legacy services (0-6%) and the frontend (no tests): your call per
+             page, test or retire.                          Prompt: do TS2
+[ ] P2  PL-14 After the sell test (ST2 step 3, 16-17 Nov) is complete: Zerodha contract notes against
+             the cost model, fill by fill (docs/process_loop_plan.md).  First fixtures: the INFY buy of
+             11 Nov and the test sells.  Closes open lesson L-COST-NOTES (review by 31 Dec).
+                                                            Prompt: do PL-14
+[ ] P2  PL-PLAN Mon 16 or Tue 17 Nov (your call 14 Nov): plan PL-10 (data catalogue), PL-11 (nightly
+             store check), PL-16 (weekly incident list) and PL-17 (loop health numbers): order, scope,
+             what each reads, effort; nothing built before your approval by id.
+                                                            Prompt: plan PL-10 PL-11 PL-16 PL-17
+[ ] P2  PL-09 After RA1 (Tue 15 Dec): recording a trial is refused past its family's budget unless a
+             dated decision id is given (validation/trials.py: the research recording path, so not before
+             the verdict).                                  Prompt: do PL-09
+[ ] P3  PL-20 After RA1 (Tue 15 Dec): the package lock in the nightly workflow's install (the nightly
+             workflow, so not before the verdict).          Prompt: do PL-20
  NOT DOING  parameter grids (near-duplicate trials), core risk share up
             (measured: Sharpe 1.03, MaxDD -34%), a NIFTY sleeve (R5: +0.5
             pt at most), more ETF sleeves (R14: funded from the core),
@@ -1508,6 +1539,124 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+15 Nov  TS1  Tests organised by functionality and run everywhere (your four answers, 15 Nov; uncommitted).  No
+             production code changed: tests, tools, two workflows.  Your rule recorded: a bug fix keeps one
+             regression test in an existing file; throwaway scripts are deleted.
+             1. Files.  tests/test_execution_and_costs.py (2,951 lines, 181 tests) is split into
+             test_costs_and_fills, test_order_gate, test_kill_switch, test_live_executor, test_live_session,
+             test_strategy_backtest, test_go_live and test_stops_and_postbacks; the process-loop tests moved
+             out of test_config_identity and test_metrics into test_process_loop.  Every test moved
+             unchanged: the collected test ids are identical before and after (310 and 135).  Shared fakes
+             (the order gate's broker and fixtures) are in tests/conftest.py.
+             2. Map.  python -m tools.test_map: eight areas (live order path, live session and go-live,
+             nightly paper books, engine / costs / data, research records, options, web app and API,
+             legacy strategy pages), each with its code and its test files; a test fails when a test file
+             belongs to no area.
+             3. Where they run.  CI now runs the suite twice: the core install as before, and a second job
+             with the web and Kite packages in which no test may skip (CENTURION_NO_SKIPS; 22 tests skipped
+             in CI until now: the API, scheduler, chart and login tests).  The deploy to the Space waits
+             for the tests (deploy.yml calls tests.yml; a manual deploy has a skip_tests switch for an
+             emergency).  The nightly run is not gated, on purpose.  The 9 store tests stay on this Mac
+             (python -m tools.guards).
+             4. New tests, 38 functions (51 cases): the live session's ledger, renames, stop rescaling,
+             corporate actions, outside sales, missed-session reconciliation, marking, the disconnect
+             unwind and its entry point (already ran, no login, rejected login, static IP, counts-only
+             log): 20; the daily Kite login, which had no test: 9; the API's sessions and roles on all 142
+             documented paths (closes open lesson L-S2): 5; the failed-session alert: 1; the map, the
+             deploy gate and the no-skips switch: 3.
+             Measured (fast suite, core install): live_session.py 24% -> 51%; with the store tests the
+             live session's own body is 73% covered, which CI never saw.  Coverage floors raised
+             (live_session 22 -> 48, order_status 73 -> 98, costs 85 -> 89, deployment 48 -> 56).
+             Checks: 819 fast tests green on the Mac; green on the core install from a copy of only the
+             files git would commit (22 skips, all web or Kite); green in the full-job environment with
+             skips forbidden; the 9 store guards green after the move; ledger 48 lessons, 40 guarded.
+             Limits, said plainly: no suite proves the absence of bugs.  Still thin: the executor 46%,
+             connected accounts 35%, the fill audit 27%, the nightly runner 18%, the archive download 0%,
+             the API's handlers 6%, options 40%, the legacy services 0-6%; the frontend has no tests.
+             The two CI jobs and the deploy gate have not run on GitHub yet: their first run is your next
+             push.  The floors were measured on Python 3.13 here, CI runs 3.11 (2 points of slack).
+             Next: TS2 in the queue.  Blocking merges to main on a red suite is a repository setting
+             (NEEDS YOU).
+14 Nov  PL2  Process loop, second part built: PL-08, PL-12, PL-13 and PL-15 (your go; uncommitted).  No
+             engine, cost, configuration, deployed-book or live_session.py change (no diff in those files); 0
+             trials; hashes unchanged.
+             PL-08: python -m tools.prereg new prints the template with the family's count and the prior
+             art; with --body <file> --write it numbers the section, stamps the clock's time and adds it to
+             the plan, refusing an unfilled Phase 0.  check also names a section stamped later than now.
+             Tried end to end without writing (it stamped 14 Nov 22:14 IST as section 5cc).
+             PL-12, audit of earlier bugs in our own code: 29 entries.  24 now held by a marked test: 6
+             from PL-02, 6 existing tests marked (DQ1, RB5-RB8, B6), 12 written (DD1 drawdown re-arm, LS1
+             live stops never lowered or dropped, LS2 recorded dry run, AL4 failed stop sells, LN-T33 marker
+             before login, V5 go-live evidence, NEO6 book start, CAN1 partial session, LN-T32 dated face
+             values, U25 ETF STT, D4 ETF opens, C5 Streamlit imports).  Before today the drawdown rule,
+             the live stop logic, the go-live rule and the dated face values had no test: their fixes were
+             checked by temporary scripts, then deleted.  5 left open, review by 31 Jan 2027: H7 undefined
+             names (no linter in CI), S2 sessions on every API route, IS1 paper / live isolation, G16 day
+             P&L in the email, BT1 legacy strategy backtest.
+             PL-13: python -m tools.guards runs the 9 tests that need the data stores (CI skips them)
+             and records the run on this Mac; the preflight flags a run over a week old, failed or skipped.
+             First run 14 Nov 22:17 IST: 9 passed, 410 s.  No new marker: all 9 "slow" tests are guards.
+             PL-15: nse_engine/validation/rates.py: every dated rate of the share model with its source
+             (a test holds nse_engine.costs to it on each change date, its eve and today), a source for
+             every dated F&O and MCX rate, the date of the last reading and of the next (15 Feb 2027, after
+             the Budget).  nse_engine/costs.py itself is untouched.
+             FOUND on the first reading (zerodha.com/charges, 14 Nov): four published rates the models
+             lack.  NSE's transaction charge now includes the investor-protection levy: shares 0.00307%
+             (model 0.00297%), futures 0.00183% (0.00173%), options 0.03553% of premium (0.03503%); NSE
+             circular FA/73061 of 27 Feb 2026, from 1 Mar 2026, read through relays, not its own text; the
+             levy was charged separately before and the model left it out then too.  Zerodha's DP charge is
+             Rs 15.34 a stock sold (model 15.93).  Size: about Rs 1 more per Rs 10 lakh traded, Rs 0.59 less
+             per sell: small, and on balance the model is slightly conservative for the share book.  Not
+             applied: cost figures are frozen until RA1.  Listed as pending under open lesson L-RATES-2026
+             (review by 31 Dec): a new cost-model version, your decision (NEEDS YOU).
+             Also: Phase 0's check tightened (any <placeholder> left in a field is unfilled).  Ledger now
+             48 lessons, 39 guarded, 9 open.  Checks: fast suite green; the same suite green with the
+             core-only install on a copy of only the files git would commit; journal, ledger and families
+             checks clean.  Limits: a time typed by hand into the plan is caught only if it is in the
+             future; the rates check cannot see a change by itself, it only makes the reading due; the
+             LN-T33 test reads main()'s source order, it does not run a late backup.
+             Scheduled (section 6): PL-14 after the sell test; PL-09 and PL-20 after RA1; PL-10, PL-11,
+             PL-16 and PL-17 to be planned on 16 or 17 Nov.
+14 Nov  PL1  Process loop, first part built: PL-01 to PL-07 (your go "build PL-01 to PL-07 now"; uncommitted).
+             Steps done from memory are now checked by the fast suite.  No engine, deployed book,
+             live_session.py or configuration change; 0 trials; config hashes unchanged.
+             PL-01 journal check: python -m nse_engine.journal check names every tracker verdict since
+             2 Nov with no journal row; 19 rows backfilled from the tracker's own words (123 rows now).
+             PL-02 lessons ledger: docs/lessons.jsonl, generated by tools/lessons.py from
+             @pytest.mark.lesson on the guard tests; 22 lessons, 18 guarded, 4 open with review dates
+             (three by 31 Dec 2026, L-CK1P2 by 31 Jan 2027); a test fails when the file is out of date,
+             a guard is gone or a review is overdue.  PL-03 family counts: config/research_families.json
+             from the registries (core 61, options 20, intraday 2, ...); the protocol's table is tested
+             against it and its three stale rows are corrected.  PL-04 python -m tools.preflight: clock
+             in IST and UTC, sessions, what a run started now would do (a UTC Saturday = weekly
+             checkpoint only, FL3), RA1's date (Tue 15 Dec), counts, record gaps, your open items.
+             PL-05 python -m tools.prereg prior-art <words>, and a Phase 0 block in the template, required
+             in sections pre-registered from 15 Nov.  PL-06 nine post-mortem columns on the journal, five
+             required on rows from 15 Nov.  PL-07 a test against empty source files; tools/study.py lists
+             a study's files for your approval and deletes nothing.
+             Checks: fast suite green; the journal, lessons and families tests green in a core-only venv
+             and in a copy holding only the files git would commit.  That copy found both generated files
+             git-ignored (*.json, *.jsonl), so CI would have failed: two exceptions added to .gitignore.
+             Limits: the verdict is read only from the clause after an entry's title, so one stated later
+             is missed (open lesson L-VERDICT-LATE); registry counts are checked only where the registries
+             exist (this Mac), CI checks the file against the protocol; post-mortem hours are your or
+             Claude's estimate, not measured.  CLAUDE.md and Copilot's copy carry the five steps.
+             PL-08 to PL-20 not built: they wait for your approval by id.
+14 Nov  PL0  Process improvement loop: a plan, nothing built (your brief; docs/process_loop_plan.md, new, your OK).
+             Your choices: design it around skipped steps and wrong records first; the lessons ledger is
+             generated from the guards; counts are keyword matches checked on a read sample.  Read: 341
+             completed entries.  Most of the six areas exist (protocol, template, registries, 39 guard tests,
+             the coverage ratchet, CK1, MC bands, G4).  The defect is manual steps skipped: the metrics
+             journal has no experiment row after 1 Nov (0 of 22 verdicts of 2-13 Nov), the protocol's family
+             table is stale (options "N = 17" against 20, intraday "N = 0" against 2).  Ten patterns, counts
+             approximate: own bugs found later ~26, late / failed / false-alarm jobs ~21, records out of
+             step ~30, stale facts ~15, bias caught late ~11, data faults ~10, data-blocked studies ~9, cost
+             or margin assumptions ~9, repeats of earlier work ~8, version drift ~8.  20 items PL-01..20,
+             ~65 h, 0 trials; P1 = PL-01..07 (~24 h): journal check + backfill, the generated ledger, family
+             counts from the registries, a session preflight, Phase 0 + prior-art search, post-mortem
+             fields, a leftover-files test.  None touches the engine, the deployed book, live_session.py or
+             a configuration.  Corrected in the brief: RA1 is 15 Dec; scheduling/ is legacy; areas 3-4 need
+             real fills.  WAITING for your approval of item ids.
 14 Nov  FL3  Futures catch-up, status (your asks "is it resolved", "start it now").  On main and deployed
              (PR #332, Space updated 12:48 UTC, CI green); the gate on real Neon answers "1 futures leg(s) not
              marked at 2026-11-13".  NOT yet exercised: no nightly session has run since the merge.  A manual

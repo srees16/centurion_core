@@ -342,6 +342,11 @@ class TestDeploymentContext:
                 out[re.sub(r"[-_.]+", "-", m.group(1)).lower()] = m.group(2)
         return out
 
+    @pytest.mark.lesson('L-LOCK',
+                        pattern='F10',
+                        date='2026-11-14',
+                        source='PG1',
+                        summary='The app installed whatever was newest at each rebuild; kiteconnect drifted to 5.2.2 unnoticed (CK1-P8)')
     def test_the_space_installs_against_its_lock(self):
         """PG1 (14 Nov 2026): the Space's web stack floated to the newest release at every package rebuild."""
         from pathlib import Path
@@ -354,6 +359,7 @@ class TestDeploymentContext:
         lock = self._pins(root / "constraints-hf.txt")
         assert len(lock) == len(lines) > 150, "every line of the lock is one exact pin"
 
+    @pytest.mark.lesson('L-LOCK')
     def test_a_pin_and_the_lock_never_disagree(self):
         """A pin moved in a requirements file but not in the lock fails the Space's build on the conflict."""
         from pathlib import Path
@@ -684,6 +690,11 @@ class TestBookPnlInTheDailyReport:
         assert bk.trials_objective([self._day("deployed", "deployed", "Objective: rehearse.")]) == ""
 
 
+@pytest.mark.lesson('L-FL2',
+                    pattern='F1',
+                    date='2026-11-14',
+                    source='FL2',
+                    summary='A missed futures session could skip a bonus adjustment, strand an expired contract and fill orders a day late')
 class TestFuturesLegCatchUp:
     """FL1 (14 Nov 2026): on a night NSE's F&O file came after the last run the futures leg lost the session
     (2-4 and 12-13 Nov).  It now runs the sessions it missed before tonight's, and a gap it cannot close is
@@ -814,3 +825,117 @@ class TestFuturesLegCatchUp:
         with pytest.raises(RuntimeError, match="past its expiry and was never rolled"):
             self._night(fo, ledger, 6)                       # sessions 2-5, the roll window and the expiry, were lost
         assert fo.Ledger.from_json(saved).last_session == self.SESS[1].date().isoformat()
+
+
+@pytest.mark.lesson("L-NEO6", pattern="F1", date="2026-10-25", source="NEO6",
+                    summary="A new book replayed from its start stamped tonight as its epoch, hiding every replayed row")
+def test_a_new_book_replayed_from_its_start_is_dated_from_that_start():
+    from datetime import date
+    from types import SimpleNamespace
+
+    import cloud_paper_runner as runner
+
+    written = []
+    runner._date_book_start(SimpleNamespace(_get_cloud=lambda: SimpleNamespace(sync_state=written.append)), date(2026, 10, 21))
+    assert written == [{"epoch": "2026-10-21T00:00:00+05:30", "book_start": "2026-10-21T00:00:00+05:30"}]
+    runner._date_book_start(SimpleNamespace(_get_cloud=lambda: None), date(2026, 10, 21))      # no database: nothing to date
+
+
+# ── a paper book end to end: the executor's nightly session on the synthetic panel ──
+
+def _paper_book(tmp_path, monkeypatch, panel):
+    """An engine paper book over ``panel``: its own local state, no database, the default rules on a small universe."""
+    import kite_connect.trading.paper_trader as ptmod
+    from kite_connect.trading.nse_engine_executor import EngineExecutor
+    from nse_engine.config import EngineConfig
+
+    monkeypatch.setattr(ptmod, "_DB_PATH", tmp_path / "paper.sqlite3")
+    pt = ptmod.PaperTrader(kite=None, initial_capital=3_000_000)
+    pt._get_cloud = lambda: None
+    dates = panel.dates
+    cfg = EngineConfig().replace(start=str(dates[300].date()), end=str(dates[-1].date()),
+                                 **{"universe.top_n_liquid": 40, "universe.min_history_days": 60,
+                                    "universe.liquidity_lookback_days": 40, "universe.min_median_value_inr": 0.0,
+                                    "universe.min_price_inr": 0.0})
+    ex = EngineExecutor(paper=True, config=cfg, data_loader=lambda *a, **k: panel, paper_trader=pt,
+                        shift_state_path=str(tmp_path / "shift.json"))
+    return ex, pt, cfg
+
+
+def _queued(report) -> dict:
+    return {r["id"]: (r["symbol"], r["side"], r["quantity"]) for r in report["results"] if r.get("status") == "PENDING"}
+
+
+def test_a_paper_book_fills_tonights_orders_at_the_next_open_and_never_at_the_close(tmp_path, monkeypatch, panel):
+    ex, pt, cfg = _paper_book(tmp_path, monkeypatch, panel)
+    days = list(panel.dates[-12:])
+    queued, fills, stops = {}, 0, 0
+    for prev, day in zip([None] + days, days):
+        report = ex.run_paper_session(as_of=day, replay=True)
+        assert report["session"] == day.date().isoformat() and report["caught_up"] == [report["session"]]
+        filled = report["fills"]["filled"]
+        assert {f["id"] for f in filled} <= set(queued.get(prev, {}))       # only orders decided the session before
+        for f in filled:
+            session_open = float(panel.open.loc[day, f["symbol"]])
+            assert f["open"] == pytest.approx(session_open) and f["open"] != pytest.approx(
+                float(panel.close.loc[prev, f["symbol"]]))                   # never the close that made the decision
+            assert f["fill_price"] >= f["open"] if f["side"] == "BUY" else f["fill_price"] <= f["open"]
+            assert f["costs"] > 0 and (f["symbol"], f["side"]) == queued[prev][f["id"]][:2]
+        queued[day] = _queued(report)
+        assert all(o["decision_date"] == report["session"] for o in pt.pending_orders())
+        held = pt.holdings()
+        assert pt.cash >= 0 and len(held) <= cfg.portfolio.max_positions
+        for sym, h in held.items():                                          # nothing ends a session through its stop
+            assert h["quantity"] > 0 and 0 < h["stop_price"] < float(panel.close.loc[day, sym]), sym
+        assert all(e["symbol"] not in held for e in report["stops"])
+        fills, stops = fills + len(filled), stops + len(report["stops"])
+    assert fills >= 20 and stops >= 3, "the panel no longer exercises fills and stops: the checks above ran on nothing"
+    assert pt.engine_last_session() == days[-1].date()
+
+
+def test_a_second_run_of_the_same_session_only_replans(tmp_path, monkeypatch, panel):
+    ex, pt, _ = _paper_book(tmp_path, monkeypatch, panel)
+    for day in panel.dates[-12:-10]:
+        ex.run_paper_session(as_of=day, replay=True)
+    first = ex.run_paper_session(as_of=panel.dates[-10], replay=True)
+    cash, held, orders = pt.cash, pt.holdings(), sorted(_queued(first).values())
+    assert orders, "no order was queued: nothing to supersede"
+    again = ex.run_paper_session(as_of=panel.dates[-10], replay=True)
+    assert again["fills"] is None and again["stops"] == [] and "re-planning only" in again["notes"][0]
+    assert pt.cash == cash and pt.holdings() == held                        # no fill, no stop, twice
+    assert sorted(_queued(again).values()) == orders
+    assert sorted((o["symbol"], o["side"], o["quantity"]) for o in pt.pending_orders()) == orders   # superseded, not doubled
+
+
+def test_missed_sessions_are_caught_up_in_order_and_pending_orders_fill_at_their_own_open(tmp_path, monkeypatch, panel):
+    """LN-T7: after sessions nobody ran, each one's stops and fills are applied in order.  An order decided before
+    the gap fills at the first missed session's open: it is neither cancelled as stale nor filled at a later price."""
+    ex, pt, _ = _paper_book(tmp_path, monkeypatch, panel)
+    days = list(panel.dates[-12:])
+    for day in days[:3]:
+        before = ex.run_paper_session(as_of=day, replay=True)
+    waiting = _queued(before)
+    assert waiting, "no order was waiting at the gap"
+    report = ex.run_paper_session(as_of=days[6], replay=True)                # days 3, 4 and 5 never ran
+    assert report["caught_up"] == [d.date().isoformat() for d in days[3:7]]
+    filled = {f["id"]: f for f in report["fills"]["filled"]}
+    assert set(filled) == set(waiting) and report["fills"]["cancelled"] == []
+    for f in filled.values():
+        assert f["open"] == pytest.approx(float(panel.open.loc[days[3], f["symbol"]]))
+    held = pt.holdings()
+    assert report["stops"] and all(e["symbol"] not in held for e in report["stops"])
+    assert pt.engine_last_session() == days[6].date()
+    assert all(o["decision_date"] == days[6].date().isoformat() for o in pt.pending_orders())
+
+
+def test_a_live_only_call_is_refused_for_a_paper_session_and_bad_settings_are_named(tmp_path, monkeypatch, panel):
+    from kite_connect.trading.nse_engine_executor import EngineExecutor
+
+    ex, _, _ = _paper_book(tmp_path, monkeypatch, panel)
+    ex.paper = False
+    with pytest.raises(RuntimeError, match="paper-only"):
+        ex.run_paper_session(as_of=panel.dates[-1])
+    with pytest.raises(ValueError, match="sell_credit must be in"):
+        EngineExecutor(paper=True, sell_credit=1.5)
+    with pytest.raises(ValueError, match="paper_fill must be"):
+        EngineExecutor(paper=True, paper_fill="yesterday")

@@ -30,6 +30,11 @@ def _ist(d: date, hh: int = 0, mm: int = 0) -> datetime:
     (date(2026, 11, 9), _ist(date(2026, 11, 12), 5, 13), 1, "Wednesday 11 Nov's run is due by Thursday morning"),
     (None, _ist(FRI, 20), 0, "no book yet"),
 ])
+@pytest.mark.lesson('L-HB2',
+                    pattern='F2',
+                    date='2026-11-11',
+                    source='HB2',
+                    summary="The heartbeat counted weekdays, so a holiday raised a false 'has not traded' alarm")
 def test_sessions_behind(latest, now, expected, why):
     assert sessions_behind(latest, now) == expected, why
 
@@ -175,6 +180,11 @@ def _finished_with_a_futures_book(monkeypatch, ledger):
     '{"history": []}',                                    # a ledger that never marked a session
     "not json",                                           # unreadable is not finished
 ])
+@pytest.mark.lesson('L-FL1',
+                    pattern='F1',
+                    date='2026-11-14',
+                    source='FL1',
+                    summary='The backup-run gate called a night finished with the futures leg still waiting; five sessions were lost')
 def test_a_futures_leg_not_marked_tonight_keeps_the_backup_runs_on(monkeypatch, ledger):
     """FL1 (14 Nov 2026): the backups were stopped with the futures leg deferred, and the futures book lost
     five sessions (2-4 and 12-13 Nov)."""
@@ -324,6 +334,11 @@ def _decide(monkeypatch, status, now=THU_1945, kite_login=None):
     (("futures", "1 futures leg(s) not marked at 2026-10-29"), None, False, "20:30 retry"),
     (("finished", "session 2026-10-29 finished"), None, False, "finished"),
 ])
+@pytest.mark.lesson('L-RS1',
+                    pattern='F2',
+                    date='2026-11-14',
+                    source='RS1',
+                    summary='The nightly run had one on-time trigger; the documented second one was not firing')
 def test_the_rescue_starts_a_run_only_for_what_a_run_can_still_do(monkeypatch, status, login, start, needle):
     decided, why = _decide(monkeypatch, status, kite_login=login)
     assert decided is start and needle in why
@@ -423,3 +438,38 @@ def test_the_heartbeat_workflow_runs_the_rescue_only_when_asked():
     assert ("      - name: Rescue - start tonight's run if it is needed\n        if: ${{ inputs.rescue }}\n"
             "        env:\n          GITHUB_TOKEN: ${{ github.token }}\n"
             "        run: python -m tools.paper_heartbeat --rescue") in text
+
+
+@pytest.mark.parametrize("argv,env,severity,key,title,line", [
+    (["123 (live book)"], {}, "CRITICAL", "session_failed:live book", "Centurion live book FAILED",
+     "Open the failed run to see why: https://github.com/o/r/actions/runs/123"),
+    (["123 (live book fam1)"], {}, "CRITICAL", "session_failed:live book fam1", "Centurion live book fam1 FAILED",
+     "The paper books run in their own steps and email their own results."),
+    (["123 (e4 book)"], {}, "WARNING", "session_failed:e4 book", "Centurion paper session FAILED (e4 book)",
+     "Open the failed run to see why: https://github.com/o/r/actions/runs/123"),
+    (["123"], {"CENTURION_LIVE_SKIPPED": "true"}, "CRITICAL", "session_failed:paper",
+     "Centurion paper session FAILED, live book not run",
+     "The live book did not run either: its step comes after the one that failed."),
+    ([], {"GITHUB_RUN_ID": "77"}, "WARNING", "session_failed:paper", "Centurion paper session FAILED",
+     "Open the failed run to see why: https://github.com/o/r/actions/runs/77"),
+    (["https://example.org/run/9"], {}, "WARNING", "session_failed:paper", "Centurion paper session FAILED",
+     "Open the failed run to see why: https://example.org/run/9"),
+])
+def test_a_failed_session_alerts_by_what_failed_and_never_masks_the_failure(monkeypatch, argv, env, severity, key,
+                                                                              title, line):
+    """25 Sep 2026: every run died before reaching the book and no mail went out.  A live failure is CRITICAL, a
+    paper one a warning unless it also kept the live book from running; the tool itself always exits 0."""
+    from services.notifications import alerts
+    from tools import session_failed
+
+    sent = []
+    monkeypatch.setattr(alerts, "alert", lambda sev, k, t, lines, **kw: sent.append((sev, k, t, lines)) or False)
+    monkeypatch.setattr("sys.argv", ["session_failed", *argv])
+    for name in ("CENTURION_LIVE_SKIPPED", "GITHUB_RUN_ID"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    assert session_failed.main() == 0                                     # even when the alert was not sent
+    ((sev, k, t, lines),) = sent
+    assert (sev, k, t) == (getattr(alerts, severity), key, title) and line in lines
