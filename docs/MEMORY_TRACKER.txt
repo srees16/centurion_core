@@ -1571,6 +1571,13 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+16 Nov  CI2  Duplicate test runs removed (your ask; uncommitted).  tests.yml ran on every push to any branch and on
+             every pull request, so a push to a PR's branch ran pytest and pytest-all twice (push and
+             pull_request), and a merge to main ran them twice more (push, and the deploy's call).  Now: pull_request,
+             workflow_dispatch and workflow_call only.  A PR runs once, on its branch merged with the base; main runs
+             once, inside the deploy, which still waits for it; a branch with no PR runs by hand or by a draft PR.
+             The ruleset's required checks (pytest, pytest-all) come from the pull_request run, unchanged.  Guarded:
+             test_the_deploy_waits_for_the_tests_and_the_nightly_run_never_does now fails if push returns.
 16 Nov  RNG0 A range-earning stream, Phase 0 (your go; desk, no trial, about an hour): NO-GO, nothing pre-registered.
              Why asked: the book earns 2.0% a year in range states (15% of days) against NIFTY's 5.1%.
              (a) Mean reversion on liquid large caps, range state only: BT7's H5 (the published short-term
