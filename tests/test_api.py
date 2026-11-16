@@ -378,6 +378,97 @@ def test_the_nse_session_route_answers_a_signed_up_user(api):
     assert set(body) == {"state", "open", "detail", "date", "time", "next_open", "note"}
 
 
+# ── live gold, silver and bitcoin for the Ind stocks ribbon (api/live_prices.py, tracker GSB1) ──
+
+def _mcx(name, expiry, symbol):
+    from datetime import date
+
+    return {"name": name, "instrument_type": "FUT", "expiry": date.fromisoformat(expiry), "tradingsymbol": symbol}
+
+
+def test_the_ribbon_reads_the_near_month_contract_and_rolls_before_its_last_days():
+    from datetime import date
+
+    from api import live_prices as lp
+
+    dump = [_mcx("GOLD", "2026-12-04", "GOLD26DECFUT"), _mcx("GOLD", "2027-02-05", "GOLD27FEBFUT"),
+            _mcx("GOLDM", "2026-11-30", "GOLDM26NOVFUT"), {**_mcx("GOLD", "2026-11-25", "GOLDOPT"), "instrument_type": "CE"}]
+    assert lp.near_month(dump, "GOLD", date(2026, 11, 16))["tradingsymbol"] == "GOLD26DECFUT"
+    assert lp.near_month(dump, "GOLD", date(2026, 12, 1))["tradingsymbol"] == "GOLD27FEBFUT"     # 3 days left: rolled
+    assert lp.near_month(dump, "SILVER", date(2026, 11, 16)) is None
+
+
+def test_gold_is_shown_per_gram_and_silver_per_kg_with_their_change():
+    from api import live_prices as lp
+
+    quotes = {"MCX:GOLD26DECFUT": {"last_price": 135236.0, "ohlc": {"close": 136705.0}, "last_trade_time": "t1"},
+              "MCX:SILVER26DECFUT": {"last_price": 168557.0, "ohlc": {"close": 176309.0}}}
+    got = lp.metal_prices(quotes, {"gold": "MCX:GOLD26DECFUT", "silver": "MCX:SILVER26DECFUT"})
+    assert got["gold"]["price"] == pytest.approx(13523.6) and got["gold"]["unit"] == "gram"
+    assert got["gold"]["change_pct"] == pytest.approx((135236 / 136705 - 1) * 100) and got["gold"]["currency"] == "INR"
+    assert got["silver"]["price"] == 168557.0 and got["silver"]["unit"] == "kg"
+    none = lp.metal_prices({"MCX:GOLD26DECFUT": {"last_price": 0}}, {"gold": "MCX:GOLD26DECFUT", "silver": None})
+    assert none == {"gold": None, "silver": None}                                # no price is shown as absent
+
+
+def test_bitcoin_falls_back_from_binance_to_coingecko_and_is_absent_when_both_fail():
+    from api import live_prices as lp
+
+    class Reply:
+        def __init__(self, body): self.body = body
+        def json(self): return self.body
+
+    def both(url, timeout):
+        return Reply({"lastPrice": "64902.47", "priceChangePercent": "0.33"} if "binance" in url else {})
+
+    def binance_down(url, timeout):
+        if "binance" in url:
+            raise ConnectionError("451")
+        return Reply({"bitcoin": {"usd": 64709, "usd_24h_change": -1.2}})
+
+    def all_down(url, timeout):
+        raise ConnectionError("down")
+
+    assert lp.bitcoin(both) == {"price": 64902.47, "change_pct": 0.33, "currency": "USD", "source": "Binance BTC/USDT"}
+    assert lp.bitcoin(binance_down)["source"] == "CoinGecko" and lp.bitcoin(binance_down)["price"] == 64709.0
+    assert lp.bitcoin(all_down) is None
+
+
+def test_without_a_kite_login_the_metals_say_why_and_every_answer_is_cached(monkeypatch):
+    from datetime import date
+
+    from api import live_prices as lp
+
+    monkeypatch.setattr(lp, "_cache", {"at": None, "value": None})
+    monkeypatch.setattr(lp, "_contracts", {"day": None, "symbols": {}})
+    calls, now = [], [100.0]
+    get = lambda url, timeout: calls.append(url) or type("R", (), {"json": lambda self: {          # noqa: E731
+        "lastPrice": "1", "priceChangePercent": "0"}})()
+    out = lp.snapshot(kite_factory=lambda: None, clock=lambda: now[0], get=get)
+    assert out["gold"] is None and out["silver"] is None and "Kite login" in out["note"] and out["bitcoin"]
+    now[0] += 10
+    assert lp.snapshot(kite_factory=lambda: None, clock=lambda: now[0], get=get) is out and len(calls) == 1
+
+    class Kite:
+        def instruments(self, exchange):
+            return [_mcx("GOLD", "2026-12-04", "GOLD26DECFUT"), _mcx("SILVER", "2026-12-04", "SILVER26DECFUT")]
+
+        def quote(self, symbols):
+            return {s: {"last_price": 100.0, "ohlc": {"close": 100.0}} for s in symbols}
+
+    now[0] += lp.CACHE_S
+    fresh = lp.snapshot(kite_factory=Kite, today=date(2026, 11, 16), clock=lambda: now[0], get=get)
+    assert fresh["gold"]["price"] == 10.0 and fresh["silver"]["price"] == 100.0 and fresh["note"] is None
+
+
+def test_the_live_prices_route_answers_a_signed_up_user(api, monkeypatch):
+    from api import live_prices as lp
+
+    monkeypatch.setattr(lp, "snapshot", lambda: {"gold": None, "silver": None, "bitcoin": None, "note": "n"})
+    body = api[1].get("/api/v1/market/live-prices", headers=_bearer("user")).json()
+    assert set(body) == {"gold", "silver", "bitcoin", "note"}
+
+
 # ── the weekly newsletter (api/newsletter.py, tracker NL1): chosen, aggregates only, once a week, easy to stop ──
 
 def test_the_newsletter_is_off_unless_the_box_is_ticked():

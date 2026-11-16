@@ -49,6 +49,15 @@ async def market_nse_session():
     return session_status()
 
 
+@router.get("/market/live-prices")
+async def market_live_prices():
+    """Gold (₹ a gram) and silver (₹ a kg) from MCX through the API's Kite session, and bitcoin in dollars
+    (``api.live_prices``; tracker GSB1): the Ind stocks pages' ribbon, beside crude."""
+    from api import live_prices
+
+    return await asyncio.to_thread(live_prices.snapshot)
+
+
 @router.get("/market/ticker-prices")
 async def market_ticker_prices(symbols: str, market: str = "US"):
     """Get current/last-traded prices for comma-separated ticker symbols."""
