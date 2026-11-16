@@ -705,3 +705,73 @@ def test_the_market_line_is_left_out_when_nifty_cannot_be_read():
     assert _market_line(None, date(2026, 11, 13)) is None
     nifty = pd.Series([24_000.0, 24_480.0], index=pd.to_datetime(["2026-11-06", "2026-11-13"]))
     assert _market_line(nifty, date(2026, 11, 13), week=True).startswith("Market: NIFTY 50 closed at 24,480 (+2.00% on the week)")
+
+
+# ---- the golden-target gates (GTR0, GTR6): the yardstick every paper book is read against
+def _daily(mean, sd, start="2008-01-01", end="2025-12-31", seed=3):
+    idx = pd.bdate_range(start, end)
+    return pd.Series(np.random.default_rng(seed).normal(mean, sd, len(idx)), index=idx)
+
+
+def _small_boot(n, sims=200, seed=1):
+    return np.random.default_rng(seed).integers(0, n, (sims, n))
+
+
+def test_the_gates_pass_only_a_strong_book_over_2008_25_and_only_then_earn_leverage(monkeypatch):
+    from nse_engine import diversifier_gate as dg
+    from nse_engine import golden_gates as gg
+
+    monkeypatch.setattr(dg, "_boot_indices", _small_boot)
+    nifty = _daily(0.0004, 0.012, seed=9)
+    strong = _daily(0.0016, 0.007)                                  # excess Sharpe about 3
+    a = gg.assess(strong, strong - 0.03 / 252, strong - 0.03 / 252, nifty, 99, None, 0.005)
+    assert all(g["pass"] for g in a["gates"].values()) and a["leverage"]["earned"] == 1.5     # half-Kelly, capped
+    assert not any(v["veto"] for v in a["vetoes"].values())
+    weak = _daily(0.0005, 0.009, seed=4)
+    w = gg.assess(weak, weak - 0.03 / 252, weak - 0.03 / 252, nifty, 99, None, 0.005)
+    assert not w["gates"]["dsr"]["pass"] and w["leverage"]["earned"] == 1.0
+    late = strong["2017-01-01":]                                    # skipping 2008 flatters Sharpe: cannot pass
+    l = gg.assess(late, late, late, nifty, 99, None, 0.005)
+    assert not (l["gates"]["dsr"]["pass"] or l["gates"]["net_sharpe"]["pass"] or l["gates"]["walk_forward"]["pass"])
+    assert l["gates"]["era_2008_12"]["value"] is None and l["leverage"]["earned"] == 1.0
+
+
+def test_the_tail_vetoes_fire_on_their_own_bars(monkeypatch):
+    from nse_engine import diversifier_gate as dg
+    from nse_engine import golden_gates as gg
+
+    monkeypatch.setattr(dg, "_boot_indices", _small_boot)
+    nifty = _daily(0.0004, 0.010, seed=9)
+    r = _daily(0.0006, 0.008)
+    r["2008-06-02":"2008-12-31"] = -0.0035                          # a -40% stretch
+    v = gg.vetoes(r, nifty, capacity_drop=0.15)
+    assert v["maxdd"]["veto"] and v["maxdd"]["value"] < -0.30 and v["capacity_drop"]["veto"]
+    lo, hi = v["maxdd"]["range"]
+    assert lo <= hi and len(v["calmar"]["range"]) == 2
+    calm = gg.vetoes(_daily(0.0008, 0.006), nifty, capacity_drop=0.02)
+    assert not calm["maxdd"]["veto"] and not calm["cvar_vs_nifty"]["veto"] and not calm["capacity_drop"]["veto"]
+
+
+def test_gate_5_waits_for_60_sessions_then_reads_the_band():
+    from nse_engine import golden_gates as gg
+
+    assert gg.gate5({"sessions": 40, "return_pct": 69.0}) == {"due": False, "pass": False,
+                                                             "text": "not due (40 of 60; now 69th pct)"}
+    assert gg.gate5({"sessions": 60, "return_pct": 50.0})["pass"]
+    assert not gg.gate5({"sessions": 75, "return_pct": 3.0})["pass"] and not gg.gate5({"sessions": 75, "return_pct": 97.0})["pass"]
+    assert gg.gate5(None)["text"] == "no band"
+
+
+def test_a_book_above_the_cap_is_flagged_unless_the_owner_made_an_exception():
+    from nse_engine import golden_gates as gg
+
+    g = {"value": 0.6, "live": 0.4, "from": "2008-01-01", "pass": False}
+
+    def doc(name):
+        return {"created_at": "2026-11-16", "n_trials": 99, "books": {name: {
+            "gates": {"dsr": dict(g), "net_sharpe": dict(g), "walk_forward": dict(g),
+                      "era_2008_12": {"value": -0.2, "walk_forward": None, "pass": False}},
+            "vetoes": {}, "leverage": {"earned": 1.0, "book_runs_at": 1.75, "above_cap": True}}}}
+
+    assert "by your exception of 16 Nov 2026" in " ".join(gg.block(doc("futures"), {})["lines"])
+    assert "your call" in " ".join(gg.block(doc("levered_trial"), {})["lines"])     # no exception: still asked

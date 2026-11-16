@@ -6907,6 +6907,13 @@ cost a year.
 source). **Pass.** Built as an overlay switch, then 60 paper sessions; it
 counts as a promotion trial.
 
+**J4 addendum (16 Nov 2026, 19:17 IST, before any run; tracker J4A).** Pass rule 1 drops CAGR, by your directive of 16 Nov 2026
+that the Ind stocks module is optimised on Sharpe, with CAGR reported (tracker GTR9; protocol gate 2 amended the
+same day, GTR10). Rule 1 now reads: on 2008–25, excess Sharpe and alpha against NIFTY TRI both higher than the base,
+with `bootstrap_p` ≤ 0.025 on the Sharpe difference; CAGR is reported. Rules 2 and 3, the base, the rule, the
+costs and the 15% cycle cap are unchanged. Reason: as registered, a J4 that raised Sharpe and alpha but not CAGR
+would fail, against the directive. Your bounded-tail rule (10–15% a cycle) stays, so the 25% size stays.
+
 ## 5by. CC1: counter-cyclical investing, Phases 0–1 (India tracker CC1; your ask "validate it, then decide"; read rule fixed 06 Nov 2026, 19:08 IST, before any return was read)
 
 **Question.** Does buying when the market or a sector is cheap and holding
@@ -7264,6 +7271,60 @@ history Feb 2015-Dec 2025; 99.5% of NIFTYBEES's full sessions pass the check
 - Reading: no tradable form survives. The long side fails day by day, and the
   short side is not allowed and vanishes at realistic cost. No INT1C idea
   follows from it. Data and code deleted.
+
+## 5cc. GTR5: the sharpe book: candidate with the drawdown rule, gilts and MCX-B (a tail and worst-era book) (India tracker GTR5; pre-registered 16 Nov 2026, 15:34 IST)
+
+Phase 0 (before anything else is written or downloaded):
+  Prior art: DG2 (19 Oct; on the deployed book: gilts 25% PASS, MCX-B 25% PASS provisional, gilts + MCX-B 25 + 25
+  failed only on the in-sample Sharpe, -0.03 against -0.02 allowed; walk-forward 2008 -26.4% -> +8.1%, MaxDD
+  -14.5%); GT13; RT1; MPT2 (static and risk-parity splits lose 0.15-0.38 Sharpe); GTR1-GTR4 (this study's own
+  Phase 0: no book meets the golden target; the candidate with the drawdown rule is the strongest and clears every
+  tail veto alone).
+  Data: recorded series only, all local and scripted: the candidate 2d64ba4c with its deployment's drawdown rule,
+  run baeaaac7 (2007-25, cost model 4, data 01927c09, GTR4); the deployed family's walk-forward R4b (2008-25); gilts
+  from nse_engine.bond_stream.bond_returns (BondConfig(), BD1); MCX-B from data/nse_engine/dg1/mcx_results_2007_25.json
+  ("GT5-B", plus the liquid rate on its idle margin cash, as mc_bands' "mcx" reference); NIFTY 50 TRI from
+  store_ext2006.  Reachable by script: yes.
+  coverage 2008-25: 2008-01-01 to 2025-12-31, no gaps; point-in-time: yes (the engine); delisted names: yes (SB3).
+  Cost model for this instrument: equities cost model 4; gilt ETFs as BD1 (modelled, not measured); MCX futures as
+  GT5.
+  Seen: every stream's 2008-25 has been looked at (DG2 combined gilts and MCX-B with the deployed book; the
+  candidate with the rule was read alone today, GTR4); this combination's own figures have not been computed.  The
+  result is therefore provisional and paper is the test.
+  Phase 0 verdict: GO, scoped as a tail and worst-era book.  Not a golden-target candidate: its Sharpe ceiling is
+  below gates 1-3 (GTR2), so those gates are reported, not passed.
+Source / hypothesis: gilts and MCX trend are drawdown streams: near zero correlation with the equity book, and
+  MCX trend gains in equity bear markets (2008; 2026 in paper).  At fixed 25% weights each they should cut the
+  book's drawdown and its 2008-12 loss while leaving its Sharpe within 0.02.
+Family and budget: core, 0 new configurations (the candidate with its drawdown rule exists and is on paper); the
+  combination is a protocol 5.1 look at the levers' own fixed weights (DG2's precedent), not a configuration in any
+  family's N.  N 61 -> 61.  The all-families deflated Sharpe is reported at N = 100, counting this look.
+Data and window: 2008-01-01..2025-12-31 (GTR0's window); 2013-25 reported; 2026 sealed (the candidate's run ends
+  31 Dec 2025; every sleeve is cut there).
+Rules: one variant.  Each day: 0.50 x the candidate's live book + 0.25 x the gilt sleeve + 0.25 x MCX-B.  The live
+  book is the run's daily return less D2's 3% a year on invested capital, idle cash earning nothing (as-run, the
+  owner's basis since 5 Nov).  Weights fixed daily (A: the paper sleeves rebalance by their own rules; the
+  difference is reported in paper, not modelled here).  No leverage: the funding gate's implied_leverage on this
+  book's deflated Sharpe decides, and is expected to give 1.0x.  Walk-forward basis: the same weights on R4b's live
+  book as the equity leg (the candidate has no walk-forward of its own; its family's R4b stands in, as for the
+  paper candidate's MC band).
+Costs and sizing: as above; capacity at Rs 30 lakh from the candidate's scorecard (2026-10-10); unlevered.
+Pass rules (all required; as-run basis, 2008-25):
+  1. worst era: 2008-12 excess Sharpe >= 0.2 on the fixed-settings basis and on the walk-forward basis (GTR0
+     gate 4);
+  2. tail vetoes clear on the fixed-settings basis: MaxDD no worse than -30%; Calmar >= 0.5; daily CVaR(5%) no
+     worse than 1.5x NIFTY TRI's; monthly skew >= -1; Sharpe drop <= 0.1 at Rs 30 lakh (GTR0 decision 4; 90%
+     bootstrap ranges reported, diversifier_gate's paired resamples);
+  3. against the candidate with the rule alone (fixed settings): MaxDD at least 3 points shallower in >= 80% of the
+     paired resamples, and excess Sharpe not lower by more than 0.02 (protocol 5.1's drawdown-lever rule, DG2).
+  Reported, not conditions, and expected to fail (stated before any result): GTR0 gates 1-3 (DSR at N = 100 >=
+  0.95; net Sharpe >= 0.8; walk-forward >= 1.0) and the half-Kelly leverage.
+  Then: paper (Phase 2: the "sharpe" book beside candidate and e4, at 1x with the funding gate wired in; 60
+  sessions; GTR0 gate 5 and rule D).
+Stop rules and cap: desk arithmetic on recorded series only, at most 2 hours, no download, no Kaggle run; a
+  missing or mismatched series stops it (no substitute series); a failure ends GTR5 with no re-weighting.
+Files this study will create: none in the repository (one scratchpad script, deleted after the verdict); the
+  result goes in the tracker and in this section.
 
 ## 6. Stage D — Paper trading (60–90 trading days)
 
@@ -7650,3 +7711,17 @@ because the 2026 holdout will already have been used.
 | Paper gate (G4) | `python -m runners.run_nse_engine paper-gate` for the deployed book; add `--deployment config/nse_engine_<book>.json --schema <book>` for another paper book, e.g. `candidate` or `e4`. Needs `CENTURION_DATABASE_URL` and a store covering the paper sessions, or `--reference <returns csv>` |
 | Haircut (D2) | part of `validate`: two unrecorded re-simulations (as recorded; 1-day lag + 2× impact), the difference applied to the recorded metrics, plus the CSCV selection ratio; `validation.json` → `haircut` |
 | Inspect deployment | `python -m nse_engine.deployment show` |
+
+**Result, 16 Nov 2026 (tracker GTR5): FAIL on rules 1 and 3; not re-weighted.**
+
+| Rule | Bar | Result | |
+|---|---|---|---|
+| 1. 2008–12 excess Sharpe, fixed / walk-forward | ≥ 0.2 both | 0.17 / −0.31 | FAIL |
+| 2. MaxDD; Calmar; CVaR(5%) vs NIFTY; monthly skew; Sharpe drop at Rs 30 lakh | −30%; 0.5; 1.5x; −1; 0.1 | −13.3% (−20.7 to −10.0); 0.90; 0.37x; +0.03; 0.07 | pass |
+| 3. MaxDD 3+ pts shallower than the candidate alone; Sharpe within 0.02 | 80% of resamples; −0.02 | 98.9%; −0.029 (0.651 vs 0.680) | FAIL |
+
+Reported (expected to fail): DSR at N = 100 0.65 in-sample, 0.44 live; net Sharpe 0.65; walk-forward 0.41;
+deflated Sharpe −0.04, so the funding gate gives 1.0x. 2008 goes from −21.5% to +11.6%, but 2010–12 earn
+10.2%, 1.4% and 4.3%, below the 6.5% the Sharpe is measured against. A strong tail book, not a Sharpe book.
+Phase 2 for this configuration needs the owner's dated waiver.
+

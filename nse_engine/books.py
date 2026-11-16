@@ -1230,6 +1230,9 @@ def mc_positions(days: Sequence[DayBook], doc: Optional[Dict[str, Any]]) -> Dict
     return out
 
 
+#: Where the Saturday email's funding-gate lines go, under the golden-target gates (GTR6; tools.books_report).
+FUNDING_MARK = "<!--funding-gate-->"
+
 #: MCA1, the paper-stage edge alarm (owner's decision 16 Nov 2026): a paper book whose return since its start sits
 #: below its MC1 5th percentile for this many sessions in a row gets an email, nothing else.  Return only.  The
 #: length holds a healthy book's false alarms at or under 5% a year: 61 to 65 by book on 5,000 fresh bootstrap paths
@@ -1344,6 +1347,13 @@ def build_weekly(days: Sequence[DayBook], nifty: Optional[pd.Series], session: d
     alarm = alarm_line(_alarms_or_none(days, bands_doc))
     if alarm:
         findings.insert(0, alarm)
+    try:                                                  # GTR6: the golden-target gates; never stops the email
+        from nse_engine import golden_gates
+
+        golden = golden_gates.block(golden_gates.load(), mc)
+    except Exception as exc:                              # noqa: BLE001
+        logger.warning("golden-target gates unavailable: %s", exc)
+        golden = None
     line = _significance_line(sig)
     if line:
         findings.insert(min(3, len(findings)), line)
@@ -1375,12 +1385,15 @@ def build_weekly(days: Sequence[DayBook], nifty: Optional[pd.Series], session: d
               + report.get("body", "") + "</div>")
     html = _email(f"Centurion &mdash; Paper books, week ending {_dmy(session)}",
                   f"{len(rows)} books, weekly executive summary; the deployed one is the yardstick",
-                  _summary_body(WEEKLY_COLUMNS, table, findings, footer) + (operations or {}).get("html", "") + detail
+                  _summary_body(WEEKLY_COLUMNS, table, findings, footer) + (operations or {}).get("html", "")
+                  + ((golden["html"] + FUNDING_MARK) if golden else "") + detail
                   + _book_sections(days, kept_on, "weekly report"), "trackers V4, DS2")
     text = _md_table(WEEKLY_COLUMNS, table) + "\n\n" + "\n".join(f"- {f}" for f in findings)
     if operations:
         text += "\n\n" + "\n".join([operations["head"]] + [f"- {l}" for l in operations.get("lines", [])])
-    return {"subject": subject, "html": html, "text": text, "rows": rows, "findings": findings}
+    if golden:
+        text += "\n\n" + "\n".join([golden["head"]] + [f"- {l}" for l in golden["lines"]])
+    return {"subject": subject, "html": html, "text": text, "rows": rows, "findings": findings, "golden": golden}
 
 
 # ── CLI ──────────────────────────────────────────────────────────
