@@ -2,9 +2,12 @@ name: Tests
 
 # Fast tests only: anything marked `slow` needs the parquet store, which is
 # gitignored and lives in the paper-trading job's cache.
+#
+# One run per change (owner's call, 16 Nov 2026): a pull request runs the suite on its branch merged with the
+# base, which is what would land, and the push that updates its branch no longer runs it a second time.  Main
+# is tested by the deploy, which calls this suite on every push to main and waits for it.  A branch with no
+# pull request yet: start it by hand (Actions > Tests > Run workflow) or open a draft pull request.
 on:
-  push:
-    branches: ["**"]
   pull_request:
   workflow_dispatch:
   workflow_call:        # the deploy runs this suite first and waits for it (deploy.yml)
@@ -13,8 +16,8 @@ permissions:
   contents: read
 
 concurrency:
-  # The workflow's name is in the group: on a push to main this suite runs twice, once here and once called
-  # by the deploy, and the two must not cancel each other.
+  # The workflow's name is in the group, so the deploy's call and a run started by hand never cancel each
+  # other; a newer push to a pull request's branch cancels the run it replaces.
   group: tests-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 

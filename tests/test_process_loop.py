@@ -477,6 +477,8 @@ def test_the_deploy_waits_for_the_tests_and_the_nightly_run_never_does():
     assert "uses: ./.github/workflows/tests.yml" in deploy and "needs: tests" in deploy
     assert "needs.tests.result == 'success' || needs.tests.result == 'skipped'" in deploy
     assert "workflow_call:" in tests and "tests-${{ github.workflow }}-${{ github.ref }}" in tests
+    triggers = tests.split("\njobs:")[0]                 # owner's call, 16 Nov 2026: one run per change
+    assert "\n  pull_request:" in triggers and "\n  push:" not in triggers
     assert 'CENTURION_NO_SKIPS: "1"' in tests
     assert "tests.yml" not in (flows / "nse-paper-trading.yml").read_text()
 

@@ -126,6 +126,50 @@ def send_alarms(alarms: Dict[str, Dict], alert_fn=None) -> List[str]:
     return sent
 
 
+def request_funding(days: Dict[str, bk.DayBook], golden: Optional[Dict], today: date, cloud_for=None,
+                    alert_fn=None) -> List[str]:
+    """GTR6, GTR0 decision 5: a funding request for each book that has earned leverage above 1x (the golden-target
+    gates, ``golden_gates.block``), kept in the book's state and emailed once; returns the books' funding-gate lines
+    for the email (open or acted-on requests).  Never raises; nothing here levers a book."""
+    import json as _json
+
+    from nse_engine import funding_gate as fg
+
+    try:
+        from services.notifications.alerts import WARNING, alert
+    except Exception as exc:                              # noqa: BLE001
+        logger.warning("funding requests unavailable: %s", exc)
+        return []
+    alert_fn = alert_fn or alert
+    if cloud_for is None:
+        from database.connection import get_db_manager
+        from database.paper_cloud import PaperCloudSync
+
+        cloud_for = lambda d: PaperCloudSync(get_db_manager(), schema=d.book.schema)  # noqa: E731
+    earned = (golden or {}).get("leverage") or {}
+    lines = []
+    for name, d in days.items():
+        try:
+            cloud = cloud_for(d)
+            state = _json.loads((cloud.read_state() or {}).get(fg.STATE_KEY) or "{}")
+            lev = float(earned.get(name, 1.0))
+            if lev > 1.0 and d.paper.started:
+                new = fg.open_request(state, name, lev, float(d.paper.equity.iloc[-1]),
+                                      f"every golden-target gate passed; half-Kelly on the deflated Sharpe gives "
+                                      f"{lev:.2f}x", today)
+                if new != state:
+                    cloud.sync_state({fg.STATE_KEY: _json.dumps(new)})
+                    title, body = fg.notice(new)
+                    alert_fn(WARNING, f"funding:{name}:{new['request']['id']}", title, body, book=name, once=True)
+                    state = new
+            line = fg.email_line(state, today)
+            if line:
+                lines.append(line)
+        except Exception as exc:                          # noqa: BLE001 - one book's state never stops the others
+            logger.warning("funding gate for %s: %s", name, exc)
+    return lines
+
+
 def store_nifty(books: Sequence[bk.Book], name: str = "NIFTY50") -> Optional[pd.Series]:
     """An index's closes (NIFTY 50; INDIAVIX for the expected move) from the store the nightly run built, through
     tonight; None when it has none."""
@@ -243,6 +287,11 @@ def weekly(args: argparse.Namespace, books: Sequence[bk.Book]) -> int:
         print(f"books report: {len(books)} books, {len(report['cleared'])} cleared")
     if args.dry_run:
         return 0
+
+    funding = request_funding(days, (email or {}).get("golden"), today)       # GTR6: before the email, so it says so
+    if email and funding:
+        email["html"] = email["html"].replace(bk.FUNDING_MARK, "".join(f"<p><b>{l}</b></p>" for l in funding))
+        email["text"] += "\n" + "\n".join(f"- {l}" for l in funding)
 
     from services.notifications.manager import NotificationManager
     sent = NotificationManager._send_html_email(email["subject"] if email else report["subject"],
