@@ -288,9 +288,13 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
+ >>> NL1 NEWSLETTER (16 Nov): review and merge both repositories (centurion_core: the deploy to the Space;
+     centurion_core-fe: Vercel).  Nothing to set on the Space.  First issue Sat 21 Nov 10:00 IST, to users who
+     have chosen it.
  >>> DONE 16 Nov: SELL TEST PASSED (ST2 step 3, closes LN-T2).  Record sell path run 43810421869 (11:00): "sell path
      PASS: DDPI confirmed 2026-10-10; AMO sell and GTT sell COMPLETE"; the go-live check reads it as passed.
-     TEST 2 not needed.  2 INFY left in your account: yours to keep or sell (not the book's).  Was:
+     TEST 2 not needed.  The 2 INFY left are outside Centurion's book; you sell them when you choose (no action
+     tracked).  Was:
  >>> SELL TEST WITH INFY, WED 11 (BUY) - TUE 17 NOV (ST2 step 3, closes LN-T2; your call 9 Nov)
      Status 9 Nov: "Record sell path" has never run (gh: 0 runs), so the 3-4 Nov restart did not
      complete (you confirmed 9 Nov: pending on you); the first live session refuses to start until it does.
@@ -1554,6 +1558,33 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+16 Nov  NL1  Weekly newsletter for signed-up users (your ask; your answers: public version, aggregates plus
+             a disclaimer, existing and new users, sent from the Space; uncommitted, both repositories).
+             No engine, configuration, deployed-book or order-path change; config hash unchanged.
+             What a reader gets: one email of their own each Saturday, to the address they signed up with:
+             the deployed paper book's week and its return since the start, each beside NIFTY 50's; how
+             far it is below its highest value; its deepest fall; two plain sentences; and the
+             disclaimer: paper results, not advice or a recommendation, past or simulated performance is
+             no guide, not SEBI-registered, market risks.  Percentages only: no stock, position, trade,
+             configuration or rupee size (api/newsletter.py PUBLIC_FIELDS, pinned by a test).  Same
+             numbers as your Saturday email (same code; on the real book: week to 13 Nov +4.04%, since
+             17 Sep +4.71% against NIFTY 50's +8.05%, 40 sessions).
+             Choosing it: an unticked box at sign-up (optional); Settings has an on/off switch for every
+             signed-up user, existing ones included (off until they turn it on; nobody is emailed to
+             invite them).  app.users gains newsletter (default off) and newsletter_at (when they chose).
+             Stopping it: a link in every issue opens the website's page, which asks before it stops (a
+             mail scanner opening the link stops nothing); the link carries the address's keyed hash,
+             never the address.  The admin's users view counts the readers.  Privacy policy updated.
+             Sending: the Space's scheduler, Sat 10:00 IST, retry 13:00.  app.newsletter_sent records each
+             reader per ISO week, so the retry sends only what failed.  Nothing goes out when the book's
+             last session is over 5 days old or nobody has chosen it.
+             Routes: GET/POST /api/v1/auth/newsletter (a signed-up user, their own choice only);
+             POST /api/v1/auth/newsletter/unsubscribe (public by this decision; the signed ticket,
+             rate-limited).  Frontend: sign-up box, Settings switch, /newsletter/unsubscribe page.
+             Checks: 6 new tests (consent off by default, fields pinned, each reader alone and once a
+             week, the link and its route, only your own choice, the Saturday jobs); fast suite 1042
+             passed here; core install 918 passed, 97 skipped (web tests, as in CI); frontend type check
+             clean.  Not verified: a real send (the first is Sat 21 Nov if anyone has chosen it).
 16 Nov  ST2S The supervised sell test: PASS (ST2 step 3; closes LN-T2).  AMO SELL 1 INFY (261113151379526) filled at
              1,150.00 in the 09:00 pre-open, above its 1,135.80 limit: the open, as live_rules assumes.  GTT
              344886915 (single stop-loss; first saved at 1,096 / 1,144.10 and corrected to 1,149.00 / 1,144.40)

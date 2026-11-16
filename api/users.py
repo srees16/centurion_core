@@ -14,7 +14,9 @@ copy of it outside the Space.  A user deletes their account themselves
 (``delete``, the ``/auth/delete-account`` route), which erases the row and
 their connected Zerodha account's records.  A user signs in with their email; their role is ``user``,
 which the API keeps away from the operator's broker account and books
-(``api.main``).
+(``api.main``).  The weekly newsletter (``api.newsletter``, tracker NL1) is a
+column of its own, off unless the user ticks it at sign-up or turns it on in
+Settings; ``newsletter_at`` is when they last chose.
 
 Links: an activation link (24 hours) and a reset link (1 hour) are signed
 tickets (``api.auth.sign_ticket``) bound to the email and to a fingerprint
@@ -184,6 +186,10 @@ def _ensure() -> None:
                     password_changed_at TIMESTAMPTZ  NOT NULL DEFAULT now(),
                     last_login_at       TIMESTAMPTZ
                 )"""))
+            # NL1: the weekly newsletter, off unless the user chooses it (sign-up box or Settings)
+            session.execute(text(f"ALTER TABLE {_TABLE} ADD COLUMN IF NOT EXISTS newsletter BOOLEAN NOT NULL "
+                                 "DEFAULT FALSE"))
+            session.execute(text(f"ALTER TABLE {_TABLE} ADD COLUMN IF NOT EXISTS newsletter_at TIMESTAMPTZ"))
         _ready = True
 
 
@@ -327,7 +333,8 @@ def clean_signup(body: Dict) -> Dict:
         raise UserError(problem)
     return {"email": email, "first_name": first, "last_name": last, "full_name": name,
             "date_of_birth": dob.isoformat(), "gender": gender, "phone": phone, "city": city, "state": state,
-            "country": country, "trading_experience": experience}
+            "country": country, "trading_experience": experience,
+            "newsletter": body.get("newsletter") is True}  # NL1: only a ticked box; an older frontend sends none
 
 
 def sign_up(details: Dict, password: str) -> Optional[Dict]:
@@ -341,6 +348,8 @@ def sign_up(details: Dict, password: str) -> Optional[Dict]:
     values = {"email_hash": email_index(details["email"]),
               "profile_enc": _fernet().encrypt(json.dumps({k: details[k] for k in PROFILE}).encode()).decode(),
               "password_hash": hash_password(password), "consent_at": datetime.now(timezone.utc)}
+    if details.get("newsletter") is True:                 # NL1: the choice and when it was made
+        values.update(newsletter=True, newsletter_at=values["consent_at"])
     with _db().get_session() as session:
         if existing:
             session.execute(text(f"DELETE FROM {_TABLE} WHERE email_hash = :h AND status = 'pending'"),
@@ -364,6 +373,17 @@ def activate(email: str, fp: str) -> Dict:
 
 def set_password(email: str, password: str) -> None:
     _update(email, password_hash=hash_password(password), password_changed_at=datetime.now(timezone.utc))
+
+
+def set_newsletter(index: str, on: bool) -> None:
+    """The weekly newsletter on or off for the user with this email index (``email_index``), and when they chose
+    (Settings, or the email's unsubscribe link, which carries the index rather than the address)."""
+    from sqlalchemy import text
+
+    _ensure()
+    with _db().get_session() as session:
+        session.execute(text(f"UPDATE {_TABLE} SET newsletter = :on, newsletter_at = :at WHERE email_hash = :h"),
+                        {"on": bool(on), "at": datetime.now(timezone.utc), "h": index})
 
 
 def touch_login(email: str) -> None:

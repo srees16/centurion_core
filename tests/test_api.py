@@ -12,6 +12,7 @@ PUBLIC = {
     ("POST", "/api/v1/auth/login"), ("POST", "/auth/login"), ("POST", "/api/v1/auth/logout"),
     ("POST", "/api/v1/auth/signup"), ("POST", "/api/v1/auth/activate"), ("POST", "/api/v1/auth/resend-activation"),
     ("POST", "/api/v1/auth/forgot-password"), ("POST", "/api/v1/auth/reset-password"),
+    ("POST", "/api/v1/auth/newsletter/unsubscribe"),                     # NL1: a signed ticket from the email
     ("POST", "/stream/postback"), ("GET", "/ind-stocks/auth/callback"), ("POST", "/ind-stocks/auth/consent"),
     ("GET", "/"), ("HEAD", "/"), ("GET", "/health"), ("HEAD", "/health"), ("GET", "/favicon.ico"),
     ("GET", "/auth/login"), ("GET", "/auth/logout"), ("GET", "/docs"), ("GET", "/redoc"), ("GET", "/openapi.json"),
@@ -264,7 +265,8 @@ def test_a_sign_up_is_normalised_once_and_kept_as_given_otherwise():
     clean = users.clean_signup(_signup())
     assert clean == {"email": "ravi.k@example.org", "first_name": "ravi", "last_name": "kumar", "full_name": "ravi kumar",
                      "date_of_birth": "1990-05-17", "gender": "male", "phone": "+919876543210", "city": "Navi Mumbai",
-                     "state": "Maharashtra", "country": "India", "trading_experience": "1_to_5_years"}
+                     "state": "Maharashtra", "country": "India", "trading_experience": "1_to_5_years",
+                     "newsletter": False}
     assert "password" not in clean and "consent" not in clean                  # neither is part of the profile
     older = users.clean_signup(_signup(first_name="", last_name="", full_name="  Ravi   Kumar "))
     assert (older["full_name"], older["first_name"]) == ("Ravi Kumar", "")     # a frontend from before first / last names
@@ -334,6 +336,137 @@ def test_links_die_with_the_password_and_the_email_is_found_only_with_the_key(mo
     monkeypatch.delenv(users.ENV_DATA_KEY)
     with pytest.raises(RuntimeError, match="CENTURION_USER_DATA_KEY is not set"):
         users.email_index("ravi.k@example.org")
+
+
+# ── the weekly newsletter (api/newsletter.py, tracker NL1): chosen, aggregates only, once a week, easy to stop ──
+
+def test_the_newsletter_is_off_unless_the_box_is_ticked():
+    from api import users
+
+    assert users.clean_signup(_signup())["newsletter"] is False                 # an older frontend sends no field
+    assert users.clean_signup(_signup(newsletter=True))["newsletter"] is True
+    for unticked in (False, "yes", "true", 1, None):
+        assert users.clean_signup(_signup(newsletter=unticked))["newsletter"] is False, unticked
+
+
+def _equity(values, start="2026-09-17"):
+    import pandas as pd
+
+    return pd.Series(values, index=pd.bdate_range(start, periods=len(values)), dtype="float64")
+
+
+def test_the_newsletter_is_built_from_aggregates_alone_with_its_disclaimer():
+    """Its fields are pinned: a stock, a position, a trade or the book's rupees cannot reach a reader without this
+    test changing."""
+    from datetime import date
+
+    from api import newsletter
+
+    e = _equity([100.0, 102.0, 99.0, 101.0, 103.0, 104.0, 104.5, 103.0])        # 17 Sep to 28 Sep 2026
+    f = newsletter.figures(e, 100.0, _equity([200.0, 201, 202, 203, 204, 205, 206, 207]))
+    assert tuple(f) == newsletter.PUBLIC_FIELDS
+    assert all(v is None or isinstance(v, (int, float, date)) for v in f.values())
+    assert (f["asof"], f["started"], f["sessions"]) == (date(2026, 9, 28), date(2026, 9, 17), 8)
+    assert f["week"] == pytest.approx(103 / 99 - 1) and f["nifty_week"] == pytest.approx(207 / 202 - 1)
+    assert f["since_start"] == pytest.approx(0.03) and f["nifty_since_start"] == pytest.approx(207 / 200 - 1)
+    assert f["below_peak"] == pytest.approx(1 - 103 / 104.5) and f["deepest_fall"] == pytest.approx(1 - 99 / 102)
+    mail = newsletter.render(f, "Ravi", "https://app.example.org/newsletter/unsubscribe?token=abc")
+    assert newsletter.DISCLAIMER in mail["html"] and "SEBI" in newsletter.DISCLAIMER
+    assert "newsletter/unsubscribe?token=abc" in mail["html"] and "₹" not in mail["html"]
+    assert "rose 4.04%" in newsletter.summary(f) and "up 3.00%" in newsletter.summary(f)
+    blind = newsletter.figures(e, 100.0, None)                                    # Yahoo unreachable
+    assert blind["nifty_week"] is None and "NIFTY 50" not in newsletter.summary(blind)
+    assert newsletter.figures(e[:1], 100.0) is None and newsletter.figures(e, 0.0) is None
+
+
+def test_the_newsletter_reaches_each_active_reader_alone_and_once_a_week(monkeypatch):
+    pytest.importorskip("cryptography")
+    from datetime import datetime, timedelta
+
+    from cryptography.fernet import Fernet
+
+    from api import newsletter, users
+
+    monkeypatch.setenv(users.ENV_DATA_KEY, Fernet.generate_key().decode())
+    people = [{"id": 1, "email": "ravi@example.org", "first_name": "Ravi", "status": "active", "newsletter": True},
+              {"id": 2, "email": "sita@example.org", "first_name": "Sita", "status": "active", "newsletter": True},
+              {"id": 3, "email": "amir@example.org", "first_name": "Amir", "status": "pending", "newsletter": True},
+              {"id": 4, "email": "lena@example.org", "first_name": "Lena", "status": "active", "newsletter": False}]
+    marked, mails, loads, down = set(), [], [], {"sita@example.org"}
+    monkeypatch.setattr(users, "list_users", lambda: people)
+    monkeypatch.setattr(newsletter, "_sent", lambda week: {h for w, h in marked if w == week})
+    monkeypatch.setattr(newsletter, "_mark", lambda week, index: marked.add((week, index)))
+    monkeypatch.setattr(newsletter, "unsubscribe_link", lambda email: "https://app.example.org/newsletter/unsubscribe")
+    f = newsletter.figures(_equity([100.0, 101, 102, 103, 104, 105, 106, 107]), 100.0)    # last session Mon 28 Sep
+    monkeypatch.setattr(newsletter, "load", lambda: loads.append(1) or f)
+
+    def send(subject, html, to):                          # one address per email: no reader sees another
+        mails.append(to)
+        return to not in down
+
+    saturday = datetime(2026, 10, 3, 10, 0, tzinfo=newsletter.IST)
+    assert newsletter.send_week(saturday, send) == {"week": "2026-W40", "readers": 2, "already": 0, "sent": 1,
+                                                    "failed": 1}
+    down.clear()                                          # the 13:00 retry sends only what did not go out
+    assert newsletter.send_week(saturday.replace(hour=13), send)["sent"] == 1
+    assert newsletter.send_week(saturday.replace(hour=13), send)["sent"] == 0
+    assert mails == ["ravi@example.org", "sita@example.org", "sita@example.org"] and len(loads) == 2
+    stale = newsletter.send_week(saturday + timedelta(days=7), send)              # the book stopped on 28 Sep
+    assert stale["sent"] == 0 and "stale" in stale["skipped"] and len(mails) == 3
+    for p in people:
+        p["newsletter"] = False
+    assert newsletter.send_week(saturday + timedelta(days=14), send)["readers"] == 0 and len(loads) == 3
+
+
+def test_the_unsubscribe_link_asks_first_carries_no_address_and_stops_only_its_reader(api, monkeypatch):
+    pytest.importorskip("cryptography")
+    from urllib.parse import unquote
+
+    from cryptography.fernet import Fernet
+
+    from api import newsletter, users
+    from api.auth import read_ticket
+
+    monkeypatch.setenv(users.ENV_DATA_KEY, Fernet.generate_key().decode())
+    monkeypatch.setenv(users.ENV_FRONTEND, "https://app.example.org/")
+    monkeypatch.setattr(users, "_hits", {})
+    url = newsletter.unsubscribe_link("Ravi@Example.org")
+    assert url.startswith("https://app.example.org/newsletter/unsubscribe?token=")   # the website's page asks first
+    token = unquote(url.split("token=", 1)[1])
+    index = users.email_index("ravi@example.org")
+    assert read_ticket(token, newsletter.UNSUBSCRIBE_PURPOSE, 60) == {"h": index}     # the keyed hash, no address
+    changed = []
+    monkeypatch.setattr(users, "set_newsletter", lambda i, on: changed.append((i, on)))
+    client = api[1]
+    assert client.post("/api/v1/auth/newsletter/unsubscribe", json={"token": token}).json() == {"ok": True}
+    assert changed == [(index, False)]
+    activation = unquote(users.link(users.ACTIVATE_PURPOSE, {"email": "ravi@example.org", "password_hash": "x"})
+                         .split("token=", 1)[1])
+    for bad in (token + "x", activation, ""):
+        out = client.post("/api/v1/auth/newsletter/unsubscribe", json={"token": bad})
+        assert out.status_code == 400 and "turn the newsletter off in Settings" in out.json()["detail"]
+    assert len(changed) == 1
+
+
+def test_a_signed_up_user_reads_and_sets_their_own_newsletter_choice_and_nobody_elses(api, monkeypatch):
+    pytest.importorskip("cryptography")
+    from cryptography.fernet import Fernet
+
+    from api import users
+
+    monkeypatch.setenv(users.ENV_DATA_KEY, Fernet.generate_key().decode())
+    choice = {}
+    monkeypatch.setattr(users, "set_newsletter", lambda index, on: choice.__setitem__(index, on))
+    monkeypatch.setattr(users, "get", lambda email: {"newsletter": choice.get(users.email_index(email), False)})
+    client, me = api[1], _as("ravi@example.org")
+    assert client.get("/api/v1/auth/newsletter", headers=me).json() == {"subscribed": False}
+    assert client.post("/api/v1/auth/newsletter", json={"subscribed": True}, headers=me).json()["subscribed"] is True
+    assert client.get("/api/v1/auth/newsletter", headers=me).json() == {"subscribed": True}
+    assert choice == {users.email_index("ravi@example.org"): True}
+    for role in ("admin", "analyst"):                     # the operator gets the full Saturday email instead
+        assert client.post("/api/v1/auth/newsletter", json={"subscribed": True},
+                           headers=_as("me", role)).status_code == 400
+    assert client.get("/api/v1/auth/newsletter").status_code == 401
 
 
 # ── connected accounts through the API: a signed-up user sees and manages only their own ──

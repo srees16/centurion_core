@@ -384,10 +384,6 @@ Automate historical niveshaay rebalances n point in time fundamentals to train R
 
 ~~~~~~~~~~~~~
 
-weekly newsletter option during centurion sign up
-
-~~~~~~~~~~~~~
-
 ROLE
 You are working in /Users/sreekanths/Desktop/ProjectX/centurion_core. Re-base Centurion's golden
 target on robust, deflated, net-of-cost Sharpe, and validate it in a new trial PAPER book. Be

@@ -289,6 +289,38 @@ def test_the_evening_retry_starts_a_run_only_for_a_futures_leg_still_waiting(mon
     assert sent == ([expected] if expected else [])
 
 
+def test_the_space_sends_the_newsletter_on_saturdays_only_with_the_users_key(monkeypatch):
+    """NL1: the newsletter's jobs run where the users' data key is, and a failure never stops the scheduler."""
+    pytest.importorskip("apscheduler")
+    import scheduler
+    from api import newsletter
+
+    jobs = []
+
+    class Scheduler:
+        def __init__(self, **_): pass
+        def add_job(self, fn, trigger, id, **_): jobs.append((id, str(trigger)))
+        def start(self): pass
+
+    monkeypatch.setattr("apscheduler.schedulers.blocking.BlockingScheduler", Scheduler)
+    monkeypatch.setattr(scheduler, "_init_cache_db", lambda: None)
+    monkeypatch.delenv("CENTURION_GH_DISPATCH_TOKEN", raising=False)
+    monkeypatch.setenv("CENTURION_USER_DATA_KEY", "key")
+    scheduler.start_scheduler()
+    assert [j for j, _ in jobs] == ["newsletter", "newsletter_retry"]
+    assert all("day_of_week='sat'" in t for _, t in jobs) and ["10", "13"] == [t.split("hour='")[1][:2] for _, t in jobs]
+    jobs.clear()
+    monkeypatch.delenv("CENTURION_USER_DATA_KEY")
+    scheduler.start_scheduler()
+    assert jobs == []
+
+    def down(*a, **k):
+        raise RuntimeError("neon down")
+
+    monkeypatch.setattr(newsletter, "send_week", down)
+    scheduler._send_newsletter()                          # logged; the 13:00 retry tries again
+
+
 def test_futures_behind_tonight_counts_only_started_levered_books(monkeypatch):
     from types import SimpleNamespace as Book
 

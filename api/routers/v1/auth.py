@@ -48,6 +48,7 @@ class SignupRequest(BaseModel):
     phone: str = ""
     trading_experience: str = ""
     consent: bool = False
+    newsletter: bool = False                              # NL1: the weekly newsletter, only when ticked
 
 
 class EmailRequest(BaseModel):
@@ -65,6 +66,10 @@ class ResetRequest(BaseModel):
 
 class DeleteAccountRequest(BaseModel):
     password: str
+
+
+class NewsletterRequest(BaseModel):
+    subscribed: bool
 
 
 def _client(request: Request) -> str:
@@ -347,6 +352,61 @@ async def api_delete_account(req: DeleteAccountRequest, request: Request):
     return {"ok": True}
 
 
+# ─── The weekly newsletter (NL1, api.newsletter) ─────────────────────────
+
+def _signed_up(request: Request) -> str:
+    """The signed-up user's email from the session (the newsletter is theirs alone, not the operator's)."""
+    from api.auth import session_from_request
+
+    session = session_from_request(request) or {}
+    if session.get("r") != "user":
+        raise HTTPException(status_code=400, detail="The newsletter is for signed-up accounts")
+    return str(session.get("u", ""))
+
+
+@router.get("/auth/newsletter")
+async def api_newsletter(request: Request):
+    """Whether the signed-in user gets the weekly newsletter."""
+    from api import users
+
+    email = _signed_up(request)
+    try:
+        user = await asyncio.to_thread(users.get, email)
+    except Exception as exc:                              # noqa: BLE001
+        _unavailable(exc)
+    return {"subscribed": bool(user and user.get("newsletter"))}
+
+
+@router.post("/auth/newsletter")
+async def api_set_newsletter(req: NewsletterRequest, request: Request):
+    """Turn the weekly newsletter on or off for the signed-in user."""
+    from api import users
+
+    email = _signed_up(request)
+    try:
+        await asyncio.to_thread(users.set_newsletter, users.email_index(email), req.subscribed)
+    except Exception as exc:                              # noqa: BLE001
+        _unavailable(exc)
+    return {"ok": True, "subscribed": req.subscribed}
+
+
+@router.post("/auth/newsletter/unsubscribe")
+async def api_newsletter_unsubscribe(req: TokenRequest, request: Request):
+    """Stop the newsletter from the link in its email (public: the website's page asks first, then posts the
+    signed ticket).  The same answer whether the account still exists or not."""
+    from api import newsletter, users
+
+    _limit(request)
+    try:
+        index = newsletter.read_unsubscribe(req.token)
+        await asyncio.to_thread(users.set_newsletter, index, False)
+    except users.UserError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:                              # noqa: BLE001
+        _unavailable(exc)
+    return {"ok": True}
+
+
 @router.get("/admin/users")
 async def api_admin_users(request: Request):
     """The signed-up users, their details and a few counts (MU2): the admin's view only, never an analyst's or a
@@ -375,6 +435,7 @@ async def api_admin_users(request: Request):
         "pending": sum(u["status"] == "pending" for u in rows),
         "new_last_7_days": sum(bool(u.get("created_at")) and u["created_at"] >= week_ago for u in rows),
         "zerodha_connected": sum(u["zerodha_connected"] for u in rows),
+        "newsletter": sum(u["status"] == "active" and u.get("newsletter") is True for u in rows),   # NL1's readers
         "by_experience": dict(Counter(u.get("trading_experience") or "" for u in rows)),
         "by_gender": dict(Counter(u.get("gender") or "" for u in rows)),
         "by_country": dict(Counter(u.get("country") or "" for u in rows).most_common()),
