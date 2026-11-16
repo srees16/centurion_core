@@ -842,7 +842,8 @@ def daily_rows(days: Sequence[DayBook], nifty: Optional[pd.Series], session: dat
 
 
 def _market_line(nifty: Optional[pd.Series], session: date, week: bool = False) -> Optional[str]:
-    n = nifty[nifty.index <= pd.Timestamp(session)] if nifty is not None else pd.Series(dtype="float64")
+    n = (nifty[nifty.index <= pd.Timestamp(session)] if nifty is not None    # no NIFTY (Yahoo down): an empty
+         else pd.Series(dtype="float64", index=pd.DatetimeIndex([])))       # series that can still be compared
     prev = n[n.index <= pd.Timestamp(session) - pd.Timedelta(days=7)] if week else n.iloc[:-1]
     if not len(n) or not len(prev):
         return None
@@ -1074,6 +1075,10 @@ def build_daily(days: Sequence[DayBook], nifty: Optional[pd.Series], session: da
     ra1 = acceptance_line(days, expected_sharpe)
     if ra1:
         findings.append(ra1)
+    alarms = _alarms_or_none(days)
+    if alarm_line(alarms):
+        findings.insert(0, alarm_line(alarms))
+    tripped = [n for n, a in alarms.items() if a["tripped"]]
     table = [[r["book"], _dmy(r["started"]), _inr_short(r["initial"]),
               _inr_short(r["value"]) + (f" ({_dmy(r['asof'])})" if r["asof"] and r["asof"] < session else ""),
               _since_cell(r), _pct(r["nifty"]), r["dd"], r["g4"], r["today"]] for r in rows]
@@ -1084,6 +1089,7 @@ def build_daily(days: Sequence[DayBook], nifty: Optional[pd.Series], session: da
     subject = (f"[Centurion Paper] Daily summary {_dmy(session)}: {len(rows)} books, {behind} behind NIFTY 50"
                + (f", {n_alerts} alert(s)" if n_alerts else "")
                + (f", drawdown rule active in {', '.join(drawdown)}" if drawdown else "")
+               + (f", EDGE ALARM in {', '.join(tripped)}" if tripped else "")
                + (" (incomplete)" if stale else ""))
     footer = _FOOTER + (" Drawdown: G4's, the paper book against its same-period backtest. Each book's own report, "
                         "with its fills and orders, follows.")
@@ -1092,7 +1098,8 @@ def build_daily(days: Sequence[DayBook], nifty: Optional[pd.Series], session: da
                   + _book_sections(days, session), "tracker DS1")
     text = (_md_table(DAILY_COLUMNS, table) + "\n\n" + "\n".join(f"- {f}" for f in findings)
             + (f"\n\n{trials_objective(days)}" if trials_objective(days) else ""))
-    return {"subject": subject, "html": html, "text": text, "rows": rows, "findings": findings, "stale": stale}
+    return {"subject": subject, "html": html, "text": text, "rows": rows, "findings": findings, "stale": stale,
+            "alarms": alarms}
 
 
 WEEKLY_COLUMNS = ["Book", "Initial capital", "Value", "This week", "Since start", "NIFTY 50, same period",
@@ -1223,6 +1230,55 @@ def mc_positions(days: Sequence[DayBook], doc: Optional[Dict[str, Any]]) -> Dict
     return out
 
 
+#: MCA1, the paper-stage edge alarm (owner's decision 16 Nov 2026): a paper book whose return since its start sits
+#: below its MC1 5th percentile for this many sessions in a row gets an email, nothing else.  Return only.  The
+#: length holds a healthy book's false alarms at or under 5% a year: 61 to 65 by book on 5,000 fresh bootstrap paths
+#: of each book's reference (tracker MCA1C), one length for all.  It catches a book whose edge is gone in 15-25% of
+#: cases within a year (the deployed book's Sharpe cannot be told from zero sooner), so it warns that a book is
+#: where Rule D would step it down once live (60 sessions, drawdown too), not that its edge has faded.
+PAPER_ALARM_SESSIONS = 65
+
+
+def paper_alarms(days: Sequence[DayBook], doc: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """MCA1: each book's current run of sessions with its return since its start below its MC1 5th percentile
+    (``capital_ladder.mc_breach_streak``, return only), and whether it has reached ``PAPER_ALARM_SESSIONS``."""
+    from nse_engine import capital_ladder as cl
+
+    out: Dict[str, Dict[str, Any]] = {}
+    for d in days if doc else ():
+        r = cl.mc_breach_streak(d.paper.equity, doc, d.book.name, kinds=("return",))
+        if r["readable"] and r["last"] and r["last"]["return_pct"] is not None:
+            out[d.book.name] = {"streak": r["streak"], "since": r["since"], "return": r["last"]["return"],
+                                "return_pct": r["last"]["return_pct"],
+                                "tripped": r["streak"] >= PAPER_ALARM_SESSIONS}
+    return out
+
+
+def alarm_line(alarms: Dict[str, Dict[str, Any]]) -> Optional[str]:
+    """The tripped books in a sentence; None when none is."""
+    tripped = {n: a for n, a in alarms.items() if a["tripped"]}
+    if not tripped:
+        return None
+    return ("EDGE ALARM (MCA1): " + "; ".join(
+        f"{n}'s return since its start ({a['return']:+.1%}, {_pct_words(a['return_pct'])}) has been below its 5th "
+        f"percentile for {a['streak']} sessions in a row, since {_dmy(a['since'])}" for n, a in tripped.items())
+        + f". The alarm trips at {PAPER_ALARM_SESSIONS}; a healthy book does so in at most 5% of years. Once live, "
+          "Rule D would step such a book down to paper. Email only: nothing in the book changes.")
+
+
+def _alarms_or_none(days: Sequence[DayBook], doc: Optional[Dict[str, Any]] = None) -> Dict[str, Dict[str, Any]]:
+    """``paper_alarms`` with the bands file read when not given; {} when either fails (the email still goes)."""
+    try:
+        if doc is None:
+            from nse_engine import mc_bands
+
+            doc = mc_bands.load()
+        return paper_alarms(days, doc)
+    except Exception as exc:                              # noqa: BLE001 - the line is dropped, never the email
+        logger.warning("edge alarm (MCA1) unavailable: %s", exc)
+        return {}
+
+
 def _pct_label(p: float) -> str:
     return "<1" if p < 1 else ">99" if p > 99 else f"{p:.0f}"
 
@@ -1269,19 +1325,25 @@ def _mc_line(pos: Dict[str, Dict[str, Any]], days: Sequence[DayBook] = ()) -> Op
 
 
 def build_weekly(days: Sequence[DayBook], nifty: Optional[pd.Series], session: date, report: Dict[str, Any],
-                 kept_on: date, expected_sharpe: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
-    """The Saturday email (tracker DS2): one table of every book and the findings, then the comparison with the
-    deployed book and the forward gate (``build_report``), then each book's own weekly report (kept ``kept_on``)."""
+                 kept_on: date, expected_sharpe: Optional[Dict[str, float]] = None,
+                 operations: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """The Saturday email (tracker DS2): one table of every book and the findings, the week's operations
+    (``tools.ops_report``, PL-16 and PL-17, when given), then the comparison with the deployed book and the forward
+    gate (``build_report``), then each book's own weekly report (kept ``kept_on``)."""
     rows = daily_rows(days, nifty, session)
     by_name = {d.book.name: d for d in days}
     sig = paper_significance(days, expected_sharpe)
     from nse_engine import mc_bands
 
-    mc = mc_positions(days, mc_bands.load())
+    bands_doc = mc_bands.load()
+    mc = mc_positions(days, bands_doc)
     findings = weekly_findings(days, rows, nifty, session, report)
     mc_line = _mc_line(mc, days)
     if mc_line:
         findings.insert(min(4, len(findings)), mc_line)
+    alarm = alarm_line(_alarms_or_none(days, bands_doc))
+    if alarm:
+        findings.insert(0, alarm)
     line = _significance_line(sig)
     if line:
         findings.insert(min(3, len(findings)), line)
@@ -1313,9 +1375,11 @@ def build_weekly(days: Sequence[DayBook], nifty: Optional[pd.Series], session: d
               + report.get("body", "") + "</div>")
     html = _email(f"Centurion &mdash; Paper books, week ending {_dmy(session)}",
                   f"{len(rows)} books, weekly executive summary; the deployed one is the yardstick",
-                  _summary_body(WEEKLY_COLUMNS, table, findings, footer) + detail
+                  _summary_body(WEEKLY_COLUMNS, table, findings, footer) + (operations or {}).get("html", "") + detail
                   + _book_sections(days, kept_on, "weekly report"), "trackers V4, DS2")
     text = _md_table(WEEKLY_COLUMNS, table) + "\n\n" + "\n".join(f"- {f}" for f in findings)
+    if operations:
+        text += "\n\n" + "\n".join([operations["head"]] + [f"- {l}" for l in operations.get("lines", [])])
     return {"subject": subject, "html": html, "text": text, "rows": rows, "findings": findings}
 
 

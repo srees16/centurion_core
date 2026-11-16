@@ -23,8 +23,8 @@ as of Oct 2026); until a year's list is here, only its weekends are known.
 
 from __future__ import annotations
 
-from datetime import date
-from typing import Dict, FrozenSet, Optional, Tuple, Union
+from datetime import date, datetime, time, timedelta, timezone
+from typing import Any, Dict, FrozenSet, Optional, Tuple, Union
 
 DateLike = Union[date, str]
 
@@ -90,3 +90,53 @@ def holiday_list_missing(today: date) -> Optional[int]:
 
 def special_session_dates() -> Tuple[date, ...]:
     return tuple(sorted(date.fromisoformat(d) for d in SPECIAL_SESSIONS))
+
+
+# ── The session right now (the web app's NSE badge, the price ribbon) ─────
+
+IST = timezone(timedelta(hours=5, minutes=30))
+PRE_OPEN, OPEN, CLOSE = time(9, 0), time(9, 15), time(15, 30)
+
+
+def _regular(d: date) -> bool:
+    """A day with the normal 09:15-15:30 session (Muhurat is an evening hour whose time NSE notifies each year)."""
+    return is_trading_day(d) and SPECIAL_SESSIONS.get(d.isoformat(), ("",))[0] != "muhurat"
+
+
+def _day(d: date) -> str:
+    return f"{d:%a} {d.day} {d:%b}"
+
+
+def session_status(now: Optional[datetime] = None) -> Dict[str, Any]:
+    """NSE's cash market at ``now`` (default: the clock), read in IST: ``state`` is "open" (09:15-15:30 on a
+    trading day), "pre_open" (09:00-09:15), "closed" (before or after the session), "weekend", "holiday" or
+    "muhurat" (the evening session, its hours not held here); ``open`` is True only in "open".  ``detail`` says
+    when it closes or next opens.  ``note`` warns when the year's holiday list is not here yet, so a holiday
+    would read as a trading day."""
+    ist = (now or datetime.now(timezone.utc)).astimezone(IST)
+    today, clock = ist.date(), ist.time()
+    nxt = today + timedelta(days=1)
+    while not _regular(nxt):
+        nxt += timedelta(days=1)
+    opens = f"opens {_day(nxt)}, 09:15 IST"
+    if _regular(today):
+        if OPEN <= clock < CLOSE:
+            state, detail = "open", "closes 15:30 IST"
+        elif PRE_OPEN <= clock < OPEN:
+            state, detail = "pre_open", "pre-open; opens 09:15 IST"
+        elif clock < PRE_OPEN:
+            state, detail = "closed", "opens today, 09:15 IST"
+        else:
+            state, detail = "closed", f"closed for the day; {opens}"
+    elif is_special_session(today):
+        state, detail = "muhurat", f"Muhurat trading this evening (timing per NSE's circular); {opens}"
+    elif is_holiday(today):
+        state, detail = "holiday", f"trading holiday; {opens}"
+    else:
+        state, detail = "weekend", opens
+    missing = sorted({d.year for d in (today, nxt)} - set(HOLIDAY_YEARS))
+    note = (f"NSE's {', '.join(map(str, missing))} holiday list is not loaded yet: a holiday would show as a "
+            "trading day") if missing else None
+    return {"state": state, "open": state == "open", "detail": detail, "date": today.isoformat(),
+            "time": ist.strftime("%H:%M"), "next_open": nxt.isoformat(), "note": note}
+

@@ -3,7 +3,9 @@ Background scheduler for the HF Space (``deployment/start.sh``).
 
 Its live jobs dispatch GitHub Actions on time: the nightly paper/live
 workflow (19:00 IST, retry 20:30) and the Kite login reminder (09:00 and
-17:30 IST).  The legacy pipeline jobs are removed (tracker H1/H3,
+17:30 IST).  It also sends the weekly newsletter to the signed-up users who
+chose it (Saturday 10:00 IST, retry 13:00; ``api.newsletter``, tracker NL1),
+here because the users' data key lives on the Space.  The legacy pipeline jobs are removed (tracker H1/H3,
 docs/scheduler_audit.md); the strategy-maintenance and options/futures job
 functions are kept, unregistered, for later use.  The cache, the job log, the
 walk-forward audit and those job functions live in ``scheduling/`` (tracker H4).
@@ -184,12 +186,24 @@ def _dispatch_nse_paper_workflow():
 # Scheduler setup
 # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
+def _send_newsletter():
+    """The weekly newsletter (tracker NL1): each opted-in user not yet sent this week; a failure waits for the
+    retry, and never stops the scheduler."""
+    try:
+        from api import newsletter
+
+        logger.info("Newsletter: %s", newsletter.send_week())
+    except Exception as exc:                              # noqa: BLE001
+        logger.exception("Newsletter not sent: %s", exc)
+
+
 def start_scheduler():
     """Start the APScheduler background scheduler on the HF Space.
 
-    Only GitHub Actions dispatches run here, all behind
-    ``CENTURION_GH_DISPATCH_TOKEN``: the nightly paper/live workflow at 19:00
-    IST (retry 20:30) and the Kite login reminder at 09:00 and 17:30 IST.  The
+    GitHub Actions dispatches, behind ``CENTURION_GH_DISPATCH_TOKEN``: the
+    nightly paper/live workflow at 19:00 IST (retry 20:30) and the Kite login
+    reminder at 09:00 and 17:30 IST.  The weekly newsletter, behind
+    ``CENTURION_USER_DATA_KEY``: Saturday 10:00 IST, retry 13:00 (NL1).  The
     trading runs in GitHub Actions; the legacy jobs, several of which logged
     in to Kite headlessly, are retired (tracker H1, docs/scheduler_audit.md).
     """
@@ -231,7 +245,21 @@ def start_scheduler():
             )
         logger.info("  Kite login mail : 09:00 + 17:30 IST, Mon-Fri (GitHub Actions dispatch)")
     else:
-        logger.warning("CENTURION_GH_DISPATCH_TOKEN is not set: the scheduler has no jobs")
+        logger.warning("CENTURION_GH_DISPATCH_TOKEN is not set: no GitHub Actions dispatch jobs")
+
+    # ── The weekly newsletter (NL1): the users who chose it, Saturday 10:00 IST, retry 13:00 ──
+    if os.environ.get("CENTURION_USER_DATA_KEY"):
+        for _job_id, _hour in (("newsletter", 10), ("newsletter_retry", 13)):
+            scheduler.add_job(
+                _send_newsletter,
+                CronTrigger(hour=_hour, minute=0, day_of_week="sat", timezone="Asia/Kolkata"),
+                id=_job_id,
+                name="Weekly newsletter",
+                misfire_grace_time=3600,
+            )
+        logger.info("  Newsletter      : Sat 10:00 IST + retry 13:00 IST (signed-up users who chose it)")
+    else:
+        logger.warning("CENTURION_USER_DATA_KEY is not set: no weekly newsletter")
 
     try:
         scheduler.start()

@@ -76,20 +76,6 @@ class QuoteResponse(BaseModel):
 # Orders
 # ---------------------------------------------------------------------------
 
-class PlaceOrderRequest(BaseModel):
-    """Request to place an order on Zerodha."""
-    symbol: str = Field(..., examples=["RELIANCE"])
-    exchange: str = Field("NSE", examples=["NSE", "BSE", "NFO"])
-    transaction_type: str = Field(..., examples=["BUY", "SELL"])
-    quantity: int = Field(..., gt=0)
-    order_type: str = Field("MARKET", examples=["MARKET", "LIMIT", "SL", "SL-M"])
-    product: str = Field("CNC", examples=["CNC", "NRML"])
-    price: Optional[float] = Field(None, description="Required for LIMIT orders")
-    trigger_price: Optional[float] = Field(None, description="Required for SL/SL-M orders")
-    validity: str = Field("DAY", examples=["DAY", "IOC"])
-    tag: Optional[str] = Field(None, max_length=20, description="Optional order tag")
-
-
 class OrderResponse(BaseModel):
     """Response after placing/modifying an order."""
     success: bool = True

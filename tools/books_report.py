@@ -32,7 +32,7 @@ import os
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Dict, Optional, Sequence
+from typing import Dict, List, Optional, Sequence
 
 import pandas as pd
 
@@ -96,6 +96,33 @@ def send_one_by_one(days: Sequence[bk.DayBook], kept_on: date) -> int:
         if e.get("session") == kept_on.isoformat() and e.get("html"):
             sent += bool(NotificationManager._send_html_email(e["subject"], bk.readable(e["html"])))
     logger.warning("combined email failed: %d book report(s) sent on their own", sent)
+    return sent
+
+
+#: MCA1: the alarm emails on the night a book's run reaches its length, or within this many sessions after, should
+#: that night's run be missed; the key names the run's first session, so one run emails once.
+ALARM_GRACE_SESSIONS = 5
+
+
+def send_alarms(alarms: Dict[str, Dict], alert_fn=None) -> List[str]:
+    """MCA1: a warning email for each book whose run below its 5th percentile has just reached the alarm's length
+    (``bk.paper_alarms``); returns the books emailed.  Never raises."""
+    try:
+        from services.notifications.alerts import WARNING, alert
+    except Exception as exc:                              # noqa: BLE001 - the summary carries the line anyway
+        logger.warning("edge alarm emails unavailable: %s", exc)
+        return []
+    alert_fn = alert_fn or alert
+    sent = []
+    for name, a in alarms.items():
+        if a.get("tripped") and a["streak"] < bk.PAPER_ALARM_SESSIONS + ALARM_GRACE_SESSIONS:
+            try:
+                if alert_fn(WARNING, f"mca1:{name}:{a['since']}",
+                            f"Edge alarm: {name} below its 5th percentile for {a['streak']} sessions",
+                            [bk.alarm_line({name: a})], book=name, once=True):
+                    sent.append(name)
+            except Exception as exc:                      # noqa: BLE001 - the summary carries the line anyway
+                logger.warning("edge alarm email for %s failed: %s", name, exc)
     return sent
 
 
@@ -163,6 +190,7 @@ def daily(args: argparse.Namespace, books: Sequence[bk.Book]) -> int:
     sent = NotificationManager._send_html_email(report["subject"], bk.readable(report["html"]))
     if sent:
         deployed.sync_state({bk.DAILY_STATE_KEY: session.isoformat()})
+    send_alarms(report.get("alarms") or {})                # MCA1: its own warning email, once a run
     logger.info("daily summary for %s: %d books, %s", session, len(started),
                 "sent" if sent else "NOT sent (check the email secrets)")
     return 0 if sent else 1
@@ -188,9 +216,18 @@ def weekly(args: argparse.Namespace, books: Sequence[bk.Book]) -> int:
     csv_bytes = register.to_csv(index=False, float_format="%.6g").encode()
     lasts = [d.paper.last for d in days.values() if d.paper.started]
     session = max(lasts).date() if lasts else today
+    try:                                                  # PL-16, PL-17: the week's operations; never stops the email
+        from tools import ops_report
+
+        operations = ops_report.block(books=books)
+    except Exception as exc:                              # noqa: BLE001
+        logger.warning("Operations block unavailable: %s", exc)
+        operations = {"head": f"Operations: the report could not be built ({type(exc).__name__})", "lines": [],
+                      "html": f"<h3>Operations</h3><p>The report could not be built ({type(exc).__name__}).</p>"}
     try:
         expected = {n: float(v) for n, v in register.set_index("book")["bt_sharpe"].items() if pd.notna(v)}
-        email = bk.build_weekly(list(days.values()), benchmark, session, report, kept_on=today, expected_sharpe=expected)
+        email = bk.build_weekly(list(days.values()), benchmark, session, report, kept_on=today, expected_sharpe=expected,
+                                operations=operations)
     except Exception:                                     # noqa: BLE001 - never lose the books' reports
         logger.exception("Saturday summary could not be built: the comparison report and each book's on their own")
         email = None

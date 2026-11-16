@@ -220,7 +220,8 @@ def manual_value_refusal(kite, symbol, exchange, transaction_type, quantity, ord
     """Why a hand-placed order is too large, or None.  Only new risk is limited: a CNC sell cannot open a short,
     and a sell within a verified long is an exit, which is always tried.  Cash has a rupee limit; F&O a stress
     loss against live capital.  A MARKET order is valued at the last price; if that cannot be read, new risk is
-    refused rather than guessed."""
+    refused rather than guessed.  So is any order whose price is missing, 0 or not a number: valued at 0 it would
+    pass any limit (tracker OR3)."""
     side, kind = str(transaction_type or "").upper(), str(order_type or "").upper()
     if side == "SELL" and str(product).upper() == "CNC":
         return None
@@ -237,7 +238,13 @@ def manual_value_refusal(kite, symbol, exchange, transaction_type, quantity, ord
         except Exception as exc:
             return f"cannot value this MARKET order against the manual limit ({exc})"
     else:
-        unit = float(trigger_price if kind == "SL-M" else price or 0.0)
+        given = trigger_price if kind == "SL-M" else price
+        try:
+            unit = float(given) if given is not None else math.nan
+        except (TypeError, ValueError):
+            unit = math.nan
+    if not (math.isfinite(unit) and unit > 0):
+        return f"cannot value this {kind or 'order'} order against the manual limit (no usable price: {unit:g})"
     value = unit * float(quantity)
     if str(exchange or "").upper() in FO_EXCHANGES:
         return _manual_fo_refusal(symbol, side, value)

@@ -30,7 +30,6 @@ from api.schemas.ind_stocks import (
     OrderBookResponse,
     OrderInfo,
     OrderResponse,
-    PlaceOrderRequest,
     PositionData,
     PositionsResponse,
     QuoteData,
@@ -361,44 +360,9 @@ async def get_single_quote(exchange: str, symbol: str):
 # Orders
 # -----------------------------------------------------------------------
 
-@router.post(
-    "/orders",
-    response_model=OrderResponse,
-    summary="Place a new order",
-)
-async def place_order(request: PlaceOrderRequest):
-    """Place an order through Zerodha Kite Connect."""
-    kite = _require_kite()
-    try:
-        from kite_connect.trading.order_service import place_order as _place_order
-
-        result = _place_order(
-            kite,
-            symbol=request.symbol,
-            exchange=request.exchange,
-            transaction_type=request.transaction_type,
-            quantity=request.quantity,
-            order_type=request.order_type,
-            product=request.product,
-            price=request.price,
-            trigger_price=request.trigger_price,
-            validity=request.validity,
-        )
-        if result.get("success"):
-            return OrderResponse(
-                success=True,
-                order_id=str(result.get("order_id", "")),
-                message="Order placed successfully",
-            )
-        raise HTTPException(
-            status_code=400,
-            detail=result.get("error", "Order placement failed"),
-        )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception("Order placement failed")
-        raise HTTPException(status_code=500, detail=str(exc))
+# No order is placed here.  POST /ind-stocks/orders was retired on 16 Nov 2026 (owner's call, tracker TS2c): it
+# skipped the manual value limit, the duplicate check and the exit marking of POST /api/v1/kite/orders, the one
+# manual order route (RB5, RB7).
 
 
 @router.get(

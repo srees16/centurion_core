@@ -571,6 +571,8 @@ def test_snapshot_round_trip_and_a_short_history_is_left_out(tmp_path, monkeypat
     assert path.read_text().startswith("date,symbol,iv30")          # text: the Space refuses a pushed binary file
 
 
+@pytest.mark.lesson("L-B6", pattern="F10", date="2026-11-02", source="B6",
+                    summary="A deploy failed because a tracked data file was binary, which the Space refuses")
 def test_the_deployed_iv_snapshot_is_tracked_text_the_scan_can_read():
     from pathlib import Path
 
