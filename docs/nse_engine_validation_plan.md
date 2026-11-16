@@ -6907,6 +6907,13 @@ cost a year.
 source). **Pass.** Built as an overlay switch, then 60 paper sessions; it
 counts as a promotion trial.
 
+**J4 addendum (16 Nov 2026, 19:17 IST, before any run; tracker J4A).** Pass rule 1 drops CAGR, by your directive of 16 Nov 2026
+that the Ind stocks module is optimised on Sharpe, with CAGR reported (tracker GTR9; protocol gate 2 amended the
+same day, GTR10). Rule 1 now reads: on 2008–25, excess Sharpe and alpha against NIFTY TRI both higher than the base,
+with `bootstrap_p` ≤ 0.025 on the Sharpe difference; CAGR is reported. Rules 2 and 3, the base, the rule, the
+costs and the 15% cycle cap are unchanged. Reason: as registered, a J4 that raised Sharpe and alpha but not CAGR
+would fail, against the directive. Your bounded-tail rule (10–15% a cycle) stays, so the 25% size stays.
+
 ## 5by. CC1: counter-cyclical investing, Phases 0–1 (India tracker CC1; your ask "validate it, then decide"; read rule fixed 06 Nov 2026, 19:08 IST, before any return was read)
 
 **Question.** Does buying when the market or a sector is cheap and holding

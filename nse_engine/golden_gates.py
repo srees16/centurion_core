@@ -56,7 +56,7 @@ EQUITY_RUNS = {"deployed": "20261017T110545845367Z_2cb1c053",       # deployed +
                "candidate": "20261116T095349906391Z_baeaaac7",      # candidate + drawdown rule (GTR4)
                "e4": "20261116T095358132733Z_b837e415"}             # e4 + drawdown rule (GTR4)
 WALK_FORWARDS = {"deployed": "data/nse_engine/wf_stitched_r4b.json", "candidate": "data/nse_engine/wf_stitched_r4b.json",
-                 "e4": "data/nse_engine/wf_stitched_r12b4.json"}
+                 "e4": "data/nse_engine/wf_stitched_e4_2008_25.json"}       # GTR11: 2008-16 (gtr1w) + r12b4
 #: The sleeve books trade the deployed rules plus a sleeve (their deployments); the levered futures book is read
 #: from its real-contract run (2017-25 only).
 SLEEVE_BOOKS = {"bonds": ("gilt", 0.25), "mcx": ("mcx", 0.25), "a1": ("a1", None)}

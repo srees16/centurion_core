@@ -315,13 +315,7 @@ Organize by logical and functional responsibility:
 - An updated README (setup, run, test)
 - A summary of the changes, any deferred items, and the risks you found
 
-
 ~~~~~~~~~~~
-
-"Centurion defends well, lags rebounds and earns little in ranges". how do we ensure centurion does not lag during rebounds and earns more in range-bound markets?
-
-~~~~~~~~~~~~
-
 Automate historical niveshaay rebalances n point in time fundamentals to train RL bot
 
 ~~~~~~~~~~~~
