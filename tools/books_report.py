@@ -99,11 +99,6 @@ def send_one_by_one(days: Sequence[bk.DayBook], kept_on: date) -> int:
     return sent
 
 
-#: MCA1: the alarm emails on the night a book's run reaches its length, or within this many sessions after, should
-#: that night's run be missed; the key names the run's first session, so one run emails once.
-ALARM_GRACE_SESSIONS = 5
-
-
 def send_alarms(alarms: Dict[str, Dict], alert_fn=None) -> List[str]:
     """MCA1: a warning email for each book whose run below its 5th percentile has just reached the alarm's length
     (``bk.paper_alarms``); returns the books emailed.  Never raises."""
@@ -115,7 +110,7 @@ def send_alarms(alarms: Dict[str, Dict], alert_fn=None) -> List[str]:
     alert_fn = alert_fn or alert
     sent = []
     for name, a in alarms.items():
-        if a.get("tripped") and a["streak"] < bk.PAPER_ALARM_SESSIONS + ALARM_GRACE_SESSIONS:
+        if a.get("tripped") and a["streak"] < bk.PAPER_ALARM_SESSIONS + bk.PAPER_ALARM_GRACE:   # one email a run
             try:
                 if alert_fn(WARNING, f"mca1:{name}:{a['since']}",
                             f"Edge alarm: {name} below its 5th percentile for {a['streak']} sessions",
@@ -248,7 +243,11 @@ def weekly(args: argparse.Namespace, books: Sequence[bk.Book]) -> int:
 
     today = datetime.now(bk.IST).date()
     deployed = PaperCloudSync(get_db_manager(), schema=None)
-    if (deployed.read_state() or {}).get(bk.WEEKLY_STATE_KEY) == today.isoformat() and not (args.force or args.dry_run):
+    from nse_engine import golden_gates
+
+    deployed_state = deployed.read_state() or {}
+    golden_previous = json.loads(deployed_state.get(golden_gates.STATE_KEY) or "null")    # PF1: last week's gates
+    if deployed_state.get(bk.WEEKLY_STATE_KEY) == today.isoformat() and not (args.force or args.dry_run):
         logger.info("Saturday email for %s already sent", today)
         return 0
     days = load_day_books(books, bk.WEEKLY_EMAIL_KEY)
@@ -271,6 +270,7 @@ def weekly(args: argparse.Namespace, books: Sequence[bk.Book]) -> int:
     try:
         expected = {n: float(v) for n, v in register.set_index("book")["bt_sharpe"].items() if pd.notna(v)}
         email = bk.build_weekly(list(days.values()), benchmark, session, report, kept_on=today, expected_sharpe=expected,
+                                golden_previous=golden_previous,
                                 operations=operations)
     except Exception:                                     # noqa: BLE001 - never lose the books' reports
         logger.exception("Saturday summary could not be built: the comparison report and each book's on their own")
@@ -300,7 +300,10 @@ def weekly(args: argparse.Namespace, books: Sequence[bk.Book]) -> int:
     if email is None:
         send_one_by_one(list(days.values()), today)
     if sent:
-        deployed.sync_state({bk.WEEKLY_STATE_KEY: today.isoformat()})
+        golden = (email or {}).get("golden")
+        deployed.sync_state({bk.WEEKLY_STATE_KEY: today.isoformat(),
+                             **({golden_gates.STATE_KEY: json.dumps({"date": today.isoformat(), "sig": golden["signature"]})}
+                                if golden else {})})
     logger.info("Saturday email %s", "sent" if sent else "NOT sent (check the SMTP secrets)")
     return 0 if sent and email else 1
 
