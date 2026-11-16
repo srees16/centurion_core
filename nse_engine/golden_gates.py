@@ -299,19 +299,30 @@ def _num(x: Any, fmt: str = "{:.2f}") -> str:
     return "n/a" if x is None or (isinstance(x, float) and not math.isfinite(x)) else fmt.format(x)
 
 
-def block(doc: Optional[Dict[str, Any]], positions: Dict[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+#: The deployed book's state key holding the last Saturday's per-book signature (PF1: changes, not repeats).
+STATE_KEY = "golden_gates_last"
+
+
+def block(doc: Optional[Dict[str, Any]], positions: Dict[str, Dict[str, Any]],
+          previous: Optional[Dict[str, Any]] = None, full: bool = True) -> Optional[Dict[str, Any]]:
     """The golden-gates section: one row per book in the file, gate 5 from ``positions`` (``books.mc_positions``);
     None without a file.  ``leverage`` maps each book to the leverage it has earned (above 1x only once every gate
-    the funding gate waits for has passed)."""
+    the funding gate waits for has passed).
+
+    Changes, not repeats (owner's call 16 Nov 2026, tracker PF1): with ``previous`` (the last email's
+    ``{"date", "sig"}``) and ``full`` False, a week in which no book's gates, vetoes or leverage moved is one line;
+    a week with a change shows the table with those books marked.  ``signature`` is what the caller stores."""
     if not doc or not doc.get("books"):
         return None
     head = ["Book", "1 DSR (>= 0.95)", "2 Net Sharpe (>= 0.8)", "3 Walk-forward (>= 1.0)", "4 2008-12 (>= 0.2)",
             "5 MC band at 60", "Vetoes", "Leverage earned"]
-    rows, lines, earned, flags = [], [], {}, []
+    rows, lines, earned, flags, sig, passing = [], [], {}, [], {}, []
     for name, b in doc["books"].items():
         g, v, lev = b["gates"], b["vetoes"], b["leverage"]
         g5 = gate5(positions.get(name))
         hit = [k.replace("_", " ") for k, x in v.items() if x["veto"]]
+        sig[name] = ("".join("1" if x["pass"] else "0" for x in g.values()) + f"|{int(g5['due'])}{int(g5['pass'])}|"
+                     + ",".join(sorted(hit)) + f"|{float(lev['earned']):.2f}")
         wf_from = g["walk_forward"].get("from")
         since = lambda x: f" (from {x[:4]})" if x and x[:4] != "2008" else ""          # noqa: E731
         cells = [name,
@@ -325,6 +336,8 @@ def block(doc: Optional[Dict[str, Any]], positions: Dict[str, Dict[str, Any]]) -
         rows.append(cells)
         earned[name] = float(lev["earned"])
         all_pass = all(x["pass"] for x in g.values()) and g5["pass"] and not hit
+        if all_pass:
+            passing.append(name)
         lines.append(f"{name}: " + ("every gate passes" if all_pass else
                                     "fails " + ", ".join(k for k, x in (("1", g["dsr"]), ("2", g["net_sharpe"]),
                                                                         ("3", g["walk_forward"]),
@@ -337,6 +350,19 @@ def block(doc: Optional[Dict[str, Any]], positions: Dict[str, Dict[str, Any]]) -
         elif lev.get("above_cap"):
             flags.append(f"{name} runs at {lev['book_runs_at']:.2f}x in paper, above GTR0's 1.5x cap and without the "
                          "funding gate (it predates GTR0): your call.")
+    before = (previous or {}).get("sig") or {}
+    changed = [n for n in sig if previous and before.get(n) != sig[n]]
+    if previous and not changed and not full:                 # nothing moved: one line, the table monthly
+        lev_text = ("1.00x everywhere" if all(x == 1.0 for x in earned.values())
+                    else ", ".join(f"{n} {x:.2f}x" for n, x in earned.items()))
+        text = (f"No change since {previous.get('date')}: {len(passing)} of {len(sig)} books pass every gate; leverage "
+                f"{lev_text}. The full table comes on the first Saturday of each month.")
+        return {"html": f"<h3>Golden-target gates (GTR6)</h3><p>{escape(text)}</p>", "head": "Golden-target gates (GTR6)",
+                "lines": [text], "leverage": earned, "signature": sig, "changed": [], "compact": True}
+    for r in rows:
+        if r[0] in changed:
+            r[0] = f"{r[0]} (changed)"
+    lines = [f"CHANGED {l}" if l.split(":")[0] in changed else l for l in lines]
     built = str(doc.get("created_at", ""))[:10]
     note = (f"Built {built} from recorded series (research machine), {doc.get('n_trials')} trials counted across "
             "families; Sharpe in excess of 6.5%, as-run (D2's haircut, idle cash at 0), 2008-25 unless stated. "
@@ -349,7 +375,8 @@ def block(doc: Optional[Dict[str, Any]], positions: Dict[str, Dict[str, Any]]) -
     html = ("<h3>Golden-target gates (GTR6)</h3>" + table
             + "".join(f"<p style='color:#b45309;'>{escape(f)}</p>" for f in flags)
             + f"<p style='color:#666;font-size:12px;'>{escape(note)}</p>")
-    return {"html": html, "head": "Golden-target gates (GTR6)", "lines": lines + flags, "leverage": earned}
+    return {"html": html, "head": "Golden-target gates (GTR6)", "lines": lines + flags, "leverage": earned,
+            "signature": sig, "changed": changed, "compact": False}
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:

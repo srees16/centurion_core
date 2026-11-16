@@ -256,7 +256,7 @@ Note for me:
 
 verdict that decides go-live comes at 60 sessions, on Mon 14 Dec (RA1). A pass now doesn't let you go live sooner, and the configuration stays as it is.
 
-Until 14 Dec:
+Until 15 Dec:
 
 Log in to Kite every trading day. A missed login is a missed session, which counts against tracking.
 Watch the nightly email. If G4 ever shows FAIL, say "diagnose G4".
@@ -272,10 +272,6 @@ On 14 Dec, the email shows one of three verdicts:
 ACCEPT: live trading starts at Rs 3 lakh once the 5 dry runs are clean and you give the go-ahead. That means setting CENTURION_LIVE_CAPITAL=300000 and CENTURION_LIVE_MODE=live.
 WATCH: decided again at 90 sessions, about 25 Jan 2027.
 REJECT: no live capital, and the configuration (679cbd0c) is not re-tuned.
-
-~~~~~~~~
-
-what do you recommend regarding the biggest weakness that the P1 guards have not yet caught anything in real use, resulting in building more checks before seeing them work for a week or two and risks adding process that nobody reads
 
 ~~~~~~~~
 
