@@ -1076,9 +1076,11 @@ def build_daily(days: Sequence[DayBook], nifty: Optional[pd.Series], session: da
     if ra1:
         findings.append(ra1)
     alarms = _alarms_or_none(days)
-    if alarm_line(alarms):
-        findings.insert(0, alarm_line(alarms))
-    tripped = [n for n, a in alarms.items() if a["tripped"]]
+    fresh = {n: a for n, a in alarms.items()                  # PF1: the night it trips, not every night after
+             if a["tripped"] and a["streak"] < PAPER_ALARM_SESSIONS + PAPER_ALARM_GRACE}
+    if alarm_line(fresh):
+        findings.insert(0, alarm_line(fresh))
+    tripped = list(fresh)
     table = [[r["book"], _dmy(r["started"]), _inr_short(r["initial"]),
               _inr_short(r["value"]) + (f" ({_dmy(r['asof'])})" if r["asof"] and r["asof"] < session else ""),
               _since_cell(r), _pct(r["nifty"]), r["dd"], r["g4"], r["today"]] for r in rows]
@@ -1240,6 +1242,9 @@ FUNDING_MARK = "<!--funding-gate-->"
 #: cases within a year (the deployed book's Sharpe cannot be told from zero sooner), so it warns that a book is
 #: where Rule D would step it down once live (60 sessions, drawdown too), not that its edge has faded.
 PAPER_ALARM_SESSIONS = 65
+#: The nightly email names a trip on the night it happens and for this many sessions after (should that night's run
+#: be missed), then the Saturday email carries it while it lasts (PF1: changes, not repeats).
+PAPER_ALARM_GRACE = 5
 
 
 def paper_alarms(days: Sequence[DayBook], doc: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
@@ -1329,7 +1334,8 @@ def _mc_line(pos: Dict[str, Dict[str, Any]], days: Sequence[DayBook] = ()) -> Op
 
 def build_weekly(days: Sequence[DayBook], nifty: Optional[pd.Series], session: date, report: Dict[str, Any],
                  kept_on: date, expected_sharpe: Optional[Dict[str, float]] = None,
-                 operations: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                 operations: Optional[Dict[str, Any]] = None,
+                 golden_previous: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """The Saturday email (tracker DS2): one table of every book and the findings, the week's operations
     (``tools.ops_report``, PL-16 and PL-17, when given), then the comparison with the deployed book and the forward
     gate (``build_report``), then each book's own weekly report (kept ``kept_on``)."""
@@ -1350,7 +1356,8 @@ def build_weekly(days: Sequence[DayBook], nifty: Optional[pd.Series], session: d
     try:                                                  # GTR6: the golden-target gates; never stops the email
         from nse_engine import golden_gates
 
-        golden = golden_gates.block(golden_gates.load(), mc)
+        golden = golden_gates.block(golden_gates.load(), mc, previous=golden_previous,
+                                    full=kept_on.day <= 7)        # PF1: the full table on the month's first Saturday
     except Exception as exc:                              # noqa: BLE001
         logger.warning("golden-target gates unavailable: %s", exc)
         golden = None

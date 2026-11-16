@@ -775,3 +775,34 @@ def test_a_book_above_the_cap_is_flagged_unless_the_owner_made_an_exception():
 
     assert "by your exception of 16 Nov 2026" in " ".join(gg.block(doc("futures"), {})["lines"])
     assert "your call" in " ".join(gg.block(doc("levered_trial"), {})["lines"])     # no exception: still asked
+
+
+def test_the_gates_block_reports_changes_not_repeats():
+    """PF1 (owner's call 16 Nov 2026): a quiet week is one line; a change shows the table with the book marked; the
+    first Saturday of a month shows the full table whatever happened."""
+    from nse_engine import golden_gates as gg
+
+    g = {"value": 0.6, "live": 0.4, "from": "2008-01-01", "pass": False}
+
+    def doc(maxdd_veto):
+        book = {"gates": {"dsr": dict(g), "net_sharpe": dict(g), "walk_forward": dict(g),
+                          "era_2008_12": {"value": -0.2, "walk_forward": None, "pass": False}},
+                "vetoes": {"maxdd": {"value": -0.32, "range": None, "bar": -0.3, "veto": maxdd_veto}},
+                "leverage": {"earned": 1.0, "book_runs_at": 1.0, "above_cap": False}}
+        return {"created_at": "2026-11-16", "n_trials": 99, "books": {"deployed": book, "e4": dict(book)}}
+
+    first = gg.block(doc(True), {})                                     # no previous: the table
+    assert "<table" in first["html"] and not first["compact"]
+    previous = {"date": "2026-11-21", "sig": first["signature"]}
+    quiet = gg.block(doc(True), {}, previous=previous, full=False)
+    assert quiet["compact"] and "<table" not in quiet["html"] and len(quiet["lines"]) == 1
+    assert quiet["lines"][0].startswith("No change since 2026-11-21: 0 of 2 books pass every gate; leverage 1.00x")
+    assert quiet["leverage"] == {"deployed": 1.0, "e4": 1.0}                 # the funding gate still reads it
+    moved = doc(True)
+    moved["books"]["e4"] = {**moved["books"]["e4"], "vetoes": {"maxdd": {"value": -0.28, "range": None, "bar": -0.3,
+                                                                         "veto": False}}}
+    changed = gg.block(moved, {}, previous=previous, full=False)
+    assert changed["changed"] == ["e4"] and "e4 (changed)" in changed["html"] and "deployed (changed)" not in changed["html"]
+    assert any(l.startswith("CHANGED e4:") for l in changed["lines"])
+    monthly = gg.block(doc(True), {}, previous=previous, full=True)
+    assert "<table" in monthly["html"] and monthly["changed"] == []

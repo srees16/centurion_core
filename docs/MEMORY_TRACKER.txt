@@ -1116,6 +1116,11 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              records stay); check the futures leg's catch-up, heartbeat and 20:30 retry paths with no levered book;
              drop golden_gates.CAP_EXCEPTIONS["futures"]; rebuild config/golden_gates.json.  The futures overlay code
              stays (F&O code is kept).                     Prompt: do GTR10
+[ ] P1  PRV1 Sat 19 Dec: the guard review (your call 16 Nov, PF1).  For each guard and report block: did it fire, did
+             anyone act, what would its failure cost.  Keep the rare and costly ones even when silent (order path,
+             kill switch, Rule D, funding gate, the drills of PF1); merge or retire the silent, cheap and unread.
+             The Saturday email's first screen holds what needs action (you read all of it, the top first).
+             Bring the counts from the ops report's loop health and the drill results.   Prompt: do PRV1
 [x] P2  GTR6 Built 16 Nov (your "do GTR6", ahead of RA1 under the freeze's alert-only exception; entry GTR7).
 [ ] P3  MON1-IC After RA1 (Tue 15 Dec), your call: the live monitor's rank IC read at 12 months (PIC1R) flags a
              healthy signal for REVIEW 23% of the time (mean <= 0), and its "supports" (t >= 2) is out of
@@ -1571,6 +1576,30 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+16 Nov  PF1D PF1 done the same evening (uncommitted).  (2) Changes, not repeats: golden_gates.block takes last
+             Saturday's signature (the deployed book's state, golden_gates.STATE_KEY): a quiet week is one line, a
+             change shows the table with the book marked, the month's first Saturday the full table; the edge
+             alarm's nightly line shows a trip only on its nights (books.PAPER_ALARM_GRACE), the Saturday email while
+             it lasts.  2 tests; the operations and gate tests unchanged.  (4) Drills, every one PASS:
+               store doctor: 12 Nov removed from a copy of the store -> "2026-11-12: an NSE trading day missing
+                 from the store" (the real store: 0 findings);
+               heartbeat: a book stuck at 11 Nov -> "3 NSE sessions behind", exit 1 (GitHub emails you), the dead
+                 man's switch unhealthy;
+               unpriced order: 0, missing, NaN, negative prices and impossible limits refused on the real route
+                 with a 4xx, exits still allowed (33 of 33);
+               game day, faults (52 sessions of 2024, the live session's own code): rerun x2 sends nothing twice,
+                 broker down fails loudly and sends nothing, quantities x50 capped, the kill switch sends no buy,
+                 ledger matches broker, drawdown rule on time: 11 of 11, identical to 5 Nov's run.
+             Checks: fast suite 1069 passed with no skips; a dry run of the Saturday email on the real books.
+16 Nov  PF1  Process freeze until the guard review, Sat 19 Dec (your call, all four of my recommendations): the P1
+             guards had not yet caught anything in real use, and adding checks before seeing them work risks
+             process nobody reads.  (1) No new checks, report blocks or emails until PRV1; bug fixes and queued items
+             (J4, GTR10, RA1's work) go ahead.  (2) Changes, not repeats: the golden-target gates block and the edge
+             alarm report only what changed, with the full gates table on the first Saturday of the month.  (3) The
+             review judges each guard by fire-and-act, separating rare-and-costly from silent-and-cheap.  (4) The
+             critical guards are proven by drills, not by waiting for an incident: the game-day faults (broker
+             down, a rerun, quantities x50, the kill switch), a missing store session, a stale paper book, an
+             unpriced order.  You read the whole Saturday email, the top section first.
 16 Nov  CI2  Duplicate test runs removed (your ask; uncommitted).  tests.yml ran on every push to any branch and on
              every pull request, so a push to a PR's branch ran pytest and pytest-all twice (push and
              pull_request), and a merge to main ran them twice more (push, and the deploy's call).  Now: pull_request,

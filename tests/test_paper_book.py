@@ -1757,7 +1757,7 @@ def test_the_edge_alarm_emails_once_a_run_on_the_night_it_trips():
         calls.append((severity, key, book, once))
         return True
 
-    sent = br.send_alarms({"e4": alarm(n), "bonds": alarm(n + br.ALARM_GRACE_SESSIONS), "mcx": alarm(n - 1)},
+    sent = br.send_alarms({"e4": alarm(n), "bonds": alarm(n + bk.PAPER_ALARM_GRACE), "mcx": alarm(n - 1)},
                           fake_alert)
     assert sent == ["e4"]                                  # bonds tripped long ago: emailed then, not every night
     assert calls == [("WARNING", "mca1:e4:2026-08-03", "e4", True)]
@@ -1824,3 +1824,24 @@ def test_a_book_that_earns_leverage_asks_for_funds_once_and_a_1x_book_never_does
     assert alerts[0][1] is True and len(lines) == 1 and "waiting for your reply" in lines[0]
     again = br.request_funding(days, golden, date(2026, 11, 28), cloud_for=lambda d: Cloud(d.book.name), alert_fn=fire)
     assert len(alerts) == 1 and again == lines                                  # the same sizing asks once
+
+
+def test_the_edge_alarm_names_a_trip_on_its_night_and_then_only_on_saturdays(monkeypatch):
+    """PF1: the nightly email carries a trip on the nights it happens (and the grace after), not every night after;
+    the Saturday email keeps it while it lasts."""
+    from datetime import date
+
+    from nse_engine import books as bk
+    from nse_engine import golden_gates
+    from nse_engine import mc_bands
+
+    monkeypatch.setattr(mc_bands, "load", lambda path=None: _alarm_bands())
+    monkeypatch.setattr(golden_gates, "load", lambda path=None: None)
+    n = bk.PAPER_ALARM_SESSIONS
+    old = _alarm_day([100.0] * 5 + [90.0] * (n + bk.PAPER_ALARM_GRACE + 5))      # tripped two weeks ago
+    nightly = bk.build_daily([old], None, date(2026, 11, 13))
+    assert nightly["alarms"]["deployed"]["tripped"] and "EDGE ALARM" not in nightly["subject"]
+    assert not any("EDGE ALARM" in f for f in nightly["findings"])
+    report = {"comparisons": {}, "gates": {}, "cleared": [], "body": ""}
+    weekly = bk.build_weekly([old], None, date(2026, 11, 13), report, kept_on=date(2026, 11, 14))
+    assert weekly["findings"][0].startswith("EDGE ALARM (MCA1): deployed")
