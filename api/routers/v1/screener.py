@@ -4,6 +4,7 @@ Moved from v1_gateway.py (tracker H4), which includes this router under /api/v1.
 """
 
 import asyncio
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 
@@ -103,12 +104,24 @@ async def screener_run(req: ScreenerRunRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def plan_tag(order: Dict[str, Any], day: Optional[date] = None) -> str:
+    """The plan's order tag: the same plan on the same day gets the same tag, so the order is sent once.  20 hex
+    characters, as ``order_service.place_order``'s own tags, which the kill switch's drain cancels (RB6)."""
+    import hashlib
+
+    day = day or datetime.now(timezone(timedelta(hours=5, minutes=30))).date()
+    seed = ":".join(str(order.get(k)) for k in ("symbol", "exchange", "transaction_type", "quantity", "order_type",
+                                                 "product", "price", "trigger_price"))
+    return hashlib.sha256(f"screener:{day.isoformat()}:{seed}".encode()).hexdigest()[:20]
+
+
 @router.post("/screener/execute")
 async def screener_execute(req: Dict[str, Any]):
     """Execute trade plans via Kite.
 
     SAFETY: Requires IntegratedScorer verdicts before order placement.
-    Only BUY/STRONG_BUY symbols are forwarded to the order manager.
+    Only BUY/STRONG_BUY symbols are forwarded, each through the manual route's checks (``kite.manual_send``: no
+    intraday, no same-day round trip, the kill switch, the manual value limit) and sent once per plan and day.
     """
     kite = get_kite_session()
     if not kite:
@@ -149,24 +162,20 @@ async def screener_execute(req: Dict[str, Any]):
         if not filtered_plans:
             return {"orders": [], "message": f"No plans passed verdict filter ({blocked} blocked)"}
 
-        from kite_connect.trading.order_service import place_order
+        from api.routers.v1.kite import manual_send
 
         order_results = []
         for plan in filtered_plans:
             try:
-                res = await asyncio.to_thread(
-                    place_order,
-                    kite,
-                    symbol=plan.get("symbol", ""),
-                    exchange=plan.get("exchange", "NSE"),
-                    transaction_type=plan.get("transaction_type", "BUY"),
-                    quantity=int(plan.get("quantity", 0)),
-                    order_type=plan.get("order_type", "MARKET"),
-                    product=plan.get("product", "CNC"),
-                    price=plan.get("price"),
-                    trigger_price=plan.get("trigger_price"),
-                )
-                order_results.append(res)
+                order = dict(symbol=plan.get("symbol", ""), exchange=plan.get("exchange", "NSE"),
+                             transaction_type=plan.get("transaction_type", "BUY"),
+                             quantity=int(plan.get("quantity", 0)), order_type=plan.get("order_type", "MARKET"),
+                             product=plan.get("product", "CNC"), price=plan.get("price"),
+                             trigger_price=plan.get("trigger_price"))
+                # the manual route's checks (tracker OR1), and one order per plan and day: Execute pressed twice,
+                # or a repeated request, returns the first order
+                res = await asyncio.to_thread(manual_send, kite, **order, tag=plan.get("tag") or plan_tag(order))
+                order_results.append({"symbol": order["symbol"], **res})
             except Exception as e:
                 order_results.append({"success": False, "error": str(e), "symbol": plan.get("symbol")})
         return {

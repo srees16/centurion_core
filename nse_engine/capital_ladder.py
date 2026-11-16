@@ -109,17 +109,21 @@ MC_STREAK_SESSIONS = 60
 MC_STEP_DOWN_KEY = "live_mc_step_down"    # {"session", "streak", "detail"} once tripped; cleared only by hand
 
 
-def mc_breach_streak(equity: pd.Series, doc: Optional[Dict[str, Any]], band: str) -> Dict[str, Any]:
+def mc_breach_streak(equity: pd.Series, doc: Optional[Dict[str, Any]], band: str,
+                     kinds: Sequence[str] = ("return", "drawdown")) -> Dict[str, Any]:
     """Rule D: the trailing run of sessions where the book's return or drawdown since its start sits below the
     ``MC_FLOOR_PCT`` percentile of its Monte Carlo band (``nse_engine.mc_bands``) over the same sessions.
 
     Recomputed from the whole equity history each night, so it needs no stored counter.  A session outside the
     band's horizons (too young) or without bands reads as not breached, so the streak starts once it can be read.
+    ``kinds``: the measures that count (Rule D: both; the paper alarm MCA1: return only).  ``since``: the date of
+    the run's first session (None without a run).  ``tripped`` is Rule D's length; another rule reads ``streak``.
     """
     from nse_engine import mc_bands
 
     e = pd.Series(equity, dtype="float64").dropna()
-    out: Dict[str, Any] = {"streak": 0, "tripped": False, "last": None, "readable": bool(doc and len(e) > 1)}
+    out: Dict[str, Any] = {"streak": 0, "tripped": False, "last": None, "readable": bool(doc and len(e) > 1),
+                           "since": None}
     if not out["readable"]:
         return out
     v = e.to_numpy()
@@ -130,10 +134,12 @@ def mc_breach_streak(equity: pd.Series, doc: Optional[Dict[str, Any]], band: str
         ret, dd = float(v[i] / v[0] - 1.0), worst
         rp = mc_bands.percentile(doc, band, "return", i, ret)
         dp = mc_bands.percentile(doc, band, "drawdown", i, dd)
-        below = (rp is not None and rp < MC_FLOOR_PCT) or (dp is not None and dp < MC_FLOOR_PCT)
+        below = (("return" in kinds and rp is not None and rp < MC_FLOOR_PCT)
+                 or ("drawdown" in kinds and dp is not None and dp < MC_FLOOR_PCT))
         streak = streak + 1 if below else 0
         out["last"] = {"sessions": i, "return": ret, "drawdown": dd, "return_pct": rp, "drawdown_pct": dp}
     out["streak"], out["tripped"] = streak, streak >= MC_STREAK_SESSIONS
+    out["since"] = e.index[len(v) - streak].date() if streak and hasattr(e.index[0], "date") else None
     return out
 
 

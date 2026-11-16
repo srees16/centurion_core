@@ -120,7 +120,8 @@ logger = logging.getLogger(__name__)
 
 _WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 #: Reached without a session: the logins and logout, self-service sign-up, activation and
-#: password reset (MU2, rate-limited in api.routers.v1.auth), Kite's login callback, the
+#: password reset (MU2, rate-limited in api.routers.v1.auth), the newsletter's unsubscribe link (a
+#: signed ticket from its email, NL1), Kite's login callback, the
 #: terms the holder accepts there (a signed ticket from that page, MU1) and the
 #: order postback (which carries its own checksum), the health check the uptime
 #: monitor pings, and the docs pages (which redirect to their own login).
@@ -128,7 +129,8 @@ _PUBLIC = frozenset({("POST", "/api/v1/auth/login"), ("POST", "/auth/login"), ("
                      ("POST", "/stream/postback"), ("GET", "/ind-stocks/auth/callback"),
                      ("POST", "/ind-stocks/auth/consent"),
                      *(("POST", f"/api/v1/auth/{p}") for p in ("signup", "activate", "resend-activation",
-                                                                "forgot-password", "reset-password")),
+                                                                "forgot-password", "reset-password",
+                                                                "newsletter/unsubscribe")),
                      ("GET", "/"), ("HEAD", "/"), ("GET", "/health"), ("HEAD", "/health"), ("GET", "/favicon.ico"),
                      ("GET", "/auth/login"), ("GET", "/auth/logout"),
                      ("GET", "/docs"), ("GET", "/redoc"), ("GET", "/openapi.json")})

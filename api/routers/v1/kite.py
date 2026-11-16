@@ -336,12 +336,16 @@ class KiteOrderRequest(BaseModel):
     tag: Optional[str] = None
 
 
-@router.post("/kite/orders")
-async def kite_place_order(order: KiteOrderRequest):
-    """Place a manual order through ``order_service.place_order``, the gate every order passes: whole shares,
-    prices, swing and positional only, kill switch, retries that check the book first, the audit record, and a
-    check of the book for this tag before sending (tracker RB5).  A failure is a 4xx, never a 5xx: a client may
-    repeat a 5xx, and an order can reach the exchange even when the answer does not reach us."""
+def manual_send(kite, *, symbol: str, exchange: str, transaction_type: str, quantity: int, order_type: str,
+                product: str, price: Optional[float], trigger_price: Optional[float], validity: str = "DAY",
+                tag: Optional[str] = None, variety: str = "regular") -> dict:
+    """An order placed by hand, through every check of the manual route, in order: no intraday product (422), no
+    same-day round trip (422), the kill switch with a sell treated as an exit (423, tracker DM0), the manual value
+    limit (422); then ``order_service.place_order``, the gate every order passes, sent once per ``tag`` (a repeat
+    returns the first order, RB5) and a sell marked as an exit, so it is always tried (RB7).
+
+    A refusal comes back as ``{"success": False, "status_code": ..., "error": ...}`` with nothing sent; otherwise
+    ``place_order``'s result.  Used by POST /kite/orders and by the screener's execute (tracker OR1)."""
     from kite_connect.trading.order_service import (
         intraday_refusal,
         kill_switch_refusal,
@@ -350,30 +354,43 @@ async def kite_place_order(order: KiteOrderRequest):
         same_day_refusal,
     )
 
-    refusal = intraday_refusal(order.product, order.variety)
+    checks = ((422, lambda: intraday_refusal(product, variety)),
+              (422, lambda: same_day_refusal(kite, symbol, exchange, transaction_type, product, variety)),
+              (423, lambda: kill_switch_refusal(kite, symbol, exchange, transaction_type, quantity, product)),
+              (422, lambda: manual_value_refusal(kite, symbol, exchange, transaction_type, quantity, order_type,
+                                                 price, trigger_price, product)))
+    for status, check in checks:
+        refusal = check()
+        if refusal:
+            return {"success": False, "status_code": status, "error": refusal}
+    return place_order(kite, symbol=symbol, exchange=exchange, transaction_type=transaction_type, quantity=quantity,
+                       order_type=order_type, product=product, price=price, trigger_price=trigger_price,
+                       validity=validity, tag=tag, variety=variety, dedupe=True,
+                       is_exit=str(transaction_type).upper() == "SELL")
+
+
+@router.post("/kite/orders")
+async def kite_place_order(order: KiteOrderRequest):
+    """Place a manual order through ``manual_send``: the manual checks, then ``order_service.place_order``, the gate
+    every order passes: whole shares, prices, swing and positional only, kill switch, retries that check the book
+    first, the audit record, and a check of the book for this tag before sending (tracker RB5).  A failure is a
+    4xx, never a 5xx: a client may repeat a 5xx, and an order can reach the exchange even when the answer does not
+    reach us."""
+    from kite_connect.trading.order_service import intraday_refusal
+
+    refusal = intraday_refusal(order.product, order.variety)   # before the session: no login needed to say no
     if refusal:
         raise HTTPException(status_code=422, detail=refusal)
     kite = get_kite_session()
     if not kite:
         raise HTTPException(status_code=409, detail=KITE_SESSION_INACTIVE)
-    refusal = await asyncio.to_thread(same_day_refusal, kite, order.tradingsymbol, order.exchange,
-                                      order.transaction_type, order.product, order.variety)
-    if refusal:
-        raise HTTPException(status_code=422, detail=refusal)
-    refusal = await asyncio.to_thread(kill_switch_refusal, kite, order.tradingsymbol, order.exchange,
-                                      order.transaction_type, order.quantity, order.product)
-    if refusal:                                           # tracker DM0: the kill switch holds here too
-        raise HTTPException(status_code=423, detail=refusal)
-    refusal = await asyncio.to_thread(manual_value_refusal, kite, order.tradingsymbol, order.exchange,
-                                      order.transaction_type, order.quantity, order.order_type, order.price,
-                                      order.trigger_price, order.product)
-    if refusal:
-        raise HTTPException(status_code=422, detail=refusal)
     result = await asyncio.to_thread(
-        place_order, kite, symbol=order.tradingsymbol, exchange=order.exchange,
+        manual_send, kite, symbol=order.tradingsymbol, exchange=order.exchange,
         transaction_type=order.transaction_type, quantity=order.quantity, order_type=order.order_type,
         product=order.product, price=order.price, trigger_price=order.trigger_price, validity=order.validity,
-        tag=order.tag, variety=order.variety, dedupe=True, is_exit=order.transaction_type.upper() == "SELL")
+        tag=order.tag, variety=order.variety)
+    if result.get("status_code"):
+        raise HTTPException(status_code=result["status_code"], detail=result["error"])
     if result.get("success"):
         return {"order_id": str(result.get("order_id")), "duplicate": bool(result.get("duplicate"))}
     raise HTTPException(status_code=409 if result.get("status") == "UNKNOWN" else 422,

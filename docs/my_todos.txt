@@ -124,7 +124,7 @@ analyze if the current trading strategies, backtest strategies and techniques im
 
 ~~~~~~~
 
-Reorder per priority for final go-live applicable to all the strategies, both current and future:
+Reorder as per priority for final go-live applicable to all the strategies, both current and future:
 Ensure centurion is survivorship bias free
 dataset dates cover all the way back to 2008 in both options n stocks do capture events like 2008 crash
 Backtest is exhaustive and robust
@@ -328,28 +328,117 @@ Fallback for a failed leg: Wed 18 / Thu 19 Nov. Tell Claude the same day.
 
 ~~~~~~~~
 
-Don't immediately answer my question. First, identify what I'm actually trying to solve. Ask me the 3 most important questions that would help you give me a much better answer.
+what do you recommend regarding the biggest weakness that the P1 guards have not yet caught anything in real use, resulting in building more checks before seeing them work for a week or two and risks adding process that nobody reads
 
-I'm going to share an idea with you. Your job isn't to agree with me. Find the 5 biggest weaknesses, challenge my assumptions, identify what I'm overlooking, and tell me what could make this fail.
+~~~~~~~~
 
-I want to achieve [specific result]. Work backward from the desired outcome. Identify the exact steps, skills, tools, decisions, and milestones required to get there. Explain the most efficient path.
+audit one top-level module at a time and refactor centurion codebase to enterprise grade. Keep all existing behavior exactly the same.
 
-I'm deciding between [option A] and [option B]. Build a decision framework that compares both options based on my priorities, risks, opportunity costs, and long-term consequences. Identify the option most likely to produce the best outcome.
+## Phase 1 — Audit (no code changes)
+1. Map the architecture: entry points, modules, data flow, dependencies, and external integrations.
+2. Find problems, ranked by severity:
+   - Dead code, duplication, tight coupling, circular dependencies
+   - Mixed responsibilities (business logic tangled with I/O, UI or transport)
+   - Unclear names, inconsistent conventions, magic values, hardcoded config
+   - Weak error handling, missing validation, security risks, leaked secrets
+   - Missing or weak tests, types and logging
+3. Write AUDIT.md with the findings, a proposed target structure, and a refactor plan broken into small, independently verifiable steps.
+4. Stop and wait for my approval before changing anything.
 
-Look at [industry, skill, or business]. Identify 10 overlooked opportunities most people aren't paying attention to. Explain why each opportunity exists, who would pay for it, and how I could realistically capitalize on it.
+## Phase 2 — Refactor (after approval)
+Organize by logical and functional responsibility:
+- Group code by domain or feature, not by file type. Keep clear layers (e.g. api/handlers → services → domain → repositories/adapters).
+- Each module does one job. Use dependency injection and interfaces at boundaries so parts can be swapped or extended without changing core logic.
+- Centralize config (env-driven), constants, error types and logging.
+- Use consistent naming, add type hints and strong typing throughout, and keep functions small with no nested spaghetti.
+- Add docstrings and comments only where the intent isn't obvious from the code.
+- Remove dead code and merge duplicated code into shared utilities.
 
-I want to master [skill] as efficiently as possible. Build a learning system using deliberate practice, active recall, spaced repetition, and real-world projects. Focus on the knowledge that creates the greatest practical advantage.
+## Rules
+- Work one plan step at a time. After each step, run the tests, linter and type checker, and fix any failures before moving on.
+- If test coverage is thin, add characterization tests BEFORE refactoring the code they cover.
+- Don't change public APIs, schemas or outputs unless I approve it. Flag them instead.
+- Don't add new dependencies without asking.
+- Make small, atomic commits with clear messages.
 
-Help me achieve [goal] consistently. Instead of giving me motivation or random tips, design a repeatable system with daily actions, triggers, checkpoints, feedback loops, and measurable progress.
+## Deliverables
+- The refactored codebase, with all tests passing
+- AUDIT.md (findings and plan)
+- ARCHITECTURE.md (final structure, module responsibilities, how to extend)
+- An updated README (setup, run, test)
+- A summary of the changes, any deferred items, and the risks you found
 
-I'm going to give you [article, book, transcript, or document]. Don't just summarize it. Extract its most valuable insights, hidden assumptions, practical applications, counterintuitive lessons, and ideas I can use immediately.
 
-Act as my strategic advisor. Here's my current situation: [context]. Here's what I want to achieve: [goal]. Identify my biggest leverage points, the highest-impact actions, what I should stop doing, and the next 3 moves that would create the most progress.
+~~~~~~~~~~~
 
-~~~~~~
+"Centurion defends well, lags rebounds and earns little in ranges". how do we ensure centurion does not lag during rebounds and earns more in ranges?
 
-analyze why a1's overlay hasn't traded yet. I expect that it improves centurion's performance steadily towards golden target
+~~~~~~~~~~~~
 
-how to ensure recursive self improvement of centurion_core
+Automate historical niveshaay rebalances n point in time fundamentals to train RL bot
 
-add new rule to trigger system-2 thinking to ensure chain-of-thought before implementing the solution. 
+~~~~~~~~~~~~~
+
+ROLE
+You are working in /Users/sreekanths/Desktop/ProjectX/centurion_core. Re-base Centurion's golden
+target on robust, deflated, net-of-cost Sharpe, and validate it in a new trial PAPER book. Be
+skeptical: your job is to show where the Sharpe is fragile, not to prove it is high.
+
+READ FIRST (mandatory; summarise in ≤15 lines before any change)
+CLAUDE.md; docs/MEMORY_TRACKER.txt (GT3 decisions, GT8/U36, OF1 rules C/D, SHUF1, trial counts,
+PBO per family); docs/research_protocol.md; docs/nse_engine_validation_plan.md;
+docs/golden_target_review.md; nse_engine/diversifier_gate.py, costs.py, mc_bands.py,
+capital_ladder.py, books.py; kite_connect/trading/live_session.py; tests/.
+
+DECISIONS ALREADY MADE BY THE OWNER (record as a dated entry; do not re-litigate)
+1. Objective: Sharpe is primary. CAGR is report-only and equals Sharpe × leverage.
+2. Leverage reopened (reverses GT8/U36 closure): allowed ≤ half-Kelly on the DEFLATED Sharpe,
+   hard cap 1.5x, and only after the DSR gate passes. Never size from walk-forward or backtest Sharpe.
+3. Golden-target gates (all required):
+   - DSR on 2008-25, all trials counted ≥ 0.95
+   - Net Sharpe 2008-25, realistic costs, unlevered ≥ 0.8
+   - Walk-forward OOS Sharpe ≥ 1.0
+   - Worst era (2008-12) Sharpe ≥ 0.2
+   - Paper Sharpe within the MC band at 60 sessions
+4. Tail vetoes (can fail a strategy, never optimised), on the levered book 2008-25 with
+   block-bootstrap CIs: MaxDD worse than −30%; Calmar < 0.5; daily CVaR(5%) worse than 1.5x
+   Nifty; monthly skew < −1; capacity: Sharpe drop > 0.1 at Rs 30L.
+5. FUNDING GATE before any leverage (paper and live):
+   a. Compute the extra exposure needed: (target_leverage − 1) × book equity, in Rs.
+   b. Notify the owner (email + live/paper email line) with the amount, the reason and the deadline,
+      and WAIT for a reply. Never apply leverage without a recorded response.
+   c. Owner confirms a top-up → run the bigger book UNLEVERED with own cash (verify the Kite
+      cash balance before trading).
+   d. Owner says no funds → use cheap leverage only: index/stock futures (cost ≈ liquid-fund
+      rate). Never MTF/margin funding (15-18%). Margin must be covered by cash.
+   e. No reply by the deadline → stay at 1x. Re-ask at the next sizing change.
+   f. Log every request, reply and action in the book state and the tracker.
+
+WORK ORDER
+Phase 0 (desk, no trial): compute every gate and veto for deployed, candidate and e4 from
+  recorded series. Report which pass and which fail, and the Kelly/half-Kelly leverage implied
+  by each deflated Sharpe. Stop and show me.
+Phase 1: pre-register ONE Sharpe-optimised configuration (≤ 3 variants) in a new dated plan
+  section BEFORE any result. Favour no-new-signal levers first: vol-targeted and risk-parity
+  sizing, cost reduction, combining existing streams. Each recorded run counts toward core N;
+  stop if PBO would exceed 30%.
+Phase 2: implement it as a new trial paper book ("sharpe") beside candidate and e4, including
+  the funding gate (paper simulates futures leverage but still sends the notification, so the
+  flow is tested end to end). Add tests: gate math, vetoes, funding-gate states (top-up /
+  no funds / no reply), and that 1.5x is never exceeded.
+Phase 3: run 60 paper sessions; judge against the gates in the weekly email.
+
+HARD RULES
+- Do not change the deployed book, its config, or live order execution before RA1 (14 Dec).
+  Live leverage execution only after RA1 and my dated approval.
+- 2026 holdout stays sealed. Rules C and D stay in force, and rule D also applies to the
+  "sharpe" book. Never weaken a guard test.
+- Decide at close, fill at the next open; full cost model; futures roll cost and margin opportunity
+  cost included.
+- Use myenv/bin/python. Kaggle for engine runs, the Mac for arithmetic and tests.
+- Never commit/push/merge/rebase. Ask before creating .md files or deleting anything.
+- Update docs/MEMORY_TRACKER.txt and the plan after each phase.
+
+DELIVERABLE PER PHASE (crisp)
+A gate/veto table per book (value, bar, pass/fail, CI); leverage implied; trials used and PBO;
+files changed (uncommitted); risks; next step. Stop after each phase for my go-ahead.

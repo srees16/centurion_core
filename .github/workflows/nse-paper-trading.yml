@@ -54,6 +54,9 @@ jobs:
       || (vars.CENTURION_NSE_ENGINE == 'true' && github.event.schedule == '0 2 * * 6')
     runs-on: ubuntu-24.04   # pinned: ubuntu-latest becomes Ubuntu 26 from 19 Oct 2026
     timeout-minutes: 20
+    permissions:            # actions: read lets the Saturday email list the week's failed runs (PL-16)
+      contents: read
+      actions: read
 
     steps:
       - name: Checkout
@@ -136,6 +139,7 @@ jobs:
           CENTURION_EMAIL_PASS: ${{ secrets.CENTURION_EMAIL_PASS }}
           CENTURION_EMAIL_HOST: ${{ secrets.CENTURION_EMAIL_HOST }}
           CENTURION_EMAIL_PORT: ${{ secrets.CENTURION_EMAIL_PORT }}
+          GITHUB_TOKEN: ${{ github.token }}     # the week's runs for the Operations block (PL-16), read only
         run: python -m tools.books_report
 
   # GitHub delivers scheduled runs 1-4 hours late (measured: a 22:05 IST cron

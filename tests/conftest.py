@@ -30,6 +30,22 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "slow: needs the parquet store or a long run")
 
 
+# CENTURION_NO_SKIPS=1 marks a run that must exercise every test it collects (the full-install job in CI): a test
+# that skips there checked nothing, so the run fails and names it.
+_SKIPPED: list = []
+
+
+def pytest_runtest_logreport(report):
+    if report.skipped and not hasattr(report, "wasxfail"):
+        _SKIPPED.append(report.nodeid)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    if os.environ.get("CENTURION_NO_SKIPS") == "1" and _SKIPPED and session.exitstatus == 0:
+        print(f"\nCENTURION_NO_SKIPS: {len(_SKIPPED)} test(s) skipped, so they checked nothing:\n  " + "\n  ".join(_SKIPPED))
+        session.exitstatus = 1
+
+
 @pytest.fixture(scope="session")
 def store_path() -> Path:
     if not (STORE / "equity").exists():
@@ -100,3 +116,70 @@ def truncate(data: MarketData, upto: str) -> MarketData:
                      etfs=data.etfs, sectors=data.sectors, source=data.source)
     out.data_hash = out.compute_hash()
     return out
+
+
+# ── the order gate's fakes, shared by the order, kill-switch, executor, go-live and postback tests ──
+
+class _Broker:
+    """A broker that accepts orders into a book.  ``lose`` answers are lost after the order is accepted, ``refuse``
+    calls fail before it is, and ``book_down`` makes the order book unreadable."""
+
+    def __init__(self, book=None, lose=0, refuse=0, book_down=False):
+        self.book, self.lose, self.refuse, self.book_down, self.sent = list(book or []), lose, refuse, book_down, 0
+
+    def positions(self):
+        return {"day": []}
+
+    def orders(self):
+        if self.book_down:
+            raise ConnectionError("order book down")
+        return self.book
+
+    def order_history(self, order_id):
+        return []
+
+    def place_order(self, **params):
+        if self.refuse:
+            self.refuse -= 1
+            raise ConnectionError("no route to host")
+        self.sent += 1
+        order_id = f"O{self.sent}"
+        self.book.append({"order_id": order_id, "tag": params["tag"], "status": "OPEN"})
+        if self.lose:
+            self.lose -= 1
+            raise TimeoutError("read timed out")
+        return order_id
+
+
+@pytest.fixture
+def gate(monkeypatch):
+    from kite_connect.trading import order_service as os_
+
+    monkeypatch.setattr(os_, "_is_nse_market_open", lambda: True)
+    monkeypatch.setattr(os_, "is_kill_switch_active", lambda: False)
+    monkeypatch.setattr(os_, "_persist_to_db", lambda *a, **k: None)
+    monkeypatch.setattr(os_, "_send_order_email", lambda *a, **k: None)
+    monkeypatch.setattr(os_, "_order_circuit", None)
+    monkeypatch.setattr(os_.time, "sleep", lambda *_: None)
+    return os_
+
+
+LIMIT = dict(symbol="RELIANCE", exchange="NSE", transaction_type="BUY", quantity=5, order_type="LIMIT", price=2500.0)
+
+
+@pytest.fixture
+def route(gate, monkeypatch):
+    pytest.importorskip("fastapi")
+    from api.routers.v1 import kite as route_
+
+    monkeypatch.setattr(route_, "get_kite_session", lambda: route_._test_broker, raising=False)
+    return route_
+
+
+def _post(route_, broker, **fields):
+    import asyncio
+
+    route_._test_broker = broker
+    body = dict(tradingsymbol="RELIANCE", exchange="NSE", transaction_type="BUY", quantity=5, order_type="LIMIT",
+                price=2500.0, tag="abc123")
+    return asyncio.run(route_.kite_place_order(route_.KiteOrderRequest(**{**body, **fields})))

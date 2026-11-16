@@ -9,6 +9,7 @@ can print (tracker RB1), so a glitch cannot read as a stop hit.
 from __future__ import annotations
 
 import dataclasses
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -21,6 +22,10 @@ from nse_engine.data.reference import FOR_CAUSE_EXITS, load_for_cause_exits
 from nse_engine.data.store import build_year_frames, for_cause_exits, invalid_bars
 from nse_engine.engine import EngineCache, run_backtest
 from nse_engine.universe import compute_universe_panel
+
+pytestmark = pytest.mark.lesson(
+    "L-SB2", pattern="F5", date="2026-10-08", source="SB2",
+    summary="A backtest could see history through today's names: dead stocks, today's sector map")
 
 UNIVERSE = UniverseConfig(top_n_liquid=40, min_history_days=60, liquidity_lookback_days=40,
                           refresh_every_n_days=21, min_median_value_inr=0.0, min_price_inr=0.0)
@@ -363,6 +368,8 @@ def test_both_fo_formats_parse_futures_and_options(parser, text, expiry, lot):
         assert f["lot_size"] == lot
 
 
+@pytest.mark.lesson("L-DQ1", pattern="F1", date="2026-11-06", source="DQ1",
+                    summary="The store build skipped a file it could not parse and lost that session's bars")
 def test_a_file_that_will_not_parse_stops_the_build_and_names_itself(tmp_path):
     """DQ1 regression: the build used to log the failure and skip the file, so that session's bars vanished."""
     from nse_engine.data.store import build_year_frames
@@ -377,3 +384,364 @@ def test_a_file_that_will_not_parse_stops_the_build_and_names_itself(tmp_path):
     with pytest.raises(ValueError, match="no equity bars"):
         build_year_frames({"equity": [good, empty], "delivery": [], "indices": [], "corpact": []})
     build_year_frames({"equity": [good], "delivery": [], "indices": [], "corpact": []})   # a clean file still builds
+
+
+@pytest.mark.lesson("L-CAN1", pattern="F6", date="2026-10-20", source="CAN1",
+                    summary="A special session for 14 gold ETFs entered the store and shifted every later rebalance day")
+def test_a_session_for_a_few_instruments_stays_out_of_the_store(tmp_path):
+    from nse_engine.data import store
+
+    assert "20121111" in store.PARTIAL_SESSIONS                           # Dhanteras 2012, a Sunday
+    day = tmp_path / "equity" / "2012"
+    day.mkdir(parents=True)
+    for name in ("cm20121109.csv.zip", "cm20121111.csv.zip", "cm20121112.csv.zip"):   # the archive keeps all three
+        (day / name).write_text("x")
+    assert [p.name for p in store.year_sources(tmp_path, 2012)["equity"]] == ["cm20121109.csv.zip", "cm20121112.csv.zip"]
+
+
+@pytest.mark.lesson("L-LNT32", pattern="F6", date="2026-10-13", source="LN-T32",
+                    summary="A rights issue was priced with today's face value, so a later consolidation moved old prices")
+def test_a_rights_issue_reads_the_face_value_of_its_own_date():
+    from nse_engine.data.reference import FaceValues
+
+    fv = FaceValues(history={"CCAVENUE": [("2025-01-01", 1.0), ("2026-10-13", 10.0)]}, current={"NEW": 2.0})
+    assert fv.on("CCAVENUE", "2025-06-26") == 1.0                         # its rights issue: not today's Rs 10
+    assert fv.on("CCAVENUE", "2026-10-13") == 10.0 and fv.on("CCAVENUE", "2020-01-01") == 1.0
+    assert fv.on("NEW", "2025-06-26") == 2.0 and fv.on("GONE", "2025-06-26") is None
+
+
+# ── the nightly download (nse_engine/data/archive.py), against NSE's site in memory ──
+
+class _Site:
+    """NSE's archive host: ``pages`` {url: (status, bytes) or a list of them, served in turn}; the rest is a 404."""
+
+    def __init__(self, pages=None):
+        self.pages, self.asked, self.closed = dict(pages or {}), [], 0
+
+    def get(self, url, timeout=None):
+        from types import SimpleNamespace
+
+        self.asked.append(url)
+        page = self.pages.get(url, (404, b""))
+        if isinstance(page, list):
+            page = page.pop(0) if len(page) > 1 else page[0]
+        if isinstance(page, Exception):
+            raise page
+        return SimpleNamespace(status_code=page[0], content=page[1])
+
+    def close(self):
+        self.closed += 1
+
+
+def _zipped(name="data.csv", body=b"a,b\n1,2\n") -> bytes:
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(name, body)
+    return buf.getvalue()
+
+
+@pytest.fixture
+def mirror(tmp_path, monkeypatch):
+    """(the archive module, a mirror under tmp_path with no pacing or back-off, its site)."""
+    from nse_engine.data import archive
+
+    monkeypatch.setattr(archive.time, "sleep", lambda seconds: None)
+    site = _Site()
+    made = []
+    arch = archive.BhavcopyArchive(tmp_path, requests_per_second=0, max_retries=3,
+                                   session_factory=lambda: made.append(1) or site)
+    arch.sessions_made = made
+    return archive, arch, site
+
+
+def test_each_days_files_have_one_name_and_the_formats_overlap_only_at_their_boundary(tmp_path):
+    from datetime import date
+
+    from nse_engine.data.archive import ARCHIVE_HOST as H, candidate_files
+
+    (legacy,) = candidate_files(tmp_path, "equity", date(2013, 1, 15))
+    assert legacy.url == f"{H}/content/historical/EQUITIES/2013/JAN/cm15JAN2013bhav.csv.zip"
+    assert legacy.path == tmp_path / "equity" / "2013" / "cm20130115.csv.zip"
+    assert [c.fmt for c in candidate_files(tmp_path, "equity", date(2024, 7, 8))] == ["udiff", "legacy"]
+    assert [c.fmt for c in candidate_files(tmp_path, "equity", date(2024, 7, 5))] == ["legacy", "udiff"]
+    (udiff,) = candidate_files(tmp_path, "equity", date(2026, 11, 13))
+    assert udiff.url == f"{H}/content/cm/BhavCopy_NSE_CM_0_0_0_20261113_F_0000.csv.zip" and udiff.path.name == "udiff20261113.csv.zip"
+    mto, full = candidate_files(tmp_path, "delivery", date(2026, 11, 13))
+    assert (mto.url, full.url) == (f"{H}/archives/equities/mto/MTO_13112026.DAT",
+                                   f"{H}/products/content/sec_bhavdata_full_13112026.csv")
+    assert candidate_files(tmp_path, "indices", date(2026, 11, 13))[0].path.name == "ind20261113.csv"
+    pr = candidate_files(tmp_path, "corpact", date(2026, 11, 13))[0]
+    assert pr.url.endswith("/pr/PR131126.zip") and pr.path.name == "bc20261113.csv"
+    assert candidate_files(tmp_path, "fo", date(2026, 11, 13))[0].path.name == "udiff_fo20261113.csv.zip"
+    assert candidate_files(tmp_path, "participant", date(2026, 11, 13))[0].path.name == "poi20261113.csv"
+    with pytest.raises(ValueError, match="unknown kind"):
+        candidate_files(tmp_path, "bonds", date(2026, 11, 13))
+
+
+def test_every_day_is_a_candidate_session_weekends_included():
+    from datetime import date
+
+    from nse_engine.data.archive import session_dates
+
+    week = session_dates(date(2026, 1, 30), date(2026, 2, 2))                 # Fri, Sat, Sun (the Budget), Mon
+    assert week == [date(2026, 1, 30), date(2026, 1, 31), date(2026, 2, 1), date(2026, 2, 2)]
+    weekdays = session_dates(date(2013, 11, 1), date(2013, 11, 4), include_saturdays=False)
+    assert weekdays == [date(2013, 11, 1), date(2013, 11, 3), date(2013, 11, 4)]     # the Muhurat Sunday is listed
+
+
+def test_an_error_page_or_a_broken_zip_is_never_stored_as_data(tmp_path):
+    from nse_engine.data.archive import RemoteFile, looks_valid, transform_content
+
+    zip_path, csv_path = tmp_path / "cm.csv.zip", tmp_path / "ind.csv"
+    assert looks_valid(_zipped(), zip_path) and looks_valid(b"Index Name,Close\nNifty 50,24000\n", csv_path)
+    for bad in (b"", b"<html>Access Denied</html>", b"PK-not-really-a-zip"):
+        assert not looks_valid(bad, zip_path), bad
+    assert not looks_valid(b"  <!DOCTYPE html><html>resource not found</html>", csv_path)
+    pr = RemoteFile("corpact", "pr", "u", tmp_path / "bc.csv")
+    assert transform_content(pr, _zipped("Bc131126.csv", b"SERIES,SYMBOL\nEQ,INFY\n")) == b"SERIES,SYMBOL\nEQ,INFY\n"
+    assert transform_content(pr, _zipped("Pd131126.csv")).startswith(b"SERIES,SYMBOL,SECURITY,RECORD_DT")   # no actions that day
+    assert transform_content(pr, b"<html>denied</html>") is None and transform_content(pr, b"PK-broken") is None
+    eq = RemoteFile("equity", "udiff", "u", zip_path)
+    assert transform_content(eq, b"<html>denied</html>") is None and transform_content(eq, _zipped()) == _zipped()
+
+
+def test_a_file_is_fetched_once_and_a_holiday_is_remembered(mirror):
+    from datetime import date
+
+    archive, arch, site = mirror
+    day, today = date(2026, 11, 12), date(2026, 11, 20)
+    (cand,) = archive.candidate_files(arch.root, "equity", day)
+    site.pages[cand.url] = (200, _zipped())
+    assert arch.sync_one("equity", day, today) == "downloaded" and cand.path.read_bytes() == _zipped()
+    assert arch.sync_one("equity", day, today) == "skipped" and len(site.asked) == 1          # already here: no request
+    assert not list(cand.path.parent.glob(".*tmp*"))                                           # written whole
+    holiday = date(2026, 11, 10)
+    assert arch.sync_one("equity", holiday, today) == "holiday" and arch.is_missing("equity", holiday)
+    asked = len(site.asked)
+    assert arch.sync_one("equity", holiday, today) == "skipped" and len(site.asked) == asked    # one request, once
+    arch.save_missing()
+    assert archive.BhavcopyArchive(arch.root, session_factory=lambda: site).is_missing("equity", holiday)
+
+
+def test_a_file_not_out_yet_or_unusable_is_neither_stored_nor_called_a_holiday(mirror):
+    from datetime import date
+
+    archive, arch, site = mirror
+    today = date(2026, 11, 20)
+    assert arch.sync_one("equity", date(2026, 11, 19), today) == "not_published"                # inside the grace days
+    assert not arch.is_missing("equity", date(2026, 11, 19))
+    day = date(2026, 11, 12)
+    (cand,) = archive.candidate_files(arch.root, "equity", day)
+    site.pages[cand.url] = (200, b"<html>Access Denied</html>")
+    assert arch.sync_one("equity", day, today) == "failed" and not cand.path.exists() and not arch.is_missing("equity", day)
+    site.pages[cand.url] = (200, _zipped())                                                     # the equity session exists,
+    assert arch.sync_one("equity", day, today) == "downloaded"
+    assert arch.sync_one("indices", day, today) == "failed"                                     # so a missing index file is
+    assert not arch.is_missing("indices", day)                                                  # late, not a holiday (LN-T19)
+    assert arch.sync_one("indices", date(2026, 11, 10), today) == "holiday"
+
+
+def test_a_refused_request_is_retried_with_a_fresh_session_and_a_dead_site_gives_up(mirror):
+    from datetime import date
+
+    import requests
+
+    archive, arch, site = mirror
+    day = date(2026, 11, 12)
+    (cand,) = archive.candidate_files(arch.root, "equity", day)
+    site.pages[cand.url] = [(403, b"denied"), requests.ConnectionError("reset"), (200, _zipped())]
+    assert arch.sync_one("equity", day, date(2026, 11, 20)) == "downloaded"
+    assert len(site.asked) == 3 and len(arch.sessions_made) == 3 and site.closed == 2
+    site.pages["https://x/dead"] = [(503, b"")]
+    assert arch.fetch("https://x/dead") == (None, b"") and site.asked.count("https://x/dead") == 3     # max_retries
+    site.pages["https://x/odd"] = (400, b"bad request")
+    assert arch.fetch("https://x/odd") == (400, b"bad request")
+
+
+def test_near_the_format_change_the_other_format_is_tried(mirror):
+    from datetime import date
+
+    archive, arch, site = mirror
+    day = date(2024, 7, 10)
+    udiff, legacy = archive.candidate_files(arch.root, "equity", day)
+    site.pages[legacy.url] = (200, _zipped())
+    assert arch.sync_one("equity", day, date(2026, 11, 20)) == "downloaded"
+    assert legacy.path.exists() and not udiff.path.exists() and site.asked == [udiff.url, legacy.url]
+    assert arch.sync_one("equity", day, date(2026, 11, 20)) == "skipped"
+
+
+def test_a_day_with_no_equity_session_asks_for_nothing_else(mirror, monkeypatch):
+    from datetime import date
+
+    from nse_engine import nse_calendar
+
+    archive, arch, site = mirror
+    monkeypatch.setattr(nse_calendar, "special_session_dates", lambda: [])
+    monkeypatch.setattr(archive, "RECENT_GRACE", archive.timedelta(days=-10_000))        # every 404 is old enough
+    traded, holiday = date(2026, 11, 9), date(2026, 11, 10)
+    for kind in archive.KINDS:
+        cand = archive.candidate_files(arch.root, kind, traded)[0]
+        site.pages[cand.url] = (200, _zipped("Bc091126.csv") if kind in ("equity", "corpact") else b"a,b\n1,2\n")
+    counts = arch.sync(traded, holiday)
+    assert counts == {kind: {"downloaded": 1, "holiday": 1} for kind in archive.KINDS}
+    assert all("10112026" not in url and "101126" not in url for url in site.asked if "BhavCopy_NSE_CM" not in url)
+    assert (arch.root / "manifest" / "missing.json").exists() and arch.is_missing("delivery", holiday)
+    assert arch.sync(traded, holiday) == {kind: {"skipped": 2} for kind in archive.KINDS}
+
+
+def test_requests_are_spaced_by_the_rate_limit():
+    from nse_engine.data.archive import RateLimiter
+
+    now, slept = [100.0], []
+
+    def sleep(seconds):
+        slept.append(round(seconds, 3))
+        now[0] += seconds
+
+    limiter = RateLimiter(2.0, clock=lambda: now[0], sleep=sleep)                # at most two a second
+    limiter.wait()
+    limiter.wait()
+    now[0] += 0.2
+    limiter.wait()
+    now[0] += 5.0
+    limiter.wait()
+    assert slept == [0.5, 0.3]
+    free = RateLimiter(0, clock=lambda: now[0], sleep=sleep)
+    free.wait(), free.wait()
+    assert slept == [0.5, 0.3]
+
+
+# ── the data catalogue and the store doctor (tools/data_catalogue.py, PL-10, PL-11) ──
+
+_NOV = ["2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30", "2026-11-02", "2026-11-03",
+        "2026-11-04", "2026-11-05", "2026-11-06", "2026-11-08", "2026-11-09", "2026-11-11", "2026-11-12",
+        "2026-11-13"]                                     # NSE's real sessions: 8 Nov Muhurat (Sun), 10 Nov a holiday
+
+
+def _catalogue_store(root, sessions, rows=None, suspects=(), holidays=None, refreshed=("equity_store",)):
+    """A live equity store under ``root``: its calendar, one row per symbol and session, a manifest; the
+    download's holiday record; the refresh status."""
+    import json
+
+    data = root / "data" / "nse_engine"
+    store = data / "store"
+    (store / "equity").mkdir(parents=True, exist_ok=True)
+    days = pd.to_datetime(sorted(sessions))
+    pd.DataFrame({"date": days}).to_parquet(store / "calendar.parquet")
+    for year in sorted({d.year for d in days}):
+        frames = [pd.DataFrame({"date": d, "symbol": [f"S{i}" for i in range((rows or {}).get(d.date().isoformat(), 50))]})
+                  for d in days if d.year == year]
+        pd.concat(frames).to_parquet(store / "equity" / f"{year}.parquet")
+    years = {str(y): {"equity_rows": 50, "fingerprint": f"fp{y}"} for y in sorted({d.year for d in days})}
+    (store / "manifest.json").write_text(json.dumps({"years": years, "suspect_missing_sessions": list(suspects)}))
+    if holidays is not None:
+        (data / "archive" / "manifest").mkdir(parents=True, exist_ok=True)
+        (data / "archive" / "manifest" / "missing.json").write_text(json.dumps({"equity": holidays}))
+    (data / "refresh_status.json").write_text(json.dumps({"finished_at": "2026-11-13T19:36:35+0530", "ok": True,
+                                                         "stores": list(refreshed)}))
+    return root
+
+
+def _monday_evening():
+    from tools.data_catalogue import IST
+
+    return datetime(2026, 11, 16, 7, 0, tzinfo=IST)     # before Monday's close: the last completed session is the 13th
+
+
+def test_a_clean_store_is_catalogued_and_its_first_baseline_is_todays_state(tmp_path):
+    from tools import data_catalogue as dc
+
+    root = _catalogue_store(tmp_path, _NOV, holidays=[])
+    cat = dc.build(root, _monday_evening(), previous={})
+    (equity,) = cat["stores"]
+    assert (equity["name"], equity["first"], equity["last"], equity["dates"]) == ("equity", "2026-10-26", "2026-11-13", 15)
+    assert equity["refreshed"] and equity["behind"] == 0 and not equity["stale"] and len(equity["build_fingerprint"]) == 16
+    doc = cat["doctor"]
+    assert (doc["calendar_years"], doc["extra"], doc["missing"], doc["unexplained_gaps"]) == ([2026], [], [], [])
+    assert doc["weekend_unlisted"] == [] and cat["findings"] == []               # 8 Nov is a listed special session
+    assert cat["last_completed_session"] == "2026-11-13"
+
+
+@pytest.mark.lesson("L-CAN1")
+def test_the_doctor_names_a_session_nse_did_not_hold_and_a_trading_day_the_store_lacks(tmp_path):
+    from tools import data_catalogue as dc
+
+    sessions = [d for d in _NOV if d != "2026-11-12"] + ["2026-11-10", "2026-11-07"]    # a holiday and a Saturday in
+    cat = dc.build(_catalogue_store(tmp_path, sessions, holidays=[]), _monday_evening(),
+                   previous={"baseline": {"weekend_sessions": {}, "short_sessions": {}}})
+    assert cat["findings"] == ["2026-11-07: a session on a day NSE did not trade",
+                               "2026-11-10: a session on a day NSE did not trade",
+                               "2026-11-12: an NSE trading day missing from the store",
+                               "2026-11-07: a weekend session not listed in nse_calendar.SPECIAL_SESSIONS (CAN1)"]
+
+
+def test_a_new_short_or_weekend_session_is_reported_until_acknowledged_with_a_reason(tmp_path):
+    from tools import data_catalogue as dc
+
+    root = _catalogue_store(tmp_path, _NOV, rows={"2026-11-12": 20}, holidays=[])
+    cat = dc.build(root, _monday_evening(), previous={"baseline": {"weekend_sessions": {}, "short_sessions": {}}})
+    assert cat["findings"] == ["2026-11-12: a short session, under 70% of the rows of the 20 before"]
+    dc.write(cat, root)
+    with pytest.raises(ValueError, match="give the reason"):
+        dc.acknowledge("2026-11-12", "  ", root)
+    with pytest.raises(ValueError, match="not a weekend or short session"):
+        dc.acknowledge("2026-11-13", "a normal day", root)
+    dc.acknowledge("2026-11-12", "a half-day the exchange announced", root)
+    again = dc.build(root, _monday_evening())                                    # the saved baseline carries over
+    assert again["findings"] == [] and again["baseline"]["short_sessions"] == {
+        "2026-11-12": "a half-day the exchange announced"}
+    first = dc.build(_catalogue_store(tmp_path / "fresh", _NOV, rows={"2026-11-12": 20}, holidays=[]),
+                     _monday_evening(), previous={})
+    assert first["findings"] == [] and "2026-11-12" in first["baseline"]["short_sessions"]   # a first catalogue
+
+
+def test_a_weekday_gap_without_a_recorded_holiday_is_named_and_needs_the_download_record(tmp_path):
+    from tools import data_catalogue as dc
+
+    sessions = ["2024-01-01", "2024-01-02", "2024-01-04", "2024-01-05", "2024-01-08", "2024-01-09", "2024-01-11",
+                "2024-01-12"]
+    cat = dc.build(_catalogue_store(tmp_path, sessions, holidays=["2024-01-10"]), _monday_evening(), previous={})
+    assert cat["doctor"]["calendar_years"] == [] and cat["doctor"]["unexplained_gaps"] == ["2024-01-03"]
+    assert "2024-01-03: a weekday missing that the download did not record as a holiday" in cat["findings"]
+    blind = dc.build(_catalogue_store(tmp_path / "no_record", sessions), _monday_evening(), previous={})
+    assert blind["doctor"]["unexplained_gaps"] is None                           # not checked, never "none"
+
+
+def test_a_refreshed_store_that_falls_behind_is_a_finding_and_a_snapshot_is_not(tmp_path):
+    from tools import data_catalogue as dc
+    from tools.data_catalogue import IST
+
+    root = _catalogue_store(tmp_path, _NOV, holidays=[], refreshed=("equity_store",))
+    tuesday = datetime(2026, 11, 18, 7, 0, tzinfo=IST)                            # the 16th and 17th have closed
+    cat = dc.build(root, tuesday, previous={})
+    assert cat["stores"][0]["behind"] == 2 and "equity store: 2 session(s) behind 17 Nov" in cat["findings"]
+    snapshot = dc.build(_catalogue_store(tmp_path / "snap", _NOV, holidays=[], refreshed=()), tuesday, previous={})
+    assert snapshot["stores"][0]["behind"] == 2 and snapshot["findings"] == []
+    gone = dc.build(tmp_path / "empty", tuesday, previous={})
+    assert gone["findings"] == ["the live equity store is not on this machine"] and gone["stores"] == []
+
+
+def test_the_catalogue_status_line_says_when_it_is_missing_old_or_has_findings(tmp_path):
+    import json
+    from datetime import date
+
+    from tools import data_catalogue as dc
+    from tools import guards
+
+    assert dc.status(tmp_path).startswith("! no catalogue on this machine")
+    root = _catalogue_store(tmp_path, _NOV, holidays=[])
+    dc.write(dc.build(root, _monday_evening(), previous={}), root)
+    assert dc.status(root, date(2026, 11, 16)) == "catalogue of 16 Nov: 0 finding(s); equity to 13 Nov"
+    assert "over 8 days old" in dc.status(root, date(2026, 11, 25))
+    cat = json.loads((root / dc.CATALOGUE).read_text())
+    cat["findings"] = ["2026-11-12: an NSE trading day missing from the store"]
+    dc.write(cat, root)
+    assert dc.status(root, date(2026, 11, 16)).startswith("! catalogue of 16 Nov: 1 finding(s)")
+    record = root / guards.RECORD
+    record.write_text(json.dumps({"when": "2026-11-16T09:00+05:30", "passed": 9, "failed": 0, "skipped": 0,
+                                  "data_findings": 1}))
+    line = guards.status(root, date(2026, 11, 16))
+    assert line.startswith("! last run Mon 16 Nov 2026: 9 passed, 0 failed, 0 skipped; store doctor: 1 finding(s)")

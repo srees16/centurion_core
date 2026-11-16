@@ -60,3 +60,15 @@ def test_readiness_refuses_go_live_when_tripped():
                           capital=cl.RUNGS[0], mc=tripped)
     row = [c for c in checks if c[0] == "MC floor (rule D)"][0]
     assert row[1] is False
+
+
+def test_the_paper_alarm_counts_return_alone_and_dates_its_run():
+    """MCA1 reads Rule D's counter on return only: a deep early fall the book has recovered from keeps Rule D's
+    drawdown leg below its floor, never the alarm's."""
+    recovered = _equity([100.0] * 5 + [80.0] + [100.0] * 30)        # -20% once, then back to the start
+    assert cl.mc_breach_streak(recovered, _doc(), "deployed")["streak"] == 31          # Rule D: drawdown counts
+    assert cl.mc_breach_streak(recovered, _doc(), "deployed", kinds=("return",))["streak"] == 0
+    low = _equity([100.0] * 5 + [90.0] * 20)                          # -10% return, below the -5% line
+    r = cl.mc_breach_streak(low, _doc(), "deployed", kinds=("return",))
+    assert r["streak"] == 20 and r["since"] == low.index[5].date() and not r["tripped"]
+    assert cl.mc_breach_streak(_equity(np.linspace(100, 110, 50)), _doc(), "deployed")["since"] is None
