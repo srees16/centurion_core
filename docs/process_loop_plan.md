@@ -1,8 +1,8 @@
 # Process improvement loop: plan (PL0, 14 Nov 2026)
 
 A plan; items are built only on the owner's approval of their ids. **Built 14 Nov 2026: PL-01 to
-PL-08, PL-12, PL-13 and PL-15** (sections 9 and 10). Scheduled: PL-14 after the sell test; PL-09 and PL-20
-after RA1 (15 Dec); PL-10, PL-11, PL-16 and PL-17 to be planned on 16 or 17 Nov. PL-18 and PL-19 wait. Scope: the research
+PL-08, PL-12, PL-13 and PL-15** (sections 9 and 10); **16 Nov: PL-10, PL-11, PL-16, PL-17** (section 10,
+last table). Scheduled: PL-14 after the sell test; PL-09 and PL-20 after RA1 (15 Dec). PL-18 and PL-19 wait. Scope: the research
 **process** (data, tests, costs, monitoring, hygiene, memory). Strategy Sharpe and CAGR are
 not loop metrics, and the loop never tunes a parameter, signal or filter.
 
@@ -236,6 +236,24 @@ Differences from the plan above:
   then deleted (the "no new test files" rule read as "no tests"). The drawdown re-arm, the live stop logic,
   the go-live evidence rule and the dated face values had no test at all before today.
 - **PL-05's check was tightened**: a Phase 0 field that still holds any `<placeholder>` is unfilled.
+
+Built on 16 Nov (the owner's answers: PL-11 reduced and on the Mac; the catalogue local; the Saturday
+wiring now; one combined block):
+
+| Id | What exists now | Where |
+|---|---|---|
+| PL-10 | `python -m tools.data_catalogue`: each store's dates, rows, data hash or build fingerprint, sessions behind; written to `data/nse_engine/catalogue.json` (git-ignored); the preflight's "Data:" line | `tools/data_catalogue.py` |
+| PL-11 | The store doctor in the same command, on the live store: sessions against NSE's holiday list (2025-26) and the download's holiday record (earlier years); weekend sessions not listed as special and short sessions (under 70% of the 20 before), each against a baseline acknowledged with `ack`; the build's unknown suspects. Run by `tools.guards` weekly; no nightly step | `tools/data_catalogue.py`, `tools/guards.py` |
+| PL-16 | The week's incidents from GitHub's run history (failed production runs) and Neon (alerts sent, caught-up, replayed and deferred sessions), each against the lessons that guard it; a type with none is flagged | `tools/ops_report.py` |
+| PL-17 | The loop's health from the records: lessons guarded and due for review, recurrences, journal gaps, post-mortem hours and trials (judged from 5 verdicts), trial counts and PBO | `tools/ops_report.py` |
+
+The Operations block (PL-16 and PL-17) shows only what needs action; a quiet week is one line. It is in the
+Saturday email after the findings (the job may now read its run history: `actions: read`) and in the
+preflight. Differences from the plan above: PL-11's zero-volume check was dropped (the store has no
+zero-volume rows in any year, so it would always read 0) for the short-session check; PL-11 runs with the
+store guards, not as a nightly step, because the nightly already checks missing sessions (LN-T7), partial
+sessions (CAN1) and data drift (the canary). Found while building: the Saturday summary could not be built
+when NIFTY 50 was unreadable (fixed, lesson L-NIFTY-NONE).
 
 ## 8. Corrections to the brief
 

@@ -4,6 +4,7 @@ leftover files, the journal against the tracker, and the trial counts against th
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -498,3 +499,22 @@ def test_a_run_that_must_not_skip_fails_when_a_test_skips(tmp_path):
     assert run("0").returncode == 0
     strict = run("1")
     assert strict.returncode == 1 and "test_x.py::test_b" in strict.stdout
+
+
+# ── the loop's health (tools/ops_report.py, PL-17), on the repository's own records ──
+
+def test_the_loops_health_warns_before_an_open_lesson_fails_the_suite():
+    from datetime import date
+
+    from tools import lessons, ops_report as o
+
+    open_due = sorted((r["review_by"], r["id"]) for r in lessons.build() if r["status"] == "open")
+    first_due = date.fromisoformat(open_due[0][0])
+    early = o.loop_health(today=first_due - timedelta(days=o.DUE_SOON_DAYS + 1))
+    assert not any("reach their review" in h["text"] for h in early)
+    near = o.loop_health(today=first_due - timedelta(days=5))
+    due = [h for h in near if "reach their review" in h["text"]]
+    assert len(due) == 1 and due[0]["action"] and open_due[0][1] in due[0]["text"]
+    assert near[0]["text"].startswith("lessons: ") and near[0]["action"] is False
+    assert any(h["text"].startswith("post-mortems: ") for h in near)
+    assert near[-1]["text"].startswith("cost-model error against contract notes: waits for PL-14")

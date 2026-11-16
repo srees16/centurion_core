@@ -288,6 +288,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
+ >>> DONE 16 Nov: SELL TEST PASSED (ST2 step 3, closes LN-T2).  Record sell path run 43810421869 (11:00): "sell path
+     PASS: DDPI confirmed 2026-10-10; AMO sell and GTT sell COMPLETE"; the go-live check reads it as passed.
+     TEST 2 not needed.  2 INFY left in your account: yours to keep or sell (not the book's).  Was:
  >>> SELL TEST WITH INFY, WED 11 (BUY) - TUE 17 NOV (ST2 step 3, closes LN-T2; your call 9 Nov)
      Status 9 Nov: "Record sell path" has never run (gh: 0 runs), so the 3-4 Nov restart did not
      complete (you confirmed 9 Nov: pending on you); the first live session refuses to start until it does.
@@ -299,7 +302,19 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      3. Settled only Fri 13 morning (T1 at 22:56 Thu), so TEST 1 moved: Fri 13 after 20:00 AMO SELL 1 INFY,
         NSE, CNC, LIMIT 1,135.80 (Friday's close 1,141.50 x 0.995).  DONE 13 Nov 21:54: order 261113151379526, AMO REQ
         RECEIVED (checked by API; HDFCBANK 34 untouched).
-     4. Mon 16 Nov, TEST 1: 09:00 Kite login; ~09:10 the AMO COMPLETE (note its order ID); after 09:15
+     4. Mon 16 Nov, TEST 1.  AMO LEG DONE (checked 09:42 by API, read only): order 261113151379526 COMPLETE, 1 INFY
+        sold at 1,150.00 in the 09:00 pre-open (limit 1,135.80: the open, above the limit, as live_rules assumes);
+        login 09:04; INFY 3 left; HDFCBANK 34 untouched.  GTT LEG PLACED: GTT 344886915, single stop-loss, SELL 1 INFY
+        CNC, trigger 1,149.00 / limit 1,144.40 (checked 09:59; first saved at 1,096 / 1,144.10, modified).
+        GTT LEG DONE: triggered 10:01:48 at LTP 1,148.90; its LIMIT SELL 1 (order 261116150440837) COMPLETE at
+        1,148.90 the same second, with no one approving it (DDPI works for an unattended stop sell).  INFY 2
+        left; HDFCBANK 34 untouched; no GTT left active.  TEST 1 passed both legs; next: Record sell path.
+        POSTBACK: no alert recorded for either sell.  Kite's docs: "Only orders placed using the app's api_key are
+        notified"; both orders were placed in Kite's own app, so none was sent (AL5 open question answered for
+        hand-placed orders).  Still open: whether stops the engine places through the API are posted back;
+        Kite recommends its WebSocket order updates, which cover orders placed anywhere.  The evening session's
+        order book check catches a filled or failed stop either way.  Plan was: 09:00 Kite login; ~09:10 the AMO
+        COMPLETE (note its order ID); after 09:15
         GTT Single SELL qty 1, trigger = LTP x 0.997, limit = trigger x 0.996 (note the GTT ID; if not
         triggered by 14:30, modify to the new LTP); its sell COMPLETE.  Evening: Actions > Record sell
         path (DDPI date from Console, AMO order ID, GTT ID); Claude checks the run.  After 20:00: AMO SELL 1
@@ -681,7 +696,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              it needs that day's login.  Dry-run emails are off until live
              trading starts (your call, 16 Oct; DRE1); 5 clean dry runs are
              still part of go-live readiness (D3).
-[!] P0  ST2  Before live month 1 (mid-Dec), two account checks.  Web
+[!] P0  ST2  Before live month 1 (mid-Dec), two account checks.  Step 3, the sell test, PASSED 16 Nov (section 8).  Web
              research 10 Oct (Zerodha support + Kite forum staff, 2020):
              equity AMOs are validated "before market open" and sent at
              09:00 (ETF AMOs 09:15); sale credit is usable only after the
@@ -963,7 +978,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
  order categories): email only, to you; subjects [Centurion CRITICAL] and
  [Centurion warning]; healthchecks.io free tier as the dead-man's switch;
  push channel deferred (AL6).  AL1-AL4 done 10 Oct; AL5 at go-live.
-[x] P2  AL5  DONE 14 Nov (PG1, section 8; uncommitted): the alerts are wired; whether Kite posts back
+[x] P2  AL5  DONE 14 Nov (PG1, section 8).  16 Nov sell test: hand-placed orders are not posted back (Kite: only the
+             app's api_key orders); the engine's API stops are untested.  Was: the alerts are wired; whether Kite posts back
              GTT-triggered and hand-placed sells is read off the 16-17 Nov sell test.  Was: Orders,
              market hours, at go-live: Kite postbacks for the
              engine's own orders (kite_tag): rejected or cancelled ->
@@ -1079,7 +1095,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              the cost model, fill by fill (docs/process_loop_plan.md).  First fixtures: the INFY buy of
              11 Nov and the test sells.  Closes open lesson L-COST-NOTES (review by 31 Dec).
                                                             Prompt: do PL-14
-[ ] P2  PL-PLAN Mon 16 or Tue 17 Nov (your call 14 Nov): plan PL-10 (data catalogue), PL-11 (nightly
+[x] P2  PL-PLAN Built 16 Nov (section 8, PLB).  Was: plan PL-10 (data catalogue), PL-11 (nightly
              store check), PL-16 (weekly incident list) and PL-17 (loop health numbers): order, scope,
              what each reads, effort; nothing built before your approval by id.
                                                             Prompt: plan PL-10 PL-11 PL-16 PL-17
@@ -1538,6 +1554,58 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+16 Nov  ST2S The supervised sell test: PASS (ST2 step 3; closes LN-T2).  AMO SELL 1 INFY (261113151379526) filled at
+             1,150.00 in the 09:00 pre-open, above its 1,135.80 limit: the open, as live_rules assumes.  GTT
+             344886915 (single stop-loss; first saved at 1,096 / 1,144.10 and corrected to 1,149.00 / 1,144.40)
+             triggered 10:01:48 at 1,148.90; its LIMIT SELL 1 (261116150440837) filled at 1,148.90 the same
+             second, with no authorisation step: DDPI works for an unattended stop sell.  Record sell path
+             (run 43810421869, after a first attempt that never dispatched): PASS; the record is in the live
+             book and sell_path_check passes on it.  HDFCBANK 34 untouched throughout; 2 INFY left (yours).
+             Found: no postback for either order.  Kite sends notices only for orders placed with the app's
+             api_key, and both were placed in Kite's own app.  The engine's own API stops are untested;
+             Kite's WebSocket order updates cover orders placed anywhere (a choice for after RA1).  Lessons
+             for the live steps: Kite's GTT form defaults to a Target trigger and a far stop-loss trigger;
+             read both prices back before saving.
+16 Nov  PLB  PL-10, PL-11, PL-16, PL-17 built (your answers: PL-11 reduced and on the Mac; catalogue local;
+             Saturday wiring now; one block; uncommitted).  No engine, configuration, deployed-book or
+             live_session.py change; config hash unchanged.
+             PL-10 + PL-11: python -m tools.data_catalogue: each store's dates, rows, hash, sessions behind,
+             to data/nse_engine/catalogue.json (git-ignored); the store doctor on the live store: sessions
+             against NSE's holiday list (2025-26) and the download's holiday record (2006-24), weekend
+             sessions not listed as special and short sessions against an acknowledged baseline (ack), the
+             build's unknown suspects.  On the real store: 0 findings; baseline = 11 unlisted Saturday
+             sessions of 2006-15 and 18 May 2009 (the election-day circuit halt).  Run by tools.guards
+             weekly; the preflight shows it.  Dropped from the plan: zero-volume rows (none in any year).
+             PL-16 + PL-17: python -m tools.ops_report: the week's failed production runs (GitHub), alerts
+             and caught-up / replayed / deferred sessions (Neon), each against its lessons, untyped ones
+             flagged; the loop's health from the records.  Shows only what needs action.  In the Saturday
+             email after the findings, and in the preflight.  This week, read live: 9 incidents, all
+             guarded (the HB2 false alarm and its red heartbeat run; the Muhurat session replayed in 7
+             books); nothing needs action.  nse-paper-trading.yml: the Saturday job may read its run
+             history (actions: read) and passes GITHUB_TOKEN to the email step.
+             FOUND AND FIXED: the Saturday summary could not be built when NIFTY 50 was unreadable (Yahoo
+             down): the weekly market line compared an empty series without dates.  The report then fell
+             back to the books' own emails.  Not hit on the last two Saturdays.  One line in
+             nse_engine/books.py; test (lesson L-NIFTY-NONE) fails on the committed code.
+             Checks: fast suite green here; core install and full-job environment (no skips) green on a
+             copy of only the files git would commit; coverage floors held; a dry run of the Saturday
+             email end to end (Neon, Yahoo, GitHub; nothing sent).  Lessons 51, 43 guarded.
+16 Nov  PLP  Plan for PL-10, PL-11, PL-16, PL-17 (your ask; a plan, nothing built; waits for your answers).
+             Read first: the nightly already checks the store for missing sessions (LN-T7,
+             suspect_missing_sessions), partial sessions (CAN1) and data drift (the canary); alerts sent
+             are kept 7 days in each book's Neon state; paper_sessions notes carry caught-up, replayed,
+             deferred and failed legs; the nightly workflow may read contents only (no Actions API).
+             Proposed: (A) PL-10 + a reduced PL-11 as one Mac command: each store's coverage, rows,
+             hash and freshness, plus the two checks the nightly lacks (store sessions against
+             nse_calendar both ways; zero-volume rows week over week); about 6 h; no workflow change.
+             (B) PL-16 + PL-17 as one weekly "Operations" block: incidents from the Actions API and
+             Neon, each mapped to a lesson (unmapped types flagged), and the loop-health numbers from
+             the ledger, journal and families file, printing only what needs action; about 9 h;
+             wiring it into the Saturday email touches the weekly job (actions: read, a token).
+             Weaknesses said: none moves CAGR or Sharpe; PL-11 mostly repeats existing checks; PL-17's
+             numbers stay thin for weeks (no post-mortem rows yet, cost error waits for PL-14).
+             Open questions in chat: PL-11 shrunk and Mac-only; the catalogue committed or local; the
+             Saturday wiring now or after RA1; one combined block.
 16 Nov  BR1  Branch rule on main set (your answers: main only; you may override; pull requests only; no
              up-to-date requirement; your go "set the branch rule").  Repository ruleset 27330083, "main:
              tests before merge", active: a pull request is required (0 approvals); the checks "pytest"

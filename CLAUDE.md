@@ -74,7 +74,12 @@ data and coding assistants". Read it before changing code. The essentials:
   - After recording a trial: `python -m nse_engine.validation.families --write`.
   - Before a handover that touched the engine, the stores or the costs, and
     at least weekly: `python -m tools.guards` (the store guards CI cannot
-    run; about seven minutes).
+    run, and the data catalogue with its store doctor; about seven minutes).
+    A new weekend or short session the doctor reports is checked, then
+    acknowledged: `python -m tools.data_catalogue ack <date> --reason ...`.
+  - The preflight's "Operations" line is the week's incidents and the loop's
+    health (`python -m tools.ops_report`); an incident type with no lesson
+    gets one, or a reason it needs none.
   - Cost rates: `python -m nse_engine.validation.rates` lists each dated rate
     with its source and the published rates not applied yet. A new rate is
     never typed into a model without a row there.

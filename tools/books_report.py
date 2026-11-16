@@ -188,9 +188,18 @@ def weekly(args: argparse.Namespace, books: Sequence[bk.Book]) -> int:
     csv_bytes = register.to_csv(index=False, float_format="%.6g").encode()
     lasts = [d.paper.last for d in days.values() if d.paper.started]
     session = max(lasts).date() if lasts else today
+    try:                                                  # PL-16, PL-17: the week's operations; never stops the email
+        from tools import ops_report
+
+        operations = ops_report.block(books=books)
+    except Exception as exc:                              # noqa: BLE001
+        logger.warning("Operations block unavailable: %s", exc)
+        operations = {"head": f"Operations: the report could not be built ({type(exc).__name__})", "lines": [],
+                      "html": f"<h3>Operations</h3><p>The report could not be built ({type(exc).__name__}).</p>"}
     try:
         expected = {n: float(v) for n, v in register.set_index("book")["bt_sharpe"].items() if pd.notna(v)}
-        email = bk.build_weekly(list(days.values()), benchmark, session, report, kept_on=today, expected_sharpe=expected)
+        email = bk.build_weekly(list(days.values()), benchmark, session, report, kept_on=today, expected_sharpe=expected,
+                                operations=operations)
     except Exception:                                     # noqa: BLE001 - never lose the books' reports
         logger.exception("Saturday summary could not be built: the comparison report and each book's on their own")
         email = None

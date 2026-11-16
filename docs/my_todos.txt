@@ -382,6 +382,9 @@ Organize by logical and functional responsibility:
 
 Automate historical niveshaay rebalances n point in time fundamentals to train RL bot
 
+~~~~~~~~~~~~~
+
+weekly newsletter option during centurion sign up
 
 ~~~~~~~~~~~~~
 

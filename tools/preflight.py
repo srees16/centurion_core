@@ -162,6 +162,14 @@ def facts(now: Optional[datetime] = None, offline: bool = False, root: Path = _R
 
         today = (now or datetime.now(IST)).astimezone(IST).date()
         out.append(f"Store guards: {guards.status(root, today)}")
+        from tools import data_catalogue
+
+        out.append(f"Data: {data_catalogue.status(root, today)}")
+        from tools import ops_report                      # PL-16, PL-17: the week's operations, the loop's health
+
+        ops = ops_report.block(root, now, offline=offline)
+        out.append(ops["head"])
+        out += [f"  ! {line}" for line in ops["lines"]]
         out.append(f"Cost rates: {rates.status(today)}")
     except Exception as exc:                              # noqa: BLE001
         out.append(f"Store guards and cost rates: not read ({type(exc).__name__}: {exc})")

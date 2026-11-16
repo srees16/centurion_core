@@ -842,7 +842,8 @@ def daily_rows(days: Sequence[DayBook], nifty: Optional[pd.Series], session: dat
 
 
 def _market_line(nifty: Optional[pd.Series], session: date, week: bool = False) -> Optional[str]:
-    n = nifty[nifty.index <= pd.Timestamp(session)] if nifty is not None else pd.Series(dtype="float64")
+    n = (nifty[nifty.index <= pd.Timestamp(session)] if nifty is not None    # no NIFTY (Yahoo down): an empty
+         else pd.Series(dtype="float64", index=pd.DatetimeIndex([])))       # series that can still be compared
     prev = n[n.index <= pd.Timestamp(session) - pd.Timedelta(days=7)] if week else n.iloc[:-1]
     if not len(n) or not len(prev):
         return None
@@ -1269,9 +1270,11 @@ def _mc_line(pos: Dict[str, Dict[str, Any]], days: Sequence[DayBook] = ()) -> Op
 
 
 def build_weekly(days: Sequence[DayBook], nifty: Optional[pd.Series], session: date, report: Dict[str, Any],
-                 kept_on: date, expected_sharpe: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
-    """The Saturday email (tracker DS2): one table of every book and the findings, then the comparison with the
-    deployed book and the forward gate (``build_report``), then each book's own weekly report (kept ``kept_on``)."""
+                 kept_on: date, expected_sharpe: Optional[Dict[str, float]] = None,
+                 operations: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """The Saturday email (tracker DS2): one table of every book and the findings, the week's operations
+    (``tools.ops_report``, PL-16 and PL-17, when given), then the comparison with the deployed book and the forward
+    gate (``build_report``), then each book's own weekly report (kept ``kept_on``)."""
     rows = daily_rows(days, nifty, session)
     by_name = {d.book.name: d for d in days}
     sig = paper_significance(days, expected_sharpe)
@@ -1313,9 +1316,11 @@ def build_weekly(days: Sequence[DayBook], nifty: Optional[pd.Series], session: d
               + report.get("body", "") + "</div>")
     html = _email(f"Centurion &mdash; Paper books, week ending {_dmy(session)}",
                   f"{len(rows)} books, weekly executive summary; the deployed one is the yardstick",
-                  _summary_body(WEEKLY_COLUMNS, table, findings, footer) + detail
+                  _summary_body(WEEKLY_COLUMNS, table, findings, footer) + (operations or {}).get("html", "") + detail
                   + _book_sections(days, kept_on, "weekly report"), "trackers V4, DS2")
     text = _md_table(WEEKLY_COLUMNS, table) + "\n\n" + "\n".join(f"- {f}" for f in findings)
+    if operations:
+        text += "\n\n" + "\n".join([operations["head"]] + [f"- {l}" for l in operations.get("lines", [])])
     return {"subject": subject, "html": html, "text": text, "rows": rows, "findings": findings}
 
 

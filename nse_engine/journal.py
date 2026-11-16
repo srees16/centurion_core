@@ -77,7 +77,10 @@ CHECK_SINCE = "2026-11-02"
 #: Experiment rows from this date must carry their post-mortem (PL-06); earlier costs were not recorded.
 POSTMORTEM_SINCE = "2026-11-15"
 #: Tracker entries that state a verdict but are not an experiment, with the reason (none today).
-JOURNAL_EXEMPT: Dict[str, str] = {}
+JOURNAL_EXEMPT: Dict[str, str] = {
+    "ST2S": "an operational go-live check (the supervised sell test), not a research verdict; its record is the "
+            "live book's sell_path state, read by capital_ladder.sell_path_check",
+}
 #: How a tracker entry states a verdict, and the journal's word for it.  Read only in the clause that follows
 #: the title, "<title> (<plan, notes>): FAIL, closed, ...": the same words elsewhere ("the run FAILED once")
 #: are not a verdict.

@@ -691,3 +691,17 @@ def test_the_nightly_summary_has_a_row_for_every_book_and_says_when_one_is_behin
     assert out["subject"].startswith("[Centurion Paper] Daily summary 13-11-2026: 3 books, 2 behind NIFTY 50")
     assert ("(incomplete)" in out["subject"]) == bool(out["stale"])
     assert len(out["rows"]) == 3 and "deployed" in out["html"] and "| deployed |" in out["text"].replace("  ", " ")
+
+
+@pytest.mark.lesson("L-NIFTY-NONE", pattern="F1", date="2026-11-16", source="PL-16",
+                    summary="Without NIFTY 50 (Yahoo unreachable) the Saturday summary could not be built: an empty "
+                            "series had no dates to compare")
+def test_the_market_line_is_left_out_when_nifty_cannot_be_read():
+    from datetime import date
+
+    from nse_engine.books import _market_line
+
+    assert _market_line(None, date(2026, 11, 13), week=True) is None
+    assert _market_line(None, date(2026, 11, 13)) is None
+    nifty = pd.Series([24_000.0, 24_480.0], index=pd.to_datetime(["2026-11-06", "2026-11-13"]))
+    assert _market_line(nifty, date(2026, 11, 13), week=True).startswith("Market: NIFTY 50 closed at 24,480 (+2.00% on the week)")

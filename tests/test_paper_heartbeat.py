@@ -473,3 +473,118 @@ def test_a_failed_session_alerts_by_what_failed_and_never_masks_the_failure(monk
     assert session_failed.main() == 0                                     # even when the alert was not sent
     ((sev, k, t, lines),) = sent
     assert (sev, k, t) == (getattr(alerts, severity), key, title) and line in lines
+
+
+# ── the week's operations (tools/ops_report.py, PL-16): incidents against the lessons that guard them ──
+
+def _run(workflow, conclusion, created="2026-11-11T18:30:00Z", branch="main"):
+    return {"workflow": workflow, "branch": branch, "event": "schedule", "conclusion": conclusion, "created": created,
+            "url": f"https://github.com/o/r/actions/runs/{abs(hash(workflow + created)) % 1000}"}
+
+
+def test_the_weeks_incidents_name_the_lesson_that_guards_each_and_flag_the_rest():
+    from datetime import date
+
+    from tools import ops_report as o
+
+    runs = [_run("nse-paper-trading.yml", "failure"), _run("paper-heartbeat.yml", "failure", "2026-11-10T23:43:00Z"),
+            _run("tests.yml", "failure"), _run("nse-paper-trading.yml", "failure", branch="feature/x"),
+            _run("deploy.yml", "success"), _run("nse-paper-trading.yml", "cancelled")]
+    books = {"deployed": {"alerts": {"heartbeat_stale": "2026-11-11", "session_failed:paper": "2026-11-12",
+                                     "paper_g4_fail:deployed": "2026-11-12", "live_no_login:own": "2026-11-01"},
+                          "sessions": [{"session_date": "2026-11-09", "notes": "REPLAYED 1 missed session(s), ..."},
+                                       {"session_date": "2026-11-12", "notes": "CAUGHT UP 2 session(s) since ..."},
+                                       {"session_date": "2026-11-02", "notes": "CAUGHT UP 1 session(s)"}]},
+             "futures": {"alerts": {}, "sessions": [{"session_date": "2026-11-13",
+                                                     "notes": "futures deferred (F&O bhavcopy not published yet)"}]}}
+    found = o.incidents(runs, books, date(2026, 11, 9))
+    kinds = sorted((i["type"], i["day"]) for i in found["incidents"])
+    assert kinds == [("caught_up", "2026-11-12"), ("futures_deferred", "2026-11-13"), ("heartbeat_stale", "2026-11-11"),
+                     ("replayed", "2026-11-09"), ("run_failed:nse-paper-trading.yml", "2026-11-12"),   # 18:30 UTC: IST next day
+                     ("run_failed:paper-heartbeat.yml", "2026-11-11"), ("session_failed", "2026-11-12")]
+    assert [r["type"] for r in found["risk_events"]] == ["paper_g4_fail"]        # a signal, not a fault
+    out = o.summarise(found, [], {})
+    assert out["head"] == "Operations, week from 2026-11-09: 2 item(s) need action; 7 incident(s); 1 risk event(s), in the books' reports"
+    assert out["lines"] == [
+        "a nse-paper-trading.yml run failed: 1x (2026-11-12; nse-paper-trading.yml): NO LESSON: decide whether it needs a guard",
+        "a nightly session failed: 1x (2026-11-12; deployed): NO LESSON: decide whether it needs a guard"]
+    assert out["info"] == ["guarded, no action: sessions caught up after a missed night 1x (L-NEO6); the futures leg was "
+                           "deferred 1x (L-FL1); heartbeat: a paper book did not trade or could not be read 1x (L-HB2); "
+                           "missed sessions replayed 1x (L-NEO6); a paper-heartbeat.yml run failed 1x (L-HB2)"]
+    assert "<li style='margin-bottom:4px;'>a nse-paper-trading.yml run failed" in out["html"]
+
+
+def test_a_quiet_week_is_one_line_and_an_unreadable_source_is_named_never_raised(monkeypatch, tmp_path):
+    from datetime import date, datetime
+
+    from tools import ops_report as o
+
+    quiet = o.summarise(o.incidents([], {}, date(2026, 11, 9)), [{"text": "lessons: 42 of 50", "action": False}], {})
+    assert quiet["head"] == "Operations, week from 2026-11-09: no incidents; nothing in the loop needs action"
+    assert quiet["lines"] == [] and quiet["info"] == [] and "<ul" not in quiet["html"]
+    guarded = o.summarise(o.incidents([], {"b": {"alerts": {"heartbeat_stale": "2026-11-11"}}}, date(2026, 11, 9)), [], {})
+    assert guarded["head"] == "Operations, week from 2026-11-09: 1 incident(s), all guarded; nothing needs action"
+
+    def down(*args, **kwargs):
+        raise ConnectionError("no route")
+
+    monkeypatch.setattr(o, "github_runs", down)
+    monkeypatch.setattr(o, "neon_books", down)
+    monkeypatch.setattr(o, "loop_health", lambda root, today: [{"text": "x", "action": False}])
+    out = o.block(now=datetime(2026, 11, 16, 9, 0, tzinfo=o.IST))
+    assert out["lines"] == ["GitHub's run history could not be read (ConnectionError): its incidents are not in this list",
+                            "Neon could not be read (ConnectionError): its incidents are not in this list"]
+    offline = o.block(now=datetime(2026, 11, 16, 9, 0, tzinfo=o.IST), offline=True)
+    assert offline["head"].startswith("Operations (records only; GitHub and Neon not read), week from 2026-11-09")
+    monkeypatch.setattr(o, "loop_health", lambda root, today: 1 / 0)
+    assert "loop health could not be computed (ZeroDivisionError" in o.block(offline=True)["lines"][0]
+
+
+def test_the_run_history_is_read_page_by_page_with_the_token_when_there_is_one():
+    import json
+    from datetime import date
+
+    from tools import ops_report as o
+
+    asked = []
+
+    class Reply:
+        def __init__(self, runs):
+            self.body = json.dumps({"workflow_runs": runs}).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return self.body
+
+    run = {"path": ".github/workflows/nse-paper-trading.yml", "head_branch": "main", "event": "schedule",
+           "conclusion": "failure", "created_at": "2026-11-12T14:00:00Z", "html_url": "u"}
+
+    def opener(req, timeout):
+        asked.append((req.full_url, req.headers.get("Authorization")))
+        return Reply([run] * (100 if len(asked) == 1 else 3))
+
+    runs = o.github_runs(date(2026, 11, 9), token="t0k", repo="o/r", opener=opener)
+    assert len(runs) == 103 and runs[0] == {"workflow": "nse-paper-trading.yml", "branch": "main", "event": "schedule",
+                                            "conclusion": "failure", "created": "2026-11-12T14:00:00Z", "url": "u"}
+    import re
+
+    assert [re.search(r"[?&]page=(\d+)", u).group(1) for u, _ in asked] == ["1", "2"] and asked[0][1] == "Bearer t0k"
+    assert "created=%3E%3D2026-11-09" in asked[0][0]
+    asked.clear()
+    o.github_runs(date(2026, 11, 9), repo="o/r", opener=opener)
+    assert asked[0][1] is None                                                   # a public repository: no token needed
+
+
+def test_the_saturday_job_may_read_its_run_history_and_hands_the_report_a_token():
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parent.parent / ".github/workflows/nse-paper-trading.yml").read_text()
+    job = text.split("\n  paper-trade:\n", 1)[1].split("\n  engine-window:\n", 1)[0]
+    assert "permissions:" in job and "actions: read" in job and "contents: read" in job
+    step = job.split("- name: Paper books - one Saturday email", 1)[1]
+    assert "GITHUB_TOKEN: ${{ github.token }}" in step and "continue-on-error: true" in step

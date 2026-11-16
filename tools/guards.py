@@ -5,7 +5,8 @@ CI installs no store, so the tests marked ``slow`` skip there: fills at the next
 refuse, stocks that stopped trading still present, the stated coverage, the families file against the
 registries.  They ran only when someone remembered.  ``run`` runs them and records the outcome in a
 git-ignored file; the preflight shows when they last ran and says so when that is over a week ago, when a
-guard failed, or when one skipped (a store is missing, so the guard checked nothing).
+guard failed, or when one skipped (a store is missing, so the guard checked nothing).  Each run also rebuilds the
+data catalogue and its store doctor (``tools.data_catalogue``, PL-10 and PL-11) and records its findings.
 
     python -m tools.guards            # run the store guards and record the outcome
     python -m tools.guards status     # the last recorded run
@@ -53,6 +54,14 @@ def run(root: Path = _ROOT, now: Optional[datetime] = None) -> Dict[str, Any]:
         counts["failed"] = 1
     record = {"when": (now or datetime.now(IST)).astimezone(IST).isoformat(timespec="minutes"), **counts,
               "exit": done.returncode, "seconds": round(time.monotonic() - began)}
+    try:                                                  # PL-10, PL-11: the catalogue and the store doctor
+        from tools import data_catalogue
+
+        catalogue = data_catalogue.build(root, now)
+        data_catalogue.write(catalogue, root)
+        record["data_findings"] = len(catalogue["findings"])
+    except Exception as exc:                              # noqa: BLE001 - recorded, never stops the guards' record
+        record["data_findings"] = f"not built ({type(exc).__name__}: {exc})"[:200]
     target = Path(root) / RECORD
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(record, indent=1) + "\n")
@@ -77,6 +86,11 @@ def status(root: Path = _ROOT, today: Optional[date] = None) -> str:
     when = datetime.fromisoformat(r["when"]).date()
     line = f"last run {when:%a %d %b %Y}: {r['passed']} passed, {r['failed']} failed, {r['skipped']} skipped"
     wrong = []
+    if "data_findings" in r:                              # runs since PL-10 also rebuild the data catalogue
+        line += f"; store doctor: {r['data_findings']} finding(s)" if isinstance(r["data_findings"], int) \
+            else f"; store doctor {r['data_findings']}"
+        if r["data_findings"]:
+            wrong.append("see python -m tools.data_catalogue")
     if r["failed"]:
         wrong.append("a guard failed")
     if r["skipped"]:

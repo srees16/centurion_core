@@ -1659,3 +1659,28 @@ def test_a_replayed_nights_verdict_is_dated_that_night(drift):
     drift.report = {"verdict": "stable", "reference_mode": "recent_history", "n_live": 40}
     drift.pt._run_distribution_shift(session_date="2026-10-22")
     assert _stored_state(drift)["updated_at"] == "2026-10-22T23:00:00+05:30"
+
+
+def test_the_saturday_email_carries_the_operations_block_after_the_findings():
+    from datetime import date
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from nse_engine.books import Book, DayBook, PaperBook, build_weekly
+
+    days = pd.bdate_range(end="2026-11-13", periods=4)
+    engine = SimpleNamespace(config_hash=lambda: "deployed00000000")
+    book = Book("deployed", Path("config/nse_engine_deployed.json"),
+                SimpleNamespace(paper_start_date=date(2026, 11, 10), status="approved", engine=engine))
+    paper = PaperBook("deployed", pd.Series([3.5e6, 3.51e6, 3.52e6, 3.53e6], index=days), pd.DatetimeIndex(days), None)
+    day = DayBook(book, paper, 3.5e6)
+    report = {"comparisons": {}, "gates": {}, "cleared": [], "body": "<p>COMPARISON</p>"}
+    ops = {"head": "Operations, week from 2026-11-07: 1 item(s) need action; 1 incident(s)",
+           "lines": ["a nightly session failed: 1x ..."], "html": "<h3>Operations</h3><p>OPS BLOCK</p>"}
+    plain = build_weekly([day], None, date(2026, 11, 13), report, kept_on=date(2026, 11, 14))
+    with_ops = build_weekly([day], None, date(2026, 11, 13), report, kept_on=date(2026, 11, 14), operations=ops)
+    assert "OPS BLOCK" not in plain["html"] and plain["html"] == with_ops["html"].replace(ops["html"], "")
+    html = with_ops["html"]
+    assert html.index("Findings") < html.index("OPS BLOCK") < html.index("COMPARISON")
+    assert with_ops["text"].endswith("Operations, week from 2026-11-07: 1 item(s) need action; 1 incident(s)\n"
+                                     "- a nightly session failed: 1x ...")

@@ -9,6 +9,7 @@ can print (tracker RB1), so a glitch cannot read as a stop hit.
 from __future__ import annotations
 
 import dataclasses
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -611,3 +612,136 @@ def test_requests_are_spaced_by_the_rate_limit():
     free = RateLimiter(0, clock=lambda: now[0], sleep=sleep)
     free.wait(), free.wait()
     assert slept == [0.5, 0.3]
+
+
+# ── the data catalogue and the store doctor (tools/data_catalogue.py, PL-10, PL-11) ──
+
+_NOV = ["2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30", "2026-11-02", "2026-11-03",
+        "2026-11-04", "2026-11-05", "2026-11-06", "2026-11-08", "2026-11-09", "2026-11-11", "2026-11-12",
+        "2026-11-13"]                                     # NSE's real sessions: 8 Nov Muhurat (Sun), 10 Nov a holiday
+
+
+def _catalogue_store(root, sessions, rows=None, suspects=(), holidays=None, refreshed=("equity_store",)):
+    """A live equity store under ``root``: its calendar, one row per symbol and session, a manifest; the
+    download's holiday record; the refresh status."""
+    import json
+
+    data = root / "data" / "nse_engine"
+    store = data / "store"
+    (store / "equity").mkdir(parents=True, exist_ok=True)
+    days = pd.to_datetime(sorted(sessions))
+    pd.DataFrame({"date": days}).to_parquet(store / "calendar.parquet")
+    for year in sorted({d.year for d in days}):
+        frames = [pd.DataFrame({"date": d, "symbol": [f"S{i}" for i in range((rows or {}).get(d.date().isoformat(), 50))]})
+                  for d in days if d.year == year]
+        pd.concat(frames).to_parquet(store / "equity" / f"{year}.parquet")
+    years = {str(y): {"equity_rows": 50, "fingerprint": f"fp{y}"} for y in sorted({d.year for d in days})}
+    (store / "manifest.json").write_text(json.dumps({"years": years, "suspect_missing_sessions": list(suspects)}))
+    if holidays is not None:
+        (data / "archive" / "manifest").mkdir(parents=True, exist_ok=True)
+        (data / "archive" / "manifest" / "missing.json").write_text(json.dumps({"equity": holidays}))
+    (data / "refresh_status.json").write_text(json.dumps({"finished_at": "2026-11-13T19:36:35+0530", "ok": True,
+                                                         "stores": list(refreshed)}))
+    return root
+
+
+def _monday_evening():
+    from tools.data_catalogue import IST
+
+    return datetime(2026, 11, 16, 7, 0, tzinfo=IST)     # before Monday's close: the last completed session is the 13th
+
+
+def test_a_clean_store_is_catalogued_and_its_first_baseline_is_todays_state(tmp_path):
+    from tools import data_catalogue as dc
+
+    root = _catalogue_store(tmp_path, _NOV, holidays=[])
+    cat = dc.build(root, _monday_evening(), previous={})
+    (equity,) = cat["stores"]
+    assert (equity["name"], equity["first"], equity["last"], equity["dates"]) == ("equity", "2026-10-26", "2026-11-13", 15)
+    assert equity["refreshed"] and equity["behind"] == 0 and not equity["stale"] and len(equity["build_fingerprint"]) == 16
+    doc = cat["doctor"]
+    assert (doc["calendar_years"], doc["extra"], doc["missing"], doc["unexplained_gaps"]) == ([2026], [], [], [])
+    assert doc["weekend_unlisted"] == [] and cat["findings"] == []               # 8 Nov is a listed special session
+    assert cat["last_completed_session"] == "2026-11-13"
+
+
+@pytest.mark.lesson("L-CAN1")
+def test_the_doctor_names_a_session_nse_did_not_hold_and_a_trading_day_the_store_lacks(tmp_path):
+    from tools import data_catalogue as dc
+
+    sessions = [d for d in _NOV if d != "2026-11-12"] + ["2026-11-10", "2026-11-07"]    # a holiday and a Saturday in
+    cat = dc.build(_catalogue_store(tmp_path, sessions, holidays=[]), _monday_evening(),
+                   previous={"baseline": {"weekend_sessions": {}, "short_sessions": {}}})
+    assert cat["findings"] == ["2026-11-07: a session on a day NSE did not trade",
+                               "2026-11-10: a session on a day NSE did not trade",
+                               "2026-11-12: an NSE trading day missing from the store",
+                               "2026-11-07: a weekend session not listed in nse_calendar.SPECIAL_SESSIONS (CAN1)"]
+
+
+def test_a_new_short_or_weekend_session_is_reported_until_acknowledged_with_a_reason(tmp_path):
+    from tools import data_catalogue as dc
+
+    root = _catalogue_store(tmp_path, _NOV, rows={"2026-11-12": 20}, holidays=[])
+    cat = dc.build(root, _monday_evening(), previous={"baseline": {"weekend_sessions": {}, "short_sessions": {}}})
+    assert cat["findings"] == ["2026-11-12: a short session, under 70% of the rows of the 20 before"]
+    dc.write(cat, root)
+    with pytest.raises(ValueError, match="give the reason"):
+        dc.acknowledge("2026-11-12", "  ", root)
+    with pytest.raises(ValueError, match="not a weekend or short session"):
+        dc.acknowledge("2026-11-13", "a normal day", root)
+    dc.acknowledge("2026-11-12", "a half-day the exchange announced", root)
+    again = dc.build(root, _monday_evening())                                    # the saved baseline carries over
+    assert again["findings"] == [] and again["baseline"]["short_sessions"] == {
+        "2026-11-12": "a half-day the exchange announced"}
+    first = dc.build(_catalogue_store(tmp_path / "fresh", _NOV, rows={"2026-11-12": 20}, holidays=[]),
+                     _monday_evening(), previous={})
+    assert first["findings"] == [] and "2026-11-12" in first["baseline"]["short_sessions"]   # a first catalogue
+
+
+def test_a_weekday_gap_without_a_recorded_holiday_is_named_and_needs_the_download_record(tmp_path):
+    from tools import data_catalogue as dc
+
+    sessions = ["2024-01-01", "2024-01-02", "2024-01-04", "2024-01-05", "2024-01-08", "2024-01-09", "2024-01-11",
+                "2024-01-12"]
+    cat = dc.build(_catalogue_store(tmp_path, sessions, holidays=["2024-01-10"]), _monday_evening(), previous={})
+    assert cat["doctor"]["calendar_years"] == [] and cat["doctor"]["unexplained_gaps"] == ["2024-01-03"]
+    assert "2024-01-03: a weekday missing that the download did not record as a holiday" in cat["findings"]
+    blind = dc.build(_catalogue_store(tmp_path / "no_record", sessions), _monday_evening(), previous={})
+    assert blind["doctor"]["unexplained_gaps"] is None                           # not checked, never "none"
+
+
+def test_a_refreshed_store_that_falls_behind_is_a_finding_and_a_snapshot_is_not(tmp_path):
+    from tools import data_catalogue as dc
+    from tools.data_catalogue import IST
+
+    root = _catalogue_store(tmp_path, _NOV, holidays=[], refreshed=("equity_store",))
+    tuesday = datetime(2026, 11, 18, 7, 0, tzinfo=IST)                            # the 16th and 17th have closed
+    cat = dc.build(root, tuesday, previous={})
+    assert cat["stores"][0]["behind"] == 2 and "equity store: 2 session(s) behind 17 Nov" in cat["findings"]
+    snapshot = dc.build(_catalogue_store(tmp_path / "snap", _NOV, holidays=[], refreshed=()), tuesday, previous={})
+    assert snapshot["stores"][0]["behind"] == 2 and snapshot["findings"] == []
+    gone = dc.build(tmp_path / "empty", tuesday, previous={})
+    assert gone["findings"] == ["the live equity store is not on this machine"] and gone["stores"] == []
+
+
+def test_the_catalogue_status_line_says_when_it_is_missing_old_or_has_findings(tmp_path):
+    import json
+    from datetime import date
+
+    from tools import data_catalogue as dc
+    from tools import guards
+
+    assert dc.status(tmp_path).startswith("! no catalogue on this machine")
+    root = _catalogue_store(tmp_path, _NOV, holidays=[])
+    dc.write(dc.build(root, _monday_evening(), previous={}), root)
+    assert dc.status(root, date(2026, 11, 16)) == "catalogue of 16 Nov: 0 finding(s); equity to 13 Nov"
+    assert "over 8 days old" in dc.status(root, date(2026, 11, 25))
+    cat = json.loads((root / dc.CATALOGUE).read_text())
+    cat["findings"] = ["2026-11-12: an NSE trading day missing from the store"]
+    dc.write(cat, root)
+    assert dc.status(root, date(2026, 11, 16)).startswith("! catalogue of 16 Nov: 1 finding(s)")
+    record = root / guards.RECORD
+    record.write_text(json.dumps({"when": "2026-11-16T09:00+05:30", "passed": 9, "failed": 0, "skipped": 0,
+                                  "data_findings": 1}))
+    line = guards.status(root, date(2026, 11, 16))
+    assert line.startswith("! last run Mon 16 Nov 2026: 9 passed, 0 failed, 0 skipped; store doctor: 1 finding(s)")
