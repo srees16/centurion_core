@@ -1566,8 +1566,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
 16 Nov  NSB1 NSE session badge on the Ind stocks pages (your ask; uncommitted, both repositories).  Green while
-             NSE's session is on (09:15-15:30 IST on a trading day), grey otherwise, labelled "NSE open",
-             "NSE pre-open" (09:00-09:15), "NSE closed", "NSE holiday" or "NSE Muhurat day"; hovering says when
+             NSE's session is on (09:15-15:30 IST on a trading day); amber in the pre-open (09:00-09:15) and
+             violet on a Muhurat day (your ask: neither may look closed); grey when closed, at the weekend or
+             on a holiday.  Labelled "NSE open",
+             "NSE pre-open", "NSE closed", "NSE holiday" or "NSE Muhurat day"; hovering says when
              it closes or next opens.  In the header on every /ind-stocks page; re-read every minute.
              One source: nse_calendar.session_status (the holiday list and special sessions the trading code
              uses), served at GET /api/v1/market/nse-session (signed-in).  The price ribbon's open check now
