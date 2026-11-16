@@ -332,10 +332,6 @@ what do you recommend regarding the biggest weakness that the P1 guards have not
 
 ~~~~~~~~
 
-give a crisp on how centurion Ind stocks module keeps up in future with the new trading days which could potentially drift in strategy, signals, backtest, out of sample results, forward walk and the metrics that were achieved based on the data store available
-
-~~~~~~~~~
-
 audit one top-level module at a time and refactor centurion codebase to enterprise grade. Keep all existing behavior exactly the same.
 
 ## Phase 1 — Audit (no code changes)
@@ -376,7 +372,6 @@ Organize by logical and functional responsibility:
 ~~~~~~~~~~~
 
 "Centurion defends well, lags rebounds and earns little in ranges". how do we ensure centurion does not lag during rebounds and earns more in ranges?
-
 
 ~~~~~~~~~~~~
 

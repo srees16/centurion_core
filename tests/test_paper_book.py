@@ -1684,3 +1684,82 @@ def test_the_saturday_email_carries_the_operations_block_after_the_findings():
     assert html.index("Findings") < html.index("OPS BLOCK") < html.index("COMPARISON")
     assert with_ops["text"].endswith("Operations, week from 2026-11-07: 1 item(s) need action; 1 incident(s)\n"
                                      "- a nightly session failed: 1x ...")
+
+
+def _alarm_day(path, name="deployed"):
+    from datetime import date
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from nse_engine.books import Book, DayBook, PaperBook
+
+    days = pd.bdate_range(end="2026-11-13", periods=len(path))
+    engine = SimpleNamespace(config_hash=lambda: "deployed00000000")
+    book = Book(name, Path(f"config/nse_engine_{name}.json"),
+                SimpleNamespace(paper_start_date=days[0].date(), status="approved", engine=engine))
+    return DayBook(book, PaperBook(name, pd.Series(path, index=days, dtype="float64"), pd.DatetimeIndex(days), None),
+                   float(path[0]))
+
+
+def _alarm_bands(name="deployed"):
+    """Flat bands: the 5th percentile return is -5% at every horizon from 5 to 756 sessions."""
+    import numpy as np
+
+    pcts = [1, 2, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 98, 99]
+    ret = sorted([-0.05 if p == 5 else v for p, v in zip(pcts, np.linspace(-0.10, 0.30, len(pcts)))])
+    dd = sorted(np.linspace(-0.20, 0.0, len(pcts)).tolist())
+    return {"percentiles": pcts, "books": {name: {"return": {"5": ret, "756": ret}, "drawdown": {"5": dd, "756": dd}}}}
+
+
+def test_the_edge_alarm_trips_at_its_length_and_never_stops_the_nightly_email(monkeypatch):
+    """MCA1 (owner's decision 16 Nov 2026): 65 sessions in a row with the return since the start below the 5th
+    percentile; a line first in the nightly email and its subject; a broken bands file drops the line, not the email."""
+    from datetime import date
+
+    from nse_engine import books as bk
+    from nse_engine import mc_bands
+
+    n = bk.PAPER_ALARM_SESSIONS
+    below = lambda k: [100.0] * 5 + [90.0] * k                       # noqa: E731 - -10% from session 5 on
+    assert not bk.paper_alarms([_alarm_day(below(n - 1))], _alarm_bands())["deployed"]["tripped"]
+    alarms = bk.paper_alarms([_alarm_day(below(n))], _alarm_bands())
+    assert alarms["deployed"]["tripped"] and alarms["deployed"]["streak"] == n
+    assert bk.paper_alarms([_alarm_day(below(n))], None) == {}                     # no bands: nothing claimed
+    monkeypatch.setattr(mc_bands, "load", lambda path=None: _alarm_bands())
+    report = bk.build_daily([_alarm_day(below(n))], None, date(2026, 11, 13))
+    assert report["findings"][0].startswith("EDGE ALARM (MCA1): deployed's return since its start (-10.0%")
+    assert f"for {n} sessions in a row" in report["findings"][0] and "EDGE ALARM in deployed" in report["subject"]
+    calm = bk.build_daily([_alarm_day([100.0 + i for i in range(80)])], None, date(2026, 11, 13))
+    assert "EDGE ALARM" not in calm["subject"] and not any("EDGE ALARM" in f for f in calm["findings"])
+
+    def broken(path=None):
+        raise ValueError("bands file unreadable")
+
+    monkeypatch.setattr(mc_bands, "load", broken)
+    still = bk.build_daily([_alarm_day(below(n))], None, date(2026, 11, 13))
+    assert still["alarms"] == {} and "EDGE ALARM" not in still["subject"]
+
+
+def test_the_edge_alarm_emails_once_a_run_on_the_night_it_trips():
+    from datetime import date
+
+    from nse_engine import books as bk
+    from tools import books_report as br
+
+    n, calls = bk.PAPER_ALARM_SESSIONS, []
+    alarm = lambda streak: {"streak": streak, "since": date(2026, 8, 3), "return": -0.10, "return_pct": 2.0,  # noqa: E731
+                            "tripped": streak >= n}
+
+    def fake_alert(severity, key, title, lines, book=None, once=False):
+        calls.append((severity, key, book, once))
+        return True
+
+    sent = br.send_alarms({"e4": alarm(n), "bonds": alarm(n + br.ALARM_GRACE_SESSIONS), "mcx": alarm(n - 1)},
+                          fake_alert)
+    assert sent == ["e4"]                                  # bonds tripped long ago: emailed then, not every night
+    assert calls == [("WARNING", "mca1:e4:2026-08-03", "e4", True)]
+
+    def down(*a, **k):
+        raise RuntimeError("smtp down")
+
+    assert br.send_alarms({"e4": alarm(n)}, down) == []    # never raises: the summary carries the line

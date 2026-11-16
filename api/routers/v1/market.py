@@ -15,9 +15,6 @@ router = APIRouter()
 
 # ─── Market Ticker Prices ────────────────────────────────────────────────
 
-# NSE holidays and special sessions: one calendar shared with the trading code (tracker LN-T7)
-from nse_engine.nse_calendar import is_trading_day as _nse_trading_day  # noqa: E402
-
 _ticker_price_cache: Dict[str, Any] = {}   # L1 in-memory: cache_key -> response dict
 _ticker_cache_ts: Dict[str, float] = {}    # L1 in-memory: cache_key -> monotonic ts
 _ticker_cache_lock = asyncio.Lock()        # guards concurrent dict access
@@ -29,12 +26,10 @@ def _is_market_open(market: str) -> bool:
     from datetime import datetime, timezone, timedelta
     now_utc = datetime.now(timezone.utc)
     if market == "IND":
-        # NSE: 9:15 AM – 3:30 PM IST (UTC+5:30), Mon–Fri, excl. holidays
-        ist = now_utc + timedelta(hours=5, minutes=30)
-        if not _nse_trading_day(ist.date()):
-            return False
-        t = ist.hour * 60 + ist.minute
-        return 9 * 60 + 15 <= t < 15 * 60 + 30
+        # NSE: 09:15-15:30 IST on a trading day; the calendar's own reading (holidays, special sessions)
+        from nse_engine.nse_calendar import session_status
+
+        return bool(session_status(now_utc)["open"])
     else:
         # NYSE/NASDAQ: 9:30 AM – 4:00 PM ET (approx UTC-4/-5)
         # Use UTC-4 (EDT) as a safe approximation
@@ -43,6 +38,15 @@ def _is_market_open(market: str) -> bool:
             return False
         t = et.hour * 60 + et.minute
         return 9 * 60 + 30 <= t < 16 * 60
+
+
+@router.get("/market/nse-session")
+async def market_nse_session():
+    """NSE's cash market now: open (09:15-15:30 IST on a trading day), pre-open, closed, weekend, holiday or a
+    Muhurat evening, from the one NSE calendar (``nse_engine.nse_calendar``); the Ind stocks pages' badge."""
+    from nse_engine.nse_calendar import session_status
+
+    return session_status()
 
 
 @router.get("/market/ticker-prices")

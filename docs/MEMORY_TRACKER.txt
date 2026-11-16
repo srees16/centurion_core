@@ -1108,6 +1108,13 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              the verdict).                                  Prompt: do PL-09
 [ ] P3  PL-20 After RA1 (Tue 15 Dec): the package lock in the nightly workflow's install (the nightly
              workflow, so not before the verdict).          Prompt: do PL-20
+[x] P2  MCA1 Built 16 Nov (your call: option A, N = 65; entry MCA1 below).  The paper-stage alarm on Rule D's
+             counter, return only, every paper book, email only.
+[x] P2  PIC1 Closed 16 Nov, not built (PIC1R: FAIL; no IC rule beats the returns' alarm within a year).
+[ ] P3  MON1-IC After RA1 (Tue 15 Dec), your call: the live monitor's rank IC read at 12 months (PIC1R) flags a
+             healthy signal for REVIEW 23% of the time (mean <= 0), and its "supports" (t >= 2) is out of
+             reach for a healthy signal (12-month t about 0.7 on average): keep it, recalibrate it, or read
+             it at 24-36 months.  live_monitor is unchanged until you decide.  Prompt: decide MON1-IC
  NOT DOING  parameter grids (near-duplicate trials), core risk share up
             (measured: Sharpe 1.03, MaxDD -34%), a NIFTY sleeve (R5: +0.5
             pt at most), more ETF sleeves (R14: funded from the core),
@@ -1558,6 +1565,120 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+16 Nov  NSB1 NSE session badge on the Ind stocks pages (your ask; uncommitted, both repositories).  Green while
+             NSE's session is on (09:15-15:30 IST on a trading day), grey otherwise, labelled "NSE open",
+             "NSE pre-open" (09:00-09:15), "NSE closed", "NSE holiday" or "NSE Muhurat day"; hovering says when
+             it closes or next opens.  In the header on every /ind-stocks page; re-read every minute.
+             One source: nse_calendar.session_status (the holiday list and special sessions the trading code
+             uses), served at GET /api/v1/market/nse-session (signed-in).  The price ribbon's open check now
+             reads the same function, which fixes it on a Muhurat Sunday (it used 09:15-15:30; the evening
+             hour is not held, so that day reads grey "Muhurat day") and leaves every other day as it was.
+             Warns, on hover, while a year's NSE holiday list is missing (2027's from 15 Dec): until LN-T31
+             adds it, a 2027 holiday would show as a trading day.
+             Checks: 10 new tests (open, pre-open, the 15:30 close, weekend, the 24 Nov holiday, Muhurat and
+             Budget Sundays, a UTC clock, the 2027 warning, the route); fast suite 1055 passed with no skips;
+             core install 930 passed, 98 skipped (web tests, the route's among them, as in CI);
+             frontend type check clean; read now (Mon 16 Nov 14:50 IST): open.  Not seen in a browser.
+16 Nov  PIC1R The monthly rank IC as an early edge alarm (PIC1 step 1, research; your answers: the three signal
+             sets, step 1 now, email only): FAIL, not built.  No rule catches a dead signal within a year more
+             often than the returns' alarm (MCA1C 15-25%), at any horizon.  Read only,
+             no trial; each set's own config and data anchor (2012), 2013-25; the configs end 31 Dec 2025, so
+             2026 (the sealed holdout) was never read.  Scored as the live monitor scores (EngineCache +
+             live_monitor.rank_ic, 21 sessions ahead): 155 month-ends, Jan 2013 to Nov 2025, per set.
+             IC: deployed +0.038 a month (sd 0.184, t 2.6, AC1 +0.02, 60% of months positive); candidate and
+             e4 identical to each other (+0.037, sd 0.183: same forecast, different sizing).  Yearly: positive
+             in 9 of 13; 2016 0.000, 2020 -0.032, 2024 -0.016, 2025 -0.005 (two years in a row at zero; 24
+             months at sd 0.18 is t -1.3 against history, not a break).
+             Calibration as MCA1C (20,000 block-bootstrap paths of the set's own months over 3 years; healthy =
+             as history, dead = IC 0, half = IC halved; line at 5% false alarms a year at most):
+             last 6 months' mean below -0.153: dead caught within 12 / 24 months 9% / 21%;
+             last 12 months' mean below -0.103: 13% / 21%;  since-start t below -2.12: 15% / 26%.
+             The live monitor's own read at 12 months (mean <= 0 is REVIEW) flags a healthy signal 23% of the
+             time (dead 49%); its "supports" (t >= 2 at 12 months) needs a 12-month t a healthy signal averages
+             0.7, so its usual verdict will be "inconclusive".  Recorded for your call after RA1; MON1 not changed.
+             Verdict at 21 sessions: the monthly IC is a weaker early signal than the returns (MCA1C 15-25%
+             within a year): one month's ranking of about 300 names is mostly noise (sd 0.18 vs mean 0.04).
+             Longer horizons (deployed signals; the since-start t rule at 5% false alarms a year, the wait for
+             the horizon counted): 21 sessions IC +0.038, dead caught within 12 / 24 / 36 months 14% / 25% /
+             34%; 63 sessions IC +0.066 (months overlap, AC1 +0.58, 3 months' wait) 14% / 30% / 42%;
+             126 sessions IC +0.087 (AC1 +0.76, 6 months' wait) 6% / 24% / 36%.  A higher IC, but the
+             overlap and the wait cancel it.
+             Post-mortem: stopped at feasibility (step 1), about 1.5 hours, no trial; the earliest stop was
+             the series' mean / spread (0.21 a month) alone, before any calibration.  Lesson: none new; MCA1C's
+             (an alarm is calibrated for power before it is built) stopped it before any code.
+             Kept: the IC series and calibration results in data/nse_engine/pic1/ (git-ignored JSON); the
+             scripts deleted.  No repo code.
+16 Nov  PIC1P Plan D: the monthly rank IC on new data as the early edge signal (your ask; a plan, nothing
+             built).  Why: MCA1C showed no return-based alarm can tell a dead edge from bad luck within a
+             year (Sharpe about 0.4).  The rank IC asks whether this month's forecasts ranked the universe's
+             next 21 sessions' returns: about 300 names a month, not one return series.  The code exists for
+             live trading only (live_monitor rank_ic, score_due_ics; benchmark +0.051, read at 12 months).
+             Read first: the IC depends on the signals and the data, never on paper or live fills, so it can
+             be scored for any month on the store.  Three signal sets cover the seven books: deployed
+             679cbd0c (also futures, bonds, mcx, a1), candidate 2d64ba4c, e4 93cf6c4d.  The scorecard
+             found no alpha decay (IC 0.03 at 5 days to 0.09 at a year).
+             Steps: (1) research, on this Mac, read only, no trial (a diagnostic of fixed configurations):
+             each set's month-end IC series, 2008-25: mean, spread, autocorrelation, by year.  Then the
+             calibration as MCA1C: for candidate rules (the running mean over 6 or 12 months below a
+             line), false alarms when the IC is as in history, and the catch rate when it falls to zero or
+             to half, within 6 and 12 months.  (2) Your dated decision on the rule.  (3) Build: score each
+             finished month since the paper start for the three sets in the nightly run (one engine cache
+             build a month), kept in the deployed book's state, a line in the Saturday email, one warning
+             email when the rule trips; email only, as MCA1.
+             Weakness: IC measures the signals' ranking, not the book's profit.  Sizing, the regime gate,
+             stops and costs can fade the edge while the IC holds (G4 and the costs check watch
+             execution).  The power is unknown until step 1: at a spread of 0.12 a month, a dead signal is
+             caught within 12 months about 4 times in 10 (an assumption, not yet measured).
+             Effort: step 1 about half a day on the Mac; step 3 about a day.
+16 Nov  MCA1 Paper-stage edge alarm built (your call: option A; N = 65, your dated decision 16 Nov after MCA1C).
+             No engine, configuration, sizing or deployed-book change; config hashes unchanged (679cbd0c,
+             2d64ba4c, 93cf6c4d); the RA1 freeze's exception for alert-only changes.
+             A paper book whose return since its start sits below its MC1 5th percentile for 65 sessions in a
+             row: a line first in the nightly email ("EDGE ALARM") and in its subject, the same line on
+             Saturday, and one warning email per run (keyed by the run's first session; sent on the night it
+             trips or within 5 sessions after).  Rule D's counter gained a return-only option and the run's
+             start date (capital_ladder.mc_breach_streak); Rule D itself is unchanged (both measures, 60).
+             An unreadable bands file drops the line, never the email.  On the real books today: no return
+             run anywhere (e4's 18-session run is on drawdown alone, which the alarm ignores).
+             What it is: a warning that a book is where Rule D would step it down once live, not an early
+             sign of a fading edge (MCA1C: it catches a dead edge within a year 15-25% of the time).
+             Checks: 3 new tests (return alone and the run's date; trips at 65 not 64, the line and subject,
+             a broken bands file; one email a run); fast suite 1045 passed with no skips allowed; core install
+             921 passed, 97 skipped (web tests, as in CI); dry runs of the nightly and Saturday emails on the
+             real books (Neon, Yahoo; nothing sent).  The calibration scripts were throwaway and are deleted.
+16 Nov  MCA1C Calibration for MCA1 (step 1, your "do MCA1"; nothing built).  Fresh bootstrap paths of each
+             book's own reference (5,000 per book over 3 years, a seed other than the bands'), the 5th
+             percentile line read exactly as the alarm will (checked against mc_bands.percentile).
+             False alarms of a healthy book, year 1 / year 2 / year 3 (deployed; the others within 1-2 pts):
+             N=10 14.7/7.6/7.3%; N=20 10.8/6.8/6.1%; N=30 8.6/6.2/5.4%; N=40 7.2/5.7/4.8%;
+             N=60 5.1/4.9/3.9%.  At most 5% a year needs N = 61 to 65 by book (65 for one N for all):
+             Rule D's 60.  Return since the start is slow: a healthy path that dips below the line stays
+             there for weeks, so a short streak is not rare.
+             Catch rate if the edge were gone entirely (mean daily return removed; same volatility), within
+             1 year / 3 years: N=65 deployed 15/46%, other books 18-25/57-71%; N=20 deployed 26/57%,
+             others 31-41/67-79%.  Half the edge gone: N=65 9-12% within a year.  An alarm on the return
+             since the start cannot tell a dead edge from bad luck within a year at a low false-alarm rate:
+             the deployed book's Sharpe (about 0.4) needs decades of daily returns to tell from zero.  The
+             evidence contradicts the plan's premise (earlier detection): stopped and re-planned, your call.
+16 Nov  MCA1P Plan for a paper-stage edge alarm (your ask; to build after RA1; nothing built).
+             Why: G4 proves paper trades like its same-period backtest, not that the edge is still
+             there: if the edge fades, both lose together and G4 still passes.  Rule D (60 sessions
+             below the MC1 5th percentile) acts only once live.
+             Plan: Rule D's own counter (capital_ladder.mc_breach_streak) on every paper book with a
+             shorter streak N; one alert when it trips, a line in the nightly and Saturday emails,
+             cleared when the streak resets.  No sizing or trading change.  N chosen from the bootstrap
+             paths themselves (false-alarm rate per N over 60 and 250 sessions), fixed by your dated
+             decision before it is switched on, never tuned on paper results.
+             Read today (40 sessions or fewer): every book's return between the 64th and 100th
+             percentile.  e4 has sat 18 sessions in a row below the 5th percentile on drawdown alone
+             (return 76th).  Deployed: drawdown 8th percentile, longest run 6.
+             Weakness: the drawdown leg is sticky.  The deepest fall since the start never recovers, so
+             one early bad patch keeps a recovered book "below" for weeks (e4).  It flags a past episode,
+             not a fading edge; the drawdown rule and G4's drawdown check already cover that risk.
+             Proposed: the return leg only.
+             Your answers (16 Nov): return leg only; every paper book; N calibrated; email only.
+             Tests: trips at N and not at N-1; one alert per streak; a book without bands
+             reads "not readable".  Effort: about half a day.
 16 Nov  NL1  Weekly newsletter for signed-up users (your ask; your answers: public version, aggregates plus
              a disclaimer, existing and new users, sent from the Space; uncommitted, both repositories).
              No engine, configuration, deployed-book or order-path change; config hash unchanged.

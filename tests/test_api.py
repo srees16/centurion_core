@@ -338,6 +338,46 @@ def test_links_die_with_the_password_and_the_email_is_found_only_with_the_key(mo
         users.email_index("ravi.k@example.org")
 
 
+# ── the NSE session badge on the Ind stocks pages (nse_engine.nse_calendar.session_status) ──
+
+@pytest.mark.parametrize("ist,state,next_open,detail", [
+    ("2026-11-17 10:00", "open", "2026-11-18", "closes 15:30 IST"),
+    ("2026-11-17 09:05", "pre_open", "2026-11-18", "pre-open; opens 09:15 IST"),
+    ("2026-11-17 08:00", "closed", "2026-11-18", "opens today, 09:15 IST"),
+    ("2026-11-23 15:30", "closed", "2026-11-25", "closed for the day; opens Wed 25 Nov, 09:15 IST"),  # 24 Nov: holiday
+    ("2026-11-24 11:00", "holiday", "2026-11-25", "trading holiday; opens Wed 25 Nov, 09:15 IST"),
+    ("2026-11-21 11:00", "weekend", "2026-11-23", "opens Mon 23 Nov, 09:15 IST"),
+    ("2026-11-08 18:00", "muhurat", "2026-11-09", "Muhurat trading this evening"),       # its hours are not held
+    ("2026-02-01 10:00", "open", "2026-02-02", "closes 15:30 IST"),                     # Budget day, a Sunday
+])
+def test_the_nse_badge_reads_the_one_calendar_in_ist(ist, state, next_open, detail):
+    from datetime import datetime
+
+    from nse_engine import nse_calendar as cal
+
+    s = cal.session_status(datetime.fromisoformat(ist).replace(tzinfo=cal.IST))
+    assert (s["state"], s["next_open"], s["open"]) == (state, next_open, state == "open")
+    assert s["detail"].startswith(detail) and s["note"] is None
+
+
+def test_the_nse_badge_reads_a_utc_clock_in_ist_and_warns_without_next_years_holidays():
+    from datetime import datetime, timezone
+
+    from nse_engine import nse_calendar as cal
+
+    assert cal.session_status(datetime(2026, 11, 17, 4, 0, tzinfo=timezone.utc))["state"] == "open"   # 09:30 IST
+    assert cal.session_status(datetime(2026, 11, 17, 10, 0, tzinfo=timezone.utc))["state"] == "closed"  # 15:30 IST
+    eve = cal.session_status(datetime(2026, 12, 31, 16, 0, tzinfo=cal.IST))
+    assert eve["next_open"] == "2027-01-01" and "2027 holiday list is not loaded" in eve["note"]
+
+
+def test_the_nse_session_route_answers_a_signed_up_user(api):
+    client = api[1]
+    body = client.get("/api/v1/market/nse-session", headers=_bearer("user")).json()
+    assert body["state"] in ("open", "pre_open", "closed", "weekend", "holiday", "muhurat")
+    assert set(body) == {"state", "open", "detail", "date", "time", "next_open", "note"}
+
+
 # ── the weekly newsletter (api/newsletter.py, tracker NL1): chosen, aggregates only, once a week, easy to stop ──
 
 def test_the_newsletter_is_off_unless_the_box_is_ticked():
