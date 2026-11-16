@@ -1576,6 +1576,21 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+16 Nov  GSB1 Live gold, silver and bitcoin on the Ind stocks pages (your ask and calls: MCX through Kite; bitcoin in $;
+             where gold and crude show; uncommitted, both repositories).  Free sources compared and tested live
+             first: free metals APIs are too small (GoldAPI 100 a month), late (goldprice.dev 15 min) or retail
+             rates; a converted COMEX price leaves out India's import duty.  Built: api/live_prices.py and GET
+             /api/v1/market/live-prices: gold = MCX GOLD near-month future / 10 (Rs a gram), silver = MCX SILVER
+             near-month (Rs a kg), both with their change on the previous close, rolled 3 days before expiry, read
+             through the API's Kite session (no extra cost; without today's login they show "-" and say why);
+             bitcoin = Binance's public BTC/USDT (no key; the data-api mirror serves every region), CoinGecko as the
+             fallback.  Cached 30 s.  Frontend: the ribbon's second row on the Ind pages shows Gold Rs/g, Silver
+             Rs/kg and BTC $ beside crude (US pages keep the $ gold); refreshed each minute.  Read live 22:34 IST:
+             gold Rs 13,523.60/g (-1.07%), silver Rs 1,68,557/kg (-4.40%), BTC $64,902 (+0.33%).
+             For reference: CoinDCX's BTC/INR ran 11% above the global price (India's crypto taxes; USDT Rs 104).
+             Not a check, report or email, so outside the PF1 freeze.  Tests: 5 (contract and roll, units, the
+             bitcoin fallback, no login and the cache, the route); fast suite 1074 passed with no skips; frontend
+             type check clean.  Not seen in a browser.
 16 Nov  PF1D PF1 done the same evening (uncommitted).  (2) Changes, not repeats: golden_gates.block takes last
              Saturday's signature (the deployed book's state, golden_gates.STATE_KEY): a quiet week is one line, a
              change shows the table with the book marked, the month's first Saturday the full table; the edge
