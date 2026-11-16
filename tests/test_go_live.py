@@ -591,3 +591,112 @@ def test_the_gap_terciles_compare_the_buys_that_gapped_most_with_the_rest():
     assert clean["orders"] == 11 and clean["rated"] == 9
     assert gap_terciles(audit(["open", "open"]))["verdict"] == "INSUFFICIENT"
     assert gap_terciles(audit(["open"] * 9), side="SELL")["orders"] == 0
+
+
+# ---- the funding gate (GTR0 decision 5): no leverage without the owner's recorded answer, never above 1.5x
+def _asked(target=1.4, equity=3_000_000.0, day=None):
+    from datetime import date
+
+    from nse_engine import funding_gate as fg
+
+    return fg.open_request({}, "sharpe", target, equity, "half-Kelly on the deflated Sharpe", day or date(2027, 1, 4))
+
+
+def test_leverage_is_half_kelly_on_the_deflated_sharpe_only_after_the_dsr_gate():
+    from nse_engine import funding_gate as fg
+
+    assert fg.implied_leverage(sr_deflated=0.30, volatility=0.12, dsr=0.97) == pytest.approx(1.25)   # 0.5 x 0.3 / 0.12
+    assert fg.implied_leverage(sr_deflated=0.30, volatility=0.12, dsr=0.94) == 1.0                   # the gate first
+    assert fg.implied_leverage(sr_deflated=0.90, volatility=0.12, dsr=0.99) == fg.CAP                 # 3.75x capped
+    assert fg.implied_leverage(sr_deflated=-0.2, volatility=0.12, dsr=0.99) == 1.0                    # never below 1x
+    assert fg.implied_leverage(float("nan"), 0.12, 0.99) == fg.implied_leverage(0.3, 0.0, 0.99) == 1.0
+    assert fg.extra_exposure(1.4, 3_000_000) == pytest.approx(1_200_000)
+    assert fg.extra_exposure(9.0, 3_000_000) == pytest.approx(1_500_000)                             # at the cap
+
+
+def test_a_request_asks_once_per_sizing_and_waits_at_1x_for_the_reply():
+    from datetime import date
+
+    from nse_engine import funding_gate as fg
+
+    doc = _asked()
+    req = doc["request"]
+    assert (req["status"], req["extra_inr"], req["deadline"]) == ("pending", pytest.approx(1_200_000), "2027-01-11")
+    title, lines = fg.notice(doc)
+    assert "Rs 1,200,000" in title and "2027-01-11" in title and any("never MTF" in l for l in lines)
+    assert "waiting for your reply" in fg.email_line(doc, date(2027, 1, 5))
+    assert fg.open_request(doc, "sharpe", 1.42, 3_100_000, "again", date(2027, 1, 5)) == doc   # same sizing: no ask
+    assert fg.open_request({}, "sharpe", 1.0, 3_000_000, "1x", date(2027, 1, 5)) == {}           # no leverage: none
+    d, _ = fg.decide(doc, date(2027, 1, 8), cash_inr=10_000_000)
+    assert (d.leverage, d.instrument) == (1.0, "none") and "waiting" in d.why
+
+
+def test_no_reply_by_the_deadline_stays_1x_and_asks_again_only_at_the_next_sizing_change():
+    from datetime import date
+
+    from nse_engine import funding_gate as fg
+
+    d, doc = fg.decide(_asked(), date(2027, 1, 12), cash_inr=10_000_000)
+    assert d.leverage == 1.0 and doc["request"]["status"] == "expired" and doc["log"][-1]["event"] == "expired"
+    with pytest.raises(ValueError, match="expired, not pending"):
+        fg.record_reply(doc, doc["request"]["id"], "topup", date(2027, 1, 12), 500_000)
+    assert fg.open_request(doc, "sharpe", 1.4, 3_000_000, "same", date(2027, 1, 13)) == doc     # same target: no ask
+    again = fg.open_request(doc, "sharpe", 1.3, 3_000_000, "new sizing", date(2027, 2, 1))
+    assert again["request"]["status"] == "pending" and again["request"]["id"] != doc["request"]["id"]
+
+
+def test_a_top_up_runs_the_bigger_book_unlevered_once_the_cash_is_in_the_account():
+    from datetime import date
+
+    from nse_engine import funding_gate as fg
+
+    doc = _asked()
+    with pytest.raises(ValueError, match="needs the amount"):
+        fg.record_reply(doc, doc["request"]["id"], "topup", date(2027, 1, 5))
+    with pytest.raises(ValueError, match="no request"):
+        fg.record_reply(doc, "deadbeef", "topup", date(2027, 1, 5), 1_200_000)
+    doc = fg.record_reply(doc, doc["request"]["id"], "topup", date(2027, 1, 5), 1_200_000)
+    d, _ = fg.decide(doc, date(2027, 1, 6), cash_inr=800_000)                  # not arrived yet
+    assert (d.leverage, d.capital_add_inr) == (1.0, 0.0) and "not in the account" in d.why
+    d, doc = fg.decide(doc, date(2027, 1, 7), cash_inr=1_250_000)
+    assert (d.leverage, d.capital_add_inr, d.instrument) == (1.0, 1_200_000, "own cash")
+    assert [e["event"] for e in doc["log"]] == ["requested", "reply", "applied"]
+    assert "applied" in fg.tracker_line(doc, date(2027, 1, 7))
+
+
+def test_no_funds_levers_with_futures_only_and_only_as_far_as_cash_covers_the_margin():
+    from datetime import date
+
+    from nse_engine import funding_gate as fg
+
+    doc = fg.record_reply(_asked(), _asked()["request"]["id"], "no_funds", date(2027, 1, 5))
+    d, _ = fg.decide(doc, date(2027, 1, 6), cash_inr=300_000)                 # margin 20% of Rs 12 lakh = Rs 2.4 lakh
+    assert (d.leverage, d.instrument) == (pytest.approx(1.4), "futures")
+    d, _ = fg.decide(doc, date(2027, 1, 6), cash_inr=120_000)                 # covers half the margin
+    assert d.leverage == pytest.approx(1.2) and d.instrument == "futures" and "only" in d.why
+    d, _ = fg.decide(doc, date(2027, 1, 6), cash_inr=0.0)
+    assert (d.leverage, d.instrument) == (1.0, "none")
+    with pytest.raises(ValueError, match="topup or no_funds"):
+        fg.record_reply(_asked(), _asked()["request"]["id"], "mtf", date(2027, 1, 5))
+
+
+def test_no_path_ever_levers_above_the_cap_or_through_margin_funding():
+    from datetime import date
+
+    from nse_engine import funding_gate as fg
+
+    rng = np.random.default_rng(16)
+    for _ in range(400):
+        target, equity = float(rng.uniform(0.5, 6.0)), float(rng.uniform(1e5, 5e7))
+        doc = fg.open_request({}, "sharpe", target, equity, "random", date(2027, 1, 4))
+        if "request" in doc:
+            answer = rng.choice(["topup", "no_funds", "none"])
+            if answer != "none":
+                doc = fg.record_reply(doc, doc["request"]["id"], str(answer), date(2027, 1, 5),
+                                      float(rng.uniform(1e4, 1e7)))
+        for day in (date(2027, 1, 6), date(2027, 2, 1)):
+            d, doc = fg.decide(doc, day, cash_inr=float(rng.uniform(0, 1e8)))
+            assert 1.0 <= d.leverage <= fg.CAP and d.instrument in fg.INSTRUMENTS
+            assert d.instrument == "futures" or d.leverage == 1.0
+        assert fg.implied_leverage(float(rng.uniform(-1, 5)), float(rng.uniform(0.01, 0.5)),
+                                   float(rng.uniform(0, 1))) <= fg.CAP

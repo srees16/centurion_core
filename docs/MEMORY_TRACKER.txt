@@ -1111,6 +1111,12 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 [x] P2  MCA1 Built 16 Nov (your call: option A, N = 65; entry MCA1 below).  The paper-stage alarm on Rule D's
              counter, return only, every paper book, email only.
 [x] P2  PIC1 Closed 16 Nov, not built (PIC1R: FAIL; no IC rule beats the returns' alarm within a year).
+[ ] P2  GTR10 After RA1 (Tue 15 Dec), your call 16 Nov: retire the futures paper book (1.75x; it lowers Sharpe, 0.62 ->
+             0.45 on 2008-25).  Remove config/nse_engine_futures.json from the nightly books (its Neon schema and
+             records stay); check the futures leg's catch-up, heartbeat and 20:30 retry paths with no levered book;
+             drop golden_gates.CAP_EXCEPTIONS["futures"]; rebuild config/golden_gates.json.  The futures overlay code
+             stays (F&O code is kept).                     Prompt: do GTR10
+[x] P2  GTR6 Built 16 Nov (your "do GTR6", ahead of RA1 under the freeze's alert-only exception; entry GTR7).
 [ ] P3  MON1-IC After RA1 (Tue 15 Dec), your call: the live monitor's rank IC read at 12 months (PIC1R) flags a
              healthy signal for REVIEW 23% of the time (mean <= 0), and its "supports" (t >= 2) is out of
              reach for a healthy signal (12-month t about 0.7 on average): keep it, recalibrate it, or read
@@ -1565,6 +1571,172 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+16 Nov  GTR10 Your three calls on GTR9's open points.  1: protocol gate 2 (an overlay beside the live book) now needs
+             excess Sharpe and alpha to rise; CAGR is reported, not a condition (docs/research_protocol.md section 5;
+             the diversifier gate's code was already Sharpe-only).  2: the futures paper book retires after RA1 (queue
+             GTR10); its 1.75x exception (GTR8) holds until then and the email says so.  3: capacity is judged at
+             Rs 1 crore, the intended fund size (was Rs 30 lakh): golden_gates.CAPACITY_INR; rebuilt
+             config/golden_gates.json: Sharpe lost to impact 0.05-0.08 per book, under the 0.1 bar (bonds 0.084,
+             overstated: three quarters of it is equity).  No book, config or engine change; config hashes unchanged.
+16 Nov  GTR9 Owner's directive: from now on, optimisation of the Ind stocks module is on Sharpe.  Robust,
+             out-of-sample or deflated Sharpe (every trial counted), net of costs and at the intended fund size; sizing
+             at half-Kelly or less, because Sharpe estimates are noisy; CAGR follows and is reported; Sharpe is
+             checked against MaxDD, Calmar, skew and tail measures so a smooth Sharpe cannot hide a blow-up.
+             ("Sharpe tells you whether the edge is real, and CAGR tells you how hard you pushed it.")  Already in
+             place: GTR0's gates and vetoes (GTR6/GTR7), the funding gate (GTR3), walk-forward selection on excess
+             Sharpe, DSR with skew, kurtosis and autocorrelation, capacity at Rs 30 lakh.  Not yet aligned (your
+             call): protocol gate 2 still requires an overlay to raise CAGR; the futures book's 1.75x (GTR8) lowers
+             Sharpe on the record (0.62 -> 0.45); capacity is checked at Rs 30 lakh only.
+16 Nov  GTR8 Owner's exception: the futures paper book keeps its 1.75x, above GTR0's 1.5x cap ("aim is to achieve better
+             Sharpe ratio and better returns from the Ind stocks module").  Recorded as given; the Saturday email's
+             gate block now says "by your exception" instead of asking (golden_gates.CAP_EXCEPTIONS).
+             Scope as assumed (you did not answer it): paper only; the paper book keeps running without a funding
+             request (the RA1 freeze keeps its numbers); any live leverage still goes through the funding gate,
+             after RA1 and your dated approval.
+             On record before the decision (L7-A, same 2008-25 folds): unlevered 13.2% / 0.62 / -32.5%; 1.75x real
+             stock futures 13.9% / 0.45 / -40.3%: about +0.7 point of CAGR for -0.17 Sharpe and 8 points more
+             drawdown (futures and roll costs about 4.2 points a year; only the F&O names can be levered).  Its
+             gate row: MaxDD -41.8% (veto), CVaR 1.49x NIFTY's against the 1.5x bar.
+16 Nov  GTR7 The golden-target gates in the Saturday email (GTR6; your "do GTR6", now rather than after RA1:
+             report lines only, no engine, config, sizing or paper-book change; config hashes unchanged; uncommitted).
+             nse_engine/golden_gates.py: gates 1-4, the vetoes (90% bootstrap ranges) and the leverage earned for every
+             paper book, from recorded series on this Mac (python -m nse_engine.golden_gates build), written to
+             config/golden_gates.json (committed, like mc_bands.json; .gitignore allows it).  The Saturday email
+             reads it and adds gate 5 from the paper record (the MC band at 60 sessions): a table and one line per
+             book, after the Operations block.  A series that does not start in 2008 cannot pass gates 1-3
+             (skipping 2008 flatters Sharpe by about 0.3).  The funding gate is wired: a book that earns leverage
+             gets one request (its state, one warning email, a line in the email); nothing levers a book.
+             Today, every book: gates 1-4 fail, gate 5 not due (60 sessions), leverage 1.0x.  Vetoed: deployed
+             and e4 and a1 on MaxDD and Calmar, futures on MaxDD (-41.8%).  Clear: candidate, bonds, mcx.
+             FLAG, your call: the futures paper book runs at 1.75x, above GTR0's 1.5x cap and without the funding
+             gate (it predates GTR0; the RA1 freeze keeps its numbers); the email says so every week.
+             Correction to GTR2: the A1 on paper (capped at 10%) adds +0.015 Sharpe (A1G), not RT1's uncapped
+             +0.16; the a1 row reads 0.61 against the deployed book's 0.60.  e4's gate 3 reads its 2017-25
+             walk-forward until gtr1w's 2008-16 lands; then stitch, point WALK_FORWARDS["e4"] at it and rebuild.
+             Checks: 5 new tests (the gates, the 2008 rule, the vetoes, gate 5, the email block, one funding ask per
+             sizing; the operations test isolated from the gate file); fast suite 1066 passed with no skips; core
+             install 941 passed, 98 skipped (web tests); a dry run of the Saturday email on the real books.
+16 Nov  GTR6 Golden-target track after GTR5 (your "rethink and recommend"; your call: the gate block after RA1).  Not
+             stopped: no new book, but the gates stay the yardstick (queue GTR6) and the costs are measured.
+             The one gate input still an assumption is D2's 3% a year live haircut (a day's delay, twice the
+             model's impact).  As-run Sharpe 2008-25 by haircut 0 / 1 / 1.5 / 2 / 3%: candidate + rule 0.87 /
+             0.81 / 0.78 / 0.74 / 0.68; e4 + rule 0.89 / 0.83 / 0.80 / 0.77 / 0.71; deployed + rule 0.78 / 0.72 /
+             0.69 / 0.66 / 0.60.  At a measured 1% or less the candidate and e4 clear the net-Sharpe gate (0.8).
+             The DSR (in-sample, 0.74-0.75), the walk-forward and 2008-12 (still negative at 1%) do not move, so
+             leverage stays off whatever the costs are.  Measuring it: PL-14 (your Zerodha contract notes of 11
+             and 16 Nov against the cost model) and HC1 (slippage from the first live fills).
+16 Nov  GTR5 The sharpe book, a tail and worst-era book (plan 5cc, pre-registered 16 Nov 15:34 IST; your option ii):
+             FAIL on its own rules 1 and 3, not re-weighted.  0.50 x candidate 2d64ba4c with its drawdown rule
+             (run baeaaac7, as-run) + 0.25 x gilts + 0.25 x MCX-B, 2008-25, recorded series only, no trial.
+               rule 1, 2008-12 excess Sharpe >= 0.2: fixed settings 0.17, walk-forward (R4b leg) -0.31: FAIL;
+               rule 2, tail vetoes: all clear: MaxDD -13.3% (90% range -20.7% to -10.0%), Calmar 0.90 (0.43-1.43),
+                 CVaR(5%) 0.37x NIFTY's, monthly skew +0.03, Sharpe drop at Rs 30 lakh 0.07;
+               rule 3, against the candidate alone: MaxDD 3+ points shallower in 98.9% of resamples (pass), Sharpe
+                 0.651 against 0.680, -0.029 against -0.02 allowed: FAIL (DG2's gilts + MCX-B missed by -0.03 too).
+             Reported (expected to fail, said so in advance): DSR at N = 100 0.65 in-sample, 0.44 live; net Sharpe
+             0.65; walk-forward 0.41; deflated Sharpe -0.04, so the funding gate's leverage is 1.0x.
+             2008: -21.5% alone -> +11.6% combined; but 2010-12 earned 10.2% / 1.4% / 4.3%, under the 6.5% the
+             Sharpe is measured against, so the era's excess Sharpe stays below 0.2 on the fixed settings, and the
+             walk-forward's equity leg loses in 2008-12 whatever the sleeves do.
+             Read: a strong tail book (drawdown halved, CVaR a third of NIFTY's), not a Sharpe book.  The excess-
+             over-6.5% measure is what fails a low-volatility book in a low-return era; it was fixed before the
+             result and is not changed after it.  Phase 2 for this configuration needs your dated waiver.
+             Post-mortem: stopped at the gate, about 1 hour, no trial (a look, protocol 5.1); the earliest stop was
+             Phase 0: DG2's same levers on the deployed book had missed rule 3 by 0.01.  No repo code; the
+             scratchpad script deleted.  Journal: GTR5.
+16 Nov  GTR4 GTR1's data gaps, Kaggle (your call: re-run existing configurations; no new trial: 2007-25 runs do not
+             enter the core matrix, N stays 61).  Kernel gtr1c on store_ext2006, cost model 4, data 01927c09 (the
+             deployed book's LN-T28b runs' hash; the 9 Oct e4 run used in GTR1 predates the corporate-actions fix):
+             candidate 2d64ba4c, candidate + drawdown rule (baeaaac7), e4 + rule (b837e415), imported into the
+             registry.  Same method as GTR1 (deployed + rule reproduced exactly).  2008-25, as-run (Sharpe / MaxDD /
+             Calmar / 2008-12), DSR at N = 99 in-sample / live, half-Kelly on the deflated Sharpe live / in-sample:
+               candidate + rule  0.68 / -25.6% / 0.58 / -0.18   DSR 0.74 / 0.49   half-Kelly -0.04x / +0.77x
+               candidate         0.64 / -28.4% / 0.51 / -0.23   DSR 0.69 / 0.43   -0.21x / +0.59x
+               e4 + rule         0.71 / -35.0% / 0.47 / -0.25   DSR 0.75 / 0.52   +0.06x / +0.74x
+               deployed + rule   0.60 / -32.4% / 0.44 / -0.19   DSR 0.63 / 0.38   -0.36x / +0.37x
+             Vetoes: candidate + rule clears all (MaxDD range -39% to -18%, Calmar 0.22-1.13, CVaR 0.61x NIFTY,
+             monthly skew +0.04); e4 + rule fails MaxDD and Calmar.  Gates: every book still short on DSR, net
+             Sharpe (0.8), walk-forward and 2008-12.  The candidate with the rule is the strongest book on this
+             basis.  e4's walk-forward 2008-16 (kernel gtr1w, R12b4's grid and base, R4b's fold layout) is running.
+16 Nov  GTR3 Funding gate built (GTR0 decision 5; your call: build now, tested on simulated leverage; uncommitted).
+             nse_engine/funding_gate.py: implied_leverage = half-Kelly on the deflated Sharpe, 1.0x unless DSR >= 0.95,
+             capped at 1.5x; a request per sizing change ((L - 1) x equity in rupees, reason, 7-day deadline),
+             emailed (notice) and carried in the books' emails (email_line) until answered; decide(): pending -> 1x;
+             no reply by the deadline -> 1x, asked again only at a new target; top-up -> the bigger book unlevered
+             once the cash is in the account; no funds -> futures only, as far as cash covers a 20% margin; there
+             is no margin-funding path.  Every request, reply and action logged in the book's state; the reply
+             command (python -m nse_engine.funding_gate reply ...) prints the tracker line.  Not wired into any
+             book: that is Phase 2 with the "sharpe" book; live leverage only after RA1 and your dated approval.
+             Tests (tests/test_go_live.py, 6): the leverage rule, one ask per sizing, no reply, top-up, no funds,
+             and 400 random paths never above 1.5x or levered other than through futures.
+16 Nov  GTR2 Phase 1 under your option (b) (no new core configuration: costs, combining existing streams): the
+             protocol's Phase 0 block, from the record (prior-art: DG2, RT1, MPT2, R3, FND1/FND2), says stop before
+             pre-registering; nothing pre-registered, no trial, the plan untouched; your call.
+             Levers left under (b): gilts 25% (BD1, DG2), MCX-B 25% (DG2), A1 at its 10% cap (RT1, A1G), stream
+             weights (risk parity, MPT2), the idle-cash sweep (cost; FND1 and FND2 failed).
+             Ceiling from recorded results (live-like walk-forward 2008-25, DG2's basis 0.60): A1 +0.16 (uncapped,
+             RT1; the A1 on paper, capped at 10%, adds +0.015: A1G, corrected in GTR7), MCX-B
+             +0.03, gilts -0.01, gilts + MCX-B -0.02, so about 0.76 at best; about 0.6 on the as-run basis (0.43).
+             Static and risk-parity splits lose 0.15-0.38 Sharpe against the allocator's regime split (MPT2).
+             Against the gates: net Sharpe 0.8, walk-forward 1.0 and DSR (about 1.2 in-sample needed) are out of
+             reach.  What the combination does move: gilts + MCX-B took the walk-forward's 2008 from -26.4% to
+             +8.1% and MaxDD to -14.5% (DG2), so the 2008-12 gate and the MaxDD and Calmar vetoes may clear.
+             Read: (b) fixes the tail and the worst era, not the Sharpe the golden target needs.  Options: stop
+             Phase 1 here; or pre-register the combination as a tail / worst-era book (not a golden-target
+             candidate), which is also the natural "sharpe" paper book for Phase 2 (it would stay at 1x).
+16 Nov  GTR0 Owner's decisions: the golden target re-based on deflated, net-of-cost Sharpe (your brief of 16 Nov;
+             recorded as given, not re-litigated).  1: Sharpe is the objective; CAGR is reported only (Sharpe x
+             leverage).  2: leverage reopened (reverses GT3 decision 6, which closed GT8 / U36): at most half-Kelly
+             on the DEFLATED Sharpe, hard cap 1.5x, only after the DSR gate passes; never sized from walk-forward or
+             backtest Sharpe.  3: gates, all required: DSR 2008-25 with every trial counted >= 0.95; net Sharpe
+             2008-25, realistic costs, unlevered >= 0.8; walk-forward OOS Sharpe >= 1.0; worst era (2008-12)
+             Sharpe >= 0.2; paper Sharpe inside the MC band at 60 sessions.  4: tail vetoes (fail, never
+             optimised), levered book 2008-25 with block-bootstrap CIs: MaxDD worse than -30%; Calmar < 0.5; daily
+             CVaR(5%) worse than 1.5x NIFTY's; monthly skew < -1; Sharpe drop > 0.1 at Rs 30 lakh.  5: funding
+             gate before any leverage (paper and live): the extra exposure (L - 1) x equity in rupees, emailed with
+             the reason and a deadline; wait for a recorded reply; top-up -> the bigger book unlevered on own cash
+             (Kite cash checked first); no funds -> futures only (cost about the liquid-fund rate), never MTF,
+             margin covered by cash; no reply by the deadline -> 1x, asked again at the next sizing change; every
+             request, reply and action logged in the book state and here.  Hard rules: no change to the deployed
+             book, its config or live execution before RA1; live leverage only after RA1 and your dated approval;
+             2026 sealed; rules C and D in force (D also on a "sharpe" book).  Work order: Phase 0 desk, then a
+             pre-registered configuration (Phase 1), a "sharpe" paper book with the funding gate (Phase 2), 60
+             paper sessions (Phase 3); stop after each phase.
+16 Nov  GTR1 Golden-target re-base, Phase 0 (GTR0; desk, recorded series, no trial, no code).  Sharpe = excess over
+             6.5% (gate 1's convention; the engine's headline figures read about 0.15 higher).  Live basis = D2's
+             3% haircut on invested capital, idle cash at 0 ("as-run", what trades today and your basis since 5
+             Nov; every gate is judged on it) or swept to the liquid rate ("swept", reported only: FND1 and FND2
+             failed).  N = 61 core, 99 all families;
+             cross-trial variance from the core matrix (61 configurations, 2013-25, cost model 4).  Bootstrap:
+             diversifier_gate's (2,000 paired resamples, mean block 63 sessions; monthly skew mean block 3).
+             Reproduces the record: R4b walk-forward 13.5% / 0.62 / -32.5%, live 11.1% / 0.43.
+             DSR 2008-25, N = 99 (bar 0.95): deployed as traded, in-sample 0.63 (estimator variance 0.55), live
+             0.38; e4 in-sample 0.69, live 0.45; candidate (cost model 3, indicative) 0.81, live 0.59; deployed
+             family walk-forward 0.40, live 0.17.  At N = 61: 0.69 / 0.74 / 0.86.  Every book short.
+             Net Sharpe 2008-25 unlevered, fixed settings (bar 0.8), as-run / swept: deployed 0.60 / 0.70; e4
+             0.65 / 0.73 without the drawdown rule (0.80 swept with it, tracker 30 Oct, not in the registry);
+             candidate 0.75 / 0.88 on cost model 3 (cost model 4 reads about 0.05 lower; no cost-4 run exists).
+             Walk-forward OOS (bar 1.0): deployed family 2008-25 0.62, live 0.43; e4 family 2017-25 only 0.98,
+             live 0.76 (no e4 walk-forward before 2017).  Worst era 2008-12 (bar 0.2), live as-run / swept:
+             deployed -0.19 / +0.04, its walk-forward -0.55 / -0.24; e4 -0.42 / -0.23; candidate -0.04 / +0.23.
+             Paper inside the MC band at 60 sessions: not due (40 / 33 / 29 sessions; return at the 69th / 64th /
+             76th percentile).
+             Leverage: the DSR gate fails everywhere, so 1.0x.  Even without that gate, half-Kelly on the deflated
+             Sharpe (SR - SR0, N = 99) is below 1x for every book: live basis deployed -0.36x, e4 -0.14x,
+             candidate +0.26x; in-sample deployed 0.37x, e4 0.52x, candidate 1.05x.
+             Vetoes at 1x, live as-run 2008-25 (point, 90% bootstrap range): MaxDD deployed -32.4% (-47.8 to -20.7)
+             VETO, e4 -41.3% VETO (no rule), candidate -27.1% (-39.6 to -17.9) clear, deployed walk-forward -33.0%
+             VETO; Calmar 0.44 / 0.38 / 0.59 / 0.34 (deployed and e4 VETO); CVaR(5%) 0.57-0.72x NIFTY's, clear;
+             monthly skew -0.27 to -0.93, clear (e4's range reaches -2.0); capacity: Sharpe -0.04 to -0.05 at
+             Rs 30 lakh, clear.
+             Read: no book meets the re-based target, and the gap is not a sizing problem: DSR 0.95 at N = 99
+             needs an in-sample excess Sharpe near 1.2 on 2008-25 (best today 0.83 on cost model 4), and every
+             book has a non-positive live Sharpe in 2008-12.  Stopped for your go-ahead.
+             Conflicts for Phase 1 (yours to decide): the core family is closed until January (J1 and MV1 hold
+             its slots) at PBO 29.2% against the 30% stop, so one more configuration may trip the brief's own PBO
+             stop; book-level volatility targeting is on the protocol's never-list (it hurt this book).
+             Data gaps (Kaggle re-runs of existing configurations, no new trial): candidate 2008-25 on cost model
+             4; e4 2008-25 with the drawdown rule; e4 walk-forward 2008-16.
 16 Nov  NSB1 NSE session badge on the Ind stocks pages (your ask; uncommitted, both repositories).  Green while
              NSE's session is on (09:15-15:30 IST on a trading day); amber in the pre-open (09:00-09:15) and
              violet on a Muhurat day (your ask: neither may look closed); grey when closed, at the weekend or

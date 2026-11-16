@@ -1661,12 +1661,15 @@ def test_a_replayed_nights_verdict_is_dated_that_night(drift):
     assert _stored_state(drift)["updated_at"] == "2026-10-22T23:00:00+05:30"
 
 
-def test_the_saturday_email_carries_the_operations_block_after_the_findings():
+def test_the_saturday_email_carries_the_operations_block_after_the_findings(monkeypatch):
     from datetime import date
     from pathlib import Path
     from types import SimpleNamespace
 
+    from nse_engine import golden_gates
     from nse_engine.books import Book, DayBook, PaperBook, build_weekly
+
+    monkeypatch.setattr(golden_gates, "load", lambda path=None: None)    # the gate block has its own test
 
     days = pd.bdate_range(end="2026-11-13", periods=4)
     engine = SimpleNamespace(config_hash=lambda: "deployed00000000")
@@ -1763,3 +1766,61 @@ def test_the_edge_alarm_emails_once_a_run_on_the_night_it_trips():
         raise RuntimeError("smtp down")
 
     assert br.send_alarms({"e4": alarm(n)}, down) == []    # never raises: the summary carries the line
+
+
+def _golden_doc(earned=1.0, runs_at=1.0):
+    g = {"value": 0.6, "live": 0.4, "from": "2008-01-01", "pass": False}
+    return {"created_at": "2026-11-16T10:00:00+00:00", "n_trials": 99, "books": {"deployed": {
+        "gates": {"dsr": dict(g), "net_sharpe": dict(g), "walk_forward": dict(g),
+                  "era_2008_12": {"value": -0.19, "walk_forward": -0.55, "pass": False}},
+        "vetoes": {"maxdd": {"value": -0.32, "range": [-0.48, -0.21], "bar": -0.3, "veto": True},
+                   "calmar": {"value": 0.44, "range": [0.16, 0.97], "bar": 0.5, "veto": True}},
+        "leverage": {"earned": earned, "half_kelly": -0.36, "deflated_sharpe": -0.09, "book_runs_at": runs_at,
+                     "above_cap": runs_at > 1.5}}}}
+
+
+def test_the_saturday_email_carries_the_golden_gates_and_never_fails_for_them(monkeypatch):
+    from datetime import date
+
+    from nse_engine import books as bk
+    from nse_engine import golden_gates as gg
+
+    report = {"comparisons": {}, "gates": {}, "cleared": [], "body": "<p>COMPARISON</p>"}
+    day = _alarm_day([100.0 + i for i in range(30)])
+    monkeypatch.setattr(gg, "load", lambda path=None: _golden_doc(runs_at=1.75))
+    email = bk.build_weekly([day], None, date(2026, 11, 13), report, kept_on=date(2026, 11, 14))
+    html = email["html"]
+    assert "Golden-target gates (GTR6)" in html and html.index("Golden-target gates") < html.index("COMPARISON")
+    assert "VETO: maxdd, calmar" in html and "not due (29 of 60" in html             # gate 5 from the paper record
+    assert "deployed: fails 1, 2, 3, 4" in email["text"] and "above GTR0's 1.5x cap" in email["text"]
+    assert bk.FUNDING_MARK in html and email["golden"]["leverage"] == {"deployed": 1.0}
+
+    def broken(path=None):
+        raise ValueError("unreadable")
+
+    monkeypatch.setattr(gg, "load", broken)
+    plain = bk.build_weekly([day], None, date(2026, 11, 13), report, kept_on=date(2026, 11, 14))
+    assert "Golden-target gates" not in plain["html"] and plain["golden"] is None
+
+
+def test_a_book_that_earns_leverage_asks_for_funds_once_and_a_1x_book_never_does():
+    from datetime import date
+
+    from tools import books_report as br
+
+    states, alerts = {}, []
+
+    class Cloud:
+        def __init__(self, name): self.name = name
+        def read_state(self): return dict(states.get(self.name, {}))
+        def sync_state(self, values): states.setdefault(self.name, {}).update(values)
+
+    days = {"deployed": _alarm_day([100.0 + i for i in range(30)]),
+            "candidate": _alarm_day([100.0 + i for i in range(30)], name="candidate")}
+    golden = {"leverage": {"deployed": 1.0, "candidate": 1.3}}
+    fire = lambda *a, **k: alerts.append((a[1], k.get("once"))) or True      # noqa: E731
+    lines = br.request_funding(days, golden, date(2026, 11, 21), cloud_for=lambda d: Cloud(d.book.name), alert_fn=fire)
+    assert "deployed" not in states and len(alerts) == 1 and alerts[0][0].startswith("funding:candidate:")
+    assert alerts[0][1] is True and len(lines) == 1 and "waiting for your reply" in lines[0]
+    again = br.request_funding(days, golden, date(2026, 11, 28), cloud_for=lambda d: Cloud(d.book.name), alert_fn=fire)
+    assert len(alerts) == 1 and again == lines                                  # the same sizing asks once
