@@ -604,7 +604,7 @@ def test_the_query_route_takes_the_chosen_model_and_ends_with_what_answered(api,
     seen = {}
 
     class Engine:
-        def query_stream(self, q, source_filter=None, llm_model=None, llm_meta=None):
+        def query_stream(self, q, source_filter=None, llm_model=None, llm_meta=None, on_context=None):
             seen["model"] = llm_model
             llm_meta.update(source="llm", provider="Claude", model=llm_model)
             yield "An answer."
@@ -617,6 +617,107 @@ def test_the_query_route_takes_the_chosen_model_and_ends_with_what_answered(api,
         '"model": "claude-haiku-5-5"}' in sse and sse.rstrip().endswith("data: done")
     bad = client.get("/api/v1/rag/query", params={"q": "x", "model": "gpt-4o"}, headers=_bearer("user"))
     assert bad.status_code == 400 and "not offered" in bad.json()["detail"]
+
+
+def test_the_query_route_searches_every_ticked_source_and_shows_the_passages_first(api, monkeypatch):
+    """RAG3: two ticked sources both reach the engine (the route used to drop the filter unless exactly one was
+    ticked), and the passages the answer is built from arrive as chunk events before its first token."""
+    import json
+
+    import api.routers.v1.rag as rag_routes
+
+    seen = {}
+
+    class Engine:
+        def query_stream(self, q, source_filter=None, llm_model=None, llm_meta=None, on_context=None):
+            seen["sources"] = source_filter
+            on_context([{"source": "b.pdf", "page": 4, "chunk_index": 7, "score": 0.81, "content": "RA1 is..."},
+                        {"source": "a.pdf", "page": None, "chunk_index": 2, "score": 0.64, "content": "Gate 2..."}])
+            yield "An answer."
+
+    monkeypatch.setattr(rag_routes, "get_rag_engine", lambda: Engine())
+    sse = api[1].get("/api/v1/rag/query", params={"q": "What is RA1?", "sources": "b.pdf,a.pdf"},
+                     headers=_bearer("user")).text
+    assert seen["sources"] == ["b.pdf", "a.pdf"]
+    events = [(b.split("\n")[0][len("event: "):], b.split("\n", 1)[1][len("data: "):])
+              for b in sse.strip().split("\n\n")]
+    assert [e for e, _ in events] == ["chunk", "chunk", "token", "meta", "done"]
+    assert json.loads(events[0][1]) == {"source": "b.pdf", "page": 4, "chunk_index": 7, "score": 0.81,
+                                        "content": "RA1 is..."}
+    api[1].get("/api/v1/rag/query", params={"q": "x"}, headers=_bearer("user"))
+    assert seen["sources"] is None                                            # nothing ticked: every source
+
+
+def test_the_engine_filters_one_or_several_sources_and_names_each_passage():
+    """RAG3: one source is an equality filter, several an $in (order and repeats do not matter, so the cache
+    key and the filter agree); each passage reports its source, page, relevance and an excerpt."""
+    from types import SimpleNamespace
+
+    from rag_pipeline.core.query_engine import RAGQueryEngine, RetrievedChunk, _source_list, context_sources
+
+    plain = SimpleNamespace(_config=SimpleNamespace(enforce_space_isolation=False, enable_metadata_filtering=False))
+    where = RAGQueryEngine._build_where_filter
+    assert where(plain, None, None) is None and where(plain, None, []) is None
+    assert where(plain, None, "a.pdf") == where(plain, None, ["a.pdf"]) == {"source": "a.pdf"}
+    assert where(plain, None, ["b.pdf", "a.pdf", "b.pdf"]) == {"source": {"$in": ["a.pdf", "b.pdf"]}}
+    assert where(plain, {"type": "pdf"}, ["a.pdf", "b.pdf"]) == {
+        "$and": [{"type": "pdf"}, {"source": {"$in": ["a.pdf", "b.pdf"]}}]}
+    assert _source_list(["b.pdf", "a.pdf"]) == _source_list(["a.pdf", "b.pdf", ""]) == ["a.pdf", "b.pdf"]
+
+    chunks = [RetrievedChunk("x" * 900, "a.pdf", 3, 0.25, {"page_number": 12}),
+              RetrievedChunk("short", "b.pdf", 0, 1.4, {"page_number": "?"})]
+    a, b = context_sources(chunks)
+    assert a == {"source": "a.pdf", "page": 12, "chunk_index": 3, "score": 0.75, "content": "x" * 400}
+    assert b["page"] is None and b["score"] == 0.0 and b["content"] == "short"
+
+
+def test_the_broad_fallback_stays_inside_the_ticked_sources():
+    """RAG3: when the ticked sources gave too few passages, the engine searched again with no filter at all, so
+    the answer drew on sources nobody ticked (and on other spaces).  The fallback now keeps the scope and drops
+    only the short-chunk filter; the passages reach the page before the model starts."""
+    from rag_pipeline.config import RAGConfig
+    from rag_pipeline.core.query_engine import RAGQueryEngine
+
+    rows = [("a.pdf", 3, 0.20, "Golden gates require coverage from 2008 for every stream in the store."),
+            ("b.pdf", 9, 0.30, "The RA1 review in December decides the deployed book's numbers."),
+            ("c.pdf", 1, 0.10, "Bond sleeve duration and cost notes for the paper book.")]
+    wheres, order = [], []
+
+    def scope(where):                                     # the source clause, alone or inside an $and
+        for part in (where or {}).get("$and", [where] if where else []):
+            if "source" in part:
+                v = part["source"]
+                return set(v["$in"]) if isinstance(v, dict) else {v}
+        return None
+
+    class Store:                                          # answers like Chroma, honouring the source clause
+        def query(self, query_embeddings, n_results, where=None, include=None):
+            wheres.append(where)
+            hit = [r for r in rows if scope(where) is None or r[0] in scope(where)][:n_results]
+            return {"ids": [[f"{r[0]}-{i}" for i, r in enumerate(hit)]], "documents": [[r[3] for r in hit]],
+                    "metadatas": [[{"source": r[0], "page_number": r[1], "chunk_index": i}
+                                   for i, r in enumerate(hit)]], "distances": [[r[2] for r in hit]]}
+
+    class Embedder:
+        def embed_query(self, text):
+            return [1.0, 0.0]
+
+    class LLM:
+        def generate_stream(self, query, context):
+            order.append("llm")
+            yield "ok"
+
+    cfg = RAGConfig()
+    for name in ("reranker_enabled", "query_rewrite_enabled", "hybrid_search_enabled", "cache_enabled",
+                 "faq_enabled", "enable_metadata_filtering", "enforce_space_isolation"):
+        setattr(cfg, name, False)
+    engine = RAGQueryEngine(vector_store=Store(), config=cfg, embedding_service=Embedder(), llm_backend=LLM())
+    seen = []
+    out = list(engine.query_stream("Explain what the December review decides and how the gates treat coverage",
+                                   source_filter=["b.pdf", "a.pdf"], skip_cache=True,
+                                   on_context=lambda items: (order.append("context"), seen.extend(items))))
+    assert len(wheres) == 2 and all(scope(w) == {"a.pdf", "b.pdf"} for w in wheres)   # 2 < 3: the fallback ran
+    assert {c["source"] for c in seen} == {"a.pdf", "b.pdf"} and order == ["context", "llm"] and out == ["ok"]
 
 
 # ── the weekly newsletter (api/newsletter.py, tracker NL1): chosen, aggregates only, once a week, easy to stop ──

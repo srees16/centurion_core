@@ -31,7 +31,7 @@ import re as _re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from typing import Any, Dict, Generator, List, Optional, Protocol
+from typing import Any, Callable, Dict, Generator, List, Optional, Protocol, Sequence, Union
 
 from rag_pipeline.config import RAGConfig
 from rag_pipeline.storage.embeddings import EmbeddingService
@@ -95,6 +95,26 @@ _BOOST_STOPWORDS = frozenset(
 # ---------------------------------------------------------------------------
 # Data containers
 # ---------------------------------------------------------------------------
+
+def _source_list(source_filter: Optional[Union[str, Sequence[str]]]) -> List[str]:
+    """One source or several as a sorted list without blanks (a cache key and a filter alike)."""
+    if not source_filter:
+        return []
+    items = [source_filter] if isinstance(source_filter, str) else list(source_filter)
+    return sorted({str(s) for s in items if s})
+
+
+def context_sources(chunks: Sequence["RetrievedChunk"], excerpt_chars: int = 400) -> List[Dict[str, Any]]:
+    """The passages an answer is built from, for the page's Sources list (tracker RAG3): the document, its page,
+    a relevance (one less the vector distance, clamped to 0..1) and an excerpt."""
+    out = []
+    for c in chunks:
+        page = (c.metadata or {}).get("page_number")
+        out.append({"source": c.source, "page": page if page not in (None, "", "?") else None,
+                    "chunk_index": c.chunk_index, "score": round(max(0.0, min(1.0, 1.0 - float(c.distance))), 3),
+                    "content": (c.text or "")[:excerpt_chars]})
+    return out
+
 
 @dataclass
 class RetrievedChunk:
@@ -288,7 +308,7 @@ class RAGQueryEngine:
         query_text: str,
         top_k: Optional[int] = None,
         where: Optional[Dict[str, Any]] = None,
-        source_filter: Optional[str] = None,
+        source_filter: Optional[Union[str, Sequence[str]]] = None,
         skip_cache: bool = False,
     ) -> RAGResponse:
         """
@@ -319,7 +339,8 @@ class RAGQueryEngine:
 
         # Include source_filter in cache key so switching sources
         # does not return stale cached answers from a different PDF.
-        cache_space = f"{space_id}::src={source_filter}" if source_filter else space_id
+        _sources = _source_list(source_filter)
+        cache_space = f"{space_id}::src={','.join(_sources)}" if _sources else space_id
 
         # --- Step 1: Semantic cache check ---
         if self._cache is not None and not skip_cache:
@@ -591,13 +612,14 @@ class RAGQueryEngine:
         if self._should_fallback(chunks):
             logger.info(
                 "FALLBACK: chunks=%d, triggering broad retrieval "
-                "(top_k=%d, no filters, no reranker).",
+                "(top_k=%d, scope kept, no noise filter, no reranker).",
                 len(chunks), self._config.fallback_top_k,
             )
             with trace.span("retrieval_fallback_broad",
                             top_k=self._config.fallback_top_k):
                 fallback_chunks = self._fallback_retrieve(
-                    query_text, expanded_text
+                    query_text, expanded_text,
+                    where=self._build_where_filter(where, source_filter, noise_filter=False),
                 )
             if fallback_chunks:
                 # Merge: deduplicate against existing
@@ -748,10 +770,11 @@ class RAGQueryEngine:
         query_text: str,
         top_k: Optional[int] = None,
         where: Optional[Dict[str, Any]] = None,
-        source_filter: Optional[str] = None,
+        source_filter: Optional[Union[str, Sequence[str]]] = None,
         skip_cache: bool = False,
         llm_model: Optional[str] = None,
         llm_meta: Optional[Dict[str, Any]] = None,
+        on_context: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
     ) -> Generator[str, None, None]:
         """
         Run the retrieval pipeline, then stream the LLM answer
@@ -759,7 +782,8 @@ class RAGQueryEngine:
 
         ``llm_model``: the Claude model the user picked (tracker RAG2), passed to a backend that takes one; the
         answer cache is kept per model.  ``llm_meta`` (a dict) receives what answered: the LLM and model, or the
-        cache, FAQ or fast path when no LLM ran.
+        cache, FAQ or fast path when no LLM ran.  ``on_context`` receives the passages the answer is built from
+        (``context_sources``), once, before the LLM starts (tracker RAG3).
 
         Everything up to the LLM call is identical to ``query()``.
         The LLM step uses ``generate_stream()`` to yield tokens.
@@ -779,7 +803,8 @@ class RAGQueryEngine:
 
         # Include source_filter in cache key so switching sources
         # does not return stale cached answers from a different PDF.
-        cache_space = f"{space_id}::src={source_filter}" if source_filter else space_id
+        _sources = _source_list(source_filter)
+        cache_space = f"{space_id}::src={','.join(_sources)}" if _sources else space_id
         if llm_model:                                     # one model's answer is not another's (RAG2)
             cache_space = f"{cache_space}::llm={llm_model}"
 
@@ -991,13 +1016,14 @@ class RAGQueryEngine:
         if self._should_fallback(chunks):
             logger.info(
                 "FALLBACK (stream): chunks=%d, triggering broad retrieval "
-                "(top_k=%d, no filters, no reranker).",
+                "(top_k=%d, scope kept, no noise filter, no reranker).",
                 len(chunks), self._config.fallback_top_k,
             )
             with trace.span("retrieval_fallback_broad",
                             top_k=self._config.fallback_top_k):
                 fallback_chunks = self._fallback_retrieve(
-                    query_text, expanded_text
+                    query_text, expanded_text,
+                    where=self._build_where_filter(where, source_filter, noise_filter=False),
                 )
             if fallback_chunks:
                 existing_keys = {c.text[:200] for c in chunks}
@@ -1035,6 +1061,11 @@ class RAGQueryEngine:
         with trace.span("build_context", n_chunks=len(chunks)):
             context = self._build_context(chunks, self._context_token_budget)
         _timings["context_build"] = time.time() - _t_ctx_s
+        if on_context is not None:                        # the page's Sources list (RAG3); never stops the answer
+            try:
+                on_context(context_sources(chunks))
+            except Exception as exc:                      # noqa: BLE001
+                logger.warning("on_context failed: %s", exc)
 
         # --- Time-budget check before LLM streaming ---
         if budget.is_expired():
@@ -1252,12 +1283,17 @@ class RAGQueryEngine:
     def _build_where_filter(
         self,
         where: Optional[Dict[str, Any]],
-        source_filter: Optional[str],
+        source_filter: Optional[Union[str, Sequence[str]]],
+        noise_filter: bool = True,
     ) -> Optional[Dict[str, Any]]:
         """
         Merge caller-supplied filter with convenience parameters.
 
-        Enforces multi-tenant space isolation when enabled in config.
+        ``noise_filter=False`` keeps the scope (the caller's filter, the sources, the space) and drops only the
+        short-chunk filter: the broad fallback's search, which must never leave the ticked sources (RAG3).
+
+        ``source_filter``: one source, or several (the page's ticked sources: all of them are searched, and only
+        they; tracker RAG3).  Enforces multi-tenant space isolation when enabled in config.
         Returns a ChromaDB ``where`` dict or None.
         """
         filters: List[Dict[str, Any]] = []
@@ -1265,15 +1301,18 @@ class RAGQueryEngine:
         if where:
             filters.append(where)
 
-        if source_filter:
-            filters.append({"source": source_filter})
+        sources = _source_list(source_filter)
+        if len(sources) == 1:
+            filters.append({"source": sources[0]})
+        elif sources:
+            filters.append({"source": {"$in": sources}})
 
         # Multi-tenant space isolation
         if self._config.enforce_space_isolation:
             filters.append({"space_id": self._config.default_space_id})
 
         # Filter out very short chunks (noise) at query time
-        if self._config.enable_metadata_filtering:
+        if noise_filter and self._config.enable_metadata_filtering:
             filters.append({
                 "word_count": {"$gte": self._config.min_chunk_word_count}
             })
@@ -1357,12 +1396,16 @@ class RAGQueryEngine:
         self,
         original_query: str,
         expanded_query: str,
+        where: Optional[Dict[str, Any]] = None,
     ) -> List[RetrievedChunk]:
-        """Broad fallback: re-retrieve with high top_k, no metadata
-        filters, no reranker.
+        """Broad fallback: re-retrieve with high top_k, no noise filter,
+        no reranker.
 
         Uses the expanded query (or original if identical) for a
-        single vector-only search against the full collection.
+        single vector-only search.  ``where`` is the scope only
+        (``_build_where_filter(..., noise_filter=False)``): it used to
+        search the full collection, so an answer limited to the ticked
+        sources, or to one space, quietly drew on the others (RAG3).
         """
         search_text = expanded_query or original_query
         try:
@@ -1370,6 +1413,7 @@ class RAGQueryEngine:
             results = self._vs.query(
                 query_embeddings=[query_embedding],
                 n_results=self._config.fallback_top_k,
+                where=where,
                 include=["documents", "metadatas", "distances"],
             )
             return self._parse_results(results)
