@@ -481,24 +481,26 @@ class RAGConfig:
     )
 
     # ------------------------------------------------------------------
-    # LLM — Anthropic Claude (cloud inference)
+    # LLM — Anthropic Claude (cloud inference; tracker RAG2)
     # ------------------------------------------------------------------
+    # An API key from the Anthropic Console (sk-ant-api...).  A Claude Pro
+    # subscription does not include API access, and its sign-in tokens are
+    # rejected by the API.
     claude_api_key: str = field(
         default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", "")
     )
+    # The default of llm_service.CLAUDE_MODELS; the page lets a user pick another.
     claude_model: str = field(
         default_factory=lambda: os.getenv(
-            "CENTURION_RAG_CLAUDE_MODEL", "claude-sonnet-4-20250514"
+            "CENTURION_RAG_CLAUDE_MODEL", "claude-opus-5-5"
         )
     )
+    # Room for the model's thinking as well as the answer: current models always
+    # think first, and thinking counts toward this cap.  No temperature: the
+    # SDK the Space runs (2.x) has no such parameter.
     claude_max_tokens: int = field(
         default_factory=lambda: int(
-            os.getenv("CENTURION_RAG_CLAUDE_MAX_TOKENS", "1024")
-        )
-    )
-    claude_temperature: float = field(
-        default_factory=lambda: float(
-            os.getenv("CENTURION_RAG_CLAUDE_TEMPERATURE", "0.3")
+            os.getenv("CENTURION_RAG_CLAUDE_MAX_TOKENS", "64000")
         )
     )
 

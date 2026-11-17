@@ -469,6 +469,156 @@ def test_the_live_prices_route_answers_a_signed_up_user(api, monkeypatch):
     assert set(body) == {"gold", "silver", "bitcoin", "note"}
 
 
+# ── the RAG engine answers with the Claude model the user picks (rag_pipeline/llm/llm_service.py, tracker RAG2) ──
+
+class _ClaudeStream:
+    def __init__(self, texts, final):
+        self.text_stream, self._final = iter(texts), final
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def get_final_message(self):
+        return self._final
+
+
+class _ClaudeClient:
+    """Stands in for anthropic.Anthropic(): records each request, answers or raises."""
+
+    def __init__(self, texts=("An ", "answer."), stop="end_turn", error=None, model=None):
+        from types import SimpleNamespace
+
+        self.calls, self.error = [], error
+        self._texts, self._stop, self._model = texts, stop, model
+        self.beta = SimpleNamespace(messages=self)
+
+    def _final(self, request):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(model=self._model or request["model"], stop_reason=self._stop,
+                               stop_details=SimpleNamespace(category="cyber") if self._stop == "refusal" else None,
+                               content=[SimpleNamespace(type="text", text="".join(self._texts))],
+                               usage=SimpleNamespace(input_tokens=10, output_tokens=5))
+
+    def stream(self, **request):
+        self.calls.append(request)
+        if self.error:
+            raise self.error
+        return _ClaudeStream(self._texts, self._final(request))
+
+    def create(self, **request):
+        self.calls.append(request)
+        if self.error:
+            raise self.error
+        return self._final(request)
+
+
+def _claude(client):
+    from rag_pipeline.llm.llm_service import ClaudeLLMBackend
+
+    backend = ClaudeLLMBackend(api_key="sk-ant-api-test")
+    backend._client = client
+    return backend
+
+
+def test_a_claude_request_carries_no_temperature_and_leaves_room_to_think():
+    from rag_pipeline.llm import llm_service as ls
+
+    client = _ClaudeClient()
+    meta = {}
+    assert "".join(_claude(client).generate_stream("What is RA1?", "context", meta=meta)) == "An answer."
+    first = client.calls[0]
+    assert first["model"] == "claude-opus-5-5" and first["max_tokens"] == 64000 and "temperature" not in first
+    assert first["output_config"] == {"effort": "medium"} and "thinking" not in first
+    assert first["fallbacks"] == "default" and first["betas"] == [ls.FALLBACK_BETA]
+    assert meta == {"source": "llm", "provider": "Claude", "model": "claude-opus-5-5", "requested": "claude-opus-5-5",
+                    "stop_reason": "end_turn"}
+    list(_claude(client).generate_stream("q", "c", model="claude-haiku-5-5"))
+    assert "fallbacks" not in client.calls[1] and "betas" not in client.calls[1]       # Haiku has no API fallback
+    _claude(client).generate("q", "c", model="claude-fable-5-2")
+    assert client.calls[2]["output_config"] == {"effort": "high"} and client.calls[2]["max_tokens"] == 16000
+    with pytest.raises(ValueError, match="not offered"):
+        list(_claude(client).generate_stream("q", "c", model="claude-sonnet-4-20250514"))
+    assert [m["id"] for m in ls.CLAUDE_MODELS][0] == ls.DEFAULT_CLAUDE_MODEL == "claude-opus-5-5"
+
+
+def test_the_claude_request_matches_the_sdk_the_space_runs():
+    """The Space pins anthropic 2.x (constraints-hf.txt), which has no temperature: the old request raised a
+    TypeError there before reaching Anthropic, so Claude never answered."""
+    anthropic = pytest.importorskip("anthropic")
+    import inspect
+
+    from anthropic.resources.beta.messages import Messages
+
+    client = _ClaudeClient()
+    list(_claude(client).generate_stream("q", "c"))
+    accepted = inspect.signature(Messages.stream).parameters
+    assert set(client.calls[0]) <= set(accepted), set(client.calls[0]) - set(accepted)
+    assert "temperature" not in accepted or anthropic.__version__.startswith("0.")
+
+
+def test_a_rejected_key_says_pro_is_not_api_access_and_the_free_model_answers():
+    anthropic = pytest.importorskip("anthropic")
+    httpx2 = pytest.importorskip("httpx2")
+    from rag_pipeline.llm.llm_service import _FallbackChainBackend
+
+    request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+    rejected = anthropic.AuthenticationError("invalid x-api-key", response=httpx2.Response(401, request=request),
+                                             body=None)
+
+    class Free:
+        def generate_stream(self, query, context):
+            yield "a free answer"
+
+    chain = _FallbackChainBackend(_claude(_ClaudeClient(error=rejected)), Free())
+    meta = {}
+    assert "".join(chain.generate_stream("q", "c", model="claude-sonnet-5-5", meta=meta)) == "a free answer"
+    assert meta["fallback"] is True and meta["provider"] == "Free"
+    assert "Claude API key rejected" in meta["reason"] and "Claude Pro" in meta["reason"]
+
+
+def test_a_refusal_is_said_in_plain_words_and_names_the_model():
+    meta = {}
+    out = "".join(_claude(_ClaudeClient(texts=(), stop="refusal")).generate_stream("q", "c", meta=meta))
+    assert "Claude declined to answer this question (cyber)" in out and not out.lstrip().startswith("\u26a0")
+    assert meta["stop_reason"] == "refusal"                     # not an error: the free model is not asked instead
+
+
+def test_the_rag_page_lists_the_models_and_explains_a_rejected_key(api, monkeypatch):
+    from rag_pipeline.llm import llm_service as ls
+
+    monkeypatch.setattr(ls, "claude_status", lambda key: {"available": False, "note": "rejected: not an API key"})
+    body = api[1].get("/api/v1/rag/models", headers=_bearer("user")).json()
+    assert [m["id"] for m in body["models"]] == [m["id"] for m in ls.CLAUDE_MODELS]
+    assert body["default"] == "claude-opus-5-5" and body["available"] is False and "not an API key" in body["note"]
+    assert body["models"][0] == {"id": "claude-opus-5-5", "label": "Claude Opus 5.5", "input_usd": 4.0,
+                                 "output_usd": 20.0}
+
+
+def test_the_query_route_takes_the_chosen_model_and_ends_with_what_answered(api, monkeypatch):
+    import api.routers.v1.rag as rag_routes
+
+    seen = {}
+
+    class Engine:
+        def query_stream(self, q, source_filter=None, llm_model=None, llm_meta=None):
+            seen["model"] = llm_model
+            llm_meta.update(source="llm", provider="Claude", model=llm_model)
+            yield "An answer."
+
+    monkeypatch.setattr(rag_routes, "get_rag_engine", lambda: Engine())
+    client = api[1]
+    sse = client.get("/api/v1/rag/query", params={"q": "What is RA1?", "model": "claude-haiku-5-5"},
+                     headers=_bearer("user")).text
+    assert seen["model"] == "claude-haiku-5-5" and 'event: meta\ndata: {"source": "llm", "provider": "Claude", ' \
+        '"model": "claude-haiku-5-5"}' in sse and sse.rstrip().endswith("data: done")
+    bad = client.get("/api/v1/rag/query", params={"q": "x", "model": "gpt-4o"}, headers=_bearer("user"))
+    assert bad.status_code == 400 and "not offered" in bad.json()["detail"]
+
+
 # ── the weekly newsletter (api/newsletter.py, tracker NL1): chosen, aggregates only, once a week, easy to stop ──
 
 def test_the_newsletter_is_off_unless_the_box_is_ticked():

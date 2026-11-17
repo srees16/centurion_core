@@ -619,27 +619,81 @@ class OllamaLLMBackend:
 # Anthropic Claude backend (cloud API)
 # ---------------------------------------------------------------------------
 
+#: The Claude models a user may pick on the RAG page (owner's ask, 17 Nov 2026; tracker RAG2).  Prices are US dollars
+#: per million input / output tokens on Anthropic's API; ``effort`` is each model's setting for a cited answer from
+#: retrieved context; ``fallbacks``: the API re-runs a declined request on another model by itself (not on Haiku).
+CLAUDE_MODELS = (
+    {"id": "claude-opus-5-5", "label": "Claude Opus 5.5", "input_usd": 4.0, "output_usd": 20.0,
+     "effort": "medium", "fallbacks": True},
+    {"id": "claude-sonnet-5-5", "label": "Claude Sonnet 5.5", "input_usd": 2.0, "output_usd": 10.0,
+     "effort": "medium", "fallbacks": True},
+    {"id": "claude-haiku-5-5", "label": "Claude Haiku 5.5", "input_usd": 0.10, "output_usd": 0.50,
+     "effort": "medium", "fallbacks": False},
+    {"id": "claude-fable-5-2", "label": "Claude Fable 5.2", "input_usd": 8.0, "output_usd": 40.0,
+     "effort": "high", "fallbacks": True},
+)
+DEFAULT_CLAUDE_MODEL = "claude-opus-5-5"
+FALLBACK_BETA = "server-side-fallback-2026-07-01"
+#: A non-streaming answer's output cap (thinking included); streaming uses the config's larger cap.
+NON_STREAM_MAX_TOKENS = 16000
+#: What answered, for the page's "Answered by" line, by backend class.
+BACKEND_LABELS = {"OllamaLLMBackend": "Ollama (local)", "HFInferenceLLMBackend": "Hugging Face Inference",
+                  "OpenAILLMBackend": "OpenAI", "ClaudeLLMBackend": "Claude"}
+
+
+def claude_spec(model: Optional[str]) -> dict:
+    """The catalogue entry for ``model`` (the default when None); raises ValueError for one not offered."""
+    wanted = model or DEFAULT_CLAUDE_MODEL
+    for spec in CLAUDE_MODELS:
+        if spec["id"] == wanted:
+            return spec
+    raise ValueError(f"model {wanted!r} is not offered (one of: {', '.join(s['id'] for s in CLAUDE_MODELS)})")
+
+
+def claude_error_message(exc: Exception, model: str) -> str:
+    """A user-facing line for an API failure, by the SDK's typed errors.  It starts with the warning sign, so the
+    fallback chain answers with its free model instead."""
+    import anthropic
+
+    if isinstance(exc, anthropic.AuthenticationError):
+        return ("⚠️ **Claude API key rejected.** The server needs an API key from the Anthropic Console "
+                "(sk-ant-api...); a Claude Pro subscription does not include API access.")
+    if isinstance(exc, anthropic.PermissionDeniedError):
+        return "⚠️ **Claude API key lacks permission** for this request."
+    if isinstance(exc, anthropic.NotFoundError):
+        return f"⚠️ **Model not available to this API key:** {model}"
+    if isinstance(exc, anthropic.RateLimitError):
+        return "⚠️ **Claude rate limit reached.** Try again in a minute."
+    if isinstance(exc, anthropic.BadRequestError):
+        text = str(getattr(exc, "message", exc))
+        if "credit balance" in text.lower():
+            return "⚠️ **Claude credit balance too low.** Add credit in the Anthropic Console."
+        return f"⚠️ **Claude rejected the request:** {text[:200]}"
+    if isinstance(exc, anthropic.APIStatusError):
+        return f"⚠️ **Claude API error {exc.status_code}** (retried by the SDK first)."
+    if isinstance(exc, anthropic.APIConnectionError):
+        return "⚠️ **Claude unreachable** (network)."
+    return f"⚠️ **Claude error:** {type(exc).__name__}"
+
+
 class ClaudeLLMBackend:
     """
-    LLM backend using the Anthropic Messages API.
+    LLM backend using the Anthropic Messages API (``anthropic`` 2.x, the version the Space pins).
 
-    Requires the ``anthropic`` Python package::
+    The retrieved context and the question go to the chosen Claude model (``CLAUDE_MODELS``; per request through
+    ``model``).  Current models always think before answering, so there is no thinking setting and no temperature,
+    only each model's ``effort``; ``max_tokens`` leaves room for the thinking.  Opus, Sonnet and Fable requests carry
+    the API's own refusal fallback.  The SDK retries rate limits, server errors and dropped connections itself.
+    ``meta`` (a dict) receives which model answered.
 
-        pip install anthropic
-
-    Set ``ANTHROPIC_API_KEY`` in your ``.env`` file.
+    Needs ``ANTHROPIC_API_KEY``: an Anthropic Console API key, not a Claude Pro subscription.
     """
 
-    def __init__(
-        self,
-        api_key: str,
-        model: str = "claude-sonnet-4-20250514",
-        temperature: float = 0.3,
-        max_tokens: int = 1024,
-    ) -> None:
+    accepts_model = True
+
+    def __init__(self, api_key: str, model: str = DEFAULT_CLAUDE_MODEL, max_tokens: int = 64000) -> None:
         self.api_key = api_key
-        self.model = model
-        self.temperature = temperature
+        self.model = claude_spec(model)["id"]
         self.max_tokens = max_tokens
         self._client = None
 
@@ -649,180 +703,99 @@ class ClaudeLLMBackend:
             try:
                 import anthropic
             except ImportError:
-                raise ImportError(
-                    "The 'anthropic' package is required for Claude. "
-                    "Install it with: pip install anthropic"
-                )
-            self._client = anthropic.Anthropic(api_key=self.api_key)
-            logger.info("Anthropic client initialised (model=%s)", self.model)
+                raise ImportError("The 'anthropic' package is required for Claude: pip install anthropic")
+            self._client = anthropic.Anthropic(api_key=self.api_key, max_retries=3)
+            logger.info("Anthropic client initialised (default model=%s)", self.model)
         return self._client
 
-    def generate(self, query: str, context: str) -> str:
-        """
-        Generate a response using the Anthropic Messages API.
+    def _request(self, model: Optional[str], query: str, context: str, max_tokens: int) -> dict:
+        spec = claude_spec(model or self.model)
+        request = {"model": spec["id"], "max_tokens": max_tokens,
+                   "system": _pick_system_prompt(context, compact=False),
+                   "messages": [{"role": "user", "content": _build_user_message(query, context)}],
+                   "output_config": {"effort": spec["effort"]}}
+        if spec["fallbacks"]:
+            request.update(betas=[FALLBACK_BETA], fallbacks="default")
+        return request
 
-        Retries up to 3 times on transient connection errors (e.g.
-        ``APIConnectionError``, TLS resets) with exponential backoff.
-        """
-        system_prompt = _pick_system_prompt(context, compact=False)
-        user_message = _build_user_message(query, context)
+    @staticmethod
+    def _record(meta: Optional[dict], requested: str, message) -> None:
+        if meta is not None:
+            meta.update(source="llm", provider="Claude", model=str(getattr(message, "model", requested)),
+                        requested=requested, stop_reason=str(getattr(message, "stop_reason", "")))
 
-        max_retries = 3
-        for attempt in range(1, max_retries + 1):
-            try:
-                message = self.client.messages.create(
-                    model=self.model,
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature,
-                    system=system_prompt,
-                    messages=[
-                        {"role": "user", "content": user_message},
-                    ],
-                )
+    @staticmethod
+    def _refusal_text(message) -> str:
+        details = getattr(message, "stop_details", None)
+        category = getattr(details, "category", None) if details else None
+        return ("Claude declined to answer this question"
+                + (f" ({category})" if category else "") + ". Try rephrasing it.")
 
-                # Extract text from response content blocks
-                answer_parts = []
-                for block in message.content:
-                    if hasattr(block, "text"):
-                        answer_parts.append(block.text)
-                answer = "\n".join(answer_parts)
+    def generate(self, query: str, context: str, model: Optional[str] = None, meta: Optional[dict] = None) -> str:
+        """One answer, not streamed."""
+        request = self._request(model, query, context, min(self.max_tokens, NON_STREAM_MAX_TOKENS))
+        try:
+            message = self.client.beta.messages.create(**request)
+        except Exception as exc:                          # noqa: BLE001 - mapped to a user-facing line
+            logger.warning("Claude request failed (%s)", type(exc).__name__)
+            return claude_error_message(exc, request["model"])
+        self._record(meta, request["model"], message)
+        if message.stop_reason == "refusal":
+            return self._refusal_text(message)
+        answer = "".join(b.text for b in message.content if getattr(b, "type", "") == "text")
+        logger.info("Claude answer (model=%s, input_tokens=%s, output_tokens=%s)", message.model,
+                    getattr(message.usage, "input_tokens", "?"), getattr(message.usage, "output_tokens", "?"))
+        return answer or "⚠️ **Claude returned an empty answer.**"
 
-                if not answer:
-                    logger.warning("Claude returned empty response")
-                    return "The LLM returned an empty response. Please try again."
-
-                logger.info(
-                    "Claude response generated (model=%s, input_tokens=%s, output_tokens=%s)",
-                    self.model,
-                    getattr(message.usage, "input_tokens", "?"),
-                    getattr(message.usage, "output_tokens", "?"),
-                )
-                return answer
-
-            except Exception as e:
-                error_type = type(e).__name__
-                err_str = str(e).lower()
-
-                # Non-retryable errors — fail immediately
-                if "authentication" in err_str or "api_key" in err_str:
-                    return (
-                        "\u26a0\ufe0f **Claude authentication failed.**\n\n"
-                    )
-                if "rate" in err_str:
-                    return "\u26a0\ufe0f **Rate limited.** Please wait a moment and try again."
-                if "credit" in err_str or "balance" in err_str or "billing" in err_str:
-                    return (
-                        "\u26a0\ufe0f **Claude credit balance too low.**"
-                    )
-
-                # Retryable (connection errors, timeouts, 5xx)
-                is_connection = "connection" in error_type.lower() or "connect" in err_str
-                is_timeout = "timeout" in err_str
-                is_server = "500" in err_str or "502" in err_str or "503" in err_str
-                retryable = is_connection or is_timeout or is_server
-
-                if retryable and attempt < max_retries:
-                    wait = 2 ** attempt  # 2s, 4s
-                    logger.warning(
-                        "Claude transient error (attempt %d/%d, retrying in %ds): %s",
-                        attempt, max_retries, wait, e,
-                    )
-                    time.sleep(wait)
-                    # Reset client to force a fresh connection
-                    self._client = None
-                    continue
-
-                logger.error("Claude API error (%s): %s", error_type, e, exc_info=True)
-                return f"\u26a0\ufe0f Claude API error: {e}"
-
-        # Should not reach here, but just in case
-        return "\u26a0\ufe0f Claude API error after retries."
-
-    def generate_stream(
-        self, query: str, context: str
-    ) -> Generator[str, None, None]:
-        """
-        Stream tokens from the Anthropic Messages API.
-
-        Uses ``client.messages.stream()`` context manager.
-        Retries once on transient errors; yields user-friendly messages
-        for auth / billing / rate-limit failures.
-        """
-        system_prompt = _pick_system_prompt(context, compact=False)
-        user_message = _build_user_message(query, context)
-
-        max_attempts = 2
-        for attempt in range(1, max_attempts + 1):
-            try:
-                with self.client.messages.stream(
-                    model=self.model,
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature,
-                    system=system_prompt,
-                    messages=[{"role": "user", "content": user_message}],
-                ) as stream:
-                    for text in stream.text_stream:
-                        yield text
-                return  # success — exit generator
-
-            except Exception as e:
-                err_str = str(e).lower()
-                error_type = type(e).__name__
-
-                # ── Non-retryable: auth ────────────────────────
-                if "authentication" in err_str or "api_key" in err_str:
-                    yield (
-                        "\u26a0\ufe0f **Claude authentication failed.**"
-                    )
-                    return
-
-                # ── Non-retryable: billing / credits ───────────
-                if "credit" in err_str or "balance" in err_str or "billing" in err_str:
-                    yield (
-                        "\u26a0\ufe0f **Claude credit balance too low.**"
-                    )
-                    return
-
-                # ── Non-retryable: rate limit ──────────────────
-                if "rate" in err_str:
-                    yield "\u26a0\ufe0f **Rate limited.** Please wait a moment and try again."
-                    return
-
-                # ── Non-retryable: model not found / invalid ───
-                if "not_found" in err_str or "invalid" in err_str and "model" in err_str:
-                    yield f"\u26a0\ufe0f **Model error:** {e}"
-                    return
-
-                # ── Retryable (connection, timeout, 5xx) ───────
-                is_connection = "connection" in error_type.lower() or "connect" in err_str
-                is_timeout = "timeout" in err_str
-                is_server = "500" in err_str or "502" in err_str or "503" in err_str or "overloaded" in err_str
-                retryable = is_connection or is_timeout or is_server
-
-                if retryable and attempt < max_attempts:
-                    wait = 2 ** attempt
-                    logger.warning(
-                        "Claude stream transient error (attempt %d/%d, retrying in %ds): %s",
-                        attempt, max_attempts, wait, e,
-                    )
-                    time.sleep(wait)
-                    self._client = None
-                    continue
-
-                # ── Unrecoverable ──────────────────────────────
-                logger.error("Claude streaming error (%s): %s", error_type, e, exc_info=True)
-                yield f"\u26a0\ufe0f Claude streaming error: {e}"
-                return
+    def generate_stream(self, query: str, context: str, model: Optional[str] = None,
+                        meta: Optional[dict] = None) -> Generator[str, None, None]:
+        """The answer token by token; a failure yields one user-facing line instead."""
+        request = self._request(model, query, context, self.max_tokens)
+        try:
+            with self.client.beta.messages.stream(**request) as stream:
+                for text in stream.text_stream:
+                    yield text
+                message = stream.get_final_message()
+        except Exception as exc:                          # noqa: BLE001 - mapped to a user-facing line
+            logger.warning("Claude stream failed (%s)", type(exc).__name__)
+            yield claude_error_message(exc, request["model"])
+            return
+        self._record(meta, request["model"], message)
+        if message.stop_reason == "refusal":
+            yield "\n\n" + self._refusal_text(message)
 
     def is_available(self) -> bool:
-        """Check if the Claude API key is set and client can be created."""
-        if not self.api_key:
-            return False
-        try:
-            _ = self.client
-            return True
-        except Exception:
-            return False
+        """True when a key is configured (``claude_status`` checks that the API accepts it)."""
+        return bool(self.api_key)
+
+
+_claude_status: dict = {"at": None, "key": None, "value": None}
+
+
+def claude_status(api_key: str, ttl_s: float = 600.0, clock=time.monotonic) -> dict:
+    """Whether the API accepts the server's key: one free models call, cached ``ttl_s`` seconds.  ``note`` explains
+    an absent or rejected key in plain words (the RAG page shows it beside the model picker)."""
+    if not api_key:
+        return {"available": False, "note": "No Claude API key on the server: answers come from the free fallback "
+                                            "model. Add an Anthropic Console API key (sk-ant-api...)."}
+    now = clock()
+    cached = _claude_status
+    if cached["value"] is not None and cached["key"] == api_key and now - cached["at"] < ttl_s:
+        return cached["value"]
+    import anthropic
+
+    try:
+        anthropic.Anthropic(api_key=api_key, max_retries=1).models.list(limit=1)
+        value = {"available": True, "note": None}
+    except anthropic.AuthenticationError:
+        value = {"available": False, "note": "The server's Claude API key was rejected. It must be an API key from "
+                                             "the Anthropic Console (sk-ant-api...): a Claude Pro subscription does "
+                                             "not include API access. Until then answers come from the free "
+                                             "fallback model."}
+    except Exception as exc:                              # noqa: BLE001 - reported, checked again next time
+        return {"available": False, "note": f"Claude could not be reached ({type(exc).__name__})."}
+    cached.update(at=now, key=api_key, value=value)
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -1223,7 +1196,6 @@ def create_llm_backend(config: Optional[RAGConfig] = None):
         primary = ClaudeLLMBackend(
             api_key=config.claude_api_key,
             model=config.claude_model,
-            temperature=config.claude_temperature,
             max_tokens=config.claude_max_tokens,
         )
         fallback = _create_fallback_backend(config)
@@ -1291,9 +1263,21 @@ class _FallbackChainBackend:
             self._primary_name, self._fallback_name,
         )
 
-    def generate(self, query: str, context: str) -> str:
+    accepts_model = True
+
+    def _primary_kwargs(self, model: Optional[str], meta: Optional[dict]) -> dict:
+        """The chosen model and the metadata dict, for a primary that takes them (Claude)."""
+        return {"model": model, "meta": meta} if getattr(self._primary, "accepts_model", False) else {}
+
+    def _fell_back(self, meta: Optional[dict], why: str) -> None:
+        if meta is not None:
+            meta.clear()
+            meta.update(source="llm", provider=BACKEND_LABELS.get(self._fallback_name, self._fallback_name),
+                        fallback=True, reason=why.replace("\u26a0\ufe0f", "").replace("**", "").strip()[:240])
+
+    def generate(self, query: str, context: str, model: Optional[str] = None, meta: Optional[dict] = None) -> str:
         try:
-            answer = self._primary.generate(query, context)
+            answer = self._primary.generate(query, context, **self._primary_kwargs(model, meta))
             # Detect error responses from the primary backend
             if self._is_error_token(answer):
                 logger.warning(
@@ -1301,6 +1285,7 @@ class _FallbackChainBackend:
                     self._primary_name, self._fallback_name,
                 )
                 fallback_answer = self._fallback.generate(query, context)
+                self._fell_back(meta, answer)
                 # If fallback also errored, return a single clean message
                 if self._is_error_token(fallback_answer):
                     return (
@@ -1335,7 +1320,7 @@ class _FallbackChainBackend:
         ))
 
     def generate_stream(
-        self, query: str, context: str
+        self, query: str, context: str, model: Optional[str] = None, meta: Optional[dict] = None
     ) -> Generator[str, None, None]:
         """Stream with immediate fallback on first-token error detection.
 
@@ -1345,7 +1330,7 @@ class _FallbackChainBackend:
         output without delay.
         """
         try:
-            primary_gen = self._primary.generate_stream(query, context)
+            primary_gen = self._primary.generate_stream(query, context, **self._primary_kwargs(model, meta))
             first_token = next(primary_gen, None)
 
             # Primary yielded nothing — fall back
@@ -1354,6 +1339,7 @@ class _FallbackChainBackend:
                     "%s stream yielded nothing — falling back to %s",
                     self._primary_name, self._fallback_name,
                 )
+                self._fell_back(meta, f"{self._primary_name} gave no answer")
                 yield from self._fallback.generate_stream(query, context)
                 return
 
@@ -1376,7 +1362,8 @@ class _FallbackChainBackend:
                         f"ensure Ollama is running locally."
                     )
                     return
-                # Fallback is healthy — stream it (no primary error shown)
+                # Fallback is healthy — stream it (no primary error shown; the reason goes in meta)
+                self._fell_back(meta, first_token)
                 yield fb_first
                 yield from fallback_gen
                 return
@@ -1394,6 +1381,7 @@ class _FallbackChainBackend:
                         f"\n\n\u26a0\ufe0f *{self._primary_name} failed mid-stream — "
                         f"re-generating via Ollama…*\n\n"
                     )
+                    self._fell_back(meta, token)
                     yield from self._fallback.generate_stream(query, context)
                     return
                 yield token
@@ -1407,6 +1395,7 @@ class _FallbackChainBackend:
                 f"\u26a0\ufe0f *{self._primary_name} unavailable — "
                 f"falling back to {self._fallback_name}*\n\n"
             )
+            self._fell_back(meta, f"{self._primary_name} unavailable ({type(e).__name__})")
             yield from self._fallback.generate_stream(query, context)
 
     def is_available(self) -> bool:

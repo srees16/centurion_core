@@ -89,7 +89,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-core.txt -c constraints-hf.txt fastapi httpx apscheduler matplotlib \
-            bcrypt itsdangerous python-multipart "kiteconnect==5.1.0"
+            bcrypt itsdangerous python-multipart "kiteconnect==5.1.0" anthropic   # the RAG engine's Claude SDK, at the Space's pin
       - name: Run the fast suite, no skips allowed
         env:
           CENTURION_NO_SKIPS: "1"
