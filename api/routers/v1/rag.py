@@ -100,21 +100,43 @@ async def rag_delete_source(source_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/rag/models")
+async def rag_models():
+    """The Claude models a user may pick for answers (tracker RAG2), with their prices, the default, and whether
+    the server's API key works (one free check, cached; ``note`` says why not)."""
+    from rag_pipeline.config import RAGConfig
+    from rag_pipeline.llm.llm_service import CLAUDE_MODELS, DEFAULT_CLAUDE_MODEL, claude_status
+
+    status = await asyncio.to_thread(claude_status, RAGConfig().claude_api_key)
+    return {"models": [{k: m[k] for k in ("id", "label", "input_usd", "output_usd")} for m in CLAUDE_MODELS],
+            "default": DEFAULT_CLAUDE_MODEL, **status}
+
+
 @router.get("/rag/query")
 async def rag_query(
     q: str,
     rag: str = "true",
     sources: str = "",
     token: str = "",
+    model: str = "",
 ):
     """SSE streaming RAG query with real token-by-token LLM output.
 
     Uses ``query_stream()``, the engine's streaming pipeline, so retrieval,
     context-building and LLM generation match the non-streaming query.
+    ``model``: the Claude model to answer with (``/rag/models``; empty is the
+    default).  The stream ends with a ``meta`` event saying what answered.
     """
+    from rag_pipeline.llm.llm_service import claude_spec
+
+    try:
+        model = claude_spec(model or None)["id"] if model else ""
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     engine = get_rag_engine()
     rag_enabled = rag.lower() == "true"
     source_ids = [s for s in sources.split(",") if s] if sources else None
+    meta: dict = {}
 
     async def event_stream():
         import json
@@ -123,9 +145,11 @@ async def rag_query(
             try:
                 from rag_pipeline.llm.llm_service import create_llm_backend
                 llm = create_llm_backend()
-                tokens = llm.generate_stream(q, "")
+                kwargs = {"model": model or None, "meta": meta} if getattr(llm, "accepts_model", False) else {}
+                tokens = llm.generate_stream(q, "", **kwargs)
                 for tok in tokens:
                     yield f"event: token\ndata: {json.dumps(tok)}\n\n"
+                yield f"event: meta\ndata: {json.dumps(meta or {'provider': type(llm).__name__})}\n\n"
                 yield f"event: done\ndata: done\n\n"
             except Exception as e:
                 yield f"event: token\ndata: {json.dumps(f'Error: {e}')}\n\n"
@@ -136,7 +160,8 @@ async def rag_query(
             source_filter = source_ids[0] if source_ids and len(source_ids) == 1 else None
 
             # Use query_stream() — real token-by-token streaming.
-            stream_gen = engine.query_stream(q, source_filter=source_filter)
+            stream_gen = engine.query_stream(q, source_filter=source_filter, llm_model=model or None,
+                                             llm_meta=meta)
 
             # query_stream() is a blocking generator; iterate in a
             # thread so we don't block the asyncio event loop.
@@ -173,6 +198,7 @@ async def rag_query(
 
                 yield f"event: token\ndata: {json.dumps(item)}\n\n"
 
+            yield f"event: meta\ndata: {json.dumps(meta)}\n\n"
             yield f"event: done\ndata: done\n\n"
         except Exception as e:
             logger.exception("RAG query SSE error")

@@ -288,6 +288,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
+ >>> RAG2 (17 Nov): for the RAG engine to answer with Claude, an API key from the Anthropic Console (console.anthropic.com,
+     same email as claude.ai; a small prepaid credit; the key starts sk-ant-api).  Put it in centurion_core/.env and
+     in the Space's ANTHROPIC_API_KEY secret, replacing today's value, which the API rejects (it is a sign-in token,
+     not an API key; it should not sit on a server either way).  Claude Pro does not include API access.
  >>> DONE 16 Nov: NL1 NEWSLETTER merged (centurion_core #333; the frontend's branch is level with main).  First issue
      Sat 21 Nov 10:00 IST, to users who have chosen it (Claude checks it).
  >>> DONE 16 Nov: SELL TEST PASSED (ST2 step 3, closes LN-T2).  Record sell path run 43810421869 (11:00): "sell path
@@ -1576,6 +1580,29 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+17 Nov  RAG2 The RAG engine answers with Claude, the user's pick of model (your ask and calls; uncommitted, both
+             repositories).  Found: (1) the ANTHROPIC_API_KEY in .env (and synced to the Space) is not an API key:
+             the API rejects it (401).  A Claude Pro subscription does not include API access; the API needs a key
+             from the Anthropic Console (sk-ant-api...), billed separately, pay-as-you-go.  (2) The Space pins
+             anthropic 2.6.0, which has no temperature parameter, and the backend sent one: every Claude call raised
+             a TypeError before reaching Anthropic, so the engine always answered with its free fallback model.
+             (3) The defaults were a dated 2025 model and max_tokens 1024, too few for a model that thinks first.
+             Built: rag_pipeline.llm.llm_service: CLAUDE_MODELS (Opus 5.5 default, Sonnet 5.5, Haiku 5.5, Fable 5.2,
+             with prices and an effort each); requests without temperature, 64,000 tokens of room (16,000 not
+             streamed), the API's own refusal fallback on Opus / Sonnet / Fable, a refusal said in plain words, the
+             SDK's typed errors (a rejected key says Pro is not API access) and its retries; claude_status (one free
+             models call, cached 10 min).  The fallback chain and the engine pass the model through; the answer
+             cache is kept per model.  API: GET /api/v1/rag/models; /rag/query takes model (an unknown one is a
+             400) and ends with a meta event: what answered (Claude and the model, a free fallback and why, or the
+             cache / FAQ / quick path).  Frontend /rag-engine: an "Answer with" picker with each model's price and
+             the server's key note, and an "Answered by ..." line under each answer.  Retrieval stays local
+             (embeddings and reranker): Claude has no embedding service; it writes the answer from what is found.
+             CI's full job installs anthropic (the Space's 2.6.0); this Mac's myenv moved to 2.6.0 to match.
+             Cost per question (about 6k tokens of context, 1.5k out): Opus 5.5 ~$0.05, Sonnet 5.5 ~$0.03, Haiku 5.5
+             ~$0.0015, Fable 5.2 ~$0.11.  Checks: 6 tests (request shape, the installed SDK's signature, the rejected
+             key, a refusal, both routes); fast suite 1080 passed with no skips; frontend type check clean; the
+             models route's note read live with today's key.  Not seen in a browser; no Claude answer tested (no
+             working key).  NEEDS YOU: an Anthropic Console API key in .env and in the Space secret.
 16 Nov  GSB1 Live gold, silver and bitcoin on the Ind stocks pages (your ask and calls: MCX through Kite; bitcoin in $;
              where gold and crude show; uncommitted, both repositories).  Free sources compared and tested live
              first: free metals APIs are too small (GoldAPI 100 a month), late (goldprice.dev 15 min) or retail

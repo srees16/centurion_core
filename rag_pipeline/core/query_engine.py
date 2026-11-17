@@ -750,10 +750,16 @@ class RAGQueryEngine:
         where: Optional[Dict[str, Any]] = None,
         source_filter: Optional[str] = None,
         skip_cache: bool = False,
+        llm_model: Optional[str] = None,
+        llm_meta: Optional[Dict[str, Any]] = None,
     ) -> Generator[str, None, None]:
         """
         Run the retrieval pipeline, then stream the LLM answer
         token-by-token.
+
+        ``llm_model``: the Claude model the user picked (tracker RAG2), passed to a backend that takes one; the
+        answer cache is kept per model.  ``llm_meta`` (a dict) receives what answered: the LLM and model, or the
+        cache, FAQ or fast path when no LLM ran.
 
         Everything up to the LLM call is identical to ``query()``.
         The LLM step uses ``generate_stream()`` to yield tokens.
@@ -774,6 +780,13 @@ class RAGQueryEngine:
         # Include source_filter in cache key so switching sources
         # does not return stale cached answers from a different PDF.
         cache_space = f"{space_id}::src={source_filter}" if source_filter else space_id
+        if llm_model:                                     # one model's answer is not another's (RAG2)
+            cache_space = f"{cache_space}::llm={llm_model}"
+
+        def _answered(source: str) -> None:
+            if llm_meta is not None:
+                llm_meta.clear()
+                llm_meta["source"] = source
 
         # Cache check
         if self._cache is not None and not skip_cache:
@@ -783,6 +796,7 @@ class RAGQueryEngine:
                 trace.stop()
                 if self._perf_logging:
                     trace.summary()
+                _answered("cache")
                 yield hit.answer
                 return
 
@@ -794,6 +808,7 @@ class RAGQueryEngine:
                 trace.stop()
                 if self._perf_logging:
                     trace.summary()
+                _answered("faq")
                 yield faq_hit.answer
                 return
 
@@ -812,6 +827,7 @@ class RAGQueryEngine:
             trace.stop()
             if self._perf_logging:
                 trace.summary()
+            _answered("fastpath")
             yield fastpath_answer
             return
 
@@ -1044,7 +1060,11 @@ class RAGQueryEngine:
             llm_start = time.perf_counter()
             ttft_recorded = False
             llm_aborted = False
-            for token in self._llm.generate_stream(query_text, context):
+            llm_kwargs = ({"model": llm_model, "meta": llm_meta}
+                          if getattr(self._llm, "accepts_model", False) else {})
+            if not llm_kwargs and llm_meta is not None:
+                llm_meta.update(source="llm", provider=type(self._llm).__name__)
+            for token in self._llm.generate_stream(query_text, context, **llm_kwargs):
                 if not ttft_recorded:
                     ttft_ms = (time.perf_counter() - llm_start) * 1000.0
                     # Record TTFT as a span with metadata
