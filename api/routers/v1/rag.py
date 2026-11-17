@@ -126,6 +126,9 @@ async def rag_query(
     context-building and LLM generation match the non-streaming query.
     ``model``: the Claude model to answer with (``/rag/models``; empty is the
     default).  The stream ends with a ``meta`` event saying what answered.
+    ``sources``: comma-separated source names; retrieval is limited to them (all when empty).  Before the
+    first token, one ``chunk`` event per passage the answer is built from: source, page, relevance and an
+    excerpt (tracker RAG3).  A cached, FAQ or fast-path answer sends none.
     """
     from rag_pipeline.llm.llm_service import claude_spec
 
@@ -157,18 +160,18 @@ async def rag_query(
             return
 
         try:
-            source_filter = source_ids[0] if source_ids and len(source_ids) == 1 else None
-
-            # Use query_stream() — real token-by-token streaming.
-            stream_gen = engine.query_stream(q, source_filter=source_filter, llm_model=model or None,
-                                             llm_meta=meta)
-
             # query_stream() is a blocking generator; iterate in a
             # thread so we don't block the asyncio event loop.
             import queue, threading
 
             token_queue: queue.Queue = queue.Queue()
             _SENTINEL = object()
+            _CHUNKS = object()                            # tags the passages the answer is built from
+
+            # Use query_stream() — real token-by-token streaming.
+            stream_gen = engine.query_stream(q, source_filter=source_ids or None, llm_model=model or None,
+                                             llm_meta=meta,
+                                             on_context=lambda items: token_queue.put((_CHUNKS, items)))
 
             def _run_stream():
                 try:
@@ -195,6 +198,10 @@ async def rag_query(
                 if isinstance(item, Exception):
                     yield f"event: token\ndata: {json.dumps(f'Error: {item}')}\n\n"
                     break
+                if isinstance(item, tuple) and item and item[0] is _CHUNKS:
+                    for c in item[1]:
+                        yield f"event: chunk\ndata: {json.dumps(c, default=str)}\n\n"
+                    continue
 
                 yield f"event: token\ndata: {json.dumps(item)}\n\n"
 

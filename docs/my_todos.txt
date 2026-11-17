@@ -273,44 +273,6 @@ ACCEPT: live trading starts at Rs 3 lakh once the 5 dry runs are clean and you g
 WATCH: decided again at 90 sessions, about 25 Jan 2027.
 REJECT: no live capital, and the configuration (679cbd0c) is not re-tuned.
 
-~~~~~~~~
-
-audit one top-level module at a time and refactor centurion codebase to enterprise grade. Keep all existing behavior exactly the same.
-
-## Phase 1 — Audit (no code changes)
-1. Map the architecture: entry points, modules, data flow, dependencies, and external integrations.
-2. Find problems, ranked by severity:
-   - Dead code, duplication, tight coupling, circular dependencies
-   - Mixed responsibilities (business logic tangled with I/O, UI or transport)
-   - Unclear names, inconsistent conventions, magic values, hardcoded config
-   - Weak error handling, missing validation, security risks, leaked secrets
-   - Missing or weak tests, types and logging
-3. Write AUDIT.md with the findings, a proposed target structure, and a refactor plan broken into small, independently verifiable steps.
-4. Stop and wait for my approval before changing anything.
-
-## Phase 2 — Refactor (after approval)
-Organize by logical and functional responsibility:
-- Group code by domain or feature, not by file type. Keep clear layers (e.g. api/handlers → services → domain → repositories/adapters).
-- Each module does one job. Use dependency injection and interfaces at boundaries so parts can be swapped or extended without changing core logic.
-- Centralize config (env-driven), constants, error types and logging.
-- Use consistent naming, add type hints and strong typing throughout, and keep functions small with no nested spaghetti.
-- Add docstrings and comments only where the intent isn't obvious from the code.
-- Remove dead code and merge duplicated code into shared utilities.
-
-## Rules
-- Work one plan step at a time. After each step, run the tests, linter and type checker, and fix any failures before moving on.
-- If test coverage is thin, add characterization tests BEFORE refactoring the code they cover.
-- Don't change public APIs, schemas or outputs unless I approve it. Flag them instead.
-- Don't add new dependencies without asking.
-- Make small, atomic commits with clear messages.
-
-## Deliverables
-- The refactored codebase, with all tests passing
-- AUDIT.md (findings and plan)
-- ARCHITECTURE.md (final structure, module responsibilities, how to extend)
-- An updated README (setup, run, test)
-- A summary of the changes, any deferred items, and the risks you found
-
 ~~~~~~~~~~~
 Automate historical niveshaay rebalances n point in time fundamentals to train RL bot
 

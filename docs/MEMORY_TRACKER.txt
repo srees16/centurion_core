@@ -1580,6 +1580,27 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+17 Nov  RAG3 The RAG page shows which sources each answer searched and used (your ask; uncommitted, both
+             repositories).  Found, from the code and a run of the real engine over an in-memory Chroma
+             collection: (1) the backend never sent the passages an answer was built from, so the page's Sources
+             list, which waits for chunk events, stayed empty; (2) ticking two or more sources searched all of them:
+             the route filtered only when exactly one was ticked; (3) when the ticked sources gave fewer than 3
+             passages, the engine's broad fallback searched again with no filter at all, so the answer drew on
+             unticked sources (and other spaces: space isolation is on by default), even with one source ticked.
+             Built: the engine filters one source or several ($in; order and repeats ignored, and the cache key
+             matches); the fallback keeps the scope (the caller's filter, the ticked sources, the space) and drops
+             only the short-chunk filter and the reranker; query_stream reports its passages (source, page,
+             relevance, a 400-character excerpt) through on_context before the model starts; /rag/query passes every
+             ticked source and sends one chunk event per passage before the first token.  Frontend /rag-engine:
+             a "Context: all sources (N) / <ticked names> / none (RAG off)" line under the question box, a "This
+             answer searched ..." note if the ticks change afterwards, "Sources used (N passages): a.pdf (3), ..."
+             above the passages, and a page number on each; ticking every source sends none, so both share the
+             cache.  A cached, FAQ or quick-path answer has no passages; its "Answered by ..." line says so.
+             Checks: 3 tests in test_api.py (two sources reach the engine and passages come before tokens; the
+             filter and the passage shape; the fallback stays inside the ticked sources, which fails on the old
+             code); fast suite 1083 passed with no skips; frontend type check clean; the real engine over an
+             in-memory Chroma: passages only from the ticked sources, reported before the model.  Not seen in a
+             browser; the Space's store not queried.
 17 Nov  RAG2 The RAG engine answers with Claude, the user's pick of model (your ask and calls; uncommitted, both
              repositories).  Found: (1) the ANTHROPIC_API_KEY in .env (and synced to the Space) is not an API key:
              the API rejects it (401).  A Claude Pro subscription does not include API access; the API needs a key
