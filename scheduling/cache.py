@@ -8,18 +8,20 @@ from __future__ import annotations
 import functools
 import json
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-# â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-_IST = timezone(timedelta(hours=5, minutes=30))
+from shared.clock import IST
+
+# ── Constants ──────────────────────────────────────────────────
+_IST = IST
 _DB_PATH = Path(__file__).parent.parent / "data" / "scheduler_cache.sqlite3"
 
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-# Cache layer (SQLite â€” lightweight, no external DB dependency)
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# ═══════════════════════════════════════════════════════════════
+# Cache layer (SQLite — lightweight, no external DB dependency)
+# ═══════════════════════════════════════════════════════════════
 
 def _init_cache_db():
     """Create the scheduler cache table if it doesn't exist."""

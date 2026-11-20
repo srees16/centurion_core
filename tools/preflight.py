@@ -29,7 +29,8 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-IST = timezone(timedelta(hours=5, minutes=30))
+from shared.clock import IST  # noqa: E402 - after the path bootstrap
+
 #: RA1 reads the deployed book at this many gate sessions (plan 5ao).
 RA1_SESSIONS = 60
 
@@ -75,15 +76,15 @@ def session_date(done: int, after: date, target: int = RA1_SESSIONS) -> Optional
 def owner_items(tracker: str, limit: int = 6) -> List[str]:
     """The first open headings of the tracker's NEEDS YOU section (those not marked done or superseded)."""
     lines = tracker.split("\n")
-    start = next((i for i, l in enumerate(lines) if l.startswith(" 4. NEEDS YOU")), None)
+    start = next((i for i, line in enumerate(lines) if line.startswith(" 4. NEEDS YOU")), None)
     if start is None:
         return []
     out = []
-    for l in lines[start + 1:]:
-        if re.match(r"^ \d+\. [A-Z]", l):
+    for line in lines[start + 1:]:
+        if re.match(r"^ \d+\. [A-Z]", line):
             break
-        if l.startswith(" >>> ") and not re.search(r"\(was\)|DONE|ON HOLD|- YOUR ACTIONS", l):
-            out.append(l[5:].strip()[:100])
+        if line.startswith(" >>> ") and not re.search(r"\(was\)|DONE|ON HOLD|- YOUR ACTIONS", line):
+            out.append(line[5:].strip()[:100])
     return out[:limit]
 
 
@@ -110,27 +111,33 @@ def deployed_sessions() -> Dict[str, Any]:
     return {"gate_sessions": max(len(days) - 1, 0), "last": date.fromisoformat(days[-1][:10])}
 
 
-def facts(now: Optional[datetime] = None, offline: bool = False, root: Path = _ROOT) -> List[str]:
-    """The lines of the preflight.  Nothing here raises: a fact that cannot be computed says why."""
-    from nse_engine import journal
-    from nse_engine.validation import families
-    from tools import lessons
+# Each section below returns its lines.  A section appends as it goes, so a failure part-way keeps the lines
+# already computed and adds one saying what could not be read.
 
+def _clock_lines(now: Optional[datetime]) -> List[str]:
     c = clock(now)
-    out = [f"Now: {c['ist']} ({c['utc']}); NSE trading day today: {'yes' if c['trading_day'] else 'no'}",
-           f"Sessions: last completed {c['last_completed_session']}, next {c['next_session']}",
-           f"A nightly run started now: {runner_mode(now)}"]
+    return [f"Now: {c['ist']} ({c['utc']}); NSE trading day today: {'yes' if c['trading_day'] else 'no'}",
+            f"Sessions: last completed {c['last_completed_session']}, next {c['next_session']}",
+            f"A nightly run started now: {runner_mode(now)}"]
+
+
+def _deployed_line(offline: bool) -> str:
     if offline:
-        out.append("Deployed book and RA1: not read (offline)")
-    else:
-        try:
-            d = deployed_sessions()
-            when = session_date(d["gate_sessions"], d["last"])
-            out.append(f"Deployed book: {d['gate_sessions']} gate sessions to {d['last']}; RA1 at {RA1_SESSIONS}: "
-                       + (f"{when:%a %d %b %Y}, if no session is missed (the freeze holds until then)" if when
-                          else "reached"))
-        except Exception as exc:                          # noqa: BLE001
-            out.append(f"Deployed book and RA1: not read ({type(exc).__name__})")
+        return "Deployed book and RA1: not read (offline)"
+    try:
+        d = deployed_sessions()
+        when = session_date(d["gate_sessions"], d["last"])
+        return (f"Deployed book: {d['gate_sessions']} gate sessions to {d['last']}; RA1 at {RA1_SESSIONS}: "
+                + (f"{when:%a %d %b %Y}, if no session is missed (the freeze holds until then)" if when
+                   else "reached"))
+    except Exception as exc:                              # noqa: BLE001
+        return f"Deployed book and RA1: not read ({type(exc).__name__})"
+
+
+def _trial_lines(root: Path) -> List[str]:
+    from nse_engine.validation import families
+
+    out: List[str] = []
     try:
         fam = families.load(root)
         out.append("Trials: " + ", ".join(f"{k} {v['n']}" for k, v in fam.items())
@@ -138,6 +145,13 @@ def facts(now: Optional[datetime] = None, offline: bool = False, root: Path = _R
         out += [f"  ! {p}" for p in families.problems(root, registries=False)]
     except Exception as exc:                              # noqa: BLE001
         out.append(f"Trials: not read ({type(exc).__name__}: {exc})")
+    return out
+
+
+def _journal_lines(root: Path) -> List[str]:
+    from nse_engine import journal
+
+    out: List[str] = []
     try:
         tracker = (root / journal.TRACKER_PATH).read_text()
         found = journal.check(tracker)
@@ -148,6 +162,13 @@ def facts(now: Optional[datetime] = None, offline: bool = False, root: Path = _R
         out.append(f"Owner's open items ({len(items)} shown): " + ("; ".join(items) or "none"))
     except Exception as exc:                              # noqa: BLE001
         out.append(f"Journal and tracker: not read ({type(exc).__name__}: {exc})")
+    return out
+
+
+def _lesson_lines(root: Path) -> List[str]:
+    from tools import lessons
+
+    out: List[str] = []
     try:
         rows = lessons.build(root)
         s = lessons.summary(rows)
@@ -156,6 +177,12 @@ def facts(now: Optional[datetime] = None, offline: bool = False, root: Path = _R
         out += [f"  ! {p}" for p in lessons.check(root)]
     except Exception as exc:                              # noqa: BLE001
         out.append(f"Lessons: not read ({type(exc).__name__}: {exc})")
+    return out
+
+
+def _operations_lines(root: Path, now: Optional[datetime], offline: bool) -> List[str]:
+    """Store guards, the data catalogue, the week's operations (PL-16, PL-17) and the cost rates."""
+    out: List[str] = []
     try:
         from nse_engine.validation import rates
         from tools import guards
@@ -165,7 +192,7 @@ def facts(now: Optional[datetime] = None, offline: bool = False, root: Path = _R
         from tools import data_catalogue
 
         out.append(f"Data: {data_catalogue.status(root, today)}")
-        from tools import ops_report                      # PL-16, PL-17: the week's operations, the loop's health
+        from tools import ops_report
 
         ops = ops_report.block(root, now, offline=offline)
         out.append(ops["head"])
@@ -173,8 +200,15 @@ def facts(now: Optional[datetime] = None, offline: bool = False, root: Path = _R
         out.append(f"Cost rates: {rates.status(today)}")
     except Exception as exc:                              # noqa: BLE001
         out.append(f"Store guards and cost rates: not read ({type(exc).__name__}: {exc})")
-    out.append(f"Repositories: centurion_core {git_state(root)}; centurion_core-fe {git_state(root.parent / 'centurion_core-fe')}")
     return out
+
+
+def facts(now: Optional[datetime] = None, offline: bool = False, root: Path = _ROOT) -> List[str]:
+    """The lines of the preflight.  Nothing here raises: a fact that cannot be computed says why."""
+    out = (_clock_lines(now) + [_deployed_line(offline)] + _trial_lines(root) + _journal_lines(root)
+           + _lesson_lines(root) + _operations_lines(root, now, offline))
+    return out + [f"Repositories: centurion_core {git_state(root)}; centurion_core-fe "
+                  + git_state(root.parent / "centurion_core-fe")]
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:

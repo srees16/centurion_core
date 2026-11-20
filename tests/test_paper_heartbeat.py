@@ -620,3 +620,199 @@ def test_the_saturday_job_may_read_its_run_history_and_hands_the_report_a_token(
     assert "permissions:" in job and "actions: read" in job and "contents: read" in job
     step = job.split("- name: Paper books - one Saturday email", 1)[1]
     assert "GITHUB_TOKEN: ${{ github.token }}" in step and "continue-on-error: true" in step
+
+
+# ── the weekly backup of the books (tools/export_books.py, JR2): every paper table copied, no secret kept ──
+# Characterisation tests (RF0 T1, 18 Nov 2026): they pin what the export does today, before it is refactored.
+
+def _neon_stand_in(tmp_path, monkeypatch):
+    """A real SQLAlchemy engine shaped like Neon: each attached SQLite file is a schema."""
+    from types import SimpleNamespace
+
+    from sqlalchemy import create_engine, event, text
+
+    import database.connection as dbc
+
+    files = {name: tmp_path / f"{name}.db" for name in ("public", "live", "e4")}
+    engine = create_engine(f"sqlite:///{tmp_path / 'main.db'}")
+
+    @event.listens_for(engine, "connect")
+    def _attach(conn, _):
+        for name, path in files.items():
+            conn.execute(f"ATTACH DATABASE '{path}' AS {name}")
+
+    with engine.begin() as conn:
+        conn.execute(text('CREATE TABLE "public".paper_fills (symbol TEXT, qty INTEGER)'))
+        conn.execute(text("""INSERT INTO "public".paper_fills VALUES ('INFY', 10), ('TCS', 5)"""))
+        conn.execute(text('CREATE TABLE "public".paper_cloud_state (key TEXT, value TEXT)'))
+        for key in ("futures_ledger", "last_session", "kite_access_token", "client_SECRET", "password_hash",
+                    "api_key", "kite_accounts"):
+            conn.execute(text('INSERT INTO "public".paper_cloud_state VALUES (:k, :v)'), {"k": key, "v": "x"})
+        conn.execute(text('CREATE TABLE "public".users (email TEXT)'))          # not a paper table
+        conn.execute(text('CREATE TABLE "live".paper_cloud_state (key TEXT, value TEXT)'))
+        conn.execute(text("""INSERT INTO "live".paper_cloud_state VALUES ('kite_accounts', '{}'), ('mode', 'dry_run')"""))
+        conn.execute(text('CREATE TABLE "e4".other (x INTEGER)'))
+    monkeypatch.setattr(dbc, "get_db_manager", lambda: SimpleNamespace(engine=engine))
+
+
+def test_the_book_export_copies_every_paper_table_and_drops_secrets_and_accounts(tmp_path, monkeypatch):
+    import json
+
+    from tools import export_books
+
+    _neon_stand_in(tmp_path, monkeypatch)
+    monkeypatch.setattr(export_books, "schemas", lambda: {"deployed": "public", "live": "live", "e4": "e4",
+                                                          "us_advisory": "us_advisory"})
+    out = tmp_path / "exports"
+    manifest = export_books.export(out)
+
+    assert manifest["books"] == {
+        "deployed": {"schema": "public", "tables": {"paper_fills": 2, "paper_cloud_state": 2}},
+        "live": {"schema": "live", "tables": {"paper_cloud_state": 1}},
+        "e4": {"schema": "e4", "tables": {}},
+        "us_advisory": {"schema": "us_advisory", "tables": {}, "note": "no such schema yet"}}
+    state = pd.read_csv(out / "deployed" / "paper_cloud_state.csv.gz")
+    assert sorted(state["key"]) == ["futures_ledger", "last_session"]                    # no token, secret, account
+    assert list(pd.read_csv(out / "live" / "paper_cloud_state.csv.gz")["key"]) == ["mode"]
+    assert sorted(p.name for p in (out / "deployed").iterdir()) == ["paper_cloud_state.csv.gz", "paper_fills.csv.gz"]
+    assert not (out / "us_advisory").exists() and not any((out / "e4").iterdir())
+    assert json.loads((out / "manifest.json").read_text()) == manifest
+    assert datetime.fromisoformat(manifest["exported_at"]).utcoffset() == timedelta(0)
+
+
+def test_the_book_export_lists_every_book_and_its_schema(monkeypatch):
+    from types import SimpleNamespace
+
+    import nse_engine.books as books
+    from tools import export_books
+
+    monkeypatch.setattr(books, "discover_books", lambda: [SimpleNamespace(name="deployed", schema=None),
+                                                          SimpleNamespace(name="e4", schema="e4"),
+                                                          SimpleNamespace(name="live", schema="live_cfg")])
+    assert export_books.schemas() == {"deployed": "public", "e4": "e4", "live": "live_cfg",   # a config book wins
+                                      "us_advisory": "us_advisory", "etf_depth": "etf_depth"}
+
+
+def test_the_book_export_needs_the_database_and_writes_under_the_repository(monkeypatch, capsys):
+    import sys
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from tools import export_books
+
+    monkeypatch.setitem(sys.modules, "dotenv", SimpleNamespace(load_dotenv=lambda: None))   # never the real .env
+    monkeypatch.delenv("CENTURION_DATABASE_URL", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    assert export_books.main([]) == 2 and "CENTURION_DATABASE_URL is not set" in capsys.readouterr().err
+
+    seen = []
+    monkeypatch.setenv("DATABASE_URL", "postgresql://stand-in")
+    monkeypatch.setattr(export_books, "export", lambda out: seen.append(out) or {"books": {}})
+    assert export_books.main([]) == 0 and '"books": {}' in capsys.readouterr().out
+    root = Path(__file__).resolve().parent.parent
+    default = export_books.OUT if export_books.OUT.is_absolute() else root / export_books.OUT  # run from the root
+    assert seen == [Path(str(export_books.OUT))] and default == root / "data" / "nse_engine" / "book_exports"
+
+
+# ── the off-machine backup (cloud/backup.py): which files go to which private dataset, and what is left out ──
+# Characterisation tests (RF0 CL1, 20 Nov 2026), pinning today's layout before any refactor.
+
+def _backup_tree(tmp_path, monkeypatch):
+    from cloud import backup
+
+    data = tmp_path / "data" / "nse_engine"
+    for d in ("runs/20261102T101010_a", "runs/20261110T090000_b", "runs/not_a_run", "archive/equity/2025",
+              "archive/fo/2026", "archive/filings/docs/2025", "archive/filings/lists/ann/2026", "archive/manifest",
+              "archive/reference", "store", "mcx_store", "runs_options", "scorecard", "book_exports/deployed",
+              "kaggle_out", "some_task"):
+        (data / d).mkdir(parents=True, exist_ok=True)
+    for f, text in {"runs/20261102T101010_a/metrics.json": "{}", "runs/20261102T101010_a/.hidden": "x",
+                    "runs/20261102T101010_a/run.pid": "1", "runs/runtime_index.json": "{}",
+                    "archive/equity/2025/a.csv": "1", "store/prices.parquet": "123", "mcx_store/m.parquet": "1",
+                    "wf_core.json": "{}", "x_results.csv": "1", "holdout.lock": "", "refresh_status.json": "{}",
+                    "notes.txt": "not backed up", "kaggle_out/out.json": "{}", "some_task/run.sh": "#!/bin/sh",
+                    "backup_state.json": "{}"}.items():
+        (data / f).write_text(text)
+    memory = tmp_path / "memory"
+    memory.mkdir()
+    monkeypatch.setattr(backup, "machine_files", lambda: {})
+    monkeypatch.setattr(backup, "memory_dir", lambda root=None: memory)
+    monkeypatch.setattr(backup, "STATE_FILE", data / "backup_state.json")
+    return backup, data
+
+
+def test_the_backup_puts_each_kind_of_file_in_its_own_dataset(tmp_path, monkeypatch):
+    backup, data = _backup_tree(tmp_path, monkeypatch)
+    out = {slug: [arc for _, arc in items] for slug, items in backup.pieces(data).items()}
+    assert out["centurion-backup-runs-2026w45"] == ["runs/20261102T101010_a"]          # one ISO week each
+    assert out["centurion-backup-runs-2026w46"] == ["runs/20261110T090000_b"]
+    assert out["centurion-backup-archive-2025"] == ["archive/equity/2025", "archive/filings/docs/2025"]
+    assert out["centurion-backup-archive-2026"] == ["archive/fo/2026", "archive/filings/lists/ann/2026"]
+    assert out["centurion-backup-store"] == ["store"] and out["centurion-backup-mcx-store"] == ["mcx_store"]
+    assert out["centurion-backup-state"] == [
+        "runs_options", "wf_core.json", "x_results.csv", "refresh_status.json", "holdout.lock",
+        "runs/runtime_index.json", "scorecard", "book_exports", "archive/reference", "archive/manifest",
+        "tasks/some_task/run.sh", "machine/claude_memory", "backup_state.json"]
+    everything = " ".join(arc for arcs in out.values() for arc in arcs)
+    assert "kaggle_out" not in everything and "notes.txt" not in everything and "not_a_run" not in everything
+
+
+def test_the_backup_skips_hidden_and_live_task_files_and_uploads_only_what_changed(tmp_path, monkeypatch):
+    backup, data = _backup_tree(tmp_path, monkeypatch)
+    real_pieces = backup.pieces
+    monkeypatch.setattr(backup, "pieces", lambda: real_pieces(data))
+    run = data / "runs" / "20261102T101010_a"
+    assert [arc for _, arc in backup._files([(run, "runs/r")])] == ["runs/r/metrics.json"]   # no .hidden, no run.pid
+    todo = backup.plan()
+    assert set(todo) == {"centurion-backup-runs-2026w45", "centurion-backup-archive-2025",   # nothing pushed yet:
+                         "centurion-backup-store", "centurion-backup-mcx-store",            # every piece with files;
+                         "centurion-backup-state"}                                          # empty ones wait
+    backup.STATE_FILE.write_text(__import__("json").dumps({s: {"fingerprint": fp} for s, fp in todo.items()}))
+    assert set(backup.plan()) == {"centurion-backup-state"}                         # unchanged: the state only
+    (data / "store" / "prices.parquet").write_text("1234")                           # a size change
+    assert set(backup.plan()) == {"centurion-backup-state", "centurion-backup-store"}
+    assert set(backup.plan(push_all=True)) == set(todo)
+
+
+# ── the Space's scheduler (scheduler.py): the GitHub dispatches and the newsletter, at their times ──
+# Characterisation test (RF0 I1, 20 Nov 2026).
+
+@pytest.mark.parametrize("secrets,expected", [
+    ({"CENTURION_GH_DISPATCH_TOKEN": "t", "CENTURION_USER_DATA_KEY": "k"}, {
+        "nse_engine_dispatch": ("_dispatch_nse_paper_workflow", 19, 0, "mon-fri", 3600),
+        "nse_engine_dispatch_retry": ("_dispatch_nse_paper_workflow", 20, 30, "mon-fri", 3600),
+        "kite_login_reminder": ("_dispatch_kite_login_reminder", 9, 0, "mon-fri", 1800),
+        "kite_login_reminder_evening": ("_dispatch_kite_login_reminder", 17, 30, "mon-fri", 1800),
+        "newsletter": ("_send_newsletter", 10, 0, "sat", 3600),
+        "newsletter_retry": ("_send_newsletter", 13, 0, "sat", 3600)}),
+    ({}, {}),
+])
+def test_the_space_scheduler_registers_its_jobs_at_their_ist_times(monkeypatch, secrets, expected):
+    pytest.importorskip("apscheduler")
+    import apscheduler.schedulers.blocking as blocking
+    import apscheduler.triggers.cron as cron
+
+    import scheduler
+
+    jobs, started = {}, []
+
+    class Scheduler:
+        def __init__(self, timezone):
+            assert timezone == "Asia/Kolkata"
+
+        def add_job(self, func, trigger, id, name, misfire_grace_time):
+            jobs[id] = (func.__name__, trigger["hour"], trigger["minute"], trigger["day_of_week"], misfire_grace_time)
+            assert trigger["timezone"] == "Asia/Kolkata"
+
+        def start(self):
+            started.append(True)
+
+    monkeypatch.setattr(blocking, "BlockingScheduler", Scheduler)
+    monkeypatch.setattr(cron, "CronTrigger", lambda **kw: kw)
+    monkeypatch.setattr(scheduler, "_init_cache_db", lambda: None)
+    for name in ("CENTURION_GH_DISPATCH_TOKEN", "CENTURION_USER_DATA_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in secrets.items():
+        monkeypatch.setenv(name, value)
+    scheduler.start_scheduler()
+    assert jobs == expected and started == [True]
