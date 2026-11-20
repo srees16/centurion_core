@@ -706,7 +706,7 @@ def build_report(books: Sequence[Book], paper: Dict[str, PaperBook], register: p
     html.append("</div><div style='padding:12px 24px;background:#f3f4f6;font-size:11px;color:#999;text-align:center;'>"
                 "Centurion paper books &bull; tracker V4 &bull; auto-generated</div></div></body></html>")
     subject = (("READY FOR YOUR REVIEW: " + ", ".join(cleared) + " | ") if cleared else "") + \
-        f"[Centurion Paper] Books week ending {as_of} | " + \
+        f"Centurion Paper: Books week ending {as_of} | " + \
         (f"{len(judged)} trial(s) compared" if judged else "no comparison yet")
     return {"subject": subject, "html": "\n".join(html), "body": "\n".join(html[1:-1]), "headline": headline,
             "gate_line": gate_line, "cleared": cleared, "comparisons": comparisons, "gates": gates, "reviews": reviews}
@@ -1088,7 +1088,7 @@ def build_daily(days: Sequence[DayBook], nifty: Optional[pd.Series], session: da
     behind = sum(1 for r in rows if _finite(r["alpha"]) and r["sessions"] >= 2 and r["alpha"] < 0)
     n_alerts = sum(1 for f in findings if f.startswith("Alert ("))
     drawdown = [d.book.name for d in days if "[drawdown" in (d.email or {}).get("subject", "")]
-    subject = (f"[Centurion Paper] Daily summary {_dmy(session)}: {len(rows)} books, {behind} behind NIFTY 50"
+    subject = (f"Centurion Paper: Daily summary {_dmy(session)}: {len(rows)} books, {behind} behind NIFTY 50"
                + (f", {n_alerts} alert(s)" if n_alerts else "")
                + (f", drawdown rule active in {', '.join(drawdown)}" if drawdown else "")
                + (f", EDGE ALARM in {', '.join(tripped)}" if tripped else "")
@@ -1378,7 +1378,7 @@ def build_weekly(days: Sequence[DayBook], nifty: Optional[pd.Series], session: d
     cleared = report.get("cleared") or []
     behind = sum(1 for r in rows if _finite(r["alpha"]) and r["sessions"] >= 2 and r["alpha"] < 0)
     subject = ((f"READY FOR YOUR REVIEW: {', '.join(cleared)} | " if cleared else "")
-               + f"[Centurion Paper] Week ending {_dmy(session)}: {len(rows)} books, {behind} behind NIFTY 50, "
+               + f"Centurion Paper: Week ending {_dmy(session)}: {len(rows)} books, {behind} behind NIFTY 50, "
                f"{len(cleared)} cleared for promotion")
     footer = _FOOTER + (" vs deployed: the trial's return minus the deployed book's over their common sessions, with "
                         "its t (|t| >= 2 is unlikely to be noise). Paper t (p): the paper mean daily excess return "

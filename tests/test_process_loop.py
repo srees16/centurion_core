@@ -520,3 +520,22 @@ def test_the_loops_health_warns_before_an_open_lesson_fails_the_suite():
     assert near[0]["text"].startswith("lessons: ") and near[0]["action"] is False
     assert any(h["text"].startswith("post-mortems: ") for h in near)
     assert near[-1]["text"].startswith("cost-model error against contract notes: waits for PL-14")
+
+
+def test_the_shared_settings_read_the_database_url_as_the_callers_did(monkeypatch):
+    """RF0 phase 1: ``shared.settings.database_url`` replaces ``CENTURION_DATABASE_URL or DATABASE_URL`` in the API
+    and the book export; an empty first variable falls through to the second, as before."""
+    from datetime import timedelta
+
+    from shared.clock import IST
+    from shared.settings import database_url
+
+    for name in ("CENTURION_DATABASE_URL", "DATABASE_URL"):
+        monkeypatch.delenv(name, raising=False)
+    assert database_url() == "" and IST.utcoffset(None) == timedelta(hours=5, minutes=30)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://second")
+    assert database_url() == "postgresql://second"
+    monkeypatch.setenv("CENTURION_DATABASE_URL", "")
+    assert database_url() == "postgresql://second"
+    monkeypatch.setenv("CENTURION_DATABASE_URL", "postgresql://first")
+    assert database_url() == "postgresql://first"

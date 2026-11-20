@@ -1386,7 +1386,7 @@ def _run_weekly_checkpoint(use_engine: bool = False):
 
     tag = _book_tag(_load_engine_deployment()) if use_engine else _book_label()
     label = f"[{tag}] " if tag else ""
-    subject = (f"[Centurion Paper] {label}Week {wk} | {checkpoint['week_return_pct']:+.1f}%{futures_tag} | "
+    subject = (f"Centurion Paper: {label}Week {wk} | {checkpoint['week_return_pct']:+.1f}%{futures_tag} | "
                f"{checkpoint['trades_opened']} opened, {checkpoint['trades_closed']} closed | "
                f"gate {verdict.split(' — ')[0]}")
     from nse_engine.books import WEEKLY_EMAIL_KEY

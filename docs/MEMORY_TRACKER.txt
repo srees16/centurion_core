@@ -353,6 +353,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
         option_chain, fo_anomalies, the three strategy files, options_monitor: about 2,750 statements).
         They are research tools, not the nightly path; the nightly A1 overlay is now tested.
      2. Legacy services behind the legacy pages (services/research, signals, execution, risk: 0-6%).
+        DECIDED 20 Nov (RF0d, your go on the audit's recommendation): off the paper runner after RA1,
+        then behind legacy/, then retired item by item after study (F&O, strategy and RL rules hold).
      3. The frontend (centurion_core-fe): no test script at all.
  >>> AFTER RA1: COST RATES (PL-15, found 14 Nov; lesson L-RATES-2026, review by 31 Dec)
      Four published rates are not in the cost models: NSE's charge on shares 0.00307% (model 0.00297%),
@@ -1580,6 +1582,62 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+20 Nov  RF0d Codebase refactor: the four decisions taken ("go with your recommendations") and phase 1 started
+             (uncommitted).  Decisions (AUDIT.md 0.7): TS2 legacy path off the paper runner after RA1, then
+             legacy/, then retired item by item; X1 engine by default and X7 one holiday rule, both after RA1;
+             X9 yes; route retirement on evidence only; no zip strict; one-off scripts to scripts/; boundaries
+             before folder moves; characterisation tests before 19 Dec.  Done: shared/ (IST, REPOSITORY,
+             database_url) used by 12 modules, tools/common.py folded in; X9 found already in place (the audit
+             corrected) and pinned by a test that fails without the handler; bootstrap_models, setup_database
+             and run_backtest_production moved to scripts/ (root path set-up; README and the estimate doc
+             updated); backup and Space scheduler characterisation tests; mojibake in 13 comment lines.
+             Checks: suite 1092 (myenv, no-skips), core 958 + 106 skips; lint nothing new but one E402 beside
+             two; 29 workflow and 7 Space modules import.  Flagged, not changed: the Overfit Alert subject's
+             mojibake (an output), auto_executor's 20 mojibake lines (legacy), the RAG stream's error token.
+19 Nov  RF0c Codebase refactor, Phase 1 audit of every remaining module (your ask: "work on all the modules
+             to audit, no need to ask me"; docs/AUDIT.md sections 0 and 2-15; no code changed).  Method: a static
+             pass of the 505 tracked Python files, the import graph with what each production entry point
+             reaches, dead and duplicate candidates, a secrets scan, fast-suite coverage, ruff and mypy.  High:
+             X1 the nightly runner falls back to the legacy CarverPipeline whenever CENTURION_NSE_ENGINE is not
+             "true" (default "false"; the variable is "true" since 16 Sep); X2 layers import both ways (nse_engine
+             imports runners, tools, cloud and kite_connect private helpers); X3 coverage 27%, 0-7% on some
+             nightly code (mcx_store, crash_recovery, run_nse_engine); X4 928 lint findings and 1,090 mypy errors,
+             none a live bug on inspection; X5 425 functions over 60 lines (2,511 at most).  Medium: 211
+             environment variables in 63 files; IST in 29 files and two calendar rules (CENTURION_NSE_HOLIDAYS
+             honoured by one); name collisions; about 1,280 broad excepts and API 500s that echo the exception;
+             2,700 lines of self-tests inside rag_pipeline.  Clean: no secrets tracked, no import cycles, almost
+             no copy-paste.  Plan in four phases: now (off the nightly and live paths), after RA1, after 19 Dec
+             (CI gates), after TS2 (the legacy path).  WAITS FOR YOU: approval and four decisions (AUDIT.md
+             0.7: TS2, the flagged changes in 0.6, folder moves with aliases or boundaries only, characterisation
+             tests before 19 Dec).
+18 Nov  RF0b Codebase refactor, tools/ Stage A, the steps that may go before RA1 (your approval; the six
+             decisions delegated "without altering the current workflow and functionality of the Ind stocks
+             module"; uncommitted).  Decided (docs/AUDIT.md 1.7): ruff 0.17.5 and mypy 2.4.1 in ProjectX/devenv,
+             outside the repository and myenv, CI use after 19 Dec; the four nightly scripts (books_report,
+             paper_heartbeat, session_failed, game_day) untouched until RA1; strategy_benchmark left to L-BT1;
+             Stage B folders decided after RA1 (it would change typed commands or add 14 alias files); T4 moved
+             whole to after RA1.  Two audit items corrected from the code: the path bootstrap cannot be shared (a
+             tool run by path imports tools.common only after it), and RA1_SESSIONS stays 60 (a fixed plan, not
+             the ladder's tunable minimum).  Done: T1 three export_books tests on a real SQLAlchemy engine (secrets
+             and kite_accounts dropped, missing schema, manifest; the secrets test fails with the filter removed);
+             T2 books_report and export_books in their test area; T3 tools/common.py (IST, REPOSITORY), used by
+             seven tools; T5 preflight.facts split by section; T6 export_books' folder anchored to the root; the
+             ambiguous l names renamed.  Checks: outputs identical to the baseline (preflight, ops_report,
+             data_catalogue, guards, lessons, nine --help texts); fast suite 1086 with no skips, core-only 955 and
+             103 web skips; ruff's correctness rules clean on every touched file; mypy unchanged (3 typing-only
+             errors in lessons.py, for T9).  Left alone: four files modified by someone else (cloud_paper_runner,
+             nse_engine/books.py, tests/test_metrics.py, docs/paper_trade_strategy.md), checked unchanged.
+17 Nov  RF0  Codebase refactor, Phase 1 audit of tools/ (your ask and go: structure only, functionality and
+             workflow unchanged, one module at a time; docs/AUDIT.md, new, uncommitted; no code changed).  14 files,
+             3,391 lines.  High: core code imports from tools/ (api/newsletter.py, validation/significance.py,
+             scheduler.py), so nothing there can move freely; no linter or type checker is installed or in CI;
+             export_books.py, which keeps tokens and users' Zerodha accounts out of the backup, has no test;
+             books_report.py and export_books.py are in no test_map area.  Medium: private names of other modules
+             used (NotificationManager._send_html_email x4), IST defined 9 times (99 in the repo), two GitHub
+             clients, long functions, two calendar sources.  Clean: no dead code, no secrets, no import cycles.
+             Baseline: 280 tests covering tools pass.  Plan T0-T10 in the audit; T3-T6 can go now, T1, T2's check
+             and T9 are new checks held by PF1 to 19 Dec, T7, T8 and T10 wait for RA1.  WAITS FOR YOU: approval,
+             and six decisions (AUDIT.md 1.7).
 17 Nov  RAG3 The RAG page shows which sources each answer searched and used (your ask; uncommitted, both
              repositories).  Found, from the code and a run of the real engine over an in-memory Chroma
              collection: (1) the backend never sent the passages an answer was built from, so the page's Sources

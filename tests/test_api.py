@@ -50,6 +50,22 @@ def test_the_public_routes_are_the_listed_ones_and_no_more(api):
     assert len(operations) > 100, "the app's routers did not load: this check would pass on an empty app"
 
 
+def test_a_500_answers_a_generic_message_and_logs_the_cause(api, monkeypatch, caplog):
+    """RF0 (AUDIT.md X9): 96 routes raise a 500 with an exception's text, which can name hosts, ports and paths.
+    The app's handler logs that text and answers a generic message, so it never reaches the caller."""
+    import sys
+    from types import SimpleNamespace
+
+    def failing_download(*args, **kwargs):
+        raise RuntimeError("connect db.internal:5432 failed")
+
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(download=failing_download))
+    with caplog.at_level("ERROR"):
+        r = api[1].get("/api/v1/market/ticker-prices", params={"symbols": "RF0X9CHECK"}, headers=_bearer("user"))
+    assert r.status_code == 500 and r.json() == {"detail": "Internal server error"}
+    assert "db.internal" not in r.text and "db.internal:5432" in caplog.text
+
+
 @pytest.mark.lesson("L-S2", pattern="F1", date="2026-10-07", source="S2",
                     summary="API routes answered without a session; nothing walked every route to confirm it asks")
 def test_every_route_asks_for_a_session(api):

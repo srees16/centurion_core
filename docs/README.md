@@ -99,7 +99,7 @@ This creates three databases: `centurion_rag` (analysis results, backtesting, RA
 
 Run in the same terminal (env vars from Step 2 are still active):
 ```powershell
-python setup_database.py
+python scripts/setup_database.py
 ```
 Expected output: `✓ Database tables created successfully`
 
@@ -1623,7 +1623,7 @@ centurion_core/
 ├── scheduler.py                  # APScheduler on the HF Space: the GitHub dispatch jobs (paper/live, login reminder)
 ├── scheduling/                   # Its run cache + job log, walk-forward audit, retired strategy and F&O jobs
 ├── run_api.py                    # FastAPI server launcher (port 9001)
-├── setup_database.py             # Database schema initialisation
+├── scripts/                      # One-off scripts: database set-up, model bootstrap, production backtest, PIT lists
 ├── requirements.txt              # Python dependencies
 ├── sample_tickers.csv            # Example ticker list
 ├── .env.example                  # Complete environment variable reference
@@ -1972,7 +1972,7 @@ cd centurion_core
 
 # Run the database setup script
 # This will create all tables automatically
-python setup_database.py
+python scripts/setup_database.py
 ```
 
 **Expected output:**
@@ -2217,7 +2217,7 @@ Opens at: **http://localhost:3000** — sign in with a user from `auth/credentia
 | Error | Cause | Fix |
 |-------|-------|-----|
 | `connection to server ... failed` | PostgreSQL not running | `docker ps` and check container status |
-| `database "centurion_rag" does not exist` | Setup script didn't run | Run `python setup_database.py` again |
+| `database "centurion_rag" does not exist` | Setup script didn't run | Run `python scripts/setup_database.py` again |
 | `[Errno 48] Address already in use` | Port conflict (9000/9004) | Check `Test-NetConnection` or change `.env` ports |
 | `ModuleNotFoundError: No module named 'X'` | Dependencies not installed | Run `pip install -r requirements.txt` |
 | `Connection refused to port 9003` | PostgreSQL password mismatch | Verify `CENTURION_DB_PASSWORD=superadmin1` in `.env` |
@@ -2497,7 +2497,7 @@ docker-compose down -v
 | Symptom | Fix |
 |---------|-----|
 | "no password supplied" | Set `CENTURION_DB_PASSWORD` in `.env` |
-| "relation analysis_runs does not exist" | Run `python setup_database.py` |
+| "relation analysis_runs does not exist" | Run `python scripts/setup_database.py` |
 | TimescaleDB warnings | Harmless — TimescaleDB is optional |
 
 ### MinIO

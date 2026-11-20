@@ -16,7 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -24,9 +24,10 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from shared.clock import IST  # noqa: E402 - after the path bootstrap
+
 #: Git-ignored (data/nse_engine/), so a manifest never reaches the public repository.
 MANIFESTS = "data/nse_engine/studies"
-IST = timezone(timedelta(hours=5, minutes=30))
 
 
 def start(study: str, paths: Sequence[str], root: Path = _ROOT) -> Path:

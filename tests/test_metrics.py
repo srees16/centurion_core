@@ -688,7 +688,7 @@ def test_the_nightly_summary_has_a_row_for_every_book_and_says_when_one_is_behin
     assert rows["e4"]["asof"] == days[2].date() and rows["e4"]["nifty"] == pytest.approx(24_200 / 24_000 - 1)
     assert (rows["new"]["g4"], rows["new"]["today"], rows["new"]["sessions"]) == ("not started", "starts 20-11-2026", 0)
     out = build_daily([deployed, lagging, unstarted], nifty, session)
-    assert out["subject"].startswith("[Centurion Paper] Daily summary 13-11-2026: 3 books, 2 behind NIFTY 50")
+    assert out["subject"].startswith("Centurion Paper: Daily summary 13-11-2026: 3 books, 2 behind NIFTY 50")
     assert ("(incomplete)" in out["subject"]) == bool(out["stale"])
     assert len(out["rows"]) == 3 and "deployed" in out["html"] and "| deployed |" in out["text"].replace("  ", " ")
 

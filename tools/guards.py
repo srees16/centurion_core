@@ -20,7 +20,7 @@ import re
 import subprocess
 import sys
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
 
@@ -28,17 +28,18 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from shared.clock import IST  # noqa: E402 - after the path bootstrap
+
 #: Git-ignored (data/nse_engine/): the record is this machine's, not the repository's.
 RECORD = "data/nse_engine/guards_last_run.json"
 #: Before every handover, and at least this often.
 DUE_DAYS = 7
-IST = timezone(timedelta(hours=5, minutes=30))
 _COUNT = re.compile(r"(\d+) (passed|failed|skipped|errors?|deselected)")
 
 
 def parse_summary(text: str) -> Dict[str, int]:
     """pytest's closing line as counts: passed, failed (errors included), skipped."""
-    lines = [l for l in text.strip().splitlines() if _COUNT.search(l)]
+    lines = [line for line in text.strip().splitlines() if _COUNT.search(line)]
     found = {k.rstrip("s") if k.startswith("error") else k: int(n) for n, k in _COUNT.findall(lines[-1])} if lines else {}
     return {"passed": found.get("passed", 0), "failed": found.get("failed", 0) + found.get("error", 0),
             "skipped": found.get("skipped", 0)}

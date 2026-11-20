@@ -28,7 +28,7 @@ import ast
 import json
 import re
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -36,8 +36,9 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from shared.clock import IST  # noqa: E402 - after the path bootstrap
+
 LEDGER_PATH = "docs/lessons.jsonl"
-IST = timezone(timedelta(hours=5, minutes=30))
 FIELDS = ("id", "date", "source", "pattern", "summary", "guard_type", "guard_location", "status",
           "recurrence_count", "last_seen")
 #: The recurring failure patterns of docs/process_loop_plan.md, section 1.
