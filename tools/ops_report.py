@@ -31,7 +31,7 @@ import json
 import os
 import statistics
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from html import escape
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
@@ -40,7 +40,9 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-IST = timezone(timedelta(hours=5, minutes=30))
+from shared.clock import IST  # noqa: E402 - after the path bootstrap
+from shared.settings import REPOSITORY  # noqa: E402
+
 WINDOW_DAYS = 7
 #: Open lessons whose review date falls within this many days are named: past it, the test suite fails.
 DUE_SOON_DAYS = 30
@@ -88,7 +90,7 @@ def github_runs(since: date, token: str = "", repo: str = "", opener: Optional[C
     GitHub cannot be read (the caller reports it)."""
     import urllib.request
 
-    repo = repo or os.environ.get("GITHUB_REPOSITORY") or "srees16/centurion_core"
+    repo = repo or os.environ.get("GITHUB_REPOSITORY") or REPOSITORY
     if opener is None:                                    # certifi's roots: a python.org build on a Mac has none
         try:
             import ssl
@@ -184,7 +186,7 @@ def loop_health(root: Path = _ROOT, today: Optional[date] = None) -> List[Dict[s
     since = (today - timedelta(days=WINDOW_DAYS)).isoformat()
     again = [(lid, d) for lid, dates in lessons.recurrences(root, today).items() for d in dates if d >= since]
     if again:
-        out.append({"text": f"recurrence of a guarded lesson this week: {', '.join(f'{l} ({d})' for l, d in again)}",
+        out.append({"text": f"recurrence of a guarded lesson this week: {', '.join(f'{lid} ({d})' for lid, d in again)}",
                     "action": True})
     tracker = (root / journal.TRACKER_PATH).read_text()
     gaps = journal.check(tracker, today=today)
@@ -261,8 +263,8 @@ def summarise(found: Dict[str, Any], health: List[Dict[str, Any]], sources: Dict
     info = [f"guarded, no action: {'; '.join(guarded)}"] if guarded else []
     html = (f"<h3 style='color:#1a1a2e;margin:22px 0 8px;'>Operations</h3><p style='margin:0 0 6px;'>{escape(head)}</p>"
             + ("<ul style='font-size:13px;color:#1f2937;padding-left:20px;margin:0;'>"
-               + "".join(f"<li style='margin-bottom:4px;'>{escape(l)}</li>" for l in lines) + "</ul>" if lines else "")
-            + "".join(f"<p style='margin:6px 0 0;font-size:12px;color:#6b7280;'>{escape(l)}</p>" for l in info))
+               + "".join(f"<li style='margin-bottom:4px;'>{escape(item)}</li>" for item in lines) + "</ul>" if lines else "")
+            + "".join(f"<p style='margin:6px 0 0;font-size:12px;color:#6b7280;'>{escape(item)}</p>" for item in info))
     return {"head": head, "lines": lines, "info": info, "html": html, "action": len(lines)}
 
 
@@ -298,7 +300,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = p.parse_args(argv)
     out = block(offline=args.offline)
     print(out["head"])
-    print("\n".join([f"  - {l}" for l in out["lines"]] + [f"  {l}" for l in out["info"]]))
+    print("\n".join([f"  - {line}" for line in out["lines"]] + [f"  {line}" for line in out["info"]]))
     return 0
 
 

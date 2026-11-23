@@ -27,6 +27,7 @@ _PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
+from shared.settings import database_url
 from api.auth import (
     LOGIN_PAGE_HTML,
     SESSION_COOKIE,
@@ -194,7 +195,7 @@ async def lifespan(app: FastAPI):
     logger.info("Centurion API starting up")
 
     # ── Database startup diagnostics ────────────────────────
-    db_url_set = bool(os.getenv("CENTURION_DATABASE_URL") or os.getenv("DATABASE_URL"))
+    db_url_set = bool(database_url())
     if not db_url_set:
         logger.warning(
             "CENTURION_DATABASE_URL is NOT set — database will be unavailable. "

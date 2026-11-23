@@ -26,13 +26,14 @@ from __future__ import annotations
 import argparse
 import logging
 import math
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime
 from html import escape
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
+from shared.clock import IST
+
 logger = logging.getLogger(__name__)
 
-IST = timezone(timedelta(hours=5, minutes=30))
 UNSUBSCRIBE_PURPOSE = "newsletter-off"
 UNSUBSCRIBE_MAX_AGE_S = 400 * 24 * 3600                   # a link in last year's email still works
 STALE_DAYS = 5                                            # Saturday's send expects Friday's (or Thursday's) session

@@ -34,7 +34,7 @@ import argparse
 import hashlib
 import json
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -44,10 +44,11 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from shared.clock import IST  # noqa: E402 - after the path bootstrap
+
 DATA = "data/nse_engine"
 CATALOGUE = f"{DATA}/catalogue.json"
 LIVE_STORE = "store"
-IST = timezone(timedelta(hours=5, minutes=30))
 #: A session with fewer rows than this share of the median of the 20 before it is short.
 SHORT_SESSION_SHARE = 0.7
 SHORT_SESSION_WINDOW = 20

@@ -4,7 +4,7 @@ Moved from v1_gateway.py (tracker H4), which includes this router under /api/v1.
 """
 
 import asyncio
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 
@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from api.dependencies import get_kite_session
 from api.routers.v1.common import KITE_SESSION_INACTIVE, _sanitize_floats, logger
+from shared.clock import IST
 
 router = APIRouter()
 
@@ -109,7 +110,7 @@ def plan_tag(order: Dict[str, Any], day: Optional[date] = None) -> str:
     characters, as ``order_service.place_order``'s own tags, which the kill switch's drain cancels (RB6)."""
     import hashlib
 
-    day = day or datetime.now(timezone(timedelta(hours=5, minutes=30))).date()
+    day = day or datetime.now(IST).date()
     seed = ":".join(str(order.get(k)) for k in ("symbol", "exchange", "transaction_type", "quantity", "order_type",
                                                  "product", "price", "trigger_price"))
     return hashlib.sha256(f"screener:{day.isoformat()}:{seed}".encode()).hexdigest()[:20]

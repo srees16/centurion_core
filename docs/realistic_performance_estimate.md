@@ -530,7 +530,7 @@ From the perspective of 20 years at an elite quant firm:
 ### 10.1  Immediate (No Code Changes)
 
 1. ✅ **Run the 13-year backtest**: `BACKTEST_START_DATE = "2012-01-01"` is configured.
-   Execute `run_backtest_production.py` and compare actual results vs this estimate.
+   Execute `scripts/run_backtest_production.py` and compare actual results vs this estimate.
    **This is the single most important next step.**
 
 2. **Monitor EWMAC/Carry decay**: strategy_decay_state.json shows EWMAC at −0.31 SR
@@ -613,4 +613,4 @@ $$R_{effective} = 0.75 \times R_{correct} + 0.25 \times R_{wrong}$$
 ---
 
 *This analysis reflects parameters as of April 2, 2026. The 13-year backtest has not yet been
-executed. Actual results may differ materially. Run `run_backtest_production.py` to validate.*
+executed. Actual results may differ materially. Run `scripts/run_backtest_production.py` to validate.*

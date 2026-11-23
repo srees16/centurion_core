@@ -8,7 +8,7 @@ trained models. The scheduler will retrain periodically after this.
 
 Usage:
     cd centurion_core
-    python bootstrap_models.py [--meta-label] [--rl] [--all]
+    python scripts/bootstrap_models.py [--meta-label] [--rl] [--all]
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("bootstrap")
 
-_ROOT = str(Path(__file__).parent)
+_ROOT = str(Path(__file__).resolve().parent.parent)   # the repository root
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
@@ -122,7 +122,7 @@ def bootstrap_rl_models():
             "AXISBANK.NS", "SUNPHARMA.NS",
         ]
 
-        model_dir = Path(__file__).parent / "data" / "rl_models"
+        model_dir = Path(_ROOT) / "data" / "rl_models"
         model_dir.mkdir(parents=True, exist_ok=True)
 
         for ticker in ind_tickers:
