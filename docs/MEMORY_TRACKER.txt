@@ -1124,6 +1124,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              NIFTY 50.  Why: SZ1 found the books move with small caps (R2 0.74) and hardly with NIFTY 50 (0.08), so
              "alpha against NIFTY 50" mixes segment luck with skill.  A report change: waits for the PRV1 review.
                                                               Prompt: do SZ2
+[ ] P2  SPN1 After PF1 (Sat 19 Dec), your decision 23 Nov (HSR2): prereg check requires Phase 0's "Spanning" line for
+             plan sections pre-registered after the review.  Add "Spanning (new stock signals only):" to
+             tools/prereg.PHASE0_FIELDS with its own start date (older sections keep passing), and a test.
+                                                              Prompt: do SPN1
 [ ] P2  GTR10 After RA1 (Tue 15 Dec), your call 16 Nov: retire the futures paper book (1.75x; it lowers Sharpe, 0.62 ->
              0.45 on 2008-25).  Remove config/nse_engine_futures.json from the nightly books (its Neon schema and
              records stay); check the futures leg's catch-up, heartbeat and 20:30 retry paths with no levered book;
@@ -1589,6 +1593,86 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+23 Nov  TLB1 Gu & Mandic, "TensorLOB: Structure-Preserving Tensor Learning for Limit Order Book Forecasting" (arXiv
+             2611.02866v1, research_inbox; your ask; read in full, 5 pages): does not fit, no code, no trial.  A neural
+             classifier of the next 10-100 order-book events' mid-price move (down / flat / up) from the last 100
+             events of a 10-level book kept as a time x side x level x attribute tensor: mode-wise projections
+             (sec. 3.2.2, eq. 4; Kronecker form eqs. 5-6) and a rank-16 CP class-weight tensor (sec. 3.2.3, eqs.
+             8-10).  FI-2010 only: 5 Finnish stocks, 10 days of June 2010, one 7/3-day split, 3 seeds.  Why it does
+             not fit: it needs order-book event data NSE does not give us (Kite's 5-level depth is live only, never
+             stored); its horizons are seconds to minutes (intraday guard on); a mid-price direction is not a
+             return after spread and costs, and the paper trades nothing; a deep net needs torch, a new dependency.
+             Audit of what touches us: per-date normalisation is already nse_engine.signals.centred_rank; the
+             chronological split and validation-chosen checkpoint are weaker than our walk-forward, purge and
+             sealed 2026 holdout; the 3-seed spread is optimiser noise, not sampling error (the HSR spanning screen
+             reports seeds the same way, beside a permutation p).  Checked against its own numbers: eq. 6, eqs. 9 =
+             10 and Remark 2 (2,115 vs 14,403 parameters, -85.3%) reproduce exactly.  In Table 1, six of the ten
+             rivals at h = 10 and five at h = 20 are a constant "flat" guess (accuracy 70.7 / 62.1 = the flat
+             share, precision its square, F1 2p^2/(1+p)); TensorLOB beats that guess by 12.8 and 11.9 points.  At
+             h = 50 it ties BiN-C(TABL) (accuracy 77.5 vs 77.5, F1 77.4 vs 77.3 +-0.4), so "highest accuracy at all
+             four horizons" is not shown.  Sec. 3.2.2 says the layers take time 100 -> 12 and attributes 2 -> 10,
+             but its own shapes give 100 -> 35 -> 20 and 2 -> 6 -> 12 (likely a slip).  No significance test, and
+             overlapping windows leave far fewer independent test samples than 139,488.  Finding: the legacy
+             meta-labelling classifier (services/signals/meta_labeling.py, Carver path only) logs accuracy and F1
+             without the base rate, the same blind spot; no model is trained or on disk and the deployed books do
+             not use it, so no change (PF1 freezes new checks anyway).  No published code.
+23 Nov  OPH1 Chavez Casillas & Gan, "Optimal Order Placement under a State-Dependent Hawkes Process Limit Order Book
+             model" (arXiv 2610.37324v1, research_inbox; your ask; read in full, 47 pages): does not fit, no code, no
+             trial.  An intraday market maker quotes bid and ask every second; market orders arrive as a state-dependent
+             Hawkes process (sec. 2.2, eq. 1); the filled share falls linearly with quote level by blocks of order
+             count (sec. 2.3-2.4); a quadratic terminal-inventory penalty gives quotes affine in inventory from backward
+             recursions (eqs. 26-32, 45-51).  Five days of MSFT LOBSTER (Nov 2014): it beats fixed 1- and 3-tick quotes
+             in terminal wealth but loses to fixed 2 ticks by 8.8% (Table 12), and the paper says the penalised
+             objective is not compared.  Why it does not fit: it is high-frequency market making (the intraday guard
+             holds until a stream passes, and STT, spreads and Kite's order rates rule out one-second quoting); it needs
+             order-book event data NSE does not give us; it posts two-sided quotes and carries short inventory, and the
+             book is long-only.  Audit of what does touch us: our resting-limit fills use strict penetration
+             (live_rules.limit_fill: the low must go below a buy limit), safer than the paper's front-of-queue fills
+             (sec. 5.2.2).  Checked against its own numbers: Table 6 reproduces within 2% (within 0.1% with per-side
+             order sizes 203.63 / 206.87, not the 205 the text states); its second moments ignore the within-block
+             spread it reports (Table 4), which understates E[A^2] by 13-15% and so the inventory variance; its
+             calibrated P(no order in a second) is 0.48 against 0.90 in its own data (Tables 2 and 5); its sell-side
+             counts differ between Tables 1, 2 and 4; eq. 28 is labelled "a simplified form"; a non-negative gamma is
+             overwritten to keep the problem concave (sec. 5.4.2); linear fills above 1 are not truncated (sec. 5.4.3).
+             No published code.
+23 Nov  HSR2 The spanning screen joins Phase 0 (your decision on HSR1; uncommitted).  A new stock signal for the core book
+             is screened before it is pre-registered: does it widen the frontier that beta, size, value and the
+             engine's forecast span?  Statistic: the rise in the best debiased squared Sharpe ratio when the
+             candidate joins them, averaged over 3 random-feature seeds (2,000 portfolios), the linear rise beside it;
+             null: 99 copies with the candidate shuffled across the stocks of each month.  GO: p <= 0.10 and a rise in
+             every seed; otherwise STOP, recorded like any Phase 0 STOP; your override, with its reason, goes in the
+             Phase 0 block.  2012-25 only (2026 refused); gross and long-short; low power for moderate signals.
+             Not for sleeves, overlays or other instruments (the diversifier gate judges those).  Built:
+             max_sharpe.spanning_increment and attach_characteristic; runners/run_spanning.py (FF1's panel, the
+             candidate as date, symbol, value); the protocol's Phase 0 text and template line, and prereg's template.
+             Tests: 3 more in test_max_sharpe.py (an informative signal GO, noise STOP; a candidate's coverage and
+             values; the holdout refused).  Not yet enforced: prereg check gains the line after the PF1 review (SPN1).  Checked
+             end to end on real data with one-month reversal (a tool check, no study: BT7's H5 already failed it on
+             costs), Nov 2012 - Nov 2025: STOP, p 0.61, seeds +0.015 / -0.117 / +0.013, random-feature Sharpe 2.44 ->
+             2.36, linear 0.81 -> 0.85 (p 0.19); about eight minutes.  Its first run stopped on a candidate file
+             missing 9 months, as designed.
+23 Nov  HSR1 "The Hidden Sharpe Ratio" (Chernov, Kelly, Malamud, Schwab; NBER WP 35988, Nov 2026; your ask; read in full,
+             59 pages; uncommitted): built as a research diagnostic, no strategy or engine change.  The paper estimates
+             the maximal Sharpe ratio a set of test assets spans without building the efficient portfolio: a debiased
+             ridge GRS statistic (eqs. 10-16), a first-order term (eqs. 19-29) and the J = 1 lower bound (eq. 32);
+             ridge-Markowitz portfolios fall short of it by Z*' >= 1 (Prop. 4).  Built: nse_engine/validation/
+             max_sharpe.py (the bound, the ridge ceiling, the plug-in for reference, a sign-flip randomisation
+             p-value, characteristic-managed and random-feature portfolios, eqs. 48-50) and tests/test_max_sharpe.py
+             (10 tests: the definitions, Lemma 2's floor 1.18 at c = 6.6 reproduced within 0.2%, Lemma 1 / Theorem 2 /
+             Prop. 4 on known economies, invariances, loud failures, the test's size and power).  Our readings, flagged
+             in the code: T - 1 degrees of freedom for the centred covariance (as typeset, the estimate missed by 4x
+             to 25x for P > T; with it, medians within 1%); the ridge grid relative to the mean eigenvalue (the paper's
+             absolute grid is 18x to 7,000,000x our eigenvalues); a 0.9 cap on Theta_1/Theta_0 (H_L1 explodes on
+             noise).  Not built (online appendix only): the upper bound (K), the grid correction (L), the confidence
+             bands (H); J >= 2.  NSE, FF1's month-end panel 2012-25 (157 months, top-300 liquid with fundamentals),
+             gross long-short: beta, size and value span 0.49 (p 0.10) linear and 2.2 with 2,000 random features
+             (p 0.01, 5 seeds 2.08-2.25); the engine's forecast lifts them to 0.83 (p 0.01) and 2.47 (2.37-2.65), but
+             only in 2012-18: in 2019-25 neither linear set has a detectable Sharpe ratio (p 0.48-0.62).  Z*' 1.5-2.4
+             (paper 1.8).  In sample: the forecast's configuration was picked on 2013-25.  Not tradeable as such: long-
+             short monthly, gross of costs, no overnight shorting of Indian cash shares.  Found on the way: on this Mac
+             a 600 x 600 QR through Apple Accelerate (numpy 2.4.6, scipy 1.17.1) corrupts the heap and the process
+             crashes at a later garbage collection; no production code uses QR.  Your call: whether the spanning test
+             joins Phase 0 of the research protocol as a pre-trial screen for new signals.
 23 Nov  KLR1 Today's 09:00 IST Kite login reminder never sent (your report; fix uncommitted).  Evidence: no 09:00 dispatch
              from the Space today (03:30 UTC; it fired every weekday since 2 Nov except Wed 11 Nov); its 17:30
              dispatch ran and rightly skipped ("already logged in at 10:27 IST").  GitHub's own crons for this

@@ -62,6 +62,19 @@ containing:
      coverage of 2008–25 and its gaps; point-in-time or restated; delisted
      names kept or not;
    - a cost model for the instrument: exists, or to be built with the study;
+   - for a new stock signal of the core book (a value per stock at each month-end), the spanning screen
+     (tracker HSR2, your decision 23 Nov 2026; after Chernov, Kelly, Malamud and Schwab 2026, section 5.4):
+     does it widen the frontier that beta, size, value and the engine's forecast already span?
+     `python -m runners.run_spanning --candidate <file> --name <signal>` reads 2012-25 month-ends, never
+     2026. GO needs p <= 0.10 over 99 shuffles of the candidate within each month, and a rise in each of
+     3 random-feature seeds; otherwise STOP, recorded like any Phase 0 STOP. The screen is gross and
+     long-short: it asks whether the signal carries information the base does not, not whether the book
+     can trade it. It reads the research window, so a study that passes is pre-registered and tested as
+     usual, with the screen's result in its Phase 0. Its power is low for moderate signals: a STOP is
+     not proof of no edge, and your override, with its reason, goes in the Phase 0 block. Not for
+     sleeves, overlays or other instruments, which the diversifier gate (5.1) judges. `prereg check`
+     will require the line for sections pre-registered after the process-freeze review (19 Dec 2026);
+     until then the template carries it;
    - a verdict, **GO** or **STOP** with the reason. A STOP is a result: it
      goes to the tracker and the journal with phase "0 feasibility".
 
@@ -357,6 +370,7 @@ Phase 0 (before anything else is written or downloaded):
   Data: <source>; reachable by script and allowed by its terms: <yes / no>
   coverage 2008-25: <from - to, gaps>; point-in-time: <yes / no>; delisted names: <yes / no>
   Cost model for this instrument: <exists, version / to be built>
+  Spanning (new stock signals only): <GO / STOP, p and rise from `runners.run_spanning`; n/a: not a stock signal>
   Phase 0 verdict: <GO / STOP (reason)>
 Source / hypothesis: <why the return exists>
 Family and budget: <family>, <k> of <max> configurations; N before -> after
