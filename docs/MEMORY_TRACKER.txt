@@ -1593,6 +1593,25 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+23 Nov  QB1  "Quant Bible" (MIT Sloan Business Club; research_inbox; your ask; read in full, 51 pages): does not fit, no
+             code, no trial.  A student guide to quant interviews: probability and statistics (secs. 2-3), regression,
+             ridge / lasso / PCA and econometrics after ESL and Mostly Harmless Econometrics (sec. 4), three case
+             studies (sec. 5), market-making games (sec. 6) and an interview question bank (sec. 7).  No new method.
+             Audit, all already present and stronger: collinear designs refused (validation/diagnostics.py
+             _require_full_rank, test_metrics); Newey-West, not the iid errors it assumes (secs. 4.5-4.6, which fail
+             for daily returns); Kelly as half-Kelly on the deflated Sharpe, capped (funding_gate.implied_leverage,
+             test_go_live); base rates and many trials as DSR, effective N and PBO; factor regression for omitted
+             variables (scorecard.factor_exposures); ranks and log size for skewed inputs (signals.centred_rank,
+             ln_me); stepwise and lasso selection left out on purpose (data snooping).  Its PSD bound on correlation
+             (p. 38) has no use here: sizing is inverse volatility, with no covariance matrix (sleeves.py).  Market
+             making does not fit (OPH1).  Errors, each checked: Var(aX+b) carries a stray "+ b" and Var(X+Y) drops
+             2Cov (p. 7); the hat matrix lacks a transpose, RSS reads y - beta X and a two-sided 95% interval needs
+             z(1 - alpha/2) (p. 16); its table gives lasso ridge's constant-factor shrinkage (lasso subtracts a
+             constant and truncates at 0), and ridge is not "an implementation of PCA" (pp. 18-19); the
+             selection-bias term reads Avg[Y0|D=0] - Avg[Y0|D=0], always 0 (p. 22); the product of the two slopes is
+             R^2 in [0, 1], not a cosine in [-1, 1] (pp. 44-45); Kelly maximises expected log wealth, not expected
+             wealth (p. 49; f = 1/3 is right), and the gambler's-ruin boundaries are swapped (p. 50; 4/7 is right).
+             Right: the correlation bounds 0.4585-0.9815 (p. 38), the takeover call 0.80 (p. 50).  No published code.
 23 Nov  TLB1 Gu & Mandic, "TensorLOB: Structure-Preserving Tensor Learning for Limit Order Book Forecasting" (arXiv
              2611.02866v1, research_inbox; your ask; read in full, 5 pages): does not fit, no code, no trial.  A neural
              classifier of the next 10-100 order-book events' mid-price move (down / flat / up) from the last 100
