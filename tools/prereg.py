@@ -53,6 +53,7 @@ TEMPLATE = """Phase 0 (before anything else is written or downloaded):
   Data: <source>; reachable by script and allowed by its terms: <yes / no>
   coverage 2008-25: <from - to, gaps>; point-in-time: <yes / no>; delisted names: <yes / no>
   Cost model for this instrument: <exists, version / to be built>
+  Spanning (new stock signals only): <GO / STOP, p and rise from `runners.run_spanning`; n/a: not a stock signal>
   Phase 0 verdict: <GO / STOP (reason)>
 Source / hypothesis: <why the return exists>
 Family and budget: {family}
