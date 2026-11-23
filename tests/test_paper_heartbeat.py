@@ -816,3 +816,19 @@ def test_the_space_scheduler_registers_its_jobs_at_their_ist_times(monkeypatch, 
         monkeypatch.setenv(name, value)
     scheduler.start_scheduler()
     assert jobs == expected and started == [True]
+
+
+@pytest.mark.lesson("L-SPACE-SLEEP", pattern="F2", date="2026-11-23", source="KLR1",
+                    summary="The 09:00 IST Kite login reminder was never dispatched: the free Space, whose in-process "
+                            "scheduler holds the job, sleeps after 48 h without a visit, and GitHub's crons run hours late")
+def test_the_space_is_visited_every_six_hours_every_day_and_a_failed_visit_never_fails_the_run():
+    """KLR1: every job the Space's scheduler holds (the 09:00 and 17:30 reminder dispatches, the 19:00 nightly and its
+    retry, the newsletter) is skipped while the Space sleeps.  A visit every 6 hours, weekends included, keeps it awake
+    even when GitHub starts the run hours late; a failed visit is logged, never a failed run (PF1: no new alerts)."""
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parent.parent / ".github/workflows/space-keepalive.yml").read_text()
+    assert '- cron: "17 */6 * * *"' in text                         # every 6 hours, every day of the week
+    run = text.split("run: |", 1)[1]
+    assert "https://srees16-centurion-core.hf.space/health" in run
+    assert "exit 1" not in run and run.rstrip().endswith("exit 0")

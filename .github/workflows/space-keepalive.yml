@@ -1,0 +1,37 @@
+name: Space keep-alive
+
+# Tracker KLR1 (23 Nov 2026).  The Hugging Face Space runs on the free cpu-basic tier, which sleeps after
+# 48 hours without a visit.  Its scheduler (scheduler.py) runs inside it and holds the 09:00 and 17:30 IST
+# login-reminder dispatches, the 19:00 nightly dispatch with its 20:30 retry and Saturday's newsletter; a job
+# due while the Space sleeps is skipped, not run late.  On Mon 23 Nov the 09:00 reminder was never dispatched.
+# A visit every 6 hours, every day, keeps it awake: GitHub starts these crons hours late, but a visit still
+# lands well inside 48 hours.  The run never fails: a failed visit is logged here, not emailed (process
+# freeze PF1: no new alerts before 19 Dec).
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: space-keepalive
+  cancel-in-progress: true
+
+jobs:
+  visit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Visit the Space's health route
+        run: |
+          # A sleeping Space takes a minute or two to wake, so try for up to five minutes.
+          for attempt in 1 2 3 4 5; do
+            code=$(curl -s --max-time 60 -o /dev/null -w "%{http_code}" https://srees16-centurion-core.hf.space/health || true)
+            echo "attempt $attempt: HTTP $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 30
+          done
+          echo "the Space did not answer /health with HTTP 200 after 5 attempts"
+          exit 0
