@@ -32,7 +32,8 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-OUT = Path("data/nse_engine/book_exports")
+#: Under the repository whatever the working directory (the weekly refresh runs it from the root: same folder).
+OUT = Path(__file__).resolve().parent.parent / "data" / "nse_engine" / "book_exports"
 TABLES = ("paper_positions", "paper_daily_snapshots", "paper_signal_log", "paper_weekly_checkpoints",
           "paper_fills", "paper_sessions", "paper_cloud_state")
 SECRET_KEY = re.compile(r"token|secret|passw|api_key|kite_accounts", re.IGNORECASE)   # accounts.REGISTRY_KEY
@@ -93,9 +94,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         load_dotenv()
     except ImportError:
         pass
-    import os
+    from shared.settings import database_url
 
-    if not (os.environ.get("CENTURION_DATABASE_URL") or os.environ.get("DATABASE_URL")):
+    if not database_url():
         print("CENTURION_DATABASE_URL is not set: add the Neon connection string to .env (the same value as the "
               "GitHub secret), then re-run", file=sys.stderr)
         return 2

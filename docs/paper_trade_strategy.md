@@ -54,7 +54,7 @@ reported, never gating.
 
 - **Daily session** (19:00 IST, weekdays): fills yesterday's orders at the
   open, marks to the close, plans from the close, queues orders. Email per
-  book: `[Centurion Paper] [<book> <config>] ...`.
+  book: `Centurion Paper: [<book> <config>] ...`.
 - **G4 paper gate**, computed every session against a backtest of the same
   days with the same configuration and capital: does the book behave like
   its backtest? Five checks, limits fixed on 28 Sep 2026 and never tuned

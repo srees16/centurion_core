@@ -1,6 +1,14 @@
-"""FIX-6: Run full pipeline backtest with PRODUCTION config."""
-from services.research.full_pipeline_backtest import run_full_backtest
-from config import Config
+"""FIX-6: Run full pipeline backtest with PRODUCTION config.
+
+    python scripts/run_backtest_production.py
+"""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # the repository root
+
+from services.research.full_pipeline_backtest import run_full_backtest  # noqa: E402
+from config import Config  # noqa: E402
 
 print("=== Production Config for Backtest ===")
 print(f"Vol target: {Config.CARVER_ANNUAL_VOL_TARGET*100:.0f}%")

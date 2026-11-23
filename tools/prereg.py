@@ -30,13 +30,15 @@ from __future__ import annotations
 import argparse
 import re
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
+
+from shared.clock import IST  # noqa: E402 - after the path bootstrap
 
 PLAN_PATH = "docs/nse_engine_validation_plan.md"
 #: Plan sections pre-registered from this date must carry Phase 0; earlier ones had no such block.
@@ -45,7 +47,6 @@ PHASE0_SINCE = "2026-11-15"
 PHASE0_FIELDS = ("Prior art:", "Data:", "point-in-time:", "delisted names:", "Cost model for this instrument:")
 _SECTION = re.compile(r"^## (5[a-z]*)\. (.*)$")
 _PREREG = re.compile(r"pre-registered (\d{1,2} [A-Z][a-z]{2} \d{4})(?:,? (\d{1,2}:\d{2}) IST)?")
-IST = timezone(timedelta(hours=5, minutes=30))
 #: The template's lines after the heading; ``{prior}`` and ``{family}`` are filled by ``skeleton``.
 TEMPLATE = """Phase 0 (before anything else is written or downloaded):
   Prior art: {prior}
@@ -89,8 +90,8 @@ def prior_art(words: Sequence[str], root: Path = _ROOT, today: Optional[date] = 
 def check_phase0(plan: str, since: str = PHASE0_SINCE) -> List[str]:
     """Plan sections pre-registered on or after ``since`` whose Phase 0 block is missing or unfilled."""
     lines = plan.split("\n")
-    heads = [(i, m) for i, m in ((i, _SECTION.match(l)) for i, l in enumerate(lines)) if m]
-    ends = [i for i, l in enumerate(lines) if l.startswith("## ")] + [len(lines)]
+    heads = [(i, m) for i, m in ((i, _SECTION.match(line)) for i, line in enumerate(lines)) if m]
+    ends = [i for i, line in enumerate(lines) if line.startswith("## ")] + [len(lines)]
     out: List[str] = []
     for i, m in heads:
         stamp = _PREREG.search(m.group(2))
@@ -131,7 +132,7 @@ def stamp_problems(plan: str, now: Optional[datetime] = None) -> List[str]:
 
 def next_section(plan: str) -> str:
     """The number after the plan's last ``5..`` section: 5cb -> 5cc, 5az -> 5ba."""
-    ids = [m.group(1)[1:] for m in (_SECTION.match(l) for l in plan.split("\n")) if m and m.group(1)[1:]]
+    ids = [m.group(1)[1:] for m in (_SECTION.match(line) for line in plan.split("\n")) if m and m.group(1)[1:]]
     if not ids:
         return "5a"
     n = 0
@@ -178,7 +179,7 @@ def add_section(plan: str, study: str, title: str, body: str, now: Optional[date
     if wrong:
         raise ValueError("not added: " + "; ".join(wrong))
     lines = plan.split("\n")
-    last = max(i for i, l in enumerate(lines) if _SECTION.match(l))
+    last = max(i for i, line in enumerate(lines) if _SECTION.match(line))
     end = next((i for i in range(last + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
     return "\n".join(lines[:end] + section.split("\n") + lines[end:]), heading
 
