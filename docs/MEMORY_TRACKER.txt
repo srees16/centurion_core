@@ -348,6 +348,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      2027).  ACCEPT: live may start at Rs 3 lakh (GT2I's canary; the rule itself stands as
      fixed, it read Rs 6 lakh) after 5 clean dry runs, on
      your go-ahead.  REJECT: no live capital; 679cbd0c is not re-tuned.
+ >>> KLR1 (23 Nov): merge .github/workflows/space-keepalive.yml to main (scheduled runs start only from main);
+     refresh HF_TOKEN in this Mac's .env (rejected, 401) so the Space's logs can be read next time.
  >>> TESTS: THREE AREAS NEED YOUR CALL (TS2, 15 Nov): test, leave, or retire
      1. Options research modules with no test (structures, backtest, signal_futures, book_rounds,
         option_chain, fo_anomalies, the three strategy files, options_monitor: about 2,750 statements).
@@ -1117,6 +1119,11 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 [x] P2  MCA1 Built 16 Nov (your call: option A, N = 65; entry MCA1 below).  The paper-stage alarm on Rule D's
              counter, return only, every paper book, email only.
 [x] P2  PIC1 Closed 16 Nov, not built (PIC1R: FAIL; no IC rule beats the returns' alarm within a year).
+[ ] P2  SZ2  After PF1 (Sat 19 Dec), your yes 20 Nov: the nightly and Saturday emails show each book's alpha
+             against a size-matched benchmark (Nifty Smallcap 250 or the engine's own equal-weight universe) beside
+             NIFTY 50.  Why: SZ1 found the books move with small caps (R2 0.74) and hardly with NIFTY 50 (0.08), so
+             "alpha against NIFTY 50" mixes segment luck with skill.  A report change: waits for the PRV1 review.
+                                                              Prompt: do SZ2
 [ ] P2  SPN1 After PF1 (Sat 19 Dec), your decision 23 Nov (HSR2): prereg check requires Phase 0's "Spanning" line for
              plan sections pre-registered after the review.  Add "Spanning (new stock signals only):" to
              tools/prereg.PHASE0_FIELDS with its own start date (older sections keep passing), and a test.
@@ -1666,6 +1673,54 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              a 600 x 600 QR through Apple Accelerate (numpy 2.4.6, scipy 1.17.1) corrupts the heap and the process
              crashes at a later garbage collection; no production code uses QR.  Your call: whether the spanning test
              joins Phase 0 of the research protocol as a pre-trial screen for new signals.
+23 Nov  KLR1 Today's 09:00 IST Kite login reminder never sent (your report; fix uncommitted).  Evidence: no 09:00 dispatch
+             from the Space today (03:30 UTC; it fired every weekday since 2 Nov except Wed 11 Nov); its 17:30
+             dispatch ran and rightly skipped ("already logged in at 10:27 IST").  GitHub's own crons for this
+             workflow run 7-9 hours late every day (09:03 IST arrives about 17:00; 17:33 about 01:00), so nothing
+             sends on time when the Space misses.  Root cause, most likely: the free cpu-basic Space sleeps after 48
+             hours without a visit (its settings: 172800 s), and its in-process scheduler (memory job store) skips a
+             job due while asleep or restarting; your 10:27 login lands on the Space's callback, which woke it before
+             17:30.  Not confirmed from its logs: the HF_TOKEN in this Mac's .env is rejected (401), and reading the
+             scheduler's job log by minting a session was refused by the permission guard.  Fix: .github/workflows/
+             space-keepalive.yml visits /health every 6 hours, every day (late crons still land well inside 48 h);
+             a failed visit is logged, never a failed run (PF1).  Guard: lesson L-SPACE-SLEEP (F2) on a regression
+             test in test_paper_heartbeat.py.  Covers every Space job: both reminders, the 19:00 nightly and 20:30
+             retry, the newsletter.  Not covered: a restart near 09:00 (an on-time second dispatch would need a
+             once-a-morning guard in daily_login.remind, which today sends on every call).
+20 Nov  LC0  A large-cap stream for fewer bad years against NIFTY, Phase 0 (your go; desk, no trial): NO-GO, nothing
+             pre-registered.  Why asked: SZ1 (the books lag NIFTY when large caps lead); your aims 20 Nov: fewer
+             bad years, a separate stream, scoped now.  The gate (protocol 5.1): a stream passes only as a Sharpe
+             lever at an equal-risk weight fixed before any result; fewer bad years is reported, never a pass
+             route (the drawdown route retired 25 Oct, GT13).  Screen, inputs only (no combination run), 2008-25:
+             book excess Sharpe 0.75 on both bases before the D2 haircut (0.43 after; the 2008-16 walk-forward
+             reproduces the recorded 0.180), NIFTY 50 (price + 1.3% dividends) 0.25, correlation 0.34-0.36
+             daily, 0.43-0.44 monthly.  At equal risk a stream raises the Sharpe only above S x (sqrt(2(1+rho))
+             - 1): 0.48-0.49 on the two bases, 0.27 on the haircut basis.  (a) Passive NIFTY 50 (NIFTYBEES):
+             0.25, under every bar.  (b) The engine's rules on large caps: would need about 0.5 at that low
+             correlation, more if, as likely, it moves with the book; the rules made 6-9%/yr at beta 0.4 on US
+             large caps and BT7's large-cap reversal lost on costs.  (c) Size rotation (switch when large caps
+             lead): 4-6 episodes in 18 years and no Indian evidence, so any fit would be noise.  The aim's own
+             arithmetic: a sleeve of weight w shrinks every year's gap against NIFTY by w, good years too.  The 6
+             bad years (lag over 5 pts on both bases: 2009, 2012, 2016, 2018, 2019, 2022) all stay bad at 25%;
+             3-4 stay bad at 50%, which also halves 2021's +66-75.  The worst, 2009 (-59 to -61), was a
+             rebound, which is J4's question (January), not a large-cap one.  What serves the aim: SZ2 (the
+             size-matched yardstick, after 19 Dec), J4, or a gate amendment accepting a relative-lag lever at a
+             Sharpe cost.  YOUR CALL 20 Nov: NO-GO accepted; rely on J4 (January) and SZ2 (after 19 Dec); no gate
+             amendment, the Sharpe-first rule stands.  Closed.
+20 Nov  SZ1  Why six paper books lag NIFTY in the rally, and is the edge the small-cap premium (your ask; analysis,
+             no trial, no code).  Paper, to the 13 Nov session (Neon unreachable from the Mac): since 17 Sep NIFTY 50
+             +8.1% but Midcap 150 +0.5%, Smallcap 250 -0.4%: a large-cap-only rally.  The deployed book (+4.0%)
+             tracks Smallcap 250 (beta 0.84, R2 0.74), not NIFTY 50 (R2 0.08); it was fully invested (cash < 6%
+             but 3 days, drawdown rule never cut); against its segment the core books lead by 2.5-4.4 pts.  Not a
+             bug: execution matches the backtests (all G4 checks pass).  Backtest, deployed family walk-forward
+             2017-25 (r12a5, before the D2 haircut), weekly, Jensen: excess over NIFTY 50 +7.3%/yr = alpha +10.8%
+             (t 3.0) + lower market beta (0.45) -4.1% + size +0.6% (size beta 0.26; the size factor paid only
+             +2.1%/yr).  So the edge is stock selection, not the small-cap premium.  It lagged NIFTY 50 in 3 of the
+             4 years large caps led (2018 -15.4, 2019 -6.4, 2022 -10.1 pts; 2025 +17.8).  The universe is the 300
+             most-traded stocks and already holds every NIFTY 50 name; the signals pick few (2 of about 19 holdings
+             on 13 Nov).  Prior art: BT7 H5 large-cap reversal failed on costs; the rules on US large caps made
+             6-9%/yr at beta 0.4.  Next: SZ2 queued for after 19 Dec; the large-cap question waits for your
+             answers (chat, 20 Nov).
 20 Nov  RF0d Codebase refactor: the four decisions taken ("go with your recommendations") and phase 1 started
              (uncommitted).  Decisions (AUDIT.md 0.7): TS2 legacy path off the paper runner after RA1, then
              legacy/, then retired item by item; X1 engine by default and X7 one holiday rule, both after RA1;
