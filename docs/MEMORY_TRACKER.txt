@@ -1593,6 +1593,24 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+24 Nov  CPY1 Commercial books out of the public repository, step a (your "do CPY1 a"; staged, not committed).  The 16
+             PDFs in rag_pipeline/ingest_docs (260 MB; tracked since Feb 2026) are untracked (git rm --cached) and the
+             folder is in .gitignore beside research_inbox/.  The local copies stay (16 files checked); no code reads
+             them from git, and the Space deploy already excluded them.  Not done (step b, your call): the files stay in
+             the repository's history, so old commits still serve them; a purge rewrites every commit.  They are in
+             no backup (cloud/backup.py skips the folder), so this Mac holds the only working copy.
+23 Nov  RF0e Codebase refactor, phase 1: RAG steps R1 and R2 (your "continue refactor"; uncommitted; AUDIT.md 0.8,
+             steps 7-8).  R1: eight characterisation tests of RAGQueryEngine.query and query_stream on stand-ins
+             (tests/test_api.py), every exit pinned: the cache, FAQ and fast path with their cache keys; the context
+             the LLM gets and the answer cached and logged; the relevance gate's two messages; the broad fallback
+             inside the ticked sources; boost and re-rank; the time budget; the retrieval timeout; a failed
+             variant.  They passed on unchanged code, and seven deliberate breaks of the new code each failed one.
+             R2: one pipeline (_prepare, _retrieve, _select, _store_answer); query and query_stream keep only their
+             endings.  query_engine.py 1,678 -> 1,475 lines; query 457 -> 112, query_stream 383 -> 114.  Answers,
+             SSE events and cache keys unchanged; only log lines differ (the stream now logs what query logged).
+             Checks: suite 1,114 passed (myenv); core-only 980 passed, 106 skipped, the 8 new tests among the
+             passed; lint and mypy no worse on both files; the RAG routes import.  Found, not changed: CPY1 (NEEDS
+             YOU), 16 commercial books tracked in this public repository.  Next: R3, the RAG self-tests.
 23 Nov  QB1  "Quant Bible" (MIT Sloan Business Club; research_inbox; your ask; read in full, 51 pages): does not fit, no
              code, no trial.  A student guide to quant interviews: probability and statistics (secs. 2-3), regression,
              ridge / lasso / PCA and econometrics after ESL and Mostly Harmless Econometrics (sec. 4), three case

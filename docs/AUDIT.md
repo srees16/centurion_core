@@ -206,6 +206,8 @@ None of these is made without a yes.
 | 4 | CL1: two characterisation tests of `cloud/backup.py`. They pin the dataset each kind of file goes to; that hidden files and a live run's task files are skipped; that empty pieces wait; that only changed pieces upload. | Pass on unchanged code |
 | 5 | I1: a characterisation test of the Space scheduler's job table: six jobs at their IST times, none without the secrets. | Pass on unchanged code |
 | 6 | Mojibake repaired in 13 comment lines of `scheduler.py` and `scheduling/` | Compile; suite |
+| 7 (23 Nov) | R1: eight characterisation tests of `RAGQueryEngine.query` and `query_stream` on stand-ins, in `tests/test_api.py`. They pin: the cache, FAQ and fast-path answers and their cache keys; the context the LLM receives, and the answer cached and logged; the relevance gate's two messages; the broad fallback inside the ticked sources; the boost and re-rank, skipped for short questions; the time budget before and during the LLM; the retrieval timeout's small search; a failed query variant. | Pass on unchanged code; seven deliberate breaks of the new code each fail one |
+| 8 (23 Nov) | R2: one pipeline. `_prepare` runs every stage before the LLM, with `_retrieve` (the concurrent search and its timeout) and `_select` (threshold, dedup, boost, re-rank, broad fallback); `_store_answer` writes the cache. `query` and `query_stream` keep only their own endings. `query`: one answer and the retrieval log. `query_stream`: tokens, `on_context` and `llm_meta`. `query_engine.py` went from 1,678 to 1,475 lines, `query` from 457 to 112, `query_stream` from 383 to 114. | R1's tests, and RAG2's and RAG3's, on the new code; lint and mypy no worse |
 
 **Checks:**
 - Suite: 1,092 passed in `myenv` and in the no-skips job; 958 passed and 106 skipped on a core-only install (web and scheduler tests, by design).
@@ -217,8 +219,10 @@ None of these is made without a yes.
 - `kite_connect/trading/auto_executor.py` has 20 mojibake lines in code or strings (legacy: TS2).
 - The RAG stream's error token (X9).
 
+**Log lines changed by step 8 (not outputs):** the streaming path now logs what only `query` logged: a failed variant with its traceback, the variant count, a forced fast mode, the chunk counts and the trim. Its reranker-empty and relevance-gate warnings now use `query`'s wording, with "(stream)" added.
+
 **Next in phase 1:**
-- R1 to R3: RAG tests, one pipeline, the self-tests.
+- R3: the RAG self-tests (`_run_tests`): the useful cases into `tests/`, the rest deleted.
 - A1 to A3: API tests, then logic out of the largest routes.
 - N1: tests for `mcx_store` and `crash_recovery`.
 - The studies N7, R4, D3 and Q3.
@@ -583,8 +587,8 @@ Subpackages (`core/`, `streams/`, `gates/`) come only later and with aliases, be
 
 | Step | Change | Verified by | When |
 |---|---|---|---|
-| R1 | Characterisation tests of `query` and `query_stream` on stand-ins (as RAG3's) | New tests on unchanged code | Now (decision 0.7-4) |
-| R2 | Extract the shared stages; both entry points call them | R1's tests; RAG2 and RAG3 tests | Now |
+| R1 | Characterisation tests of `query` and `query_stream` on stand-ins (as RAG3's) | New tests on unchanged code | Done 23 Nov (0.8, step 7) |
+| R2 | Extract the shared stages; both entry points call them | R1's tests; RAG2 and RAG3 tests | Done 23 Nov (0.8, step 8) |
 | R3 | The `_run_tests` harnesses: useful cases into `tests/`, the rest deleted | Suite | Now (new tests: decision 0.7-4) |
 | R4 | Study R3's four modules | Read-only | Now |
 | R5 | `print` to `logging` | Suite | Now |
