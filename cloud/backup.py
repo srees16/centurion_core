@@ -17,6 +17,8 @@ versions are deleted), so the quota holds one copy, about 12 GB::
                                       the paper books' CSV exports (JR2), holdout.lock,
                                       archive manifests, the scheduler scripts and the
                                       assistant's project memory
+    centurion-backup-books            the RAG engine's books, rag_pipeline/ingest_docs (kept out
+                                      of the public repo since CPY1, so only here and on disk)
 
 ``push`` uploads only the pieces whose files changed since the last push (a
 fingerprint of names and sizes, kept in ``data/nse_engine/backup_state.json``).
@@ -27,8 +29,8 @@ and a push from any other machine refuses.  On a new laptop, ``take-over``
 makes it the writer, so two machines never overwrite each other's registry
 weeks.
 
-``restore`` downloads into ``data/nse_engine``, and the assistant's memory into
-this user's home.  The default ``dev`` profile skips the raw archive;
+``restore`` downloads into ``data/nse_engine``, the assistant's memory into
+this user's home, and the books back into ``rag_pipeline/ingest_docs``.  The default ``dev`` profile skips the raw archive;
 ``--archive 2026`` or ``--archive all`` fetches years on demand.  It is
 incremental: a piece already on disk with the backed-up fingerprint is
 skipped.
@@ -78,6 +80,8 @@ STAGE = _ROOT / "data" / "kaggle" / "backup_stage"
 #: Oct 2026); a name it does not recognise stays one file, which downloads on its own.
 BLOB_SUFFIX = ".tgz.blob"
 STORES = ("store", "store_ext2006", "fo_store", "mcx_store", "fundamentals", "us_store")
+#: The commercial books the RAG engine ingests: untracked since CPY1 (24 Nov 2026), so backed up here.
+BOOKS = _ROOT / "rag_pipeline" / "ingest_docs"
 #: Task files that live inside a store folder while a long run is active.
 _TASK_FILES = ("run.sh", "run.pid", "run.done", "sync.log")
 _ARCHIVE_KINDS = ("equity", "delivery", "indices", "corpact", "fo", "participant", "mcx")
@@ -141,6 +145,8 @@ def pieces(data: Path = DATA) -> Dict[str, List[Tuple[Path, str]]]:
     for name in STORES:
         if (data / name).is_dir():
             out[f"{PREFIX}-{name.replace('_', '-')}"] = [(data / name, name)]
+    if BOOKS.is_dir():                                           # its own piece: uploaded again only on a change
+        out[f"{PREFIX}-books"] = [(BOOKS, "machine/rag_books")]
     state: List[Tuple[Path, str]] = [(p, p.name) for p in sorted(data.glob("runs_*")) if p.is_dir()]
     state += [(p, p.name) for g in _STATE_GLOBS for p in sorted(data.glob(g)) if p.is_file()]
     state += [(p, f"{p.parent.name}/{p.name}") for p in (data / "runs" / "runtime_index.json",) if p.exists()]
@@ -383,6 +389,10 @@ def restore(dest: Path = DATA, refs: Optional[Sequence[str]] = None, full: bool 
     if (machine / "claude_memory").is_dir():
         for target in memory_dirs():          # either folder may be the one opened on this laptop
             shutil.copytree(machine / "claude_memory", target, dirs_exist_ok=True)
+    if (machine / "rag_books").is_dir():      # the books go back beside the RAG engine, not into data/
+        BOOKS.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(machine / "rag_books", BOOKS, dirs_exist_ok=True)
+        shutil.rmtree(machine / "rag_books")
     for task in sorted((dest / "tasks").glob("*/run.sh")) if (dest / "tasks").is_dir() else []:
         target = dest / task.parent.name / "run.sh"
         target.parent.mkdir(parents=True, exist_ok=True)

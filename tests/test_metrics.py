@@ -1,6 +1,7 @@
 """Metric formulas: annualisation, drawdown, the deflated Sharpe's trial penalty, and how often the daily
 email's expected move holds (RB3), no gate statistic from an infinite return (RB4), and the scorecard's crash
-table and metric conventions against Sun's thesis (TH1)."""
+table and metric conventions against Sun's thesis (TH1), and the diversifier gate's crisis record (When Genius
+Failed: what a stream did when the book was hurt)."""
 from __future__ import annotations
 
 import numpy as np
@@ -246,6 +247,73 @@ def test_crash_windows_judge_only_what_the_record_spans():
     with pytest.raises(ValueError, match="infinite"):
         crash_windows(book.mask(book.index == idx.index[3], np.inf), idx, 0.15)
 
+
+
+def _monthly_to_daily(monthly: np.ndarray, start: str = "2010-01-01") -> pd.Series:
+    """Daily returns that compound to the given calendar-month returns (constant within each month)."""
+    idx = pd.bdate_range(start, periods=len(monthly) * 31)
+    months = idx.to_period("M")
+    firsts = sorted(set(months))[: len(monthly)]
+    idx = idx[months.isin(firsts)]
+    months = idx.to_period("M")
+    out = pd.Series(0.0, index=idx)
+    for m, r in zip(firsts, monthly, strict=True):
+        days = months == m
+        out[days] = (1.0 + r) ** (1.0 / days.sum()) - 1.0
+    return out
+
+
+def test_crisis_record_follows_the_stream_through_each_crash():
+    from nse_engine.diversifier_gate import combine, crisis_record
+
+    monthly = np.r_[np.full(12, 0.02), [-0.08, -0.08, -0.08], np.full(12, 0.03), [-0.10, -0.09], np.full(9, 0.02)]
+    book = _monthly_to_daily(monthly)
+    level = (1 + book).cumprod() * 100
+    falls = book.where(book < 0, 0.0)
+    for stream, lost, beat in ((falls * 1.5, 2, 0), (-falls * 0.5, 0, 2)):     # falls harder than the book / hedges it
+        rec = crisis_record(book, stream, combine(book, stream, 0.25, "sleeve"), level, min_fall=0.15)
+        assert len(rec["episodes"]) == 2 and rec["min_fall"] == 0.15
+        assert rec["stream_lost_in"] == lost and rec["combination_beat_book_in"] == beat
+        first = rec["episodes"][0]
+        assert first["book"] == pytest.approx(0.92 ** 3 - 1, rel=1e-9)            # peak to trough, compounded
+
+
+def test_crisis_record_shows_what_the_whole_sample_correlation_hides():
+    """LTCM's illusion in miniature: a stream unrelated to the book in ordinary months but losing in every one of
+    the book's worst months shows a modest correlation over the whole sample; the tail block exposes it."""
+    from nse_engine.diversifier_gate import combine, crisis_record
+
+    rng = np.random.default_rng(1998)
+    m_book = rng.normal(0.01, 0.04, 120)
+    worst = np.argsort(m_book)[:12]
+    m_stream = rng.normal(0.005, 0.04, 120)
+    m_stream[worst] = m_book[worst] * 0.8                                       # the crash makes them one trade
+    book, stream = _monthly_to_daily(m_book), _monthly_to_daily(m_stream)
+    rec = crisis_record(book, stream, combine(book, stream, 0.25, "sleeve"), (1 + book).cumprod())
+    tail = rec["tail"]
+    assert tail["months"] == 12 and tail["of_months"] == 120
+    assert tail["stream_lost_share"] == 1.0 and tail["stream_mean"] < -0.03
+    assert tail["correlation"] > 0.95 and rec["correlation_all"] < 0.6
+    hedge = _monthly_to_daily(np.where(np.isin(np.arange(120), worst), -m_book * 0.8, m_stream))
+    tail_h = crisis_record(book, hedge, combine(book, hedge, 0.25, "sleeve"), (1 + book).cumprod())["tail"]
+    assert tail_h["stream_lost_share"] == 0.0 and tail_h["stream_mean"] > 0
+
+
+def test_crisis_record_refuses_bad_data_and_needs_enough_months():
+    from nse_engine.diversifier_gate import MIN_TAIL_MONTHS, crisis_record
+
+    book = _monthly_to_daily(np.full(40, 0.01))
+    level = (1 + book).cumprod()
+    with pytest.raises(ValueError, match="share one index"):
+        crisis_record(book, book.iloc[1:], book, level)
+    for bad in (np.nan, np.inf):
+        with pytest.raises(ValueError, match="missing or infinite"):
+            crisis_record(book, book.mask(book.index == book.index[5], bad), book, level)
+    with pytest.raises(ValueError, match="tail_share"):
+        crisis_record(book, book, book, level, tail_share=0.0)
+    rec = crisis_record(book, book, book, level)                                # 40 months: 4 in the tail
+    assert rec["tail"]["months"] < MIN_TAIL_MONTHS and rec["tail"]["stream_mean"] is None
+    assert rec["episodes"] == [] and rec["stream_lost_in"] == 0
 
 def test_metric_conventions_against_the_thesis():
     """Sec. 2.1.8 defines SR = E[ret] / sigma[ret] on daily returns with no risk-free rate or annualising, Calmar as

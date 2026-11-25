@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import numbers
 from dataclasses import MISSING, asdict, dataclass, field, fields, is_dataclass
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 #: (group, field) -> value that reproduces the behaviour from before the field
 #: existed. Left out of ``config_hash`` at that value; see ``EngineConfig.config_hash``.
@@ -275,6 +277,122 @@ class CostConfig:
 #: ``EngineConfig.cash_yield_annual``'s only value: unused since cost model 4, kept so hashes stand (IC1, IC2).
 LEGACY_CASH_YIELD = 0.06
 
+_INT, _NUM = "int", "num"
+#: Values no configuration can mean (tracker QP1): a window, count, share or cost outside these refuses the whole
+#: configuration before a backtest runs or a trial is recorded (a stop multiple of -1 stops every name at once, a
+#: target of 0 positions holds nothing, and either would still count in N).  (group, field): (kind, low, high,
+#: low allowed, high allowed), None = no bound on that side.  0 stays allowed where the field documents it as "off".
+RANGES: Dict[Tuple[str, str], Tuple[str, Optional[float], Optional[float], bool, bool]] = {
+    ("universe", "top_n_liquid"): (_INT, 1, None, True, True),
+    ("universe", "min_history_days"): (_INT, 0, None, True, True),
+    ("universe", "min_price_inr"): (_NUM, 0, None, True, True),
+    ("universe", "min_median_value_inr"): (_NUM, 0, None, True, True),
+    ("universe", "liquidity_lookback_days"): (_INT, 1, None, True, True),
+    ("universe", "refresh_every_n_days"): (_INT, 1, None, True, True),
+    ("universe", "history_window_days"): (_INT, 0, None, True, True),
+    ("signals", "momentum_lookback"): (_INT, 1, None, True, True),
+    ("signals", "momentum_skip"): (_INT, 0, None, True, True),
+    ("signals", "low_vol_lookback"): (_INT, 2, None, True, True),
+    ("signals", "vol_span"): (_INT, 1, None, True, True),
+    ("signals", "forecast_cap"): (_NUM, 0, None, False, True),
+    ("signals", "target_abs_forecast"): (_NUM, 0, None, False, True),
+    ("signals", "normalizer_min_obs"): (_INT, 1, None, True, True),
+    ("signals", "fdm_cap"): (_NUM, 1, None, True, True),
+    ("signals", "fdm_lookback_days"): (_INT, 1, None, True, True),
+    ("signals", "fdm_refresh_every_n_days"): (_INT, 1, None, True, True),
+    ("signals", "normalizer_window_days"): (_INT, 0, None, True, True),
+    ("signals", "ewm_memory_spans"): (_INT, 0, None, True, True),
+    ("signals", "delivery_lookback"): (_INT, 1, None, True, True),
+    ("signals", "residual_momentum_months"): (_INT, 1, None, True, True),
+    ("signals", "residual_momentum_window"): (_INT, 1, None, True, True),
+    ("signals", "high_lookback"): (_INT, 1, None, True, True),
+    ("signals", "beta_lookback"): (_INT, 2, None, True, True),
+    ("portfolio", "target_positions"): (_INT, 1, None, True, True),
+    ("portfolio", "max_positions"): (_INT, 1, None, True, True),
+    ("portfolio", "exit_rank"): (_INT, 1, None, True, True),
+    ("portfolio", "max_weight"): (_NUM, 0, 1, False, True),
+    ("portfolio", "rebalance_every_n_days"): (_INT, 1, None, True, True),
+    ("portfolio", "no_trade_buffer"): (_NUM, 0, None, True, True),
+    ("portfolio", "min_trade_value_inr"): (_NUM, 0, None, True, True),
+    ("portfolio", "sector_cap"): (_NUM, 0, 1, True, True),        # None or 0: no sector cap (portfolio.capped_weights)
+    ("portfolio", "stop_atr_multiple"): (_NUM, 0, None, False, True),
+    ("portfolio", "atr_lookback"): (_INT, 1, None, True, True),
+    ("portfolio", "stop_cooldown_days"): (_INT, 0, None, True, True),
+    ("portfolio", "vol_lookback_days"): (_INT, 2, None, True, True),
+    ("regime", "trend_ma_days"): (_INT, 1, None, True, True),
+    ("regime", "breadth_ma_days"): (_INT, 1, None, True, True),
+    ("regime", "breadth_risk_on"): (_NUM, 0, 1, True, True),
+    ("regime", "breadth_risk_off"): (_NUM, 0, 1, True, True),
+    ("regime", "vix_elevated"): (_NUM, 0, None, False, True),
+    ("regime", "vix_extreme"): (_NUM, 0, None, False, True),
+    ("regime", "confirm_days"): (_INT, 1, None, True, True),
+    ("regime", "scale_risk_on"): (_NUM, 0, None, True, True),
+    ("regime", "scale_neutral"): (_NUM, 0, None, True, True),
+    ("regime", "scale_risk_off"): (_NUM, 0, None, True, True),
+    ("regime", "crash_drawdown"): (_NUM, 0, 1, False, False),
+    ("regime", "crash_high_days"): (_INT, 1, None, True, True),
+    ("regime", "reentry_ma_days"): (_INT, 1, None, True, True),
+    ("sleeves", "trend_ma_days"): (_INT, 1, None, True, True),
+    ("sleeves", "min_history_days"): (_INT, 0, None, True, True),
+    ("sleeves", "trend_confirm_days"): (_INT, 1, None, True, True),
+    ("allocator", "core_risk_share"): (_NUM, 0, 1, True, True),
+    ("allocator", "core_risk_share_min"): (_NUM, 0, 1, True, True),
+    ("allocator", "core_risk_share_max"): (_NUM, 0, 1, True, True),
+    ("allocator", "max_gross"): (_NUM, 0, None, False, True),
+    ("allocator", "vol_lookback_days"): (_INT, 2, None, True, True),
+    ("allocator", "target_vol_annual"): (_NUM, 0, None, True, True),
+    ("allocator", "vol_target_min_scale"): (_NUM, 0, 1, False, True),
+    ("drawdown", "halt_dd"): (_NUM, 0, 1, False, False),
+    ("drawdown", "half_dd"): (_NUM, 0, 1, False, False),
+    ("drawdown", "risk_off_dd"): (_NUM, 0, 1, False, False),
+    ("drawdown", "half_scale"): (_NUM, 0, 1, True, True),
+    ("drawdown", "rearm_sessions"): (_INT, 1, None, True, True),
+    ("costs", "max_participation"): (_NUM, 0, 1, False, True),
+    ("costs", "spread_floor_bps"): (_NUM, 0, None, True, True),
+    ("costs", "impact_coefficient_bps"): (_NUM, 0, None, True, True),
+    ("costs", "adv_lookback_days"): (_INT, 1, None, True, True),
+    ("costs", "dp_charge_inr"): (_NUM, 0, None, True, True),
+    ("costs", "commission_rate"): (_NUM, 0, None, True, True),
+    ("costs", "commission_cap"): (_NUM, 0, None, True, True),
+}
+#: Fields where None means "off".
+NONE_MEANS_OFF = frozenset({("portfolio", "sector_cap")})
+
+
+def _range_problem(name: str, value: Any, bound: Tuple[str, Optional[float], Optional[float], bool, bool]) -> str:
+    kind, low, high, low_ok, high_ok = bound
+    if isinstance(value, bool) or not isinstance(value, numbers.Real) or not math.isfinite(float(value)):
+        return f"{name}={value!r} is not a finite number"
+    v = float(value)
+    if kind == _INT and not v.is_integer():
+        return f"{name}={value!r} is not a whole number"
+    if low is not None and (v < low or (v == low and not low_ok)):
+        return f"{name}={value!r} is below its {'minimum' if low_ok else 'exclusive minimum'} {low:g}"
+    if high is not None and (v > high or (v == high and not high_ok)):
+        return f"{name}={value!r} is above its {'maximum' if high_ok else 'exclusive maximum'} {high:g}"
+    return ""
+
+
+def range_problems(cfg: "EngineConfig") -> List[str]:
+    """Every value of ``cfg`` outside ``RANGES``, the EWMAC pairs (1 <= fast < slow) and the starting capital."""
+    out = []
+    for (group, key), bound in RANGES.items():
+        value = getattr(getattr(cfg, group), key)
+        if value is None and (group, key) in NONE_MEANS_OFF:
+            continue
+        problem = _range_problem(f"{group}.{key}", value, bound)
+        if problem:
+            out.append(problem)
+    for name in ("fast_ewmac", "slow_ewmac"):
+        for pair in getattr(cfg.signals, name):
+            if len(pair) != 2 or _range_problem("span", pair[0], RANGES[("signals", "vol_span")]) \
+                    or not (isinstance(pair[1], numbers.Real) and pair[0] < pair[1]):
+                out.append(f"signals.{name} pair {pair!r} needs whole spans with 1 <= fast < slow")
+    if isinstance(cfg.initial_capital, bool) or not isinstance(cfg.initial_capital, numbers.Real) \
+            or not math.isfinite(float(cfg.initial_capital)) or cfg.initial_capital <= 0:
+        out.append(f"initial_capital={cfg.initial_capital!r} must be a positive finite amount")
+    return out
+
 
 @dataclass(frozen=True)
 class EngineConfig:
@@ -303,6 +421,9 @@ class EngineConfig:
             raise ValueError(f"cash_yield_annual is ignored since cost model 4 (idle cash earns nothing, IC1) and "
                              f"stays {LEGACY_CASH_YIELD} so config hashes stand: another value would record a "
                              f"duplicate trial")
+        problems = range_problems(self)
+        if problems:
+            raise ValueError("configuration refused (QP1): " + "; ".join(problems))
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

@@ -108,7 +108,7 @@ Not done in this pass: a line-by-line review of every module, and a security rev
 | X9 | Error handling | About 1,280 `except Exception` (services 376, kite_connect 292, api 196), most of them deliberate "never raises". There are no shared error types. Correction, 20 Nov: 96 API routes build a 500 from `str(exc)`, but `api/main.py`'s handler already logs that text and answers "Internal server error" (now pinned by a test). What still reaches the caller is the RAG stream's `Error: <exception>` token. |
 | X10 | Library modules double as scripts | 104 `__main__` blocks, 65 `sys.path` insertions (27 in `trading_strategies`), about 940 `print` calls in library code (optimizer 252, runners 171, rag_pipeline 113). |
 | X11 | Code no production entry point reaches | 58 files, most of them deliberate command lines or kept strategies, and 63 top-level definitions referenced nowhere. Whole folders are unreached: `optimizer/`, `scripts/`, the R21a and R22 runners, `scheduling/{fno,strategy}_jobs.py` (retired and kept on purpose). Your rule: each needs its own study before removal, and option, futures and strategy code always stays. |
-| X12 | Self-tests inside production modules | `rag_pipeline` has `_run_tests` functions of 1,441 lines (in `retriever.py`), 638, 304 and 302, run by `__main__`. |
+| X12 | Self-tests inside production modules (resolved 25 Nov: R3 moved two to `tests/`, R4 retired the rest with their modules) | `rag_pipeline` has `_run_tests` functions of 1,441 lines (in `retriever.py`), 638, 304 and 302, run by `__main__`. |
 
 **Low**
 
@@ -208,21 +208,27 @@ None of these is made without a yes.
 | 6 | Mojibake repaired in 13 comment lines of `scheduler.py` and `scheduling/` | Compile; suite |
 | 7 (23 Nov) | R1: eight characterisation tests of `RAGQueryEngine.query` and `query_stream` on stand-ins, in `tests/test_api.py`. They pin: the cache, FAQ and fast-path answers and their cache keys; the context the LLM receives, and the answer cached and logged; the relevance gate's two messages; the broad fallback inside the ticked sources; the boost and re-rank, skipped for short questions; the time budget before and during the LLM; the retrieval timeout's small search; a failed query variant. | Pass on unchanged code; seven deliberate breaks of the new code each fail one |
 | 8 (23 Nov) | R2: one pipeline. `_prepare` runs every stage before the LLM, with `_retrieve` (the concurrent search and its timeout) and `_select` (threshold, dedup, boost, re-rank, broad fallback); `_store_answer` writes the cache. `query` and `query_stream` keep only their own endings. `query`: one answer and the retrieval log. `query_stream`: tokens, `on_context` and `llm_meta`. `query_engine.py` went from 1,678 to 1,475 lines, `query` from 457 to 112, `query_stream` from 383 to 114. | R1's tests, and RAG2's and RAG3's, on the new code; lint and mypy no worse |
+| 9 (25 Nov) | R3, the live modules: every check of the `time_budget` and `query_classifier` self-tests (53 and 76) moved to `tests/test_rag_units.py` as 64 pytest cases, with the two `retriever` switches the engine reads on every question (`is_fast_mode`, `is_simple_query`). Both harnesses deleted: `time_budget.py` 431 to 250 lines, `query_classifier.py` 695 to 382. `time_budget`'s docstrings gave its defaults as 120 / 20 / 90 s; the code's are 300 / 30 / 300, and the docstrings now say so. The test map's web area now names `rag_pipeline/` and the new file. | Pass on unchanged code; seven deliberate breaks each fail a test (an eighth, `<= 0` to `< 0` in the simple-query switch, cannot change behaviour) |
+| 10 (25 Nov) | R4, retirement (your approval, all five): `core/context_builder.py`, `ingestion/chunking.py`, `storage/triplet_export.py` and `utils/retrieval_evaluator.py` deleted; `core/retriever.py` cut from 2,859 to 44 lines, keeping only the engine's two switches (`is_fast_mode`, `is_simple_query`, code unchanged; the `Retriever` class, `retrieve`, `retrieve_context` and the 1,441-line self-test gone). The package's 12 lazy names for them removed. 6,101 lines in all; with step 9, `rag_pipeline` is 6,597 lines shorter. A new test pins that every public name of `rag_pipeline` points at code that exists, read from the source. Docs: the README's tree, `retriever.py`'s and `query_classifier.py`'s docstrings. | Every remaining RAG module imports (24, the baseline's 28 less the four); all 34 public names resolve; the new test fails when a name points at a deleted module or at one that does not define it |
 
 **Checks:**
 - Suite: 1,092 passed in `myenv` and in the no-skips job; 958 passed and 106 skipped on a core-only install (web and scheduler tests, by design).
 - Lint: the correctness rules find nothing new, except one E402 in `api/main.py`, placed after its path set-up beside the two imports already there.
 - Imports: 29 workflow modules import on the workflows' install; 7 Space modules import.
+- Step 9 (25 Nov): suite 1,293 passed in `myenv`; 1,159 passed and 107 skipped on a core-only install, the 64 new tests among the passed; lint and `mypy` clean on the changed files; the RAG routes import.
+- Step 10 (25 Nov): suite 1,294 passed in `myenv`, R1's RAG engine tests among them; core-only 1,160 passed and 107 skipped, the 65 RAG unit tests among the passed; lint and `mypy` clean on the changed files; the RAG routes import.
 
 **Flagged, not changed:**
 - The Overfit Alert email's subject reads `Centurion â€” Overfit Alert` (`scheduling/walk_forward.py:212`). Fixing it changes an output.
 - `kite_connect/trading/auto_executor.py` has 20 mojibake lines in code or strings (legacy: TS2).
 - The RAG stream's error token (X9).
+- `create_time_budget` treats 0 as not given (`or`), so `create_time_budget(total_budget_s=0)` reads the environment instead (25 Nov).
 
 **Log lines changed by step 8 (not outputs):** the streaming path now logs what only `query` logged: a failed variant with its traceback, the variant count, a forced fast mode, the chunk counts and the trim. Its reranker-empty and relevance-gate warnings now use `query`'s wording, with "(stream)" added.
 
 **Next in phase 1:**
-- R3: the RAG self-tests (`_run_tests`): the useful cases into `tests/`, the rest deleted.
+- R4b, found 25 Nov: with the `Retriever` class gone, `storage/vector_store.py`'s `DualIndexStore`, `upsert_chunks`, `query_index`, `get_embedding` and `EmbeddingFn` are reached by nothing but the package's lazy names (the engine uses `VectorStoreManager`); their docstrings still cite `chunking.py`. `VectorStoreManager` shares only the lazy ChromaDB import with them. `DualIndexStore` alone is about 650 of the file's 1,169 lines. Study, then your call.
+- R5: `print` to `logging`, now about 25 calls in live code (`fastpath.py` 11, `query_engine.py` 10).
 - A1 to A3: API tests, then logic out of the largest routes.
 - N1: tests for `mcx_store` and `crash_recovery`.
 - The studies N7, R4, D3 and Q3.
@@ -577,9 +583,9 @@ Subpackages (`core/`, `streams/`, `gates/`) come only later and with aliases, be
 
 | # | Severity | Finding |
 |---|---|---|
-| R1 | High | About 2,700 lines of self-test code sit inside production modules (X12): `retriever.py` is 2,860 lines, 1,441 of them `_run_tests`. |
+| R1 | High | Done 25 Nov (R3, R4). About 2,700 lines of self-test code sit inside production modules (X12): `retriever.py` is 2,860 lines, 1,441 of them `_run_tests`. |
 | R2 | High | `query` (457 lines) and `query_stream` (383) repeat the pipeline step by step. RAG3's fallback fix had to be made twice. |
-| R3 | Medium | Four modules are exposed only through `rag_pipeline/__init__.py`'s lazy names and used by nothing: `core/context_builder` (1,168 lines), `ingestion/chunking` (1,087), `storage/triplet_export`, `utils/retrieval_evaluator`. |
+| R3 | Medium | Retired 25 Nov with `retriever.py`'s `Retriever` class (0.8, step 10). Four modules are exposed only through `rag_pipeline/__init__.py`'s lazy names and used by nothing: `core/context_builder` (1,168 lines), `ingestion/chunking` (1,087), `storage/triplet_export`, `utils/retrieval_evaluator`. |
 | R4 | Medium | `ingestion/pdf_ingestion.py`, 2,011 lines, has no test. |
 | R5 | Low | 113 `print` calls in library code; `DefaultLLMBackend`, `extract_text_from_pdf` and two evaluation functions referenced nowhere. |
 
@@ -589,8 +595,8 @@ Subpackages (`core/`, `streams/`, `gates/`) come only later and with aliases, be
 |---|---|---|---|
 | R1 | Characterisation tests of `query` and `query_stream` on stand-ins (as RAG3's) | New tests on unchanged code | Done 23 Nov (0.8, step 7) |
 | R2 | Extract the shared stages; both entry points call them | R1's tests; RAG2 and RAG3 tests | Done 23 Nov (0.8, step 8) |
-| R3 | The `_run_tests` harnesses: useful cases into `tests/`, the rest deleted | Suite | Now (new tests: decision 0.7-4) |
-| R4 | Study R3's four modules | Read-only | Now |
+| R3 | The `_run_tests` harnesses: useful cases into `tests/`, the rest deleted | Suite | Done 25 Nov (0.8, steps 9-10) |
+| R4 | Study R3's four modules, and `retriever.py`'s `Retriever` class (found unused 25 Nov) | Read-only; retirement on your yes | Done 25 Nov: all five retired on your approval (0.8, step 10); R4b next |
 | R5 | `print` to `logging` | Suite | Now |
 
 ---

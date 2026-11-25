@@ -1,15 +1,101 @@
 {
   "note": "Research families (docs/research_protocol.md section 1): registry, budget and the last recorded count n. Counts come from the registries: python -m nse_engine.validation.families --write. Tracker PL0, PL-03.",
   "families": {
-    "core": {"registry": "data/nse_engine/runs", "count": "validation_matrix", "protocol_row": "Core", "n": 61, "max_configurations": null, "pbo": 0.292, "pbo_cap": 0.30, "status": "closed until January: J1 and MV1, one configuration each", "as_of": "2026-11-14"},
-    "options": {"registry": "data/nse_engine/runs_options", "count": "distinct_configs", "protocol_row": "Options", "n": 20, "max_configurations": null, "max_per_source": 3, "pbo": 0.141, "pbo_at_n": 17, "status": "3 per source; PBO not recomputed since N = 17", "as_of": "2026-11-14"},
-    "commodity": {"registry": "data/nse_engine/runs_mcx", "count": "distinct_configs", "protocol_row": "Commodity", "n": 2, "max_configurations": 3, "status": "closed", "as_of": "2026-11-14"},
-    "value": {"registry": "data/nse_engine/runs_value", "count": "distinct_configs", "protocol_row": "Value", "n": 2, "max_configurations": 3, "status": "closed", "as_of": "2026-11-14"},
-    "us_core": {"registry": "data/nse_engine/runs_us", "count": "distinct_configs", "protocol_row": "US core", "n": 3, "max_configurations": 3, "status": "closed", "as_of": "2026-11-14"},
-    "bonds": {"registry": "data/nse_engine/runs_bonds", "count": "distinct_configs", "protocol_row": "Bonds", "n": 3, "max_configurations": 3, "status": "closed", "as_of": "2026-11-14"},
-    "leverage": {"registry": "data/nse_engine/runs_leverage", "count": "distinct_configs", "protocol_row": "Leverage", "n": 3, "max_configurations": 3, "status": "closed", "as_of": "2026-11-14"},
-    "sepa_sleeve": {"registry": "data/nse_engine/runs_sepa", "count": "distinct_configs", "protocol_row": null, "n": 1, "max_configurations": 3, "status": "O9", "as_of": "2026-11-14"},
-    "ivx1": {"registry": "data/nse_engine/runs_ivx1", "count": "distinct_configs", "protocol_row": null, "n": 2, "max_configurations": 3, "status": "closed 27 Oct; not in the protocol's table", "as_of": "2026-11-14"},
-    "intraday": {"registry": null, "count": null, "protocol_row": "Intraday", "n": 2, "max_configurations": null, "max_per_source": 3, "status": "declared: no registry yet (GF1, plan 5cb, said N = 2)", "as_of": "2026-11-09"}
+    "core": {
+      "registry": "data/nse_engine/runs",
+      "count": "validation_matrix",
+      "protocol_row": "Core",
+      "n": 61,
+      "max_configurations": null,
+      "pbo": 0.292,
+      "pbo_cap": 0.3,
+      "status": "closed until January: J1 and MV1, one configuration each",
+      "as_of": "2026-11-14"
+    },
+    "options": {
+      "registry": "data/nse_engine/runs_options",
+      "count": "distinct_configs",
+      "protocol_row": "Options",
+      "n": 22,
+      "max_configurations": null,
+      "max_per_source": 3,
+      "pbo": 0.141,
+      "pbo_at_n": 17,
+      "status": "3 per source; PBO not recomputed since N = 17",
+      "as_of": "2026-11-24"
+    },
+    "commodity": {
+      "registry": "data/nse_engine/runs_mcx",
+      "count": "distinct_configs",
+      "protocol_row": "Commodity",
+      "n": 2,
+      "max_configurations": 3,
+      "status": "closed",
+      "as_of": "2026-11-14"
+    },
+    "value": {
+      "registry": "data/nse_engine/runs_value",
+      "count": "distinct_configs",
+      "protocol_row": "Value",
+      "n": 2,
+      "max_configurations": 3,
+      "status": "closed",
+      "as_of": "2026-11-14"
+    },
+    "us_core": {
+      "registry": "data/nse_engine/runs_us",
+      "count": "distinct_configs",
+      "protocol_row": "US core",
+      "n": 3,
+      "max_configurations": 3,
+      "status": "closed",
+      "as_of": "2026-11-14"
+    },
+    "bonds": {
+      "registry": "data/nse_engine/runs_bonds",
+      "count": "distinct_configs",
+      "protocol_row": "Bonds",
+      "n": 3,
+      "max_configurations": 3,
+      "status": "closed",
+      "as_of": "2026-11-14"
+    },
+    "leverage": {
+      "registry": "data/nse_engine/runs_leverage",
+      "count": "distinct_configs",
+      "protocol_row": "Leverage",
+      "n": 3,
+      "max_configurations": 3,
+      "status": "closed",
+      "as_of": "2026-11-14"
+    },
+    "sepa_sleeve": {
+      "registry": "data/nse_engine/runs_sepa",
+      "count": "distinct_configs",
+      "protocol_row": null,
+      "n": 1,
+      "max_configurations": 3,
+      "status": "O9",
+      "as_of": "2026-11-14"
+    },
+    "ivx1": {
+      "registry": "data/nse_engine/runs_ivx1",
+      "count": "distinct_configs",
+      "protocol_row": null,
+      "n": 2,
+      "max_configurations": 3,
+      "status": "closed 27 Oct; not in the protocol's table",
+      "as_of": "2026-11-14"
+    },
+    "intraday": {
+      "registry": null,
+      "count": null,
+      "protocol_row": "Intraday",
+      "n": 3,
+      "max_configurations": null,
+      "max_per_source": 3,
+      "status": "declared: no registry yet (GF1 N = 2; GAM2, plan 5ce, FAIL 25 Nov: N = 3)",
+      "as_of": "2026-11-25"
+    }
   }
 }

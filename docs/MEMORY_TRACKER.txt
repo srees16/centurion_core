@@ -191,6 +191,12 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  3. DECISIONS TAKEN (27 Sep)
 --------------------------------------------------------------------------------
+  U42  (24 Nov) Rule D and the drawdown rule are binding (your go on Claude's recommendation): no override in a
+       drawdown.  The one exception is a trigger caused by a verified data or plumbing fault (bad prices, a
+       failed run), recorded with a dated reason.  After a step-down to paper the book goes back to live only on
+       the evidence it needed the first time, a clean paper record judged by G4, never on a reason alone (today
+       live_session --clear-mc-step-down takes any reason; making the code hold to this is a new check, so it
+       waits for the 19 Dec review).                                                          -> RDB1
   U41  (14 Nov) Your three rules, scoped by your answers the same day.  (1) Not to agree by default:
        for an idea or strategy Claude names the biggest weakness, the assumption that may be false,
        what you overlook and what could make it fail (added to U39).  (2) Objectives are planned
@@ -348,6 +354,12 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      2027).  ACCEPT: live may start at Rs 3 lakh (GT2I's canary; the rule itself stands as
      fixed, it read Rs 6 lakh) after 5 clean dry runs, on
      your go-ahead.  REJECT: no live capital; 679cbd0c is not re-tuned.
+     ODDS TO EXPECT WITH THE EDGE INTACT (24 Nov, your go; mc_bands risk and the rule D bands, the deployed book's
+     live-like walk-forward 2008-25, before the drawdown rule and rule D act): a loss over 3 months 32%, 6 months 27%,
+     1 year 21%, 3 years 9%, 5 years 4%.  A drawdown past 10% within a year 45%; past 20% (the drawdown rule halts
+     entries) 6%; past 25%: 2% in 1 year, 11% in 3, 18% in 5; below half the capital 0.04% in 5 years.  Daily tails
+     are fat (skew -1.6, excess kurtosis 13; the 1% expected shortfall 1.7x a normal's; worst month -19.8%).  So a
+     losing quarter says little about the edge; rule D's bands, not the calendar, decide.
  >>> KLR1 (23 Nov): merge .github/workflows/space-keepalive.yml to main (scheduled runs start only from main);
      refresh HF_TOKEN in this Mac's .env (rejected, 401) so the Space's logs can be read next time.
  >>> TESTS: THREE AREAS NEED YOUR CALL (TS2, 15 Nov): test, leave, or retire
@@ -1139,10 +1151,15 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              The Saturday email's first screen holds what needs action (you read all of it, the top first).
              Bring the counts from the ops report's loop health and the drill results.   Prompt: do PRV1
 [x] P2  GTR6 Built 16 Nov (your "do GTR6", ahead of RA1 under the freeze's alert-only exception; entry GTR7).
-[ ] P3  MON1-IC After RA1 (Tue 15 Dec), your call: the live monitor's rank IC read at 12 months (PIC1R) flags a
-             healthy signal for REVIEW 23% of the time (mean <= 0), and its "supports" (t >= 2) is out of
-             reach for a healthy signal (12-month t about 0.7 on average): keep it, recalibrate it, or read
-             it at 24-36 months.  live_monitor is unchanged until you decide.  Prompt: decide MON1-IC
+[ ] P3  MON1-IC After PF1 (Sat 19 Dec), your decision 24 Nov (Claude's recommendation): the live monitor reads the rank
+             IC at 24-36 months, information only, with no REVIEW flag at 12 months (there it flags a healthy
+             signal 23% of the time and cannot confirm one, PIC1R); rule D and MCA1 stay the alarms.  Watch
+             meanwhile: the deployed signal's IC was near zero in 2024 (-0.016) and 2025 (-0.005), t -1.3 together
+             against its history, while the walk-forward book made +25% and +28% (SZ2 tells size from selection).
+                                                              Prompt: do MON1-IC
+[ ] P2  RDB1 After PF1 (Sat 19 Dec), your decision 24 Nov (U42): clearing rule D's step-down needs a clean paper record
+             judged by G4, or a recorded data or plumbing fault, not a reason alone (live_session
+             --clear-mc-step-down); the criteria and their test fixed before it is built.  Prompt: do RDB1
  NOT DOING  parameter grids (near-duplicate trials), core risk share up
             (measured: Sharpe 1.03, MaxDD -34%), a NIFTY sleeve (R5: +0.5
             pt at most), more ETF sleeves (R14: funded from the core),
@@ -1593,12 +1610,184 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+25 Nov  WGF1b The Options page's odds, each strike at its own implied volatility as the page prices it (your yes;
+             a measurement, no code kept).  NIFTY monthly expiries 2008-25; IVs only from strikes that traded that day
+             (90% of store rows did not); spot-based Black-Scholes at the page's 5.52%.  The page's condor (0.15-delta
+             shorts, about 30 days out), 207 cycles: PoP is calibrated, 69.4% predicted vs 67.1% realised (z -0.7),
+             but only because two errors offset.  Call side understated: the short call finished beyond 19.3% vs 13.8%
+             (z +2.3), and in 2017-25 24.0% vs 13.9% (z +3.0); calm in 2008-16 (14.6% vs 13.8%).  Put side overstated:
+             touched 18.4% vs 29.3% (z -3.5), finished beyond 13.5% vs 16.8%; the put skew (22.2% IV vs 16.6% on the
+             call) priced more crash than 2008-25 delivered.  Touch (either short) overstated: 42.5% vs 51.6% (z
+             -2.6), so it errs safe.  With the page's IV-rank 50+ filter only 25 cycles: PoP 60% vs 69.5% (z -1.0),
+             the call breached 24% (rebounds after high-IV falls).  At A1's 15 days, strike IVs fix the call side
+             (1-SD touch 22.5% vs 19.7% realised; flat IV said 26.4%) but overshoot the put side (2-SD touch 9.7% vs
+             3.6%; flat IV 2.9%).  Read: the page's PoP is right on average and wrong per side, optimistic for call
+             spreads (A1's kind) in trending markets; risk-neutral odds use r, not NIFTY's drift.  Backtests of A1 use
+             real prices, so no strategy verdict moves.  Proposals for your call: a measured-odds note on the page,
+             like the email's move coverage (books.MOVE_INSIDE); and this calibration as a store guard at PRV1 (19
+             Dec).  Scripts deleted.
+25 Nov  WGF1 When Genius Failed (Lowenstein on LTCM; a Bookey summary in research_inbox, 126 pages read in full,
+             three chapters cut short by the publisher's preview; your brief): the diversifier gate now reports each
+             stream's crisis record, and the Options page's odds were tested against history; uncommitted.  The doc is
+             narrative, no equations or tables: 30x leverage (p. 84), volatility sold at a 'historical norm' of 15%
+             (p. 95), correlations assumed stable that rose together in 1998 (pp. 101, 111), -44% in August and six
+             tenths of the capital in a month (pp. 43, 59), forced sales into markets without buyers (pp. 41, 58).
+             Already in Centurion: half-Kelly leverage on the deflated Sharpe and no structural leverage
+             (funding_gate); capacity at Rs 1 crore and days to exit at 5% of ADV; fat tails kept by the block
+             bootstrap, the CVaR and monthly-skew vetoes and the skew-aware DSR; the book through every NIFTY crash
+             (scorecard.crash_windows); measured move coverage (books.move_coverage); volatility sold only as capped
+             call spreads with a crash guard (A1C, A1G).  Built: diversifier_gate.crisis_record, reported in
+             evaluate() and drawdown_lever(), never a condition (GT13): every NIFTY fall of 15% or more with the
+             book's, the stream's and the combination's returns, and the book's worst 10% of months (stream mean,
+             share it also lost, correlation there and overall; none below 6 months).  Gate outputs otherwise
+             identical, old vs new (dg2, rt1).  Findings, walk-forward book 2008-25: the streams on paper diversify in
+             crashes, the opposite of LTCM: gilts 25% rose in 5 of 6 (2008 +7.5% vs the book's -27.9%), MCX-B 25%
+             +15.6% in 2008 and +39.7% in 2020, A1G at its 10% cap stayed out of all six (its guard; unguarded A1 lost
+             in one).  The shared weak spot is 2021-22's rate-hike fall: gilts -3.8%, MCX-B -2.3%, book -11.5%.  Odds
+             check, 208 monthly expiries 2008-25 at A1's 15-day point, one at-the-money IV: downside understated (2-SD
+             finish 3.4% vs 2.0% predicted; touch 4.8% vs 2.8%, 6.8% vs 2.8% in 2008-16), upside overstated (2-SD
+             touch 1.0% vs 3.6%; 0 of 105 in 2017-25); z 1.4 to 2.2.  The page prices each strike at its own IV, which
+             carries the skew; a strike-IV check is the next measurement.  Tests: three (a known crash, LTCM's
+             illusion in miniature, refusals and the minimum sample); five deliberate breaks each failed one.  Checks:
+             suite 1,327 passed (myenv); core-only 1,193 passed, 107 skipped; lint and mypy no worse.
+25 Nov  SHR1 Shreve, "Stochastic Calculus and Finance" (Chalasani & Jha notes, 1997;
+             research_inbox/stochastic.pdf, 348 pages read in full; your brief): the options pricer now fails loudly,
+             a touch probability is added, and the notes are replicated; uncommitted.  Fit: only the options toolkit
+             (kite_connect/options/theory.py).  The equity engine, the nightly A1 sleeve (it calls no pricer) and the
+             gilt stream (ETF returns) take nothing; chs. 28-34 (HJM, Hull-White, CIR, BGM) price rate derivatives
+             Centurion does not trade.  Built: (1) black_scholes, implied_volatility, probability_itm and
+             parity_residual refuse a NaN or infinite input, a non-positive price, a negative volatility and a rate or
+             dividend of 100% or more (a percent for a decimal) with ValueError, where they returned NaN, priced a
+             negative volatility as zero, or raised a solver error.  Valid inputs unchanged: 60,000 random sets
+             bit-identical old vs new; 30,000 NIFTY option closes (2015, 2020, 2025) give identical IVs, none refused.
+             (2) probability_touch: first passage with drift (ch. 25.3), daily-close checking by
+             Broadie-Glasserman-Kou.  The overlay scan's condor proposal adds touch_pct beside pop (existing fields
+             unchanged): early exits act on touches, about twice as likely as finishing beyond (a 10% OTM, 60-day
+             level: 32.7% at daily closes, 36.5% continuous, 18.8% finishing beyond).  (3) Tests: an independent
+             binomial pricer reproduces the notes' examples (20; 1.76 and 4.40; lookback 2.24; American put 1.36 with
+             3.00 and 0.40, European 0.96; 1.76 again from market probability 1/3 and state prices) and converges to
+             black_scholes within 1e-5 of spot (Thm 10.42); the BS PDE holds for the module's Greeks with dividends on
+             500 cases (1e-9); touch = 2 x finish at zero drift (exact) and matches 100,000 simulated paths within
+             0.006.  Six deliberate breaks each failed tests.  Checks: suite 1,324 passed (myenv); core-only 1,190
+             passed, 107 skipped; lint and mypy no worse.  Users: the Options page and the weekly IV snapshot, not the
+             nightly run.  Erratum: p. 22 gives E S2 = 48/9; it is 36/9 = 4.  Your yes (25 Nov) to both:
+             docs/options/CONCEPTS.md gains a conventions row (bad inputs) and a section listing the replications
+             (SH.x IDs) and the erratum; the Options page (centurion_core-fe, uncommitted) shows touch_pct as a Touch
+             column beside PoP, with a dash when an older backend sends none; the frontend type-checks.  Not a guard,
+             alert, report line or email, so not held for PF1.
+25 Nov  RF0g Codebase refactor, phase 1: R4 retirement (your "approve deletion of all five"; uncommitted;
+             AUDIT.md 0.8, step 10).  Deleted: core/context_builder.py, ingestion/chunking.py,
+             storage/triplet_export.py, utils/retrieval_evaluator.py; core/retriever.py cut from 2,859 to 44 lines,
+             keeping only the engine's two switches (is_fast_mode, is_simple_query; code unchanged) - the Retriever
+             class, retrieve, retrieve_context and the 1,441-line self-test gone; the package's 12 lazy names for them
+             removed.  6,101 lines; with R3, rag_pipeline is 6,597 lines shorter.  New guard
+             (tests/test_rag_units.py): every public name of rag_pipeline points at code that exists, read from the
+             source; it fails on a name left pointing at a deleted module or at one that does not define it.  Checks:
+             every remaining RAG module imports (24, the 28 before less the four); all 34 public names resolve; suite
+             1,294 passed (myenv), R1's RAG engine tests among them; core-only 1,160 passed and 107 skipped, the 65
+             RAG unit tests among the passed; lint and mypy clean on the changed files; the RAG routes import.  Docs:
+             README tree, retriever.py's and query_classifier.py's docstrings.  retrieval_evaluator defined a
+             retrieval_logs table; no migration or other code names it, so nothing in the database was touched.
+             Found, not changed (R4b): with the Retriever class gone, vector_store.py's DualIndexStore and its helpers
+             are reached by nothing but the lazy names.
+25 Nov  RF0f Codebase refactor, phase 1: RAG steps R3 and R4 (your "continue refactor"; uncommitted; AUDIT.md
+             0.8, step 9).  R3, the live modules: every check of time_budget's and query_classifier's self-tests (53
+             and 76) moved to tests/test_rag_units.py as 64 pytest cases, with the two retriever switches the engine
+             reads on every question (fast mode, simple query); both harnesses deleted (time_budget.py 431 -> 250
+             lines, query_classifier.py 695 -> 382).  The cases passed on unchanged code; seven deliberate breaks each
+             failed one (an eighth cannot change behaviour).  time_budget's docstrings said 120 / 20 / 90 s; the code
+             uses 300 / 30 / 300, and they now say so.  The test map's web area names rag_pipeline/ and the new file.
+             Checks: suite 1,293 passed (myenv); core-only 1,159 passed, 107 skipped, the 64 new tests among the
+             passed; lint and mypy clean on the changed files; the RAG routes import.  R4 (read-only): five pieces of
+             RAG code, about 5,600 lines, are reached by nothing but the package's lazy names and unchanged since 8
+             Mar: context_builder, chunking, triplet_export, retrieval_evaluator and retriever.py's Retriever class
+             (the engine's own search replaced it in R2).  Retiring them waits for your yes; their three self-tests
+             stay until then.  Found, not changed: create_time_budget treats 0 as not given.
+25 Nov  GAM2 NIFTY last-half-hour momentum on Pro short gamma (plan 5ce, pre-registered 24 Nov 19:21 IST, amended
+             25 Nov 09:17 before any download; your Kite login and "continue with GAM2"): FAIL on both gates, closed;
+             intraday N 3.  NIFTYBEES 1-minute candles from Kite (63 s), 2,690 of 2,705 sessions 2015-25 (99.4%). Gate
+             1: r_day x short gamma -0.22, NW t -0.57 (needed +, t >= 2); halves -0.74 (t -1.72) / +0.67 (t +2.08).
+             The day's move does not carry into the last half hour even unconditionally (t 0.61); after SEBI's
+             one-weekly rule the sign reverses (t -2.19).  Gate 2: 1,043 trades, gross +0.9 bp against 4.6 bp of futures
+             costs, net -3.7 bp (t -4.96), every year negative but 2022.  So Baltussen et al.'s US hedging-flow
+             effect does not show in NIFTY, and neither trade on GAM1's signal earns (GAM1B, GAM2).  Earliest stop:
+             Phase 0 could have run the unconditional regression and set the 4.6 bp cost bar first.  Files:
+             data/nse_engine/gam2 and data/nse_engine/gam1, with both study manifests, deleted 25 Nov (approved).
+24 Nov  QP1  jsmidt/QuantPy reviewed for robustness (your brief): one gap closed, everything else already present or not
+             applicable; uncommitted.  QuantPy (2013-17, 740 lines, BSD 4-clause, no longer runs on current pandas) has
+             three patterns: window and type checks on its indicators (technical_indicators.sma, ema, macd), one
+             known-answer test, a divide-by-zero guard (event_profiler).  Its anti-patterns, all checked absent here:
+             returns as price differences, fillna(0) on returns, a bare except that drops a symbol, Sharpe scaled by
+             sqrt(n) not sqrt(252), the inverse of a sample covariance with no condition check, weights fitted on the
+             full sample.  Gap closed: EngineConfig took impossible values without complaint (stop_atr_multiple -1 stops
+             every name at once, target_positions 0 holds nothing, exit_rank 0 sells every holding the next day), and
+             such a run would still count as a trial.  Now nse_engine/config.RANGES bounds 71 fields (0 kept where it
+             means off, sector_cap None too), EWMAC pairs need 1 <= fast < slow, NaN and inf are refused, and a bad
+             value raises 'configuration refused (QP1)'.  Checked first: 8,320 recorded configurations and 8,422
+             walk-forward grid points, none refused; hashes unchanged (600 of 600 sampled runs against the committed
+             code; deployed 679cbd0c).  Tests in tests/test_config_identity.py: every bound at and past its edge,
+             non-finite numbers, the off values, the seven shipped books, the gaps by both routes; three deliberate
+             breaks each caught.  Suite 1,229 passed (myenv); core-only 1,095 passed, 106 skipped; lint and mypy clean.
+             RA1: refuses bad input only, no valid configuration changes; left: check the first nightly dry run after
+             you merge.  Found, not changed: 23 of 600 sampled recorded runs (mostly wfo-train) carry a manifest
+             config_hash their own config.json does not reproduce, the same under the committed code.
+24 Nov  DSP1 Video: the disposition effect (sell winners, hold losers; Odean 1998, Bessembinder 2018; your brief): does
+             not fit, no code, no trial.  The engine never sells on fear: its exits are the forecast turning negative
+             and the rank falling past exit_rank (the story changed) and a 6-ATR trailing stop (the price).  Measured on
+             the deployed book's recorded 2013-25 trades (run 679cbd0c; fills match the adjusted opens, 97% within 0.5%;
+             scratch, deleted), Odean's own measures: PGR 0.042 against PLR 0.130, ratio 0.32 (Odean 1.51), so the book
+             realises losses three times as readily as gains, the reverse of the effect.  Winners sold minus losers
+             held, next 252 sessions over NIFTY TRI: +1.0% a year, t 0.3 (Odean 3.4%).  Stopped-out names then made +11%
+             a year over NIFTY TRI, about the losers held (+11.5%) and below the winners held (+16%), t about 1.6: no
+             sign the stop sells future winners.  Right tail: the top 4% of names (21 of 525) made 47% of the net P&L,
+             mostly re-entered after rank exits.  The effect's one way in is a manual sale.
+24 Nov  GAM1B Gamma-timed NIFTY iron condor (GAM1 Phase 1; plan 5cf, pre-registered 19:28 IST; your "go with iron
+             condor"): FAIL, closed; the filter and the condor code go, the two registry runs stay as trials (options
+             N 22).  The overlay scan's condor (0.15-delta shorts, 0.05-delta wings, the monthly 21-30 days out), A1's
+             sizing (35% of the sleeve at maximum loss) and early exit, 2013-25 on bhavcopy closes with fno_costs.
+             Every month: Sharpe -0.02, CAGR -1.8%, MaxDD -49%, 138 condors, 61 exited early.  Gamma-timed: Sharpe
+             -0.06, CAGR -2.4%, MaxDD -48%, 117 condors.  Gate 1: DSR 0.003, and the filter lowers Sharpe.  Gate 2:
+             beside the deployed book at 0.25, Sharpe 1.16 -> 1.05.  The hypothesis ran backwards: in the every-month
+             run the months the filter skips (much Pro short gamma) made +2.1% of maximum loss a cycle, the kept
+             -0.3%.  The filter skipped only 21 of 157 cycles: g drifts up (yearly mean -0.09 in 2013 to +0.01 in
+             2025) and is highest just after an expiry, when the decisions fall.  So GAM1's 1 vol point does not
+             reach an option seller's P&L, and the plain monthly condor itself earns nothing after costs.
+24 Nov  GAM1 India-signed option gamma, NIFTY volatility forecast (plan 5cd, pre-registered 19:21 IST; your ask): PASS
+             gate 1 as written, marginal; GO to Phase 1.  Pro desks' net share of NIFTY option gamma (strike OI x
+             Black-Scholes gamma, signed by NSE participant OI; Pro net short gamma on 91% of sessions) against the
+             next 20 sessions' realised volatility, beyond iv30, |r|, 5- and 22-day RV and the 5-day return,
+             2012-02..2025-12, 3,425 sessions: coef -0.64, Newey-West t -2.06; halves -0.58 (t -1.78) and -1.47
+             (t -1.67).  Size: from little to much Pro short gamma (90th to 10th percentile), next-month RV +7.7%,
+             about 1 vol point at the median 12.7%.  Reported: OF1's US signs t -1.83; after SEBI's one-weekly
+             rule (Nov 2024, 257 sessions) t -2.67.  Amendment before any result (19:22): sigma = iv30 on the 298
+             pre-2019 sessions with no expiry inside 30 days.  Post-hoc check, not a gate: a block-shuffled null
+             has sd 1.21 and gives one-sided p 0.044, so the t is a little optimistic; at N 21 in the options
+             family the evidence is weak.  Files: data/nse_engine/gam1 (kept for Phase 1; deleted 25 Nov, approved).  Next: Phase 1, an
+             option-selling timing rule with costs (gate 2), its design your call; GAM2 (plan 5ce, intraday)
+             waits for your Kite login.
+24 Nov  WFE1 Video: three walk-forward checks (WFE >= 50%, half the OOS years profitable, no year > 50% of profit):
+             does not fit, no code, no trial (your brief).  Already in the engine: walk_forward.py records
+             oos_is_ratio (the same efficiency on Sharpe, steadier than on return) and the scorecard prints it with
+             the negative OOS years and the return of every OOS year.  Measured on the stored walk-forwards (scratch,
+             deleted), every book passes all three with room: 2008-25 as run (e4_2008_16 + r12b4, 18 years) WFE
+             66% on return, 14/18 years profitable, top year 2021 25% of the summed profit; deployed r12a5 2017-25:
+             115%, 7/9, 39%; gt2b and r4b 2008-25: 73-76%, 13-14/18, 23-25%.  So no decision would change.  Power
+             (simulated, normal yearly returns): at Sharpe 0.4 and 9 years the concentration rule fails a real edge
+             41% of the time against 39% for no edge, and the profitable-years rule passes no edge 50% of the time;
+             DSR, PBO and HT1 use the daily returns and are stronger.  Video slips: +90% over 10 years is 9% a year
+             only as a simple sum (6.6% compounded, WFE 26%); "all the profit" undefined when losses offset it.
+             Suggestion for PRV1 (19 Dec), not done: the top OOS year's share as one more number on the scorecard's
+             walk-forward line, a reading aid, not a gate.
 24 Nov  CPY1 Commercial books out of the public repository, step a (your "do CPY1 a"; staged, not committed).  The 16
              PDFs in rag_pipeline/ingest_docs (260 MB; tracked since Feb 2026) are untracked (git rm --cached) and the
              folder is in .gitignore beside research_inbox/.  The local copies stay (16 files checked); no code reads
              them from git, and the Space deploy already excluded them.  Not done (step b, your call): the files stay in
-             the repository's history, so old commits still serve them; a purge rewrites every commit.  They are in
-             no backup (cloud/backup.py skips the folder), so this Mac holds the only working copy.
+             the repository's history, so old commits still serve them; a purge rewrites every commit.  Backup (your
+             "ensure kaggle backup is upto date", 24 Nov): cloud/backup.py gains a piece, centurion-backup-books
+             (private; pushed again only when a book changes), and restore puts the books back in
+             rag_pipeline/ingest_docs; tests in test_paper_heartbeat.py (two deliberate breaks each failed one).
+             Pushed 11:04 IST: books 233 MB (new) and state; Kaggle serves both; status now lists only the state
+             piece, which every push re-sends by design.  Suite 1,115 passed (myenv); lint no worse.
 23 Nov  RF0e Codebase refactor, phase 1: RAG steps R1 and R2 (your "continue refactor"; uncommitted; AUDIT.md 0.8,
              steps 7-8).  R1: eight characterisation tests of RAGQueryEngine.query and query_stream on stand-ins
              (tests/test_api.py), every exit pinned: the cache, FAQ and fast path with their cache keys; the context

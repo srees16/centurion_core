@@ -1807,16 +1807,13 @@ centurion_core/
 │   │   ├── query_rewriter.py     # LLM query expansion + HyDE
 │   │   ├── query_classifier.py   # Query intent classification
 │   │   ├── semantic_cache.py     # Embedding-based answer cache (in-memory)
-│   │   ├── retriever.py          # Unified retrieval interface
-│   │   ├── context_builder.py    # Token-budget context assembly
+│   │   ├── retriever.py          # Fast-mode and simple-query switches
 │   │   └── fastpath.py           # Fast-path optimisations
 │   ├── storage/                  # Vector & embedding storage
 │   │   ├── vector_store.py       # ChromaDB HNSW cosine wrapper + DualIndexStore
-│   │   ├── embeddings.py         # sentence-transformers (BGE-base-en-v1.5)
-│   │   └── triplet_export.py     # Fine-tuning triplet generator
+│   │   └── embeddings.py         # sentence-transformers (BGE-base-en-v1.5)
 │   ├── ingestion/                # Document ingestion
 │   │   ├── pdf_ingestion.py      # Structure-aware PDF chunking
-│   │   ├── chunking.py           # Token-based chunking with code extraction
 │   │   ├── tiered_retrieval.py   # FAQ tier (similarity >= 0.90)
 │   │   └── background_ingest.py  # Background ingestion worker
 │   ├── llm/                      # LLM integration
@@ -1828,7 +1825,6 @@ centurion_core/
 │   └── utils/                    # Pipeline utilities
 │       ├── token_counter.py      # tiktoken / heuristic counter
 │       ├── perf_trace.py         # Pipeline stage timing
-│       ├── retrieval_evaluator.py # Retrieval quality evaluation
 │       └── time_budget.py        # Query time budget management
 │
 ├── notifications/                # Desktop + email alerts

@@ -7326,6 +7326,82 @@ Stop rules and cap: desk arithmetic on recorded series only, at most 2 hours, no
 Files this study will create: none in the repository (one scratchpad script, deleted after the verdict); the
   result goes in the tracker and in this section.
 
+## 5cd. GAM1: India-signed option gamma: NIFTY volatility forecast (India tracker GAM1; pre-registered 24 Nov 2026, 19:21 IST)
+
+Phase 0 (before anything else is written or downloaded):
+  Prior art: OF1 (28 Oct, no verdict stated: US-signed NIFTY gamma predicted next-day |move|, t 7.08 and 2.61 with the IV level, as written; post-hoc controls for yesterday's move, 20-day RV and the 5-day return took it to t 0.26; it used the US dealer signs, which NSE's participant data contradict), OPH1 (NOT ADOPTED, high-frequency market making), GK1 (Greeks code), IVX1 (FAIL, option prices for stock selection)
+  Data: on disk, all from NSE's public archives and scriptable: fo_store/options (F&O bhavcopy, NIFTY options by strike: settle, OI in units), fo_store/participant_oi.parquet (participant-wise OI: Client, DII, FII, Pro), fo_store/iv/NIFTY_v1.parquet (iv30, near_iv), fo_store/underlying.parquet (NIFTY50 closes); reachable by script and allowed by its terms: yes
+  coverage 2008-25: participant data 2012-01-02 to 2025-12-31 (none before 2012, so 2008-11 cannot be tested); NIFTY options and IV every session; point-in-time: yes (both published each evening); delisted names: n/a (index)
+  Cost model for this instrument: exists, kite_connect/options/fno_costs.py (dated option and futures charges); not used in this diagnostic
+  Spanning (new stock signals only): n/a: not a stock signal
+  Phase 0 verdict: GO (data on disk, no download; one diagnostic regression)
+Source / hypothesis: Pro desks write NIFTY options (net short index calls on 86% and puts on 84% of sessions 2012-25). The more net short gamma they hold, the more their delta hedging buys rallies and sells falls, so the next month's realised volatility comes out higher than implied and recent volatility predict; with little short gamma, lower. If true, the options module should sell premium when Pro short gamma is small and stand aside when it is large (OPT1, the A1 overlay).
+Family and budget: options, 1 of no fixed cap configurations (one diagnostic regression, no strategy); N 20 -> 21
+Data and window: 2012-02-01..2025-12-31 (test; participant data begins 2012, one month of warm-up for the 22-day RV); 2008-11 not testable; 2026 sealed
+Rules: For each session t: NIFTY options with expiry 1 to 60 calendar days after t and OI > 0. S = NIFTY50 close (underlying.parquet); sigma = that session's near_iv (one IV per session, as OF1; no smile) (A); r = 6.5%; T = days to expiry / 365. Black-Scholes gamma per unit, gamma = phi(d1) / (S sigma sqrt T). Gamma mass per 1% move: G_call = sum over calls of OI x gamma x S^2 x 0.01; G_put likewise. Pro's net share: f_call = (Pro call long - Pro call short) / (sum of Client, DII, FII and Pro call long); f_put likewise (A: the participant figures cover all index options, strikes and expiries; Pro is assumed spread over NIFTY's strikes like the whole open interest). Signal g_t = (f_call G_call + f_put G_put) / (G_call + G_put), in [-1, 1]; negative means Pro net short gamma. Outcome y_t = log of realised volatility over sessions t+1..t+20, sqrt(252/20 x sum r^2), r = NIFTY50 log close-to-close returns. Regression: y_t on a constant, log iv30_t, |r_t|, log RV of the 5 and 22 sessions ending t, the 5-session return ending t, and g_t; OLS with Newey-West errors, 20 lags. Reported, not gates: the same with OF1's US-signed gamma in place of g_t; 2024-11-20..2025-12-31 alone (after SEBI's one-weekly-expiry rule); the volatility-point change in predicted RV from g's 10th to its 90th percentile.
+Costs and sizing: none in this diagnostic; a Phase 1 option-selling rule would use fno_costs and one-lot sizing
+Pass rules: gate 1: the coefficient on g_t is negative with Newey-West t <= -2.0 over 2012-02..2025-12, and negative in both halves (2012-02..2018-12 and 2019-01..2025-12). Pass: GO to Phase 1, a pre-registered option-selling timing rule in kite_connect/options/backtest.py, gate 2 there. Fail: the idea closes, no code stays.
+Stop rules and cap: one working day; no downloads; ends early if the data check finds more than 5% of sessions without options, IV or participant rows
+Files this study will create: data/nse_engine/gam1/ (script, log, results), recorded with `tools.study start`; deleted with a FAIL after approval
+Amendment (24 Nov 2026, 19:22 IST, before any result: the first run stopped at its data check): near_iv is undefined by construction on 298 of 3,449 sessions, all before 2019 (no expiry inside 30 days in the monthly-only era); on those sessions sigma = iv30, which there equals the next expiry's IV (A). The stop rule counts missing rows as written: options rows 2, IV rows 0, participant rows 3 of 3,449 sessions.
+
+## 5ce. GAM2: India-signed option gamma: NIFTY last-half-hour momentum (India tracker GAM2; pre-registered 24 Nov 2026, 19:21 IST)
+
+Phase 0 (before anything else is written or downloaded):
+  Prior art: BT7-S2 (FAIL 7 Nov: NIFTYBEES overnight on minute prices; found that NIFTY's official close is a 30-minute average, so intraday tests need tradeable minute prices), OF1 (no verdict stated, gamma and next-day moves), INT1 (intraday programme, gated: the guard stays on until a stream passes), GAM1 (this study's signal)
+  Data: NIFTYBEES 1-minute candles from Kite's historical API (in the Kite Connect subscription, personal use; BT7-S2 downloaded and deleted them); reachable by script and allowed by its terms: yes, after the owner's Kite login on a trading day (the access token)
+  coverage 2008-25: 2015-02 to 2025-12 (Kite serves none before 2015, so 2008-14 cannot be tested); point-in-time: yes; delisted names: n/a (ETF)
+  Cost model for this instrument: exists, kite_connect/options/fno_costs.futures_charges (dated, with October 2024's STT rise); traded as NIFTY futures, priced from NIFTYBEES (A)
+  Spanning (new stock signals only): n/a: not a stock signal
+  Phase 0 verdict: GO (waits for the owner's next Kite login to download)
+Source / hypothesis: Baltussen, Da, Lammers and Martens (JFE 2021): hedgers short gamma trade with the day's move near the close, so the last half hour continues the move from the previous close, more strongly the more negative their gamma. In India the short-gamma side is Pro (GAM1). If true, a late-session trade in the day's direction, taken only on days of large Pro short gamma, earns after costs.
+Family and budget: intraday, 1 of no fixed cap configurations; N 2 -> 3
+Data and window: 2015-02-02..2025-12-31 (test; Kite minute history begins 2015); 2008-14 not testable; 2026 sealed
+Rules: For each session t: P_prev = volume-weighted price of the previous session's 15:25-15:29 bars; P_a = close of the 14:59 bar; P_b = volume-weighted price of the 15:25-15:29 bars (BT7-S2's exit window). r_day = P_a / P_prev - 1; r_last = P_b / P_a - 1. Gamma state s_{t-1} = -g_{t-1}, GAM1's signal at the previous close with its sign flipped (higher = more Pro short gamma; known before the session). Regression: r_last on a constant, r_day and r_day x s_{t-1}; OLS, Newey-West errors, 5 lags. Every session kept, expiry days included (A). Reported, not gates: expiry days alone, and before and after 2024-11-20. Rule for gate 2: at 15:00, one NIFTY futures lot in the direction of r_day when s_{t-1} is above its median over the previous 252 sessions; flat on the 15:25-15:29 price; return on the NIFTYBEES prices; costs fno_costs.futures_charges for both sides on the session's notional, plus 1 bp slippage per side.
+Costs and sizing: fno_costs.futures_charges (dated) plus 1 bp a side; one NIFTY lot (about Rs 2-2.5 lakh margin at today's lot) (A)
+Pass rules: gate 1: the coefficient on r_day x s_{t-1} is positive with Newey-West t >= 2.0 over 2015-02..2025-12, and positive in both halves (2015-02..2020-06 and 2020-07..2025-12). gate 2: the rule's mean net return per traded session is positive with t >= 2.0. Both pass: INT1D's route (60 paper sessions; the intraday guard stays on until then). Gate 1 alone: no stream, the effect recorded. Neither: closed, no code stays.
+Stop rules and cap: half a day after the download; download at most one hour; ends early if Kite refuses or covers under 90% of the sessions
+Files this study will create: data/nse_engine/gam2/ (minute candles, script, log, results), recorded with `tools.study start`; deleted with a FAIL after approval
+Amendment (25 Nov 2026, 09:17 IST, before any candle was downloaded or any result computed; readings of the rules above, no new choice of test): (1) bars are Kite's 1-minute candles, stamped at their start: P_a is the close of the 14:59 candle (the last candle from 14:55 if it is missing), P_b and P_prev the volume-weighted closes of the candles stamped 15:25-15:29 (their mean close if the window's volume is 0); a session with no candle in either window is missing for the 90% stop rule. (2) s_{t-1} is GAM1's g on the previous NSE session (results.json's code: gam1/run.py), sign flipped; a session whose previous session has no g is dropped. (3) gate 2's median is over the 252 values of s ending at s_{t-1}, at least 200 of them. (4) gate 2's t is the plain t-statistic of the mean net return per traded session (one trade a day, none overlap); the Newey-West 5-lag t is reported. (5) notional = the near-month NIFTY future's lot size x its close on session t-1 (F&O store); costs = futures_charges(BUY) + futures_charges(SELL) on that notional, one order each, plus 1 bp a side; net return = sign(r_day) x r_last - costs / notional. (6) expiry days = sessions that are a NIFTY option expiry in the options store, weekly or monthly. (7) Kite adjusts minute prices for splits but not volumes (GF1); volumes only weight candles inside one five-minute window, so this does not matter. No stray-print filter (none was registered).
+
+**Result (25 Nov 2026): FAIL on both gates, closed; intraday N = 3.** NIFTYBEES
+1-minute candles from Kite, downloaded in 63 s: 2,690 of 2,705 sessions have
+both windows (99.4%; the 15 missing are Muhurat, special Saturday and outage
+sessions). Regression sample 2,672 sessions, 2015-02-03 to 2025-12-31.
+- Gate 1: the coefficient on r_day x s is -0.22, Newey-West t -0.57 (needed
+  positive with t >= 2.0). Halves split: 2015-20 -0.74 (t -1.72), 2020-25
+  +0.67 (t +2.08). The day's move does not continue into the last half hour
+  even unconditionally (r_day 0.007, t 0.61).
+- Reported: expiry days +0.24 (t 0.43), other days -0.35 (t -0.88); before
+  SEBI's one-weekly rule -0.35 (t -0.87), after it -2.13 (t -2.19), the
+  opposite sign. At high short gamma (s at its 90th percentile) the slope on
+  r_day is -0.016: a slight reversal.
+- Gate 2: 1,043 trades. Gross +0.9 bp, cost 4.6 bp a round trip, net -3.7 bp
+  (t -4.96; Newey-West -4.80); 2015-20 -4.0, 2020-25 -3.3; every year
+  negative except 2022 (+0.2).
+- Reading: the US hedging-flow effect (Baltussen, Da, Lammers and Martens)
+  does not appear in NIFTY on tradeable prices, with or without Pro's gamma.
+  GAM1's volatility signal stands as recorded; neither trade built on it
+  (GAM1B, GAM2) earns.
+
+## 5cf. GAM1B: Gamma-timed NIFTY iron condor (GAM1 Phase 1) (India tracker GAM1B; pre-registered 24 Nov 2026, 19:28 IST)
+
+Phase 0 (before anything else is written or downloaded):
+  Prior art: GAM1 (PASS gate 1 as written, marginal: Pro short gamma predicts next-month NIFTY realised volatility, about 1 vol point), O5-O9 (closed, nothing to paper-trade), OPT2 (CLOSED at Phase 0: stock-option lots too large; the overlay scan's index condor parameters come from it), A1 and A1G (NIFTY bear call spreads, the backtester's conventions)
+  Data: on disk, NSE F&O bhavcopy in fo_store (NIFTY options and futures, settlement), participant OI and iv store as in GAM1; reachable by script and allowed by its terms: yes
+  coverage 2008-25: options from before 2008, participant data from 2012-01-02, so the test runs 2013-01-01..2025-12-31 (2008-12 cannot carry the filter); point-in-time: yes; delisted names: n/a (index)
+  Cost model for this instrument: exists, kite_connect/options/fno_costs.py (option_charges, exercise_stt, fill_price slippage), FNO_COST_MODEL_VERSION as recorded
+  Spanning (new stock signals only): n/a: not a stock signal
+  Phase 0 verdict: GO (data on disk; the backtester's market, fills, charges and settlement reused; the condor's put side written in the study folder)
+Source / hypothesis: Option sellers earn the gap between implied and realised volatility. GAM1 found realised volatility about 1 vol point higher when Pro desks hold much short gamma, which the options' prices do not fully carry. So an iron condor sold only when Pro short gamma is at or below its usual level should earn more per unit of risk than the same condor sold every month.
+Family and budget: options, 2 of no fixed cap configurations (the condor every month, and the condor with the gamma filter); N 20 -> 22 in the registry (21 -> 23 counting GAM1's diagnostic)
+Data and window: 2013-01-01..2025-12-31 (test; the filter's 252-session median needs 2012); 2008-12 not testable; 2026 sealed
+Rules: NIFTY monthly expiries (the month's latest, as kite_connect/options/backtest._Market). Decision: on the first session with no condor open or pending whose next monthly expiry E is 21 to 30 calendar days away (the overlay scan's target_dte 30, min_dte 21), one decision per expiry. Strikes on that session's closes: each call and put with contracts > 0, close > 0 and OI >= 500 gets an implied volatility (theory.implied_volatility, rate 6.5%, 365-day year) and its delta (theory.black_scholes); short call = the out-of-the-money call with |delta| nearest 0.15, wing call = the call above it nearest 0.05; short put and wing put likewise below spot (the overlay scan's condor_short_delta 0.15, condor_wing_delta 0.05); any leg missing: no trade. No bid-ask filter (the bhavcopy has none) (A). Fill on the next session at each leg's close, or settlement when untraded (backtest._Market.price; puts likewise), through fno_costs.fill_price slippage and option_charges per leg; credit = both spreads' net premium, no trade unless > 0. Size: lots = floor(0.35 x equity / ((widest wing - credit) x lot size)), at least 1 (A1's deploy_fraction 0.35; at the sleeve weight 0.25 the cycle's maximum loss is 8.75% of the book). Early exit: when a close's at-the-money strike reaches the short call or the short put before expiry, all four legs close on the next session at their closes with slippage and charges (A1's rule, both sides). Expiry: cash settlement at the final settlement (backtest._Market.settlement), exercise STT on in-the-money long legs. Cycles spanning sleeves.EVENT_DATES are skipped (A1's rule). Sleeve capital Rs 7.5 lakh (A1's). Filter (the second configuration only): sell only when GAM1's g at the decision close is at or above its median over the previous 252 sessions (no more Pro short gamma than usual); otherwise skip the cycle.
+Costs and sizing: fno_costs as above; sized on the condor's maximum loss, 35% of the sleeve a cycle, 8.75% of the book at weight 0.25
+Pass rules: gate 1: the filtered condor's 2013-25 daily returns have excess Sharpe > 0 and DSR >= 0.95 against the options registry's returns matrix for the window (kite_connect/options/backtest.evaluate's test), and its excess Sharpe exceeds the every-month condor's. gate 2: at weight 0.25 beside the deployed book's recorded 2013-25 run (20261010T032441064151Z_679cbd0c, backtest.overlay), the combined excess Sharpe (rf 6.5%) is at least the book's; CAGR and MaxDD reported, not gates (GTR9, GT13). Both pass: paper, 60 sessions or 6 cycles (plan 5v). Either fails: the filter and the condor code close, no code stays; the two registry runs stay as trials.
+Stop rules and cap: one working day; no downloads; ends early if more than 10% of decisions find no priced chain
+Files this study will create: data/nse_engine/gam1/condor.py and its log and results (the GAM1 study folder, recorded); two run folders in data/nse_engine/runs_options (kept as trials)
+
 ## 6. Stage D — Paper trading (60–90 trading days)
 
 **Data anchor rule.** Rebalance-day counting and the expanding forecast

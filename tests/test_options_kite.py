@@ -512,6 +512,8 @@ def test_a_condor_has_ordered_strikes_and_a_limited_loss(tmp_path):
     k = {(l["type"], l["side"]): l["strike"] for l in ic["legs"]}
     assert k[("PE", "BUY")] < k[("PE", "SELL")] < SPOT < k[("CE", "SELL")] < k[("CE", "BUY")]
     assert ic["max_loss"] > 0 and ic["net_credit"] > 0 and 0 < ic["pop"] < 100 and ic["margin_required"] == 90000.0
+    assert 100 - ic["pop"] <= ic["touch_pct"] <= 100           # touched at least as often as finished beyond
+    assert out["measured_odds"].startswith("Measured on NIFTY's monthly expiries 2008-25 (207 cycles")
     assert _scan(ScanKite(), capital=1e7, tmp=tmp_path)["iron_condors"] == []     # above the real limit, Rs 25,000
 
 
@@ -522,6 +524,107 @@ def test_condors_stand_down_at_extreme_or_unreadable_vix(tmp_path, vix):
     cfg = replace(OptionsConfig(), limits=LimitsConfig(max_loss_per_trade_inr=1e9))
     out = _scan(ScanKite(vix=vix), capital=1e7, cfg=cfg, tmp=tmp_path)
     assert out["iron_condors"] == [] and any("stand down" in x for x in out["log"])
+
+
+# ---- the page's measured odds (WGF1b): the calibration on a store whose outcomes are known
+ODDS_SPOT, ODDS_IV = 10_000.0, 0.15
+ODDS_EXPIRIES = ("2024-01-25", "2024-03-28", "2024-05-30")      # each decision day is a Tuesday 30 days before
+
+
+def _formula_delta_d2(option_type, k, sigma, days=30.0):
+    """Black-Scholes delta and d2 from the textbook formula, not the toolkit's code."""
+    from scipy.stats import norm
+
+    rate, tau = OptionsConfig().market.risk_free_rate, days / 365.0
+    d1 = (math.log(ODDS_SPOT / k) + (rate + sigma ** 2 / 2.0) * tau) / (sigma * math.sqrt(tau))
+    return (norm.cdf(d1) if option_type == "CE" else norm.cdf(d1) - 1.0), d1 - sigma * math.sqrt(tau)
+
+
+def _odds_store(root):
+    """Three monthly NIFTY cycles, spot 10,000 on each decision day and every strike at 15% IV.  The index rallies
+    through the short call in the first, stays flat in the second, and dips through the short put in the third before
+    closing back at 10,000.  The IV rank is 100, 0, 100.  A weekly expiry, and an untraded call priced so its delta is
+    exactly the target, must both be ignored."""
+    import numpy as np
+    from scipy.optimize import brentq
+
+    from kite_connect.options.iv_history import IV_VERSION
+    from nse_engine.data.fo_store import OPTION_COLUMNS
+
+    rate = OptionsConfig().market.risk_free_rate
+    sessions = pd.bdate_range("2023-01-02", "2024-06-28")
+    spot = pd.Series(ODDS_SPOT, index=sessions)
+    iv30 = pd.Series(0.14 + 0.02 * (np.arange(len(sessions)) % 2), index=sessions)
+    expiries = pd.to_datetime(ODDS_EXPIRIES)
+    for i, e in enumerate(expiries):
+        inside = (sessions > e - pd.Timedelta(days=30)) & (sessions <= e)
+        n = int(inside.sum())
+        if i == 0:
+            spot[inside] = np.linspace(ODDS_SPOT, 11_000.0, n + 1)[1:]
+        elif i == 2:
+            half = n // 2
+            spot[inside] = np.concatenate([np.linspace(ODDS_SPOT, 9_000.0, half + 1)[1:],
+                                           np.linspace(9_000.0, ODDS_SPOT, n - half + 1)[1:]])
+        iv30[e - pd.Timedelta(days=30)] = 0.10 if i == 1 else 0.20
+
+    def row(d0, e, k, kind, close, traded=True):
+        return {"date": d0, "symbol": "NIFTY", "expiry": e, "strike": float(k), "option_type": kind, "open": close,
+                "high": close, "low": close, "close": close, "settle": close, "contracts": 100 if traded else 0,
+                "oi": 1000 if traded else 0, "lot_size": 50}
+
+    rows = []
+    for e, iv in [*((x, ODDS_IV) for x in expiries), (pd.Timestamp("2024-01-18"), 0.30)]:    # January's weekly
+        d0 = e - pd.Timedelta(days=30)
+        rows += [row(d0, e, k, kind, black_scholes(kind, ODDS_SPOT, k, 30, rate, iv).price)
+                 for k in range(9_000, 11_001, 100) for kind in ("CE", "PE")]
+    stale_iv = brentq(lambda s: _formula_delta_d2("CE", 10_450.0, s)[0] - 0.15, 0.01, 1.0)
+    rows.append(row(expiries[0] - pd.Timedelta(days=30), expiries[0], 10_450.0, "CE",
+                    black_scholes("CE", ODDS_SPOT, 10_450.0, 30, rate, stale_iv).price, traded=False))
+    opts = pd.DataFrame(rows)[OPTION_COLUMNS]
+    for folder in ("options", "iv"):
+        (root / folder).mkdir(parents=True)
+    for year, part in opts.groupby(opts["date"].dt.year):
+        part.to_parquet(root / "options" / f"{year}.parquet", index=False)
+    pd.DataFrame({"date": sessions, "index_name": "NIFTY50", "close": spot.to_numpy()}).to_parquet(
+        root / "underlying.parquet", index=False)
+    pd.DataFrame({"date": sessions, "iv30": iv30.to_numpy()}).to_parquet(root / "iv" / f"NIFTY_v{IV_VERSION}.parquet",
+                                                                        index=False)
+
+
+def test_the_measured_odds_follow_the_index_through_known_cycles(tmp_path):
+    from dataclasses import replace
+
+    from kite_connect.options.iv_history import IV_VERSION
+    from kite_connect.options.odds_calibration import condor_calibration, measured_note
+    from kite_connect.options.theory import probability_touch
+
+    _odds_store(tmp_path)
+    cfg = replace(OptionsConfig(), data=replace(OptionsConfig().data, fo_store=str(tmp_path)))
+    res = condor_calibration(cfg, start="2023-01-01", end="2024-12-31", min_cycles=3)
+    # the shorts are the traded strikes nearest 0.15 delta: 10,500 and 9,600 (the untraded 10,450 would be nearer)
+    deltas = {k: _formula_delta_d2("CE", k, ODDS_IV)[0] for k in range(10_100, 11_001, 100)}
+    call_k = min(deltas, key=lambda k: abs(deltas[k] - 0.15))
+    put_deltas = {k: _formula_delta_d2("PE", k, ODDS_IV)[0] for k in range(9_000, 10_000, 100)}
+    put_k = min(put_deltas, key=lambda k: abs(abs(put_deltas[k]) - 0.15))
+    assert (call_k, put_k) == (10_500, 9_600) and abs(deltas[call_k] - 0.15) > 1e-3
+    from scipy.stats import norm
+
+    call_p = norm.cdf(_formula_delta_d2("CE", call_k, ODDS_IV)[1])
+    put_p = norm.cdf(-_formula_delta_d2("PE", put_k, ODDS_IV)[1])
+    rate = cfg.market.risk_free_rate
+    touch = sum(probability_touch(ODDS_SPOT, k, 30, rate, ODDS_IV, monitor_every_days=1.0) for k in (call_k, put_k))
+    assert (res.cycles, res.span, res.rank_cycles) == (3, "2024", 2)
+    assert (res.call_beyond_realised, res.put_beyond_realised) == (approx(1 / 3, abs=1e-3), 0.0)
+    assert (res.pop_realised, res.touch_realised, res.rank_pop_realised) == (approx(2 / 3, abs=1e-3),) * 2 + (0.5,)
+    assert res.call_beyond_predicted == approx(call_p, abs=1e-3) and res.put_beyond_predicted == approx(put_p, abs=1e-3)
+    assert res.pop_predicted == approx(1 - call_p - put_p, abs=1e-3) == res.rank_pop_predicted
+    assert res.touch_predicted == approx(min(touch, 1.0), abs=1e-3)
+    assert "(3 cycles," in measured_note(res) and "67% realised" in measured_note(res)
+    with pytest.raises(ValueError, match="fewer than the 4"):
+        condor_calibration(cfg, start="2023-01-01", end="2024-12-31", min_cycles=4)
+    (tmp_path / "iv" / f"NIFTY_v{IV_VERSION}.parquet").unlink()
+    with pytest.raises(FileNotFoundError):
+        condor_calibration(cfg, start="2023-01-01", end="2024-12-31", min_cycles=3)
 
 
 def test_the_scan_offers_no_naked_short_and_places_nothing(tmp_path):
