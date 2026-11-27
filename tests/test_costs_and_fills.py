@@ -144,6 +144,41 @@ def test_a_published_rate_not_applied_yet_is_an_open_lesson_until_it_is():
     assert not rates.status(due).startswith("!") and rates.status(due + timedelta(days=1)).startswith("!")
 
 
+#: Zerodha's contract notes for the INFY sell test (PL-14; the PDFs stay in the gitignored research_inbox), each
+#: note's charges in rupees as printed: (day, side, each fill's value, STT, stamp duty, exchange, SEBI, CGST + SGST,
+#: the note's total charges).  The note rounds STT and stamp duty to the rupee and adds Rs 0.01 of taxable brokerage.
+CONTRACT_NOTES = (
+    ("2026-11-11", "BUY", (4611.20,), 5.00, 1.00, 0.14, 0.00, 0.02, 6.18),
+    ("2026-11-16", "SELL", (1150.00, 1148.90), 2.00, 0.00, 0.07, 0.00, 0.02, 2.10),
+)
+#: The ledger's DP charge for both 16 Nov sales: one debit per stock and day (Rs 13 + 18% GST), not on the note.
+DP_LEDGER_2026_11_16 = 15.34
+
+
+@pytest.mark.lesson("L-COST-NOTES", pattern="F8", date="2026-11-11", source="A1M",
+                    summary="No cost or margin figure has been compared with a broker contract note (PL-14, from the "
+                            "INFY sell test's fills)")
+@pytest.mark.parametrize("day, side, fills, stt, stamp, exchange, sebi, gst, total", CONTRACT_NOTES)
+def test_the_share_cost_model_reproduces_zerodhas_contract_notes(day, side, fills, stt, stamp, exchange, sebi, gst,
+                                                                 total):
+    from nse_engine.costs import statutory_charges
+
+    parts = [statutory_charges(v, side, day, dp_charge_inr=0.0) for v in fills]
+    model = {k: sum(getattr(p, k) for p in parts) for k in ("stt", "stamp_duty", "exchange", "sebi", "gst")}
+    assert (round(model["stt"]), round(model["stamp_duty"])) == (stt, stamp)
+    assert model["exchange"] == pytest.approx(exchange, abs=0.005) and model["sebi"] == pytest.approx(sebi, abs=0.005)
+    assert model["gst"] == pytest.approx(gst, abs=0.01)       # the note rounds CGST and SGST apart
+    rounded = round(model["stt"]) + round(model["stamp_duty"]) + model["exchange"] + model["sebi"] + model["gst"]
+    assert rounded == pytest.approx(total, abs=0.02)
+
+
+@pytest.mark.lesson("L-COST-NOTES")
+def test_the_model_never_charges_less_dp_than_the_ledger():
+    from nse_engine.costs import statutory_charges
+
+    assert statutory_charges(1150.00, "SELL", "2026-11-16").dp >= DP_LEDGER_2026_11_16
+
+
 @pytest.mark.lesson("L-U25", pattern="F8", date="2026-09-30", source="U25",
                     summary="The metal ETFs were charged the delivery STT of shares, 0.1% a side")
 def test_etfs_pay_their_own_stt_not_the_share_rate():
