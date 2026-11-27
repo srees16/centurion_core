@@ -31,7 +31,7 @@ import re as _re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Generator, List, Optional, Protocol, Sequence, Union
+from typing import Any, Callable, Dict, Generator, List, Optional, Protocol, Sequence, Tuple, Union
 
 from rag_pipeline.config import RAGConfig
 from rag_pipeline.storage.embeddings import EmbeddingService
@@ -136,6 +136,42 @@ class RAGResponse:
     cached: bool = False
     faq_hit: bool = False
     trace: Optional[PipelineTrace] = None
+
+
+@dataclass
+class _Prepared:
+    """What the stages before the LLM produced, for ``query`` and ``query_stream`` alike (docs/AUDIT.md R2).
+
+    ``answered_by`` is "cache", "faq" or "fastpath" when the answer came before any search; otherwise ``chunks``
+    holds the passages and ``context`` the text the LLM gets, and no passage means the relevance gate.
+    """
+    t0: float
+    trace: PipelineTrace
+    budget: Any = None
+    timings: Dict[str, float] = field(default_factory=dict)
+    cache_space: str = ""
+    answered_by: Optional[str] = None
+    answer: str = ""
+    chunks: List["RetrievedChunk"] = field(default_factory=list)
+    context: str = ""
+
+
+#: The relevance gate's answers: no passage survived, so the LLM is not asked (it would invent one).
+_NO_PASSAGE_ANSWER = (
+    "I could not find relevant information in the uploaded "
+    "documents to answer this question.\n\n"
+    "**Possible reasons:**\n"
+    "- The relevant document may not have been uploaded yet\n"
+    "- The query may need to be rephrased to match the "
+    "document content\n"
+    "- The uploaded documents may not cover this topic\n\n"
+    "Please upload the relevant PDF or try rephrasing your query."
+)
+_NO_PASSAGE_ANSWER_STREAM = (
+    "I could not find relevant information in the uploaded "
+    "documents to answer this question.\n\n"
+    "Please upload the relevant PDF or try rephrasing your query."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -312,374 +348,36 @@ class RAGQueryEngine:
         skip_cache: bool = False,
     ) -> RAGResponse:
         """
-        Run the full latency-optimised RAG pipeline.
+        Run the full latency-optimised RAG pipeline and answer in one piece.
 
         Steps:
-            1. Semantic cache check
-            2. FAQ fast-path
-            3. Query rewrite + concurrent embed
-            4. Hybrid/vector search
-            5. Threshold filter + dedup
-            6. Cross-encoder re-rank
-            7. Token-budget context trim
+            1-7. ``_prepare``, shared with ``query_stream``: semantic cache, FAQ and fast path; query
+                 expansion and rewrite; concurrent embed and search; threshold filter and dedup; metadata
+                 boost and re-rank; broad fallback; token-budget context
             8. LLM generate
-            9. Cache store + trace summary
+            9. Cache store, retrieval log and trace summary
         """
-        t0 = time.time()
-        _timings: Dict[str, float] = {} # stage seconds
-
-        trace = PipelineTrace()
-        trace.start()
-        budget = self._time_budget_factory()
-        budget.start()
-        top_k = top_k or self._config.top_k
-        # Step 2: ensure we always retrieve at least minimum_return_top_k
-        effective_top_k = max(top_k, self._config.minimum_return_top_k)
-        space_id = self._config.default_space_id
-
-        # Include source_filter in cache key so switching sources
-        # does not return stale cached answers from a different PDF.
-        _sources = _source_list(source_filter)
-        cache_space = f"{space_id}::src={','.join(_sources)}" if _sources else space_id
-
-        # --- Step 1: Semantic cache check ---
-        if self._cache is not None and not skip_cache:
-            with trace.span("cache_lookup"):
-                hit = self._cache.lookup(query_text, space_id=cache_space)
-            if hit is not None:
-                trace.stop()
-                if self._perf_logging:
-                    trace.summary()
-                return RAGResponse(
-                    query=query_text,
-                    answer=hit.answer,
-                    chunks=[],
-                    rag_enabled=True,
-                    cached=True,
-                    trace=trace,
-                )
-
-        # --- Step 2: FAQ fast-path ---
-        if self._tiered is not None:
-            with trace.span("faq_lookup"):
-                faq_hit = self._tiered.check_faq(query_text)
-            if faq_hit is not None:
-                trace.stop()
-                if self._perf_logging:
-                    trace.summary()
-                return RAGResponse(
-                    query=query_text,
-                    answer=faq_hit.answer,
-                    chunks=[],
-                    rag_enabled=True,
-                    faq_hit=True,
-                    trace=trace,
-                )
-
-        # --- Step 2b: Fastpath bypass (short quant questions) ---
-        _t_cls = time.time()
-        with trace.span("fastpath_check"):
-            fastpath_answer = try_fastpath(query_text)
-        _timings["classification"] = time.time() - _t_cls
-        if fastpath_answer is not None:
-            logger.info("Fastpath HIT — bypassing full RAG pipeline.")
-            if self._cache is not None:
-                self._cache.store(
-                    query_text, fastpath_answer, [],
-                    space_id=cache_space,
-                )
-            trace.stop()
-            if self._perf_logging:
-                trace.summary()
+        run = self._prepare(query_text, top_k, where, source_filter, skip_cache)
+        trace, budget = run.trace, run.budget
+        if run.answered_by:
             return RAGResponse(
                 query=query_text,
-                answer=fastpath_answer,
+                answer=run.answer,
                 chunks=[],
                 rag_enabled=True,
-                cached=False,
-                faq_hit=False,
+                cached=run.answered_by == "cache",
+                faq_hit=run.answered_by == "faq",
                 trace=trace,
             )
-
-        # Build metadata filter
-        effective_where = self._build_where_filter(where, source_filter)
-
-        # --- Step 3: Query rewriting ---
-        queries = [query_text]
-
-        # Step 4: Structural query expansion (deterministic, no LLM)
-        expanded_text = expand_query(query_text)
-        if expanded_text != query_text:
-            queries[0] = expanded_text
-            logger.info(
-                "Query expanded: '%s' \u2192 '%s'",
-                query_text, expanded_text,
-            )
-
-        # Step 7: DEBUG_RETRIEVAL logging
-        if self._config.debug_retrieval:
-            logger.info(
-                "DEBUG_RETRIEVAL: original_query='%s', expanded_query='%s', "
-                "effective_top_k=%d",
-                query_text, queries[0], effective_top_k,
-            )
-
-        if self._rewriter:
-            with trace.span("query_rewrite"):
-                queries = self._rewriter.rewrite(expanded_text)
-            logger.info("Multi-query expansion: %d variants", len(queries))
-
-        # --- Step 4: Concurrent embed + retrieve (hard-timeout guarded) ---
-        all_chunks: List[RetrievedChunk] = []
-        seen_texts: set = set()
-        _retrieval_timed_out = False
-
-        _t_vec = time.time()
-        with trace.span("embed_and_retrieve", n_queries=len(queries)):
-            with ThreadPoolExecutor(max_workers=min(len(queries), 4)) as pool:
-                futures = {
-                    pool.submit(
-                        self._embed_and_search, q, effective_top_k, effective_where
-                    ): q
-                    for q in queries
-                }
-                try:
-                    for future in as_completed(
-                        futures, timeout=_RETRIEVAL_HARD_TIMEOUT,
-                    ):
-                        try:
-                            for chunk in future.result():
-                                chunk_key = chunk.text[:200]
-                                if chunk_key not in seen_texts:
-                                    seen_texts.add(chunk_key)
-                                    all_chunks.append(chunk)
-                        except Exception as exc:
-                            logger.warning(
-                                "Query variant failed: %s", exc,
-                                exc_info=True,
-                            )
-                except TimeoutError:
-                    _retrieval_timed_out = True
-                    # Cancel any still-running futures
-                    for f in futures:
-                        f.cancel()
-                    logger.warning(
-                        "RETRIEVAL TIMEOUT: embed+retrieve exceeded %ds "
-                        "— activating fallback (top-%d vector-only, "
-                        "skip reranker + parent expansion).",
-                        _RETRIEVAL_HARD_TIMEOUT, _FALLBACK_TOP_K,
-                    )
-
-        # If the main retrieval timed out and yielded no (or few)
-        # usable chunks, run a quick single-query vector-only search.
-        if _retrieval_timed_out and len(all_chunks) < _FALLBACK_TOP_K:
-            with trace.span("retrieval_fallback", top_k=_FALLBACK_TOP_K):
-                try:
-                    fallback_chunks = self._embed_and_search(
-                        query_text, _FALLBACK_TOP_K, effective_where,
-                    )
-                    for chunk in fallback_chunks:
-                        chunk_key = chunk.text[:200]
-                        if chunk_key not in seen_texts:
-                            seen_texts.add(chunk_key)
-                            all_chunks.append(chunk)
-                    logger.info(
-                        "Retrieval fallback returned %d chunks.",
-                        len(fallback_chunks),
-                    )
-                except Exception as exc:
-                    logger.error(
-                        "Retrieval fallback also failed: %s", exc,
-                    )
-
-        _timings["vector_search"] = time.time() - _t_vec
-
-        chunks = all_chunks
-        # Sort by distance (lower = better)
-        chunks.sort(key=lambda c: c.distance)
-
-        # --- Time-budget check: retrieval slow force FAST_MODE ---
-        retrieval_span = next(
-            (s for s in trace.spans if s.name == "embed_and_retrieve"), None
-        )
-        _retrieval_elapsed = retrieval_span.elapsed_s if retrieval_span else 0.0
-        _force_fast = (
-            _retrieval_timed_out
-            or budget.retrieval_exceeded(_retrieval_elapsed)
-        )
-        if _force_fast:
-            logger.warning(
-                "TimeBudget: retrieval took %.1fs — forcing FAST_MODE "
-                "for reranking/remaining stages.%s",
-                _retrieval_elapsed,
-                " (hard-timeout fallback)" if _retrieval_timed_out else "",
-            )
-
-        logger.info(
-            "Retrieved %d chunks (distances: %s)",
-            len(chunks),
-            [f"{c.distance:.4f}" for c in chunks[:5]],
-        )
-
-        # Step 7: DEBUG_RETRIEVAL — log per-chunk details before filtering
-        if self._config.debug_retrieval:
-            for ci, c in enumerate(chunks[:15]):
-                logger.info(
-                    "DEBUG_RETRIEVAL chunk[%d]: dist=%.4f source=%s "
-                    "page=%s section=%s chapter=%s text=%.120s",
-                    ci, c.distance,
-                    c.metadata.get("source", "?"),
-                    c.metadata.get("page_number", "?"),
-                    c.metadata.get("section", ""),
-                    c.metadata.get("chapter", ""),
-                    c.text.replace("\n", " "),
-                )
-
-        # --- Step 5: Threshold filter + dedup ---
-        # Step 2: Log similarity scores but do NOT hard-filter by threshold
-        #         when we have fewer than minimum_return_top_k results.
-        with trace.span("filter_and_dedup", before=len(chunks)):
-            threshold = self._config.similarity_threshold
-            filtered = [c for c in chunks if c.distance <= threshold]
-            min_k = self._config.minimum_return_top_k
-            if len(filtered) < min_k:
-                # Relax: keep the top min_k results regardless of threshold
-                logger.info(
-                    "Threshold filter too aggressive: %d/%d survived "
-                    "(threshold=%.2f). Keeping top %d instead.",
-                    len(filtered), len(chunks), threshold, min_k,
-                )
-                chunks = chunks[:min_k]
-            else:
-                chunks = filtered
-            chunks = self._deduplicate_chunks(chunks)
-        logger.info(
-            "%d chunks after threshold+dedup (threshold=%.2f)",
-            len(chunks), threshold,
-        )
-
-        # --- Simple-query detection (used to skip heavy stages) ---
-        _simple_q = is_simple_query(query_text)
-
-        # --- Step 5b: Metadata boost (exact match on snippet/section) ---
-        _t_expand = time.time()
-        if chunks and not _simple_q:
-            with trace.span("metadata_boost", n_candidates=len(chunks)):
-                chunks = self._apply_metadata_boost(query_text, chunks)
-        elif _simple_q and chunks:
-            logger.info(
-                "[SIMPLE_QUERY] Skipping metadata boost (%d chunks).",
-                len(chunks),
-            )
-
-        _timings["parent_expansion"] = time.time() - _t_expand
-
-        # --- Step 6: Re-rank ---
-        # Step 3: DISABLE_RERANKING flag check
-        # In FAST_MODE, forced-fast by time budget, or simple queries:
-        # skip cross-encoder.
-        _t_rerank = time.time()
-        _skip_rerank = (
-            is_fast_mode()
-            or _force_fast
-            or _simple_q
-            or self._config.disable_reranking
-        )
-        if _skip_rerank:
-            logger.info(
-                "[%s] Skipping cross-encoder re-rank (%d chunks).%s%s",
-                "DISABLE_RERANKING" if self._config.disable_reranking else
-                ("SIMPLE_QUERY" if _simple_q else "FAST_MODE"),
-                len(chunks),
-                " (time-budget forced)" if _force_fast else "",
-                " (config override)" if self._config.disable_reranking else "",
-            )
-        elif self._reranker and chunks:
-            with trace.span("rerank", n_candidates=len(chunks)):
-                chunks = self._reranker.rerank(
-                    query_text, chunks, top_n=self._config.rerank_top_n
-                )
-            if not chunks:
-                logger.warning(
-                    "All chunks filtered out by reranker score threshold "
-                    "(threshold=%.2f). No relevant context for LLM.",
-                    getattr(self._config, "rerank_score_threshold", 0.25),
-                )
-
-        _timings["reranker"] = time.time() - _t_rerank
-
-        # --- Step 6: Retrieval fallback strategy ---
-        if self._should_fallback(chunks):
-            logger.info(
-                "FALLBACK: chunks=%d, triggering broad retrieval "
-                "(top_k=%d, scope kept, no noise filter, no reranker).",
-                len(chunks), self._config.fallback_top_k,
-            )
-            with trace.span("retrieval_fallback_broad",
-                            top_k=self._config.fallback_top_k):
-                fallback_chunks = self._fallback_retrieve(
-                    query_text, expanded_text,
-                    where=self._build_where_filter(where, source_filter, noise_filter=False),
-                )
-            if fallback_chunks:
-                # Merge: deduplicate against existing
-                existing_keys = {c.text[:200] for c in chunks}
-                for fc in fallback_chunks:
-                    if fc.text[:200] not in existing_keys:
-                        chunks.append(fc)
-                        existing_keys.add(fc.text[:200])
-                chunks.sort(key=lambda c: c.distance)
-                logger.info(
-                    "FALLBACK: merged to %d total chunks.", len(chunks),
-                )
-
-        # --- Relevance gate: refuse to hallucinate if no relevant chunks ---
-        if not chunks:
-            logger.warning(
-                "RELEVANCE GATE: No relevant chunks survived for query: %.80s",
-                query_text,
-            )
-            trace.stop()
-            if self._perf_logging:
-                trace.summary()
+        if not run.chunks:                                # the relevance gate: no passage, no model
             return RAGResponse(
                 query=query_text,
-                answer=(
-                    "I could not find relevant information in the uploaded "
-                    "documents to answer this question.\n\n"
-                    "**Possible reasons:**\n"
-                    "- The relevant document may not have been uploaded yet\n"
-                    "- The query may need to be rephrased to match the "
-                    "document content\n"
-                    "- The uploaded documents may not cover this topic\n\n"
-                    "Please upload the relevant PDF or try rephrasing your query."
-                ),
+                answer=_NO_PASSAGE_ANSWER,
                 chunks=[],
                 rag_enabled=True,
                 trace=trace,
             )
-
-        # --- Step 7: Token-budget context build ---
-        max_ctx = self._config.max_context_chunks
-        if len(chunks) > max_ctx:
-            logger.info(
-                "Trimming %d chunks to max_context_chunks=%d",
-                len(chunks), max_ctx,
-            )
-            chunks = chunks[:max_ctx]
-
-        _t_ctx = time.time()
-        with trace.span("build_context", n_chunks=len(chunks)):
-            context = self._build_context(chunks, self._context_token_budget)
-        _timings["context_build"] = time.time() - _t_ctx
-
-        # Step 7: DEBUG_RETRIEVAL — final context token count
-        if self._config.debug_retrieval:
-            _ctx_tokens = count_tokens(context)
-            logger.info(
-                "DEBUG_RETRIEVAL: final context: %d chunks, %d tokens",
-                len(chunks), _ctx_tokens,
-            )
+        chunks, context = run.chunks, run.context
 
         # --- Time-budget check before LLM ---
         if budget.is_expired():
@@ -706,24 +404,17 @@ class RAGQueryEngine:
 
         # --- Step 8: LLM generate (with time-budget guard) ---
         _t_llm = time.time()
-        _timings["llm_start_offset"] = _t_llm - t0  # wall-clock to LLM start
+        run.timings["llm_start_offset"] = _t_llm - run.t0  # wall-clock to LLM start
         with trace.span("llm_generate"):
             answer = self._llm.generate(query_text, context)
-        _timings["llm_call"] = time.time() - _t_llm
+        run.timings["llm_call"] = time.time() - _t_llm
 
         # Check if total budget was exceeded during LLM
         if budget.is_expired():
             answer += budget.cutoff_message()
 
         # --- Step 9: Cache store + trace ---
-        if self._cache is not None:
-            chunks_summary = [
-                {"source": c.source, "chunk_index": c.chunk_index}
-                for c in chunks
-            ]
-            self._cache.store(
-                query_text, answer, chunks_summary, space_id=cache_space
-            )
+        self._store_answer(query_text, answer, chunks, run.cache_space)
 
         # --- Step 10: Log retrieval for offline analysis ---
         try:
@@ -739,19 +430,19 @@ class RAGQueryEngine:
                     c.metadata.get("rerank_score", 0.0) for c in chunks
                 ],
                 extra={
-                    "space_id": cache_space,
+                    "space_id": run.cache_space,
                     "latency_ms": round(trace.total_ms, 1),
                 },
             )
         except Exception as exc:
             logger.debug("Retrieval logging failed: %s", exc)
 
-        _timings["total"] = time.time() - t0
+        run.timings["total"] = time.time() - run.t0
 
         trace.stop()
         if self._perf_logging:
             trace.summary()
-        self._log_stage_breakdown(_timings)
+        self._log_stage_breakdown(run.timings)
 
         return RAGResponse(
             query=query_text,
@@ -785,282 +476,22 @@ class RAGQueryEngine:
         cache, FAQ or fast path when no LLM ran.  ``on_context`` receives the passages the answer is built from
         (``context_sources``), once, before the LLM starts (tracker RAG3).
 
-        Everything up to the LLM call is identical to ``query()``.
+        Everything up to the LLM call is ``_prepare``, the same stages as ``query()``.
         The LLM step uses ``generate_stream()`` to yield tokens.
         Includes TTFT (time-to-first-token) tracing.
         """
-        t0 = time.time()
-        _timings: Dict[str, float] = {} # stage seconds
-
-        trace = PipelineTrace()
-        trace.start()
-        budget = self._time_budget_factory()
-        budget.start()
-        top_k = top_k or self._config.top_k
-        # Step 2: ensure we always retrieve at least minimum_return_top_k
-        effective_top_k = max(top_k, self._config.minimum_return_top_k)
-        space_id = self._config.default_space_id
-
-        # Include source_filter in cache key so switching sources
-        # does not return stale cached answers from a different PDF.
-        _sources = _source_list(source_filter)
-        cache_space = f"{space_id}::src={','.join(_sources)}" if _sources else space_id
-        if llm_model:                                     # one model's answer is not another's (RAG2)
-            cache_space = f"{cache_space}::llm={llm_model}"
-
-        def _answered(source: str) -> None:
+        run = self._prepare(query_text, top_k, where, source_filter, skip_cache, llm_model=llm_model, stream=True)
+        trace, budget = run.trace, run.budget
+        if run.answered_by:                               # the cache, the FAQ or the fast path
             if llm_meta is not None:
                 llm_meta.clear()
-                llm_meta["source"] = source
-
-        # Cache check
-        if self._cache is not None and not skip_cache:
-            with trace.span("cache_lookup"):
-                hit = self._cache.lookup(query_text, space_id=cache_space)
-            if hit is not None:
-                trace.stop()
-                if self._perf_logging:
-                    trace.summary()
-                _answered("cache")
-                yield hit.answer
-                return
-
-        # FAQ fast-path
-        if self._tiered is not None:
-            with trace.span("faq_lookup"):
-                faq_hit = self._tiered.check_faq(query_text)
-            if faq_hit is not None:
-                trace.stop()
-                if self._perf_logging:
-                    trace.summary()
-                _answered("faq")
-                yield faq_hit.answer
-                return
-
-        # Fastpath bypass (short quant questions)
-        _t_cls_s = time.time()
-        with trace.span("fastpath_check"):
-            fastpath_answer = try_fastpath(query_text)
-        _timings["classification"] = time.time() - _t_cls_s
-        if fastpath_answer is not None:
-            logger.info("Fastpath HIT (stream) — bypassing full RAG pipeline.")
-            if self._cache is not None:
-                self._cache.store(
-                    query_text, fastpath_answer, [],
-                    space_id=cache_space,
-                )
-            trace.stop()
-            if self._perf_logging:
-                trace.summary()
-            _answered("fastpath")
-            yield fastpath_answer
+                llm_meta["source"] = run.answered_by
+            yield run.answer
             return
-
-        effective_where = self._build_where_filter(where, source_filter)
-
-        # Query rewrite
-        queries = [query_text]
-
-        # Step 4: Structural query expansion (deterministic, no LLM)
-        expanded_text = expand_query(query_text)
-        if expanded_text != query_text:
-            queries[0] = expanded_text
-            logger.info(
-                "Query expanded (stream): '%s' \u2192 '%s'",
-                query_text, expanded_text,
-            )
-
-        # Step 7: DEBUG_RETRIEVAL logging
-        if self._config.debug_retrieval:
-            logger.info(
-                "DEBUG_RETRIEVAL (stream): original_query='%s', "
-                "expanded_query='%s', effective_top_k=%d",
-                query_text, queries[0], effective_top_k,
-            )
-
-        if self._rewriter:
-            with trace.span("query_rewrite"):
-                queries = self._rewriter.rewrite(expanded_text)
-
-        # Concurrent embed + retrieve (hard-timeout guarded)
-        all_chunks: List[RetrievedChunk] = []
-        seen_texts: set = set()
-        _retrieval_timed_out_s = False
-
-        _t_vec_s = time.time()
-        with trace.span("embed_and_retrieve", n_queries=len(queries)):
-            with ThreadPoolExecutor(max_workers=min(len(queries), 4)) as pool:
-                futures = {
-                    pool.submit(
-                        self._embed_and_search, q, effective_top_k, effective_where
-                    ): q
-                    for q in queries
-                }
-                try:
-                    for future in as_completed(
-                        futures, timeout=_RETRIEVAL_HARD_TIMEOUT,
-                    ):
-                        try:
-                            for chunk in future.result():
-                                chunk_key = chunk.text[:200]
-                                if chunk_key not in seen_texts:
-                                    seen_texts.add(chunk_key)
-                                    all_chunks.append(chunk)
-                        except Exception:
-                            pass
-                except TimeoutError:
-                    _retrieval_timed_out_s = True
-                    for f in futures:
-                        f.cancel()
-                    logger.warning(
-                        "RETRIEVAL TIMEOUT (stream): embed+retrieve "
-                        "exceeded %ds — activating fallback (top-%d "
-                        "vector-only, skip reranker + parent expansion).",
-                        _RETRIEVAL_HARD_TIMEOUT, _FALLBACK_TOP_K,
-                    )
-
-        if _retrieval_timed_out_s and len(all_chunks) < _FALLBACK_TOP_K:
-            with trace.span("retrieval_fallback", top_k=_FALLBACK_TOP_K):
-                try:
-                    fallback_chunks = self._embed_and_search(
-                        query_text, _FALLBACK_TOP_K, effective_where,
-                    )
-                    for chunk in fallback_chunks:
-                        chunk_key = chunk.text[:200]
-                        if chunk_key not in seen_texts:
-                            seen_texts.add(chunk_key)
-                            all_chunks.append(chunk)
-                    logger.info(
-                        "Retrieval fallback (stream) returned %d chunks.",
-                        len(fallback_chunks),
-                    )
-                except Exception as exc:
-                    logger.error(
-                        "Retrieval fallback (stream) also failed: %s", exc,
-                    )
-
-        chunks = all_chunks
-        chunks.sort(key=lambda c: c.distance)
-        _timings["vector_search"] = time.time() - _t_vec_s
-
-        # --- Time-budget check: retrieval slow force FAST_MODE ---
-        retrieval_span_s = next(
-            (s for s in trace.spans if s.name == "embed_and_retrieve"), None
-        )
-        _retr_elapsed = retrieval_span_s.elapsed_s if retrieval_span_s else 0.0
-        _force_fast_s = (
-            _retrieval_timed_out_s
-            or budget.retrieval_exceeded(_retr_elapsed)
-        )
-
-        with trace.span("filter_and_dedup", before=len(chunks)):
-            threshold = self._config.similarity_threshold
-            filtered = [c for c in chunks if c.distance <= threshold]
-            min_k = self._config.minimum_return_top_k
-            if len(filtered) < min_k:
-                logger.info(
-                    "Threshold filter too aggressive (stream): %d/%d survived "
-                    "(threshold=%.2f). Keeping top %d instead.",
-                    len(filtered), len(chunks), threshold, min_k,
-                )
-                chunks = chunks[:min_k]
-            else:
-                chunks = filtered
-            chunks = self._deduplicate_chunks(chunks)
-
-        # --- Simple-query detection (used to skip heavy stages) ---
-        _simple_q_s = is_simple_query(query_text)
-
-        # Metadata boost (exact match on snippet/section)
-        _t_expand_s = time.time()
-        if chunks and not _simple_q_s:
-            with trace.span("metadata_boost", n_candidates=len(chunks)):
-                chunks = self._apply_metadata_boost(query_text, chunks)
-        elif _simple_q_s and chunks:
-            logger.info(
-                "[SIMPLE_QUERY] Skipping metadata boost (stream, %d chunks).",
-                len(chunks),
-            )
-
-        _timings["parent_expansion"] = time.time() - _t_expand_s
-
-        _t_rerank_s = time.time()
-        _skip_rerank_s = (
-            is_fast_mode()
-            or _force_fast_s
-            or _simple_q_s
-            or self._config.disable_reranking
-        )
-        if _skip_rerank_s:
-            logger.info(
-                "[%s] Skipping cross-encoder re-rank (stream, %d chunks).%s%s",
-                "DISABLE_RERANKING" if self._config.disable_reranking else
-                ("SIMPLE_QUERY" if _simple_q_s else "FAST_MODE"),
-                len(chunks),
-                " (time-budget forced)" if _force_fast_s else "",
-                " (config override)" if self._config.disable_reranking else "",
-            )
-        elif self._reranker and chunks:
-            with trace.span("rerank", n_candidates=len(chunks)):
-                chunks = self._reranker.rerank(
-                    query_text, chunks, top_n=self._config.rerank_top_n
-                )
-            if not chunks:
-                logger.warning(
-                    "Streaming: all chunks filtered by reranker threshold."
-                )
-
-        _timings["reranker"] = time.time() - _t_rerank_s
-
-        # --- Step 6: Retrieval fallback strategy (streaming) ---
-        if self._should_fallback(chunks):
-            logger.info(
-                "FALLBACK (stream): chunks=%d, triggering broad retrieval "
-                "(top_k=%d, scope kept, no noise filter, no reranker).",
-                len(chunks), self._config.fallback_top_k,
-            )
-            with trace.span("retrieval_fallback_broad",
-                            top_k=self._config.fallback_top_k):
-                fallback_chunks = self._fallback_retrieve(
-                    query_text, expanded_text,
-                    where=self._build_where_filter(where, source_filter, noise_filter=False),
-                )
-            if fallback_chunks:
-                existing_keys = {c.text[:200] for c in chunks}
-                for fc in fallback_chunks:
-                    if fc.text[:200] not in existing_keys:
-                        chunks.append(fc)
-                        existing_keys.add(fc.text[:200])
-                chunks.sort(key=lambda c: c.distance)
-                logger.info(
-                    "FALLBACK (stream): merged to %d total chunks.",
-                    len(chunks),
-                )
-
-        # --- Relevance gate (streaming) ---
-        if not chunks:
-            logger.warning(
-                "RELEVANCE GATE (stream): No relevant chunks for query: %.80s",
-                query_text,
-            )
-            trace.stop()
-            if self._perf_logging:
-                trace.summary()
-            yield (
-                "I could not find relevant information in the uploaded "
-                "documents to answer this question.\n\n"
-                "Please upload the relevant PDF or try rephrasing your query."
-            )
+        if not run.chunks:                                # the relevance gate: no passage, no model
+            yield _NO_PASSAGE_ANSWER_STREAM
             return
-
-        max_ctx = self._config.max_context_chunks
-        if len(chunks) > max_ctx:
-            chunks = chunks[:max_ctx]
-
-        _t_ctx_s = time.time()
-        with trace.span("build_context", n_chunks=len(chunks)):
-            context = self._build_context(chunks, self._context_token_budget)
-        _timings["context_build"] = time.time() - _t_ctx_s
+        chunks, context = run.chunks, run.context
         if on_context is not None:                        # the page's Sources list (RAG3); never stops the answer
             try:
                 on_context(context_sources(chunks))
@@ -1085,7 +516,7 @@ class RAGQueryEngine:
 
         # Stream LLM tokens with TTFT tracking + time-budget abort
         _t_llm_s = time.time()
-        _timings["llm_start_offset"] = _t_llm_s - t0
+        run.timings["llm_start_offset"] = _t_llm_s - run.t0
         if hasattr(self._llm, "generate_stream"):
             collected: List[str] = []
             llm_start = time.perf_counter()
@@ -1126,28 +557,394 @@ class RAGQueryEngine:
                 if cutoff:
                     yield cutoff
             # Cache the full answer
-            if self._cache is not None:
-                full_answer = "".join(collected)
-                chunks_summary = [
-                    {"source": c.source, "chunk_index": c.chunk_index}
-                    for c in chunks
-                ]
-                self._cache.store(
-                    query_text, full_answer, chunks_summary,
-                    space_id=cache_space,
-                )
+            self._store_answer(query_text, "".join(collected), chunks, run.cache_space)
         else:
             with trace.span("llm_generate"):
                 answer = self._llm.generate(query_text, context)
             yield answer
 
-        _timings["llm_call"] = time.time() - _t_llm_s
-        _timings["total"] = time.time() - t0
+        run.timings["llm_call"] = time.time() - _t_llm_s
+        run.timings["total"] = time.time() - run.t0
 
         trace.stop()
         if self._perf_logging:
             trace.summary()
-        self._log_stage_breakdown(_timings)
+        self._log_stage_breakdown(run.timings)
+
+    # ------------------------------------------------------------------ #
+    # The stages before the LLM, shared by query and query_stream
+    # ------------------------------------------------------------------ #
+
+    def _prepare(
+        self,
+        query_text: str,
+        top_k: Optional[int],
+        where: Optional[Dict[str, Any]],
+        source_filter: Optional[Union[str, Sequence[str]]],
+        skip_cache: bool,
+        llm_model: Optional[str] = None,
+        stream: bool = False,
+    ) -> "_Prepared":
+        """Every stage before the LLM (docs/AUDIT.md R2): the cache, FAQ and fast-path answers; query expansion and
+        rewrite; the concurrent search; threshold, dedup, boost and re-rank; the broad fallback; the context.
+
+        The trace is stopped when it answers early (``answered_by``) or finds no passage (``chunks`` empty).
+        ``llm_model`` keys the stream's cache per model (RAG2); ``stream`` only marks the log lines.
+        """
+        tag = " (stream)" if stream else ""
+        run = _Prepared(t0=time.time(), trace=PipelineTrace())
+        trace = run.trace
+        trace.start()
+        run.budget = budget = self._time_budget_factory()
+        budget.start()
+        top_k = top_k or self._config.top_k
+        # Step 2: ensure we always retrieve at least minimum_return_top_k
+        effective_top_k = max(top_k, self._config.minimum_return_top_k)
+        space_id = self._config.default_space_id
+
+        # Include source_filter in cache key so switching sources
+        # does not return stale cached answers from a different PDF.
+        _sources = _source_list(source_filter)
+        run.cache_space = f"{space_id}::src={','.join(_sources)}" if _sources else space_id
+        if llm_model:                                     # one model's answer is not another's (RAG2)
+            run.cache_space = f"{run.cache_space}::llm={llm_model}"
+
+        def _answered(kind: str, answer: str) -> "_Prepared":
+            trace.stop()
+            if self._perf_logging:
+                trace.summary()
+            run.answered_by, run.answer = kind, answer
+            return run
+
+        # --- Step 1: Semantic cache check ---
+        if self._cache is not None and not skip_cache:
+            with trace.span("cache_lookup"):
+                hit = self._cache.lookup(query_text, space_id=run.cache_space)
+            if hit is not None:
+                return _answered("cache", hit.answer)
+
+        # --- Step 2: FAQ fast-path ---
+        if self._tiered is not None:
+            with trace.span("faq_lookup"):
+                faq_hit = self._tiered.check_faq(query_text)
+            if faq_hit is not None:
+                return _answered("faq", faq_hit.answer)
+
+        # --- Step 2b: Fastpath bypass (short quant questions) ---
+        _t_cls = time.time()
+        with trace.span("fastpath_check"):
+            fastpath_answer = try_fastpath(query_text)
+        run.timings["classification"] = time.time() - _t_cls
+        if fastpath_answer is not None:
+            logger.info("Fastpath HIT%s — bypassing full RAG pipeline.", tag)
+            self._store_answer(query_text, fastpath_answer, [], run.cache_space)
+            return _answered("fastpath", fastpath_answer)
+
+        # Build metadata filter
+        effective_where = self._build_where_filter(where, source_filter)
+
+        # --- Step 3: Query rewriting ---
+        queries = [query_text]
+
+        # Step 4: Structural query expansion (deterministic, no LLM)
+        expanded_text = expand_query(query_text)
+        if expanded_text != query_text:
+            queries[0] = expanded_text
+            logger.info(
+                "Query expanded%s: '%s' → '%s'",
+                tag, query_text, expanded_text,
+            )
+
+        # Step 7: DEBUG_RETRIEVAL logging
+        if self._config.debug_retrieval:
+            logger.info(
+                "DEBUG_RETRIEVAL%s: original_query='%s', expanded_query='%s', "
+                "effective_top_k=%d",
+                tag, query_text, queries[0], effective_top_k,
+            )
+
+        if self._rewriter:
+            with trace.span("query_rewrite"):
+                queries = self._rewriter.rewrite(expanded_text)
+            logger.info("Multi-query expansion%s: %d variants", tag, len(queries))
+
+        # --- Step 4: Concurrent embed + retrieve (hard-timeout guarded) ---
+        _t_vec = time.time()
+        chunks, timed_out = self._retrieve(queries, query_text, effective_top_k, effective_where, trace, tag)
+        run.timings["vector_search"] = time.time() - _t_vec
+        # Sort by distance (lower = better)
+        chunks.sort(key=lambda c: c.distance)
+
+        # --- Time-budget check: retrieval slow force FAST_MODE ---
+        retrieval_span = next(
+            (s for s in trace.spans if s.name == "embed_and_retrieve"), None
+        )
+        _retrieval_elapsed = retrieval_span.elapsed_s if retrieval_span else 0.0
+        force_fast = timed_out or budget.retrieval_exceeded(_retrieval_elapsed)
+        if force_fast:
+            logger.warning(
+                "TimeBudget%s: retrieval took %.1fs — forcing FAST_MODE "
+                "for reranking/remaining stages.%s",
+                tag, _retrieval_elapsed,
+                " (hard-timeout fallback)" if timed_out else "",
+            )
+
+        logger.info(
+            "Retrieved %d chunks%s (distances: %s)",
+            len(chunks), tag,
+            [f"{c.distance:.4f}" for c in chunks[:5]],
+        )
+
+        # Step 7: DEBUG_RETRIEVAL — log per-chunk details before filtering
+        if self._config.debug_retrieval:
+            for ci, c in enumerate(chunks[:15]):
+                logger.info(
+                    "DEBUG_RETRIEVAL chunk[%d]: dist=%.4f source=%s "
+                    "page=%s section=%s chapter=%s text=%.120s",
+                    ci, c.distance,
+                    c.metadata.get("source", "?"),
+                    c.metadata.get("page_number", "?"),
+                    c.metadata.get("section", ""),
+                    c.metadata.get("chapter", ""),
+                    c.text.replace("\n", " "),
+                )
+
+        chunks = self._select(chunks, query_text, expanded_text, where, source_filter, force_fast,
+                              trace, run.timings, tag)
+
+        # --- Relevance gate: refuse to hallucinate if no relevant chunks ---
+        if not chunks:
+            logger.warning(
+                "RELEVANCE GATE%s: No relevant chunks survived for query: %.80s",
+                tag, query_text,
+            )
+            trace.stop()
+            if self._perf_logging:
+                trace.summary()
+            return run
+
+        # --- Step 7: Token-budget context build ---
+        max_ctx = self._config.max_context_chunks
+        if len(chunks) > max_ctx:
+            logger.info(
+                "Trimming %d chunks to max_context_chunks=%d%s",
+                len(chunks), max_ctx, tag,
+            )
+            chunks = chunks[:max_ctx]
+
+        _t_ctx = time.time()
+        with trace.span("build_context", n_chunks=len(chunks)):
+            run.context = self._build_context(chunks, self._context_token_budget)
+        run.timings["context_build"] = time.time() - _t_ctx
+
+        # Step 7: DEBUG_RETRIEVAL — final context token count
+        if self._config.debug_retrieval:
+            logger.info(
+                "DEBUG_RETRIEVAL%s: final context: %d chunks, %d tokens",
+                tag, len(chunks), count_tokens(run.context),
+            )
+        run.chunks = chunks
+        return run
+
+    def _retrieve(
+        self,
+        queries: List[str],
+        query_text: str,
+        top_k: int,
+        where: Optional[Dict[str, Any]],
+        trace: PipelineTrace,
+        tag: str,
+    ) -> Tuple[List[RetrievedChunk], bool]:
+        """Embed and search every query variant at once under the hard timeout; a variant that fails is skipped.
+        When the timeout fires with fewer than ``_FALLBACK_TOP_K`` passages, one small vector-only search of the
+        question fills in.  Returns the passages (the first of each text prefix) and whether it timed out."""
+        all_chunks: List[RetrievedChunk] = []
+        seen_texts: set = set()
+        timed_out = False
+
+        def _keep(found: List[RetrievedChunk]) -> None:
+            for chunk in found:
+                chunk_key = chunk.text[:200]
+                if chunk_key not in seen_texts:
+                    seen_texts.add(chunk_key)
+                    all_chunks.append(chunk)
+
+        with trace.span("embed_and_retrieve", n_queries=len(queries)):
+            with ThreadPoolExecutor(max_workers=min(len(queries), 4)) as pool:
+                futures = {
+                    pool.submit(self._embed_and_search, q, top_k, where): q
+                    for q in queries
+                }
+                try:
+                    for future in as_completed(
+                        futures, timeout=_RETRIEVAL_HARD_TIMEOUT,
+                    ):
+                        try:
+                            _keep(future.result())
+                        except Exception as exc:
+                            logger.warning(
+                                "Query variant failed%s: %s", tag, exc,
+                                exc_info=True,
+                            )
+                except TimeoutError:
+                    timed_out = True
+                    # Cancel any still-running futures
+                    for f in futures:
+                        f.cancel()
+                    logger.warning(
+                        "RETRIEVAL TIMEOUT%s: embed+retrieve exceeded %ds "
+                        "— activating fallback (top-%d vector-only, "
+                        "skip reranker + parent expansion).",
+                        tag, _RETRIEVAL_HARD_TIMEOUT, _FALLBACK_TOP_K,
+                    )
+
+        # If the main retrieval timed out and yielded no (or few)
+        # usable chunks, run a quick single-query vector-only search.
+        if timed_out and len(all_chunks) < _FALLBACK_TOP_K:
+            with trace.span("retrieval_fallback", top_k=_FALLBACK_TOP_K):
+                try:
+                    fallback_chunks = self._embed_and_search(
+                        query_text, _FALLBACK_TOP_K, where,
+                    )
+                    _keep(fallback_chunks)
+                    logger.info(
+                        "Retrieval fallback%s returned %d chunks.",
+                        tag, len(fallback_chunks),
+                    )
+                except Exception as exc:
+                    logger.error(
+                        "Retrieval fallback%s also failed: %s", tag, exc,
+                    )
+        return all_chunks, timed_out
+
+    def _select(
+        self,
+        chunks: List[RetrievedChunk],
+        query_text: str,
+        expanded_text: str,
+        where: Optional[Dict[str, Any]],
+        source_filter: Optional[Union[str, Sequence[str]]],
+        force_fast: bool,
+        trace: PipelineTrace,
+        timings: Dict[str, float],
+        tag: str,
+    ) -> List[RetrievedChunk]:
+        """Threshold and dedup; the metadata boost and the cross-encoder re-rank, both skipped for a simple
+        question (and the re-rank in fast mode); then the broad fallback when too few or only weak passages
+        are left, inside the same scope (RAG3)."""
+        shown = "stream, " if tag else ""
+
+        # --- Step 5: Threshold filter + dedup ---
+        # Step 2: Log similarity scores but do NOT hard-filter by threshold
+        #         when we have fewer than minimum_return_top_k results.
+        with trace.span("filter_and_dedup", before=len(chunks)):
+            threshold = self._config.similarity_threshold
+            filtered = [c for c in chunks if c.distance <= threshold]
+            min_k = self._config.minimum_return_top_k
+            if len(filtered) < min_k:
+                # Relax: keep the top min_k results regardless of threshold
+                logger.info(
+                    "Threshold filter too aggressive%s: %d/%d survived "
+                    "(threshold=%.2f). Keeping top %d instead.",
+                    tag, len(filtered), len(chunks), threshold, min_k,
+                )
+                chunks = chunks[:min_k]
+            else:
+                chunks = filtered
+            chunks = self._deduplicate_chunks(chunks)
+        logger.info(
+            "%d chunks after threshold+dedup%s (threshold=%.2f)",
+            len(chunks), tag, threshold,
+        )
+
+        # --- Simple-query detection (used to skip heavy stages) ---
+        _simple_q = is_simple_query(query_text)
+
+        # --- Step 5b: Metadata boost (exact match on snippet/section) ---
+        _t_expand = time.time()
+        if chunks and not _simple_q:
+            with trace.span("metadata_boost", n_candidates=len(chunks)):
+                chunks = self._apply_metadata_boost(query_text, chunks)
+        elif _simple_q and chunks:
+            logger.info(
+                "[SIMPLE_QUERY] Skipping metadata boost (%s%d chunks).",
+                shown, len(chunks),
+            )
+
+        timings["parent_expansion"] = time.time() - _t_expand
+
+        # --- Step 6: Re-rank ---
+        # Step 3: DISABLE_RERANKING flag check
+        # In FAST_MODE, forced-fast by time budget, or simple queries:
+        # skip cross-encoder.
+        _t_rerank = time.time()
+        _skip_rerank = (
+            is_fast_mode()
+            or force_fast
+            or _simple_q
+            or self._config.disable_reranking
+        )
+        if _skip_rerank:
+            logger.info(
+                "[%s] Skipping cross-encoder re-rank (%s%d chunks).%s%s",
+                "DISABLE_RERANKING" if self._config.disable_reranking else
+                ("SIMPLE_QUERY" if _simple_q else "FAST_MODE"),
+                shown, len(chunks),
+                " (time-budget forced)" if force_fast else "",
+                " (config override)" if self._config.disable_reranking else "",
+            )
+        elif self._reranker and chunks:
+            with trace.span("rerank", n_candidates=len(chunks)):
+                chunks = self._reranker.rerank(
+                    query_text, chunks, top_n=self._config.rerank_top_n
+                )
+            if not chunks:
+                logger.warning(
+                    "All chunks filtered out by reranker score threshold%s "
+                    "(threshold=%.2f). No relevant context for LLM.",
+                    tag, getattr(self._config, "rerank_score_threshold", 0.25),
+                )
+
+        timings["reranker"] = time.time() - _t_rerank
+
+        # --- Step 6: Retrieval fallback strategy ---
+        if self._should_fallback(chunks):
+            logger.info(
+                "FALLBACK%s: chunks=%d, triggering broad retrieval "
+                "(top_k=%d, scope kept, no noise filter, no reranker).",
+                tag, len(chunks), self._config.fallback_top_k,
+            )
+            with trace.span("retrieval_fallback_broad",
+                            top_k=self._config.fallback_top_k):
+                fallback_chunks = self._fallback_retrieve(
+                    query_text, expanded_text,
+                    where=self._build_where_filter(where, source_filter, noise_filter=False),
+                )
+            if fallback_chunks:
+                # Merge: deduplicate against existing
+                existing_keys = {c.text[:200] for c in chunks}
+                for fc in fallback_chunks:
+                    if fc.text[:200] not in existing_keys:
+                        chunks.append(fc)
+                        existing_keys.add(fc.text[:200])
+                chunks.sort(key=lambda c: c.distance)
+                logger.info(
+                    "FALLBACK%s: merged to %d total chunks.", tag, len(chunks),
+                )
+        return chunks
+
+    def _store_answer(
+        self, query_text: str, answer: str, chunks: List[RetrievedChunk], cache_space: str,
+    ) -> None:
+        """Keep the answer in the semantic cache, with the passages it came from, when the cache is on."""
+        if self._cache is not None:
+            chunks_summary = [
+                {"source": c.source, "chunk_index": c.chunk_index}
+                for c in chunks
+            ]
+            self._cache.store(
+                query_text, answer, chunks_summary, space_id=cache_space
+            )
 
     # ------------------------------------------------------------------ #
     # Stage breakdown logger with SLA health checks

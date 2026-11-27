@@ -539,3 +539,106 @@ def test_the_shared_settings_read_the_database_url_as_the_callers_did(monkeypatc
     assert database_url() == "postgresql://second"
     monkeypatch.setenv("CENTURION_DATABASE_URL", "postgresql://first")
     assert database_url() == "postgresql://first"
+
+
+def _launcher_tree(root):
+    """A repository in miniature: one package, a script, a workflow that starts them, and code that dispatches."""
+    (root / "pkg").mkdir()
+    (root / "pkg" / "__init__.py").write_text("")
+    (root / "pkg" / "mod.py").write_text("X = 1\ntry:\n    from os import sep as SEP\nexcept ImportError:\n    pass\n\n"
+                                         "def f():\n    inner = 2\n")
+    (root / "pkg" / "lazy.py").write_text("def __getattr__(name):\n    return name\n")
+    (root / "runner.py").write_text('import subprocess\nsubprocess.run(["python", "-m", "pkg.mod"])\n'
+                                    'WORKFLOW = "nightly.yml"  # dispatched by name\n'
+                                    'dispatch("retired.yml")\n')
+    wf = root / ".github" / "workflows"
+    wf.mkdir(parents=True)
+    (wf / "nightly.yml").write_text(
+        "jobs:\n  a:\n    steps:\n"
+        "      - run: python -m pkg.mod --flag\n"
+        "      - run: python runner.py && python missing.py\n"
+        "      - run: python -m pip install x && python -m pkg.gone\n"
+        "      - run: X=$(python -c \"from pkg.mod import X, SEP; print(X)\")\n"
+        "      - run: |\n"
+        "          python - \"$A\" <<'EOF'\n"
+        "          import os\n"
+        "          from pkg.mod import (f,\n              inner)\n"
+        "          from pkg.lazy import anything\n"
+        "          EOF\n")
+
+
+def test_the_refactor_check_finds_what_the_launchers_start(tmp_path):
+    """RF0h: every repository module, script and inline import a workflow starts, and every workflow the code
+    dispatches by name, resolves or is named; names bound inside try blocks count, a function's locals do not, a
+    lazy module accepts any name, and outside modules (pip, os) are not the repository's to check."""
+    from tools.refactor_check import entry_points
+
+    _launcher_tree(tmp_path)
+    assert entry_points(tmp_path) == {
+        ".github/workflows/nightly.yml: -m pkg.gone": "module missing",
+        ".github/workflows/nightly.yml: -m pkg.mod": "ok",
+        ".github/workflows/nightly.yml: from pkg.lazy import anything": "ok",
+        ".github/workflows/nightly.yml: from pkg.mod import X, SEP": "ok",
+        ".github/workflows/nightly.yml: from pkg.mod import f, inner": "missing: inner",
+        ".github/workflows/nightly.yml: missing.py": "file missing",
+        ".github/workflows/nightly.yml: runner.py": "ok",
+        "runner.py: -m pkg.mod": "ok",
+        "runner.py: workflow nightly.yml": "ok",
+        "runner.py: workflow retired.yml": "workflow missing"}
+
+
+def test_the_refactor_check_reads_the_frontends_calls_and_matches_them_to_routes(tmp_path):
+    """The client's calls and the literal backend URLs, with interpolated segments as values and query builders
+    dropped; a relative fetch of the frontend's own /api/<name> route and a page link are not the backend's."""
+    from tools.refactor_check import frontend_calls, match
+
+    (tmp_path / "hooks").mkdir()
+    (tmp_path / "hooks" / "use-x.ts").write_text(
+        'api.get<Array<Foo>>("/api/v1/a/b");\n'
+        "api.post(`/api/v1/items/${id}/run`, body);\n"
+        "fetch(`${BACKEND_URL}/api/v1/rag/upload`, init);\n"
+        "fetch(`${BACKEND_URL}/api/v1/rag/docs/${name}/chunks`);\n"
+        "api.get(`/api/v1/list${qs}`);\n"
+        'api.get("/api/v1/old?x=1");\n'
+        'fetch("/api/paper-trading");\n'
+        '<Link href="/ind-stocks/options" />\n')
+    calls = frontend_calls(tmp_path)
+    assert calls == ["/api/v1/a/b", "/api/v1/items/{}/run", "/api/v1/list", "/api/v1/old",
+                     "/api/v1/rag/docs/{}/chunks", "/api/v1/rag/upload"]
+    got = match(calls, ["GET /api/v1/a/b", "POST /api/v1/items/{item_id}/run", "GET /api/v1/list",
+                        "POST /api/v1/rag/{rest:path}"])
+    assert got == {"/api/v1/a/b": "/api/v1/a/b", "/api/v1/items/{}/run": "/api/v1/items/{item_id}/run",
+                   "/api/v1/list": "/api/v1/list", "/api/v1/old": "", "/api/v1/rag/upload": "/api/v1/rag/{rest:path}",
+                   "/api/v1/rag/docs/{}/chunks": "/api/v1/rag/{rest:path}"}
+
+
+def test_the_refactor_check_names_every_kind_of_difference():
+    """Problems: an entry point that stopped resolving or went, a new broken one, a route gone, a frontend call cut
+    off, a replayed session or the replay's summary that moved.  Notes only: routes added, calls that never
+    reached a route.  The same state against itself has no problem."""
+    from copy import deepcopy
+
+    from tools.refactor_check import differences
+
+    base = {"surface": {"entry_points": {"wf: -m a": "ok", "wf: -m b": "ok", "wf: -m c": "module missing"},
+                        "routes": ["GET /api/v1/a", "GET /api/v1/b/{x}"]},
+            "replay": {"sessions": [{"day": "2024-05-02", "sent": 20, "equity": 300000.0},
+                                    {"day": "2024-05-03", "sent": 0, "equity": 297675.11}],
+                       "summary": {"orders_sent": 20, "verdict": "PASS"}}}
+    calls = ["/api/v1/a", "/api/v1/b/{}", "/api/v1/carver"]
+    known = "frontend calls that reach no route, before or now: /api/v1/carver"
+    assert differences(base, deepcopy(base), calls) == ([], [known])
+    now = deepcopy(base)
+    now["surface"]["entry_points"] = {"wf: -m a": "missing: f", "wf: -m c": "module missing",
+                                      "wf: -m d": "file missing"}
+    now["surface"]["routes"] = ["GET /api/v1/a", "POST /api/v1/new"]
+    now["replay"]["sessions"][1]["equity"] = 297675.12
+    now["replay"]["summary"]["verdict"] = "FAIL"
+    problems, notes = differences(base, now, calls)
+    assert problems == ["entry point wf: -m a: missing: f", "entry point wf: -m b: gone",
+                        "entry point wf: -m d: file missing (new)", "route gone: GET /api/v1/b/{x}",
+                        "frontend call /api/v1/b/{} reaches nothing now (it reached /api/v1/b/{x})",
+                        "replay 2024-05-03 equity: 297675.11 -> 297675.12", "replay summary verdict: PASS -> FAIL"]
+    assert notes[0] == "routes added: POST /api/v1/new"
+    del now["replay"]["sessions"][1]
+    assert "replay: 1 sessions, the baseline had 2" in differences(base, now, calls)[0]

@@ -144,10 +144,19 @@ def capped_weights(
 ) -> pd.Series:
     """Normalise positive ``raw`` scores to sum 1 subject to name and sector caps.
 
-    Water-filling: capped names/sectors are frozen and the excess is spread
-    over the rest in proportion to their scores.  If the caps make a sum of 1
-    infeasible the result sums to less than 1 (the remainder is cash).
-    Symbols without a known sector are never capped as a group.
+    Capped names and sectors are frozen and the excess is spread over the rest
+    in proportion to their scores.  With name caps alone this is water-filling,
+    exactly the KKT solution w_i = min(max_weight, c raw_i) with one c for the
+    whole book (Boyd & Vandenberghe 2004, examples 5.2 and 5.4: the
+    weights nearest raw / sum(raw) in relative entropy).  A sector over its cap
+    is scaled down whole, its name-capped members included; water-filling would
+    keep those at the cap and take the cut from the others (tests/
+    test_costs_and_fills.py has both on one book; tracker CVX1).  If the caps
+    make a sum of 1 infeasible the result sums to less than 1 (the remainder is
+    cash).  Symbols without a known sector are never capped as a group.  Raises
+    if the caps do not settle in ``WEIGHT_CAP_MAX_ITER`` rounds (each round
+    freezes a name or a sector, so a book of n names in k sectors needs at most
+    n + k + 1).
     """
     r = raw[np.isfinite(raw.to_numpy(dtype="float64")) & (raw > 0)].astype("float64")
     if r.empty:
@@ -183,6 +192,8 @@ def capped_weights(
             break
         if not free.any():
             break
+    else:
+        raise RuntimeError(f"weight caps did not settle in {WEIGHT_CAP_MAX_ITER} rounds ({len(r)} names)")
     # final guard (numerical)
     w = w.clip(upper=max_weight)
     if w.sum() > 1.0:

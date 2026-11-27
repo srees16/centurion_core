@@ -7,8 +7,10 @@ past ``vol_lookback_days`` returns), s = clip(core_risk_share,
 core_risk_share_min, core_risk_share_max) and G = max_gross.
 
 * Full-scale split: choose capital c + m = G with
-  c sigma_c / (c sigma_c + m sigma_m) = s  (correlation ignored; the tested
-  metal/momentum correlation is slightly negative).
+  c sigma_c / (c sigma_c + m sigma_m) = s  (no correlation estimate: the
+  stand-alone risks add, which is the book's risk at correlation +1 and, by
+  the triangle inequality, an upper bound on it at any other, so the budget
+  errs safe; the tested metal/momentum correlation is slightly negative).
 * The regime scale multiplies the core only: core = c x scale.
 * ``risk_off_to_metals``: capital freed from the core may be moved to the
   in-trend metals, but only until the metals' risk reaches their own maximum

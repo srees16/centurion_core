@@ -172,3 +172,6 @@ kite_tunnel.pub
 
 # Third-party research sources for the options pipeline (plan 5v): never in the public repo
 research_inbox/
+
+# Commercial books the RAG engine ingests (CPY1, 24 Nov 2026): local only, never in the public repo
+rag_pipeline/ingest_docs/

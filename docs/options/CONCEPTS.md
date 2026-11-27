@@ -29,6 +29,7 @@ Test IDs: `M5.<chapter>.<n>`, in `tests/test_options_theory.py`. Code:
 | P&L sign | + = money in, − = money out; per unit of underlying, ₹ = × lot size | All chapters |
 | Rate input | continuously compounded, decimal (0.074769 = 7.4769 %) | Ch. 21 |
 | Dividend | continuous yield q in the pricer; ch. 21 passes 0 | Ch. 21 lists dividend as an input |
+| Bad inputs | refused with `ValueError`: a NaN or infinite number, a non-positive price, a negative volatility, a rate or dividend of 100 % or more (a percent passed as a decimal) | Shreve's conditions (S > 0, σ ≥ 0); a NaN Greek would spread through every sum it enters (25 Nov 2026) |
 
 ---
 
@@ -439,3 +440,31 @@ when it runs and never from code.
    developers.kite.trade. `--live` runs only through
    `CENTURION_KITE_PROXY`, checked against `CENTURION_KITE_STATIC_IP`, and
    Kite's IP rejection is shown verbatim.
+
+## Beyond Module 5: Shreve's notes (research_inbox/stochastic.pdf, 25 Nov 2026)
+
+Chalasani and Jha's notes of Shreve's course, "Stochastic Calculus and Finance" (1997). An independent binomial
+pricer in `tests/test_options_theory.py` reproduces the worked examples below, then converges to `black_scholes`
+(their Thm 10.42), which ties the module's prices to the textbook by a second method.
+
+| ID | Worked example | Expected |
+|---|---|---|
+| SH.3.1 | One-period call: S0 50, u 2, d 0.5, r 25 %, K 50 (p. 59) | 20 |
+| SH.4.2 | Two-period call: S0 4, u 2, d ½, r ¼, K 5 (p. 68); V1(H) | 1.76; 4.40 |
+| SH.4.1 | Lookback, payoff max(S_k) − 5 over two periods (p. 67) | 2.24 |
+| SH.5.1 | American put, K 5 (p. 78); v1(2), v1(8); the European put | 1.36; 3.00, 0.40; 0.96 |
+| SH.9.3 | The same call priced with market probability 1/3 and state prices ζ (p. 115) | 1.76 |
+| SH.10.42 | Binomial limit vs `black_scholes`, four cases, 2,000 steps | within 10⁻⁵ of spot |
+| SH.15.6 | `black_scholes` Greeks satisfy θ + (r − q)SΔ + ½σ²S²Γ = rV (500 seeded cases) | 0 (10⁻⁹) |
+| SH.13.14 | With no drift, `probability_touch` = 2 × the chance of finishing beyond the level | exact |
+| SH.25.3 | `probability_touch` with drift, daily closes, against 100,000 simulated paths | within 0.006 |
+
+`probability_touch(spot, barrier, days, rate, iv, dividend, days_per_year, monitor_every_days)` is the
+risk-neutral chance the price touches a level before expiry (ch. 25.3, first passage with drift; for a level
+checked at each close, Broadie, Glasserman and Kou's correction). The overlay scan's condor proposal carries it as
+`touch_pct` beside `pop`, and the Options page shows both: early exits act on touches, which are about twice as
+likely as finishing beyond a short strike.
+
+Erratum in the notes: p. 22 computes E S₂ = 16·1/9 + 4·4/9 + 4·4/9 = 48/9; the last term is 1·4/9, so
+E S₂ = 36/9 = 4.
+

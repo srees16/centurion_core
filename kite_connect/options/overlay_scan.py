@@ -38,8 +38,9 @@ import pandas as pd
 from kite_connect.options.instruments import Contract, InstrumentResolver, spot_key
 from kite_connect.options.iv_history import constant_maturity, iv30_expiries, rank_and_percentile, skew_warning
 from kite_connect.options.live_chain import IST, build_chain, chain_summary, days_to_expiry
+from kite_connect.options.odds_calibration import measured_note
 from kite_connect.options.options_config import OptionsConfig
-from kite_connect.options.theory import CALL, PUT, atm_strike, probability_itm
+from kite_connect.options.theory import CALL, PUT, atm_strike, probability_itm, probability_touch
 from nse_engine.config import RegimeConfig
 
 logger = logging.getLogger(__name__)
@@ -196,12 +197,19 @@ def iron_condor(broker, m: Market, room: float, rate: float, now: datetime, cfg:
         return None
     outside = sum(probability_itm(x["option_type"], m.spot, float(x["strike"]), m.dte, rate, float(x["iv"]))["n_d2"]
                   for x in (short_call, short_put))
+    # Early exits act on touches, not on the close at expiry: the chance a short strike is reached on some daily
+    # close before expiry is about twice the chance it finishes beyond (Shreve ch. 13.14).  Summed over the two
+    # short strikes, so an upper bound on either being reached.
+    shorts = [x for x in (short_call, short_put) if x is not None]
+    touched = math.fsum(probability_touch(m.spot, float(x["strike"]), m.dte, rate, float(x["iv"]),
+                                          monitor_every_days=1.0) for x in shorts)
     return {"strategy_type": "IRON_CONDOR", "underlying": m.symbol, "expiry": m.expiry.isoformat(),
             "legs": [{"strike": float(x["strike"]), "type": x["option_type"], "side": side, "lots": 1,
                       "premium": round(float(x["bid"] if side == "SELL" else x["ask"]), 2),
                       "delta": round(float(x["delta"]), 3)} for x, side in legs],
             "net_credit": round(net, 2), "max_loss": round(max_loss, 2), "max_profit": round(net, 2),
-            "pop": round((1.0 - outside) * 100.0, 1), "margin_required": round(margin, 2),
+            "pop": round((1.0 - outside) * 100.0, 1), "touch_pct": round(min(touched, 1.0) * 100.0, 1),
+            "margin_required": round(margin, 2),
             "iv_rank": round(m.rank, 1)}
 
 
@@ -297,4 +305,4 @@ def scan(broker, resolver: InstrumentResolver, held: Mapping[str, int], wanted: 
                         "monthly_yield_pct": round(monthly, 2), "annualized_yield_pct": round(monthly * 12.0, 2),
                         "covered_call_count": len(calls), "csp_count": len(puts),
                         "iron_condor_count": len(condors)},
-            "log": log}
+            "measured_odds": measured_note(cfg=cfg), "log": log}

@@ -736,6 +736,355 @@ def test_the_broad_fallback_stays_inside_the_ticked_sources():
     assert {c["source"] for c in seen} == {"a.pdf", "b.pdf"} and order == ["context", "llm"] and out == ["ok"]
 
 
+# ── the RAG engine's two entry points, query and query_stream, pinned exit by exit (docs/AUDIT.md R1) ──
+
+_NOTHING_FOUND = ("I could not find relevant information in the uploaded documents to answer this question.\n\n"
+                  "**Possible reasons:**\n- The relevant document may not have been uploaded yet\n"
+                  "- The query may need to be rephrased to match the document content\n"
+                  "- The uploaded documents may not cover this topic\n\n"
+                  "Please upload the relevant PDF or try rephrasing your query.")
+_NOTHING_FOUND_STREAM = ("I could not find relevant information in the uploaded documents to answer this question.\n\n"
+                         "Please upload the relevant PDF or try rephrasing your query.")
+
+
+def _rag_rows(*specs):
+    """(source, distance, text, extra metadata) per row; the row's position is its chunk index."""
+    return [{"text": text, "distance": dist, "meta": {"source": src, "chunk_index": i, "page_number": i + 1, **extra}}
+            for i, (src, dist, text, extra) in enumerate(specs)]
+
+
+def _rag_match(where, meta):
+    """A Chroma where clause on one row: equality, $in or $gte, alone or inside an $and."""
+    for part in (where or {}).get("$and", [where] if where else []):
+        for key, cond in part.items():
+            value = meta.get(key)
+            if isinstance(cond, dict):
+                if "$in" in cond and value not in cond["$in"]:
+                    return False
+                if "$gte" in cond and (value is None or value < cond["$gte"]):
+                    return False
+            elif value != cond:
+                return False
+    return True
+
+
+class _RagStore:
+    """Answers like Chroma, nearest first, honouring the where clause; records (n_results, where) per search."""
+
+    def __init__(self, rows, slow_first=0.0):
+        self.rows, self.calls, self._slow = rows, [], slow_first
+
+    def query(self, query_embeddings, n_results, where=None, include=None):
+        import time
+
+        self.calls.append((n_results, where))
+        if self._slow:
+            delay, self._slow = self._slow, 0.0
+            time.sleep(delay)
+        hit = sorted((r for r in self.rows if _rag_match(where, r["meta"])), key=lambda r: r["distance"])[:n_results]
+        return {"ids": [[f"id{r['meta']['chunk_index']}" for r in hit]], "documents": [[r["text"] for r in hit]],
+                "metadatas": [[dict(r["meta"]) for r in hit]], "distances": [[r["distance"] for r in hit]]}
+
+
+class _RagEmbedder:
+    def embed_query(self, text):
+        if "boom" in text:
+            raise RuntimeError("embedding failed")
+        return [1.0, 0.0]
+
+
+class _RagLLM:
+    def __init__(self, tokens=("Gate ", "two.")):
+        self.tokens, self.calls = tokens, []
+
+    def generate(self, query, context):
+        self.calls.append(("generate", query, context))
+        return "".join(self.tokens)
+
+    def generate_stream(self, query, context):
+        self.calls.append(("stream", query, context))
+        yield from self.tokens
+
+
+class _RagCache:
+    def __init__(self, hit=None):
+        self.hit, self.lookups, self.stored = hit, [], []
+
+    def lookup(self, query, space_id):
+        from types import SimpleNamespace
+
+        self.lookups.append(space_id)
+        return SimpleNamespace(answer=self.hit) if self.hit else None
+
+    def store(self, query, answer, chunks, space_id):
+        self.stored.append((query, answer, chunks, space_id))
+
+
+class _RagBudget:
+    """The time budget: ``expired`` answers is_expired() call by call; ``llm_over`` answers llm_exceeded()."""
+
+    elapsed = 1.0
+
+    def __init__(self, expired=(False,), llm_over=False):
+        self._expired, self._llm_over = list(expired), llm_over
+
+    def start(self):
+        return self
+
+    def retrieval_exceeded(self, seconds):
+        return False
+
+    def is_expired(self):
+        return self._expired.pop(0) if len(self._expired) > 1 else self._expired[0]
+
+    def llm_exceeded(self, seconds):
+        return self._llm_over
+
+    def cutoff_message(self):
+        return " [cut]"
+
+
+class _RagLog:
+    def __init__(self):
+        self.calls = []
+
+    def log(self, **record):
+        self.calls.append(record)
+
+
+def _rag(rows=(), *, store=None, llm=None, cache=None, faq=None, budget=None, reranker=None, rewriter=None,
+         **settings):
+    """The engine on stand-ins, every setting fixed here (RAGConfig reads the environment)."""
+    from rag_pipeline.config import RAGConfig
+    from rag_pipeline.core.query_engine import RAGQueryEngine
+
+    cfg = RAGConfig()
+    fixed = dict(reranker_enabled=False, query_rewrite_enabled=False, hybrid_search_enabled=False,
+                 cache_enabled=False, faq_enabled=False, enable_metadata_filtering=False,
+                 enforce_space_isolation=False, disable_reranking=False, debug_retrieval=False, top_k=6,
+                 minimum_return_top_k=2, similarity_threshold=0.5, fallback_min_chunks=2, low_score_distance=0.9,
+                 fallback_top_k=8, max_context_chunks=3, context_token_budget=4000, default_space_id="sp",
+                 rerank_top_n=2, min_chunk_word_count=3)
+    for name, value in {**fixed, **settings}.items():
+        setattr(cfg, name, value)
+    engine = RAGQueryEngine(vector_store=store or _RagStore(list(rows)), config=cfg, embedding_service=_RagEmbedder(),
+                            llm_backend=llm or _RagLLM(), reranker=reranker, query_rewriter=rewriter)
+    engine._cache, engine._tiered, engine._retrieval_logger = cache, faq, _RagLog()
+    engine._time_budget_factory = lambda: budget or _RagBudget()
+    return engine
+
+
+def _rag_passages(engine, run, q, **kwargs):
+    """The texts the answer is built from: query's chunks, or what query_stream hands on_context."""
+    if run == "query":
+        return [c.text for c in engine.query(q, **kwargs).chunks]
+    texts = []
+    list(engine.query_stream(q, on_context=lambda items: texts.extend(i["content"] for i in items), **kwargs))
+    return texts
+
+
+_FIVE = _rag_rows(("a.pdf", 0.10, "Alpha passage one", {"chunk_hash": "h1"}),
+                  ("b.pdf", 0.20, "Beta passage two", {"chunk_hash": "h1"}),        # same hash: dedup drops it
+                  ("a.pdf", 0.30, "Gamma passage three", {}),
+                  ("b.pdf", 0.40, "Delta passage four", {}),
+                  ("c.pdf", 0.45, "Epsilon passage five", {}),                     # past max_context_chunks
+                  ("a.pdf", 0.60, "Zeta passage six", {}))                         # past the threshold
+
+
+def test_rag_answers_from_the_cache_faq_or_fast_path_without_searching(monkeypatch):
+    from types import SimpleNamespace
+
+    import rag_pipeline.core.query_engine as qe
+
+    q = "What does the gate decide?"
+    cache, store = _RagCache(hit="cached answer"), _RagStore(_FIVE)
+    engine = _rag(store=store, cache=cache, llm=(llm := _RagLLM()))
+    r = engine.query(q, source_filter=["b.pdf", "a.pdf"])
+    assert (r.answer, r.cached, r.faq_hit, r.chunks) == ("cached answer", True, False, [])
+    meta = {"stale": 1}
+    assert list(engine.query_stream(q, source_filter=["b.pdf", "a.pdf"], llm_model="claude-haiku-5-5",
+                                    llm_meta=meta)) == ["cached answer"]
+    assert meta == {"source": "cache"}
+    assert cache.lookups == ["sp::src=a.pdf,b.pdf", "sp::src=a.pdf,b.pdf::llm=claude-haiku-5-5"]
+
+    cache.hit = None
+    faq = SimpleNamespace(check_faq=lambda text: SimpleNamespace(answer="faq answer"))
+    engine = _rag(store=store, cache=cache, faq=faq, llm=llm)
+    r = engine.query(q, skip_cache=True)
+    assert (r.answer, r.cached, r.faq_hit, r.chunks) == ("faq answer", False, True, [])
+    assert list(engine.query_stream(q, llm_meta=meta)) == ["faq answer"] and meta == {"source": "faq"}
+    assert len(cache.lookups) == 3                                                   # skip_cache skips the lookup
+
+    monkeypatch.setattr(qe, "try_fastpath", lambda text: "fast answer")
+    engine = _rag(store=store, cache=cache, llm=llm)
+    r = engine.query(q)
+    assert (r.answer, r.cached, r.faq_hit, r.chunks) == ("fast answer", False, False, [])
+    assert list(engine.query_stream(q, llm_model="m", llm_meta=meta)) == ["fast answer"]
+    assert meta == {"source": "fastpath"}
+    assert cache.stored == [(q, "fast answer", [], "sp"), (q, "fast answer", [], "sp::llm=m")]
+    assert store.calls == [] and llm.calls == []
+
+
+def test_rag_query_and_stream_send_the_same_context_and_record_the_answer():
+    from rag_pipeline.core.query_engine import RAGQueryEngine, context_sources
+
+    q = "What does the gate decide?"
+    cache, llm, order = _RagCache(), _RagLLM(), []
+    engine = _rag(_FIVE, cache=cache, llm=llm)
+    r = engine.query(q)
+    assert [c.text for c in r.chunks] == ["Alpha passage one", "Gamma passage three", "Delta passage four"]
+    context = RAGQueryEngine._build_context(r.chunks, 4000)
+    assert r.answer == "Gate two." and (r.cached, r.faq_hit) == (False, False)
+    assert llm.calls == [("generate", q, context)] and engine._vs.calls == [(6, None)]
+    summary = [{"source": "a.pdf", "chunk_index": 0}, {"source": "a.pdf", "chunk_index": 2},
+               {"source": "b.pdf", "chunk_index": 3}]
+    assert cache.stored == [(q, "Gate two.", summary, "sp")]
+    (logged,) = engine._retrieval_logger.calls
+    assert logged["retrieved_sources"] == ["a.pdf", "a.pdf", "b.pdf"] and logged["distances"] == [0.1, 0.3, 0.4]
+    assert logged["retrieved_ids"] == ["h1", "a.pdf_2", "b.pdf_3"] and logged["extra"]["space_id"] == "sp"
+
+    meta, seen = {}, []
+    llm.calls.clear()
+    out = list(engine.query_stream(q, llm_meta=meta, on_context=lambda items: (order.append("context"),
+                                                                                seen.extend(items))))
+    assert out == ["Gate ", "two."] and llm.calls == [("stream", q, context)] and order == ["context"]
+    assert seen == context_sources(r.chunks) and meta == {"source": "llm", "provider": "_RagLLM"}
+    assert cache.stored[-1] == (q, "Gate two.", summary, "sp") and len(engine._retrieval_logger.calls) == 1
+
+    class Chosen(_RagLLM):                                # a backend that takes the user's model (RAG2)
+        accepts_model = True
+
+        def generate_stream(self, query, context, model=None, meta=None):
+            meta.update(source="llm", model=model)
+            yield from self.tokens
+
+    meta = {}
+    assert list(_rag(_FIVE, llm=Chosen()).query_stream(q, llm_model="claude-opus-5-5", llm_meta=meta)) == \
+        ["Gate ", "two."] and meta == {"source": "llm", "model": "claude-opus-5-5"}
+
+    class Blocking:                                       # no generate_stream: one piece
+        def generate(self, query, context):
+            return "whole answer"
+
+    assert list(_rag(_FIVE, llm=Blocking()).query_stream(q)) == ["whole answer"]
+
+
+def test_rag_says_it_found_nothing_rather_than_asking_the_model():
+    q = "What does the gate decide?"
+    cache, llm, seen = _RagCache(), _RagLLM(), []
+    engine = _rag((), cache=cache, llm=llm)
+    r = engine.query(q)
+    assert (r.answer, r.chunks) == (_NOTHING_FOUND, [])
+    assert list(engine.query_stream(q, on_context=seen.append)) == [_NOTHING_FOUND_STREAM]
+    assert engine._vs.calls == [(6, None), (8, None)] * 2                            # the search, then the broad one
+    assert llm.calls == [] and cache.stored == [] and seen == []
+
+
+def test_rag_widens_a_thin_search_inside_the_ticked_sources():
+    rows = _rag_rows(("a.pdf", 0.30, "Long enough passage on gates", {"word_count": 5}),
+                     ("b.pdf", 0.10, "Short", {"word_count": 1}),
+                     ("c.pdf", 0.05, "Unticked", {"word_count": 9}),
+                     ("a.pdf", 0.20, "Tiny", {"word_count": 1}))
+    q = "What does the gate decide?"
+    for run in ("query", "stream"):
+        engine = _rag(rows, enable_metadata_filtering=True)
+        texts = _rag_passages(engine, run, q, source_filter=["b.pdf", "a.pdf"])
+        scope = {"source": {"$in": ["a.pdf", "b.pdf"]}}
+        assert engine._vs.calls == [(6, {"$and": [scope, {"word_count": {"$gte": 3}}]}), (8, scope)], run
+        assert texts == ["Short", "Tiny", "Long enough passage on gates"], run
+
+
+def test_rag_boosts_and_reranks_long_questions_and_skips_short_ones(monkeypatch):
+    monkeypatch.delenv("RAG_FAST_MODE", raising=False)
+    monkeypatch.setenv("RAG_SIMPLE_QUERY_THRESHOLD", "5")
+    import re
+
+    rows = _rag_rows(("a.pdf", 0.20, "First", {}), ("b.pdf", 0.25, "Second", {}),
+                     ("c.pdf", 0.32, "Section passage", {"section_id": "4.2"}))       # boosted 0.10, to 0.22
+
+    class Reranker:
+        def __init__(self):
+            self.calls = []
+
+        def rerank(self, query, chunks, top_n):
+            self.calls.append(([c.text for c in chunks], top_n))
+            return list(reversed(chunks))[:top_n]
+
+    long_q, short_q = "What does section 4.2 say about the gates", "Gates?"
+    for run in ("query", "stream"):
+        reranker, llm = Reranker(), _RagLLM()
+        engine = _rag(rows, reranker=reranker, llm=llm)
+        _rag_passages(engine, run, long_q)
+        assert reranker.calls == [(["First", "Section passage", "Second"], 2)], run    # boosted ahead of Second
+        assert re.findall(r"--- Content Start ---\n(.*?)\n--- Content End ---", llm.calls[0][2]) == \
+            ["Second", "Section passage"], run                                         # the reranker's order
+        _rag_passages(engine, run, short_q)                                            # simple: no boost, no rerank
+        assert len(reranker.calls) == 1, run
+        _rag(rows, reranker=reranker, disable_reranking=True).query(long_q)
+        assert len(reranker.calls) == 1, run
+
+
+def test_rag_answers_from_the_context_alone_when_time_runs_out():
+    from rag_pipeline.core.query_engine import RAGQueryEngine
+
+    q = "What does the gate decide?"
+    cache, llm, seen = _RagCache(), _RagLLM(), []
+    engine = _rag(_FIVE, cache=cache, llm=llm, budget=_RagBudget(expired=(True,)))
+    r = engine.query(q)
+    context = RAGQueryEngine._build_context(r.chunks, 4000)
+    assert r.answer == ("_The system could not complete LLM generation within the time budget._\n\n"
+                        "**Retrieved context (unprocessed):**\n\n" + context[:2000] + " [cut]")
+    assert [c.text for c in r.chunks] == ["Alpha passage one", "Gamma passage three", "Delta passage four"]
+    assert list(engine.query_stream(q, on_context=seen.append)) == [
+        "_The system could not start LLM generation within the time budget._\n\n [cut]"]
+    assert len(seen) == 1 and llm.calls == [] and cache.stored == []
+
+    engine = _rag(_FIVE, cache=cache, llm=llm, budget=_RagBudget(expired=(False, True)))
+    assert engine.query(q).answer == "Gate two. [cut]" and cache.stored[-1][1] == "Gate two. [cut]"
+    engine = _rag(_FIVE, cache=cache, llm=llm, budget=_RagBudget(llm_over=True))
+    assert list(engine.query_stream(q)) == ["Gate ", " [cut]"] and cache.stored[-1][1] == "Gate "
+
+
+def test_rag_a_retrieval_timeout_falls_back_to_a_small_vector_search(monkeypatch):
+    import rag_pipeline.core.query_engine as qe
+
+    monkeypatch.setattr(qe, "_RETRIEVAL_HARD_TIMEOUT", 0.05)
+    monkeypatch.delenv("RAG_FAST_MODE", raising=False)
+    monkeypatch.setenv("RAG_SIMPLE_QUERY_THRESHOLD", "5")
+
+    class Reranker:
+        calls = 0
+
+        def rerank(self, query, chunks, top_n):
+            Reranker.calls += 1
+            return chunks
+
+    long_q = "What does section 4.2 say about the gates"
+    for run in ("query", "stream"):
+        store, llm = _RagStore(_FIVE, slow_first=0.3), _RagLLM()
+        texts = _rag_passages(_rag(store=store, reranker=Reranker(), llm=llm), run, long_q)
+        assert [n for n, _ in store.calls] == [6, 3], run                               # the slow search, then top 3
+        assert texts == ["Alpha passage one", "Gamma passage three"], run              # 3 found, hash dedup drops one
+        assert Reranker.calls == 0, run                                                 # forced fast: no rerank
+
+
+def test_rag_a_failed_query_variant_does_not_stop_the_others():
+    class Rewriter:
+        def __init__(self):
+            self.seen = []
+
+        def rewrite(self, text):
+            self.seen.append(text)
+            return [text + " boom", text]
+
+    q = "What does the gate decide?"
+    for run in ("query", "stream"):
+        rewriter, llm = Rewriter(), _RagLLM()
+        engine = _rag(_FIVE, rewriter=rewriter, llm=llm)
+        answer = engine.query(q).answer if run == "query" else "".join(engine.query_stream(q))
+        assert answer == "Gate two." and rewriter.seen == [q] and len(engine._vs.calls) == 1, run
+
+
 # ── the weekly newsletter (api/newsletter.py, tracker NL1): chosen, aggregates only, once a week, easy to stop ──
 
 def test_the_newsletter_is_off_unless_the_box_is_ticked():
