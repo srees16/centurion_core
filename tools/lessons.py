@@ -90,10 +90,6 @@ OPEN: List[Dict[str, Any]] = [
      "summary": "A relisting after a long suspension is read as a split and rewrites the stock's history "
                 "(CCCL, ATLASCYCLE, VIVIMEDLAB); the fix moves the data hash, so it waits for OPS1A",
      "review_by": "2027-01-31"},
-    {"id": "L-COST-NOTES", "date": "2026-11-11", "source": "A1M", "pattern": "F8", "status": "open",
-     "summary": "No cost or margin figure has been compared with a broker contract note (PL-14, from the "
-                "INFY sell test's fills)",
-     "review_by": "2026-12-31"},
     {"id": "L-VERDICT-LATE", "date": "2026-11-14", "source": "PL0", "pattern": "F3", "status": "open",
      "summary": "The journal check reads only an entry's opening words, so a verdict stated later (CC1) is "
                 "not caught",

@@ -4944,6 +4944,26 @@ invested, mean gap +0.5; Rs 6 lakh 18, 87%, +0.4; Rs 30 lakh 18, 87%. So the can
   RA1 stands as fixed.
 - Changed behaviour: manual F&O with no capital set now reads Rs 3 lakh, not Rs 6 lakh.
 
+**LX1 amendment (27 Nov 2026, 19:53 IST, before the first live session; your answers to the paper review's
+execution questions).** The canary also gets an execution budget, judged where its sessions have the power to see it.
+Over 60 sessions the daily gap hides any drag under about 10% a year; a fill is priced against the official open one
+by one, so about 90 fills can see about 1% a year.
+- Budget: live may trail its live-rules reference backtest (same period, same capital) by at most 1.5% a year, about
+  15% of the walk-forward's 11%. LN-T11's funding delay (FND1: 0.30 points a year) is inside it, because the reference
+  funds as the model.
+- Length: the canary holds at least 60 sessions and at least 150 engine fills, whichever comes later.
+- Fill test (A: the budget's share per fill): at about 19x the book traded a year, both sides (the model's 3.4% cost
+  drag at 18 bp a fill), 1.5% a year is about 8 bp a fill. FAIL when the mean of live slippage against the official
+  open plus the contract note's statutory charges, less the model's cost for the same fill, exceeds 8 bp with t >= 2;
+  WATCH above 8 bp with t below 2; else PASS. Reported beside it against the live-rules backtest (LN-T21): buys
+  unfilled (1.6%) and filled at the limit (9.4%), stop fills against min(open, stop), rejections, missed sessions, and
+  each night's orders matched to the reference's orders that night, every mismatch explained or counted.
+- Return test: the annualised mean daily gap against the live-rules reference, with its 95% interval, at the canary's
+  end. A gap beyond -1.5% a year whose interval excludes 0 fails; otherwise the fill test decides. CUSUM unchanged.
+- On a fail: hold at Rs 3 lakh, find and fix the cause, and run on; no step up, and no return to dry runs.
+- Built after PF1 (Sat 19 Dec), the process freeze, and run over the canary's stored fills from its first session;
+  the statutory charges come from Zerodha's contract notes (PL-14).
+
 **Not doing.** Structural leverage (until live Sharpe is near 0.9 and futures drag is under 2
 points, then at most 1.25-1.5x on index futures); permanent puts; naked short volatility; a fourth
 overlapping exit; intraday; earnings drift, bulk deals, index-inclusion longs and size alone.
