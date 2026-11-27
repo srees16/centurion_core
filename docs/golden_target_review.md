@@ -362,6 +362,83 @@ IIMA library, gross; computed in the factor memo.
 
 ### 3.2 Returns by regime and year
 
+**Update (27 Nov 2026): live-like numbers.** These replace the 10 Oct scoping
+below, which was in-sample with fixed settings on 2013–25. The basis is the
+deployed family's walk-forward as run, 2008–25 (R4b; D2's 3% a year on
+invested capital, idle cash at 0; Sharpe over 6.5% cash; 2026 sealed):
+**11.1% a year, Sharpe 0.43, volatility 11.0%, MaxDD −33.0%**, against NIFTY 50
+TRI's 10.0%, 0.25 and −59.4%. The same settings fixed read 14.2% / 0.59, and
+in-sample 17.0% / 0.78. Arithmetic on recorded returns, no trial
+(`nse_engine.golden_gates._series`, each book's walk-forward series, and the
+engine's regime state on `store_ext2006`).
+
+| Regime (known at the previous close) | Days | Annual return | Sharpe | NIFTY 50 TRI, same days |
+|---|---|---|---|---|
+| Engine risk-on | 56% | 19.5% | 1.02 | 11.7% |
+| Engine neutral | 23% | 4.0% | −0.18 | 2.2% |
+| Engine risk-off | 21% | −1.9% | −0.96 | 14.4% |
+| NIFTY above its 200-day mean | 73% | 17.7% | 0.96 | 12.7% |
+| NIFTY below its 200-day mean | 27% | −4.8% | −0.95 | 2.7% |
+| NIFTY 20-day volatility, lowest third (up to 11.7%) | 33% | 17.0% | 0.94 | 15.2% |
+| Middle third | 33% | 10.0% | 0.32 | 5.8% |
+| Top third (above 16.8%) | 33% | 10.7% | 0.41 | 12.1% |
+
+Calendar years: 2008 −30.3%, 2009 +15.5%, 2010 +14.4%, 2011 +3.6%, 2012
++8.5%, 2013 +4.4%, 2014 +59.2%, 2015 +4.3%, 2016 −5.5%, 2017 +35.2%, 2018
+−10.0%, 2019 +4.2%, 2020 +16.9%, 2021 +52.2%, 2022 −10.1%, 2023 +26.1%, 2024
++18.1%, 2025 +26.6%. Four losing years of 18, and four more at 4–5%.
+
+With the paper books' sleeves and overlays, on the same basis:
+
+| Book | Window | Annual return | Sharpe | Volatility | MaxDD | Correlation with the core |
+|---|---|---|---|---|---|---|
+| Core (deployed) | 2008–25 | 11.1% | 0.43 | 11.0% | −33.0% | 1.00 |
+| Core + 25% gilt sleeve (bonds) | 2008–25 | 10.1% | 0.42 | 8.4% | −23.7% | 0.99 |
+| Core + 25% MCX trend sleeve (mcx) | 2008–25 | 11.3% | 0.48 | 9.7% | −22.5% | 0.88 |
+| Core + A1 call spreads (a1) | 2008–25 | 11.3% | 0.44 | 11.0% | −33.0% | 1.00 |
+| Core at 1.75x with stock futures | 2017–25 | 26.3% | 0.85 | 22.8% | −41.8% | 0.84 |
+| Core alone, same window | 2017–25 | 16.4% | 0.83 | 11.2% | −20.8% | — |
+
+| Engine regime | Core | + gilt | + MCX | Futures 1.75x (2017–25) |
+|---|---|---|---|---|
+| Risk-on | 19.5% | 16.0% | 17.1% | 40.2% |
+| Neutral | 4.0% | 4.7% | 7.1% | 6.4% |
+| Risk-off | −1.9% | +1.2% | +1.1% | −10.6% |
+
+| Episode | Core | + gilt | + MCX | Futures 1.75x | NIFTY 50 TRI |
+|---|---|---|---|---|---|
+| GFC, Jan 2008–Mar 2009 | −27.5% | −18.6% | −11.3% | — | −58.4% |
+| Recovery, Mar 2009–Nov 2010 | +36.2% | +27.8% | +31.3% | — | +149.4% |
+| Euro crisis, Nov 2010–Dec 2011 | −4.1% | −1.7% | −4.5% | — | −26.6% |
+| Correction, Mar 2015–Feb 2016 | −14.1% | −9.2% | −9.5% | — | −21.3% |
+| Small-cap boom, 2017 | +35.2% | +25.7% | +25.6% | +82.9% | +30.3% |
+| Small and mid-cap crash, Jan 2018–Aug 2019 | −12.7% | −6.3% | −7.6% | −38.3% | +5.8% |
+| COVID crash, 20 Feb–23 Mar 2020 | −10.4% | −7.7% | −1.4% | −22.1% | −37.1% |
+| COVID rally, Mar 2020–Oct 2021 | +98.5% | +70.3% | +80.4% | +288.2% | +147.1% |
+| Rate hikes, Oct 2021–Jun 2022 | −12.0% | −9.9% | −9.4% | −29.7% | −16.4% |
+| Bull, Mar 2023–Sep 2024 | +64.7% | +50.8% | +44.4% | +176.5% | +57.7% |
+| Correction, Sep 2024–Mar 2025 | −4.0% | −2.4% | −2.8% | −22.0% | −15.4% |
+
+- **The core earns in risk-on trends** (about 20% a year, Sharpe 1.0) and is
+  flat to slightly negative otherwise. It protects in crashes, at a third to a
+  half of NIFTY's fall. It lags V-shaped rebounds (2009–10, 2020–21), because
+  it re-enters late, and large-cap-led markets with small and mid caps falling
+  (2018–19, 2022). Its beta to NIFTY is about 0.2 overall and 0.5 in risk-on.
+- **The MCX trend sleeve is the only addition that improves risk-adjusted
+  return**: Sharpe +0.05, MaxDD about 10 points shallower, crash losses cut
+  most. It is provisional: chosen after its 2026 was seen, so paper is its
+  test, and it was −7.4% in its first five paper weeks.
+- **The gilt sleeve is de-risking**: about 1 point of return for 9 points of
+  drawdown, Sharpe unchanged.
+- **A1 adds almost nothing** at its 10% loss cap (+0.2 point a year).
+- **Futures at 1.75x leave Sharpe unchanged** and reach −42% even in the core's
+  best era; there is no 2008–16 history. Retired after RA1 (GTR10).
+- **Not computed: all three combined.** It is not a validated configuration;
+  the gilt and MCX pair failed DG2 by 0.01 of Sharpe. The sleeve figures
+  assume the 25% split is rebalanced; paper keeps it static until live.
+
+The 10 Oct scoping (in-sample, fixed settings, 2013–25), kept for the record:
+
 | Regime (known at the previous close) | Days | Annual return | Sharpe |
 |---|---|---|---|
 | NIFTY bull (above its 200-day mean and rising) | 67% | 29.9% | 1.79 |

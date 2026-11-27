@@ -294,6 +294,8 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 --------------------------------------------------------------------------------
  4. NEEDS YOU [!]
 --------------------------------------------------------------------------------
+ >>> DONE 27 Nov: PL-14's contract notes received (11 and 16 Nov, and the ledger); compared (section 8).
+ >>> D3 (27 Nov): fund the Kite account with Rs 3 lakh in cash before the canary's first live session (~late Dec).
  >>> RAG2 (17 Nov): for the RAG engine to answer with Claude, an API key from the Anthropic Console (console.anthropic.com,
      same email as claude.ai; a small prepaid credit; the key starts sk-ant-api).  Put it in centurion_core/.env and
      in the Space's ANTHROPIC_API_KEY secret, replacing today's value, which the API rejects (it is a sign-in token,
@@ -360,11 +362,11 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      entries) 6%; past 25%: 2% in 1 year, 11% in 3, 18% in 5; below half the capital 0.04% in 5 years.  Daily tails
      are fat (skew -1.6, excess kurtosis 13; the 1% expected shortfall 1.7x a normal's; worst month -19.8%).  So a
      losing quarter says little about the edge; rule D's bands, not the calendar, decide.
- >>> KLR1 (23 Nov): merge .github/workflows/space-keepalive.yml to main (scheduled runs start only from main);
-     refresh HF_TOKEN in this Mac's .env (rejected, 401) so the Space's logs can be read next time.
- >>> OX1 (27 Nov): merge .github/workflows/option-chain.yml and kite_connect/options/chain_recorder.py to main by
-     Tue 8 Dec (scheduled runs start only from main; December's A1 window is 9-21 Dec).  It uses your daily Kite
-     login, nothing else.  Claude runs the rule on Mon 18 Jan 2027 (plan 5cg).
+ >>> KLR1 (23 Nov): refresh HF_TOKEN in this Mac's .env (rejected, 401) so the Space's logs can be read next time.
+     DONE: space-keepalive.yml is on main (scheduled runs succeeding, last 27 Nov 01:43 UTC).
+ >>> DONE 27 Nov: OX1 merged to main (#354, #355; pytest and pytest-all passed).  "NIFTY option-chain snapshots" is
+     active; first scheduled run Mon 30 Nov 05:30 UTC (11:00 IST).  It uses your daily Kite login, nothing else.
+     Claude runs the rule on Mon 18 Jan 2027 (plan 5cg).
  >>> TESTS: THREE AREAS NEED YOUR CALL (TS2, 15 Nov): test, leave, or retire
      1. Options research modules with no test (structures, backtest, signal_futures, book_rounds,
         option_chain, fo_anomalies, the three strategy files, options_monitor: about 2,750 statements).
@@ -932,6 +934,10 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              in all), checking each against the record first.  Moves the data hash.
              Also (CK1-P2, 9 Nov): do not infer a factor for a relisting after a long suspension with the
              same ISIN and a nominal prev_close (CCCL 2024-09-03, ATLASCYCLE 2024-12-27, VIVIMEDLAB 2025-12-18).
+             Widened (CK1-F3, 27 Nov): no inferred factor across any long absence with no NSE record, whatever
+             the prev_close or ISIN; start the series afresh instead.  Four more: KOVAI and SICAGEN 2026-04-20
+             (back after 2.5 and 4.8 years, prev_close the old last close), LANCER 2026-08-17 (3.3 years, old
+             close 149.70 against 10.91, no common ratio), BURNPUR 2026-08-11 (1.5 years, new ISIN, nominal 1.00).
                                                              Prompt: do OPS1A
 [x]     GT2E FAILED 31 Oct: reshaped to the metals cap, not adopted (section 8).
 [x]     GT2F WITHDRAWN 31 Oct: REITs and InvITs stay closed under GT14 (11 Oct).
@@ -979,8 +985,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              - then quarterly with GT12's re-score: Jan, Apr, Jul, Oct;
              - and whenever a data source, broker rule or dependency
                changes.
-             First run 9 Nov: 32 of 44 pass (section 8 log, CK1).  Next: just
-             before D3 (~14 Dec), then January with GT12.
+             First run 9 Nov: 32 of 44 pass (section 8 log, CK1).  Second run
+             27 Nov: 31 of 44 (CK1-F3 new).  Next: the fails and partials
+             re-checked just before D3 (~14 Dec), then January with GT12.
              Record each run in DONE as "CK1 <date>: n of N pass", with a
              follow-up ID per fail.  Already worth acting on: section 8,
              "Is the research backed up?"  The registries
@@ -1029,6 +1036,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
                  that first session: dry runs plan the book's Rs 3L
                  whatever the account holds (LN-T35), so a shortfall
                  shows only then (an alert; it buys less).
+        Day one: cash start (D3A, 27 Nov).  LX1's pass rule fixed 27 Nov (plan 5at); checks built after 19 Dec.
         Until then: G4 verdicts from session 30 (~late Oct) in every daily
         email; "diagnose G4" if FAIL.  Daily Kite login (U23) - a missed
         login is a missed session, which is tracking error.
@@ -1118,10 +1126,39 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              runner's legacy pipeline, the paper trader's yfinance trailing stop and poll (legacy path).
              After your answers in NEEDS YOU: the options research modules, the legacy services and
              the frontend.                                  Prompt: do TS2
-[ ] P2  PL-14 After the sell test (ST2 step 3, 16-17 Nov) is complete: Zerodha contract notes against
-             the cost model, fill by fill (docs/process_loop_plan.md).  First fixtures: the INFY buy of
-             11 Nov and the test sells.  Closes open lesson L-COST-NOTES (review by 31 Dec).
-                                                            Prompt: do PL-14
+[~] P2  PL-14 First fixtures DONE 27 Nov (section 8; L-COST-NOTES guarded).  Left, with LX1 after PF1 (19 Dec): parse
+             each live fill's contract note and flag drift over a threshold.  After RA1, with L-RATES-2026: DP at Rs
+             15.34 once per stock and day (the model charges Rs 15.93 per sell fill).
+                                                                                                       Prompt: do LX1
+[ ] P1  LX1  Canary execution audit (your yes 27 Nov to the paper review's gap 1).  RULE FIXED 27 Nov 19:53 IST,
+             before the first live session (plan 5at, LX1 amendment; your answers): live may trail its live-rules
+             backtest by at most 1.5% a year (LN-T11's 0.30 pt inside it); the canary holds at least 60 sessions and
+             150 engine fills; fill test FAIL when live slippage against the open plus contract-note charges exceeds
+             the model's cost by more than 8 bp a fill with t >= 2 (WATCH below t 2); reported beside it: unfilled
+             and at-limit buys against LN-T21's 1.6% and 9.4%, stop fills, rejections, missed sessions, each night's
+             orders matched to the reference's; on a fail, hold at Rs 3L and fix, no step up, no return to dry
+             runs.  TO BUILD after PF1 (Sat 19 Dec), run over the canary's stored fills from its first session: the
+             fill test, the order match and the return test, with PL-14's contract notes.  After RA1: funding=live in
+             the live reference (it funds as the model today).
+                                                                                        Prompt: do LX1 (after 19 Dec)
+[x] P1  D3A  DECIDED 27 Nov (your call): the live book starts from cash, once G4 is cleared and the other criteria
+             as planned (D3, GT2I) are met.  The live reference also starts from cash, so they match; the live book
+             is judged only against its own same-period backtest at its own capital, never against the paper book or
+             NIFTY 50.
+[ ] P2  SLG1 After PF1 (Sat 19 Dec), your yes 27 Nov (gap 2): a gate for each sleeve and overlay, before their
+             60-session verdicts (~Jan).  G4 reads only the shared stock part of the bonds, MCX, A1 and futures books
+             (bonds and MCX show identical gates); judge each book's whole NAV (bond_ledger, mcx_ledger,
+             options_overlay_ledger, futures_ledger) against the same-period backtest of the whole book.  Unjudged so
+             far (21 Oct-26 Nov): MCX sleeve -8.7%, gilt sleeve +1.8%, futures NAV +16.9% from 3-8 legs (largest 25%
+             of NAV), A1 no spread opened in 20 sessions.
+                                                                                                      Prompt: do SLG1
+[ ] P2  BM1  After PF1 (Sat 19 Dec), your yes 27 Nov: every book's report (the daily and Saturday emails, the
+             scorecard) shows NIFTY 500 beside NIFTY 50 over the book's own window, so a style lag is not read as
+             failure (27 Nov: every stock book trailed NIFTY 500 by 2-9 points over 1-2.5 months, a large-cap
+             rally).  The store holds NIFTY 500's price index only: until a TRI source is added, price plus an
+             assumed dividend yield, labelled as such (as bond_stream.nifty_tri does before NIFTY 50's
+             TRI).  Reporting only: the gates still read NIFTY 50 TRI.
+                                                                                                       Prompt: do BM1
 [x] P2  PL-PLAN Built 16 Nov (section 8, PLB).  Was: plan PL-10 (data catalogue), PL-11 (nightly
              store check), PL-16 (weekly incident list) and PL-17 (loop health numbers): order, scope,
              what each reads, effort; nothing built before your approval by id.
@@ -1637,6 +1674,67 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+27 Nov  PL-14 Contract notes against the cost model, first fixtures (your notes 27 Nov: two contract notes, 11 and
+             16 Nov, and the ledger; in the gitignored research_inbox).  Every rate matches within the note's
+             rounding: STT 0.1% a side, stamp 0.015% on the buy, exchange about 0.003%, SEBI Rs 10 a crore, GST
+             18%.  Buy of Rs 4,611.20: note Rs 6.18, model Rs 5.47; sales of Rs 2,298.90: note Rs 2.10, model Rs 2.38
+             before DP.  The gaps are the note's rounding of STT and stamp duty to the rupee, unbiased and about 0.3
+             bp at the canary's Rs 17k positions.  DP: the ledger charges Rs 15.34 once per stock and day; the model
+             Rs 15.93 per sell fill, so it overstates (Rs 31.86 here, AMO plus GTT); conservative, fixed with
+             L-RATES-2026 after RA1 (costs frozen).  Exchange 2.97 against 3.07 per lakh not settled: both round to
+             the note's paise at these sizes; the canary's first fills settle it.  The AMO sale filled at Rs
+             1,150.00, NSE's official open (trade 09:09:35, the pre-open auction): LX1's premise, no slippage where
+             the model assumes 5 bp.  Not in the model: Kite Connect's Rs 500 a month (ledger, 17 Nov), Rs 6,000 a
+             year, 2.0% of the Rs 3L canary and 0.2% at Rs 30L; already paid for paper, so outside LX1's execution
+             budget, but in your net.  Guard: tests/test_costs_and_fills.py, two tests marked L-COST-NOTES (lesson
+             closed, 45 of 52 guarded); drills: STT doubled, exchange +10% and stamp tripled each fail it, while
+             stamp up to about 2x and exchange within 4% pass at these sizes.
+27 Nov  NRO1 Read-only Neon role for this Mac (your "go ahead", CK1-P9).  Found first: .env already held the owner's
+             Neon address; the books step timed out on port 5432 at 18:56 (the network; reachable again at 20:05),
+             and preflight and promote --check never load .env, so they fell back to localhost:9003.  Built: role
+             centurion_ro by SQL (a console role would join neon_superuser), LOGIN, default_transaction_read_only
+             on, SELECT on the book schemas and public's non-personal tables (neon_auth, app with its users,
+             alert_configurations, analysis_runs and user_watchlists revoked); the owner's future schemas and tables
+             readable by default (option_chain from 30 Nov).  .env: CENTURION_DATABASE_URL is the read-only address,
+             the owner's kept as CENTURION_DATABASE_URL_OWNER for a manual live_session --reconcile.  Checked: CREATE
+             and UPDATE refused (25006); books exported 20:12 to 27 Nov; promote --check refuses the candidate, 42
+             of 60 sessions (CK1 3d PASS); preflight reads the deployed book (48 sessions, RA1 Tue 15 Dec) and no
+             incidents, its table creation refused as intended.  Run local Neon tools as `dotenv -f .env run --
+             python -m ...`.  Weakness: a future table with personal data in a book schema or public is readable by
+             default.
+27 Nov  CK1F2 CK1 follow-ups (your yes to 1 and 2).  Backup: cloud.backup push, all 7 pieces pushed 19:23-20:00
+             (archive 2026 and 2027, F&O store, fundamentals, MCX store, equity store, state); status lists only the
+             state piece, as it always does.  CK1-F3 reviewed, read-only: all four are relistings after long
+             absences, not missed splits, and none was ever in the engine's universe, so no book could hold
+             them.  KOVAI 25 Oct 2023 to 20 Apr 2026 and SICAGEN 20 Jul 2021 to 20 Apr 2026, same ISIN, prev_close
+             the old last close (the jump is return earned off NSE); LANCER 28 Apr 2023 to 17 Aug 2026, same ISIN,
+             149.70 against 10.91, no common ratio; BURNPUR 29 Jan 2025 to 11 Aug 2026, new ISIN, BE series, nominal
+             prev_close 1.00.  KOVAI and LANCER load with 0 universe days in 2026; SICAGEN and BURNPUR fall below the
+             load filter.  OPS1A's rule only skipped a nominal prev_close with the same ISIN, so it would have missed
+             three of them: widened to any long absence with no NSE record.  The fix moves the data hash and waits
+             for the re-baseline after RA1.
+27 Nov  CK1  Health checklist, second run (docs/centurion_checklist.md; your "yes, run the checklist"; read-only): 31
+             of 44 pass, 8 partial, 2 fail, 2 not yet due, 1 not run.  FAIL CK1-F3 (2c, new): four unexplained price
+             gaps in 2026 never reviewed, KOVAI and SICAGEN 20 Apr, BURNPUR 11 Aug (ISIN change), LANCER 17 Aug
+             (factor 0.074); the loader infers a factor for each, as for the three of CK1-P2 (OPS1A).  FAIL CK1-F1
+             (3a), unchanged: the walk-forward does not reproduce the fixed config's 2017-25 Sharpe (GTR11: deployed
+             family 2008-25 as-run 0.43); V3 and RF1 decide.  PARTIAL: CK1-P1 (mapping checked by tools.prereg check
+             from 15 Nov only); 2b and 10b, four published rates not applied (L-RATES-2026 by 31 Dec, costs frozen to
+             RA1); CK1-P3 runtimes 2,925 local / 3,576 Kaggle, unchanged; CK1-P4 fundamentals 2018 filings 18%
+             missing (PEAD1 found the store's 2012-19 stamps days late too); 5a, the 18:56 refresh ok false: books
+             (Neon timed out on port 5432, as NRO1 found; first misread here as the Docker Postgres; on and off
+             since 24 Oct, CK1-P9) and backup (Kaggle lookup failed; it works now; a push is a week behind, 7 pieces,
+             1.5 GB);
+             CK1-P7 Kite postbacks at go-live (AL5); 8d, the announcements mirror is not in cloud.backup
+             (CK1-P10).  NOT YET DUE: paper sessions 47 of 60 (RA1, 15 Dec); NSE's 2027 holidays (LN-T31).  NOT RUN:
+             promote --check needs Neon (not reachable from this Mac).  Resolved since 9 Nov: CK1-F2 (a clean dry run
+             every session 9-26 Nov; 10 and 24 Nov holidays), CK1-P5 (sell test 16 Nov), CK1-P6 (O1d's two demos, 9
+             and 12 Oct), CK1-P8 (kiteconnect 5.1.0 pinned).  Passing, among others: deployed hash 679cbd0c approved,
+             holdout opened once, causality and survivorship tests, families within budget (core PBO 29.2% of 30%),
+             store doctor no findings, stores current to 27 Nov (MCX 26 Nov), registry fingerprint unchanged, G4 PASS
+             at 47 sessions, kill switch 2 Nov and dead-man drill 13 Oct, drawdown overlay 20/30/35% on, 0
+             secret-scanning alerts and no keys in tracked files, cache 6.6 of 10 GB, 138 GB free, CI green on #355,
+             myenv on the core pins, all 15 workflows on ubuntu-24.04, lot sizes from the F&O bhavcopy.
 27 Nov  PEAD1 Same-day drift after NSE results announcements, both sides (plan 5ch, pre-registered 27 Nov 15:05 IST,
              clarified 15:12 and amended 15:43 before any return was read; your "trade both directions" with
              exhaustive validation and cost-benefit): FAIL on all three gates, closed; intraday N 4.  NSE's

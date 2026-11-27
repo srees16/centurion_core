@@ -2,7 +2,7 @@
 
 A plan; items are built only on the owner's approval of their ids. **Built 14 Nov 2026: PL-01 to
 PL-08, PL-12, PL-13 and PL-15** (sections 9 and 10); **16 Nov: PL-10, PL-11, PL-16, PL-17** (section 10,
-last table). Scheduled: PL-14 after the sell test; PL-09 and PL-20 after RA1 (15 Dec). PL-18 and PL-19 wait. Scope: the research
+last table). PL-14's first fixtures built 27 Nov (the rest with LX1 after 19 Dec). Scheduled: PL-09 and PL-20 after RA1 (15 Dec). PL-18 and PL-19 wait. Scope: the research
 **process** (data, tests, costs, monitoring, hygiene, memory). Strategy Sharpe and CAGR are
 not loop metrics, and the loop never tunes a parameter, signal or filter.
 
