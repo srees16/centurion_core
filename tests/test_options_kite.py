@@ -5,6 +5,7 @@ import json
 import math
 from datetime import date, datetime
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -512,6 +513,8 @@ def test_a_condor_has_ordered_strikes_and_a_limited_loss(tmp_path):
     k = {(l["type"], l["side"]): l["strike"] for l in ic["legs"]}
     assert k[("PE", "BUY")] < k[("PE", "SELL")] < SPOT < k[("CE", "SELL")] < k[("CE", "BUY")]
     assert ic["max_loss"] > 0 and ic["net_credit"] > 0 and 0 < ic["pop"] < 100 and ic["margin_required"] == 90000.0
+    assert 100 - ic["pop"] <= ic["touch_pct"] <= 100           # touched at least as often as finished beyond
+    assert out["measured_odds"].startswith("Measured on NIFTY's monthly expiries 2008-25 (207 cycles")
     assert _scan(ScanKite(), capital=1e7, tmp=tmp_path)["iron_condors"] == []     # above the real limit, Rs 25,000
 
 
@@ -522,6 +525,110 @@ def test_condors_stand_down_at_extreme_or_unreadable_vix(tmp_path, vix):
     cfg = replace(OptionsConfig(), limits=LimitsConfig(max_loss_per_trade_inr=1e9))
     out = _scan(ScanKite(vix=vix), capital=1e7, cfg=cfg, tmp=tmp_path)
     assert out["iron_condors"] == [] and any("stand down" in x for x in out["log"])
+
+
+# ---- the page's measured odds (WGF1b): the calibration on a store whose outcomes are known
+ODDS_SPOT, ODDS_IV = 10_000.0, 0.15
+ODDS_EXPIRIES = ("2024-01-25", "2024-03-28", "2024-05-30")      # each decision day is a Tuesday 30 days before
+
+
+def _formula_delta_d2(option_type, k, sigma, days=30.0):
+    """Black-Scholes delta and d2 from the textbook formula, not the toolkit's code."""
+    from scipy.stats import norm
+
+    rate, tau = OptionsConfig().market.risk_free_rate, days / 365.0
+    d1 = (math.log(ODDS_SPOT / k) + (rate + sigma ** 2 / 2.0) * tau) / (sigma * math.sqrt(tau))
+    return (norm.cdf(d1) if option_type == "CE" else norm.cdf(d1) - 1.0), d1 - sigma * math.sqrt(tau)
+
+
+def _odds_store(root):
+    """Three monthly NIFTY cycles, spot 10,000 on each decision day and every strike at 15% IV.  The index rallies
+    through the short call in the first, stays flat in the second, and dips through the short put in the third before
+    closing back at 10,000.  The IV rank is 100, 0, 100.  A weekly expiry, and an untraded call priced so its delta is
+    exactly the target, must both be ignored."""
+    import numpy as np
+    from scipy.optimize import brentq
+
+    from kite_connect.options.iv_history import IV_VERSION
+    from nse_engine.data.fo_store import OPTION_COLUMNS
+
+    rate = OptionsConfig().market.risk_free_rate
+    sessions = pd.bdate_range("2023-01-02", "2024-06-28")
+    spot = pd.Series(ODDS_SPOT, index=sessions)
+    iv30 = pd.Series(0.14 + 0.02 * (np.arange(len(sessions)) % 2), index=sessions)
+    expiries = pd.to_datetime(ODDS_EXPIRIES)
+    for i, e in enumerate(expiries):
+        inside = (sessions > e - pd.Timedelta(days=30)) & (sessions <= e)
+        n = int(inside.sum())
+        if i == 0:
+            spot[inside] = np.linspace(ODDS_SPOT, 11_000.0, n + 1)[1:]
+        elif i == 2:
+            half = n // 2
+            spot[inside] = np.concatenate([np.linspace(ODDS_SPOT, 9_000.0, half + 1)[1:],
+                                           np.linspace(9_000.0, ODDS_SPOT, n - half + 1)[1:]])
+        iv30[e - pd.Timedelta(days=30)] = 0.10 if i == 1 else 0.20
+
+    def row(d0, e, k, kind, close, traded=True):
+        return {"date": d0, "symbol": "NIFTY", "expiry": e, "strike": float(k), "option_type": kind, "open": close,
+                "high": close, "low": close, "close": close, "settle": close, "contracts": 100 if traded else 0,
+                "oi": 1000 if traded else 0, "lot_size": 50}
+
+    rows = []
+    for e, iv in [*((x, ODDS_IV) for x in expiries), (pd.Timestamp("2024-01-18"), 0.30)]:    # January's weekly
+        d0 = e - pd.Timedelta(days=30)
+        rows += [row(d0, e, k, kind, black_scholes(kind, ODDS_SPOT, k, 30, rate, iv).price)
+                 for k in range(9_000, 11_001, 100) for kind in ("CE", "PE")]
+    stale_iv = brentq(lambda s: _formula_delta_d2("CE", 10_450.0, s)[0] - 0.15, 0.01, 1.0)
+    rows.append(row(expiries[0] - pd.Timedelta(days=30), expiries[0], 10_450.0, "CE",
+                    black_scholes("CE", ODDS_SPOT, 10_450.0, 30, rate, stale_iv).price, traded=False))
+    opts = pd.DataFrame(rows)[OPTION_COLUMNS]
+    for folder in ("options", "iv"):
+        (root / folder).mkdir(parents=True)
+    for year, part in opts.groupby(opts["date"].dt.year):
+        part.to_parquet(root / "options" / f"{year}.parquet", index=False)
+    pd.DataFrame({"date": sessions, "index_name": "NIFTY50", "close": spot.to_numpy()}).to_parquet(
+        root / "underlying.parquet", index=False)
+    pd.DataFrame({"date": sessions, "iv30": iv30.to_numpy()}).to_parquet(root / "iv" / f"NIFTY_v{IV_VERSION}.parquet",
+                                                                        index=False)
+
+
+def test_the_measured_odds_follow_the_index_through_known_cycles(tmp_path):
+    from dataclasses import replace
+
+    from kite_connect.options.iv_history import IV_VERSION
+    from kite_connect.options.odds_calibration import condor_calibration, measured_note
+    from kite_connect.options.theory import probability_touch
+
+    _odds_store(tmp_path)
+    cfg = replace(OptionsConfig(), data=replace(OptionsConfig().data, fo_store=str(tmp_path)))
+    res = condor_calibration(cfg, start="2023-01-01", end="2024-12-31", min_cycles=3)
+    # the shorts are the traded strikes nearest 0.15 delta: 10,500 and 9,600 (the untraded 10,450 would be nearer)
+    deltas = {k: _formula_delta_d2("CE", k, ODDS_IV)[0] for k in range(10_100, 11_001, 100)}
+    call_k = min(deltas, key=lambda k: abs(deltas[k] - 0.15))
+    put_deltas = {k: _formula_delta_d2("PE", k, ODDS_IV)[0] for k in range(9_000, 10_000, 100)}
+    put_k = min(put_deltas, key=lambda k: abs(abs(put_deltas[k]) - 0.15))
+    assert (call_k, put_k) == (10_500, 9_600) and abs(deltas[call_k] - 0.15) > 1e-3
+    from scipy.stats import norm
+
+    call_p = norm.cdf(_formula_delta_d2("CE", call_k, ODDS_IV)[1])
+    put_p = norm.cdf(-_formula_delta_d2("PE", put_k, ODDS_IV)[1])
+    rate = cfg.market.risk_free_rate
+    touch = sum(probability_touch(ODDS_SPOT, k, 30, rate, ODDS_IV, monitor_every_days=1.0) for k in (call_k, put_k))
+    assert (res.cycles, res.span, res.rank_cycles) == (3, "2024", 2)
+    assert (res.call_beyond_realised, res.put_beyond_realised) == (approx(1 / 3, abs=1e-3), 0.0)
+    assert (res.pop_realised, res.touch_realised, res.rank_pop_realised) == (approx(2 / 3, abs=1e-3),) * 2 + (0.5,)
+    assert res.call_beyond_predicted == approx(call_p, abs=1e-3) and res.put_beyond_predicted == approx(put_p, abs=1e-3)
+    assert res.pop_predicted == approx(1 - call_p - put_p, abs=1e-3) == res.rank_pop_predicted
+    assert res.touch_predicted == approx(min(touch, 1.0), abs=1e-3)
+    assert "(3 cycles," in measured_note(res) and "67% realised" in measured_note(res)
+    assert "not the one measured" not in measured_note(cfg=OptionsConfig())
+    wider = replace(OptionsConfig(), overlay=replace(OptionsConfig().overlay, condor_short_delta=0.20))
+    assert "This config's condor (0.20 delta, 30 days, IV rank 50) is not the one measured" in measured_note(cfg=wider)
+    with pytest.raises(ValueError, match="fewer than the 4"):
+        condor_calibration(cfg, start="2023-01-01", end="2024-12-31", min_cycles=4)
+    (tmp_path / "iv" / f"NIFTY_v{IV_VERSION}.parquet").unlink()
+    with pytest.raises(FileNotFoundError):
+        condor_calibration(cfg, start="2023-01-01", end="2024-12-31", min_cycles=3)
 
 
 def test_the_scan_offers_no_naked_short_and_places_nothing(tmp_path):
@@ -752,3 +859,198 @@ def test_the_event_list_says_when_it_has_run_out():
     from kite_connect.options.sleeves import EVENT_DATES, events_ahead
 
     assert events_ahead(EVENT_DATES[-1]) and not events_ahead(pd.Timestamp(EVENT_DATES[-1]) + pd.Timedelta(days=1))
+
+
+# ---- the chain recorder (OX1, plan 5cg): what A1's legs really cost, read from a recorded chain
+
+REC_NOW = datetime(2026, 12, 10, 11, 0, tzinfo=IST)
+REC_SPOT, REC_VIX = 26000.0, 13.0
+REC_EXPIRIES = (date(2026, 12, 22), date(2026, 12, 29), date(2027, 1, 5), date(2027, 1, 12), date(2027, 1, 19),
+                date(2027, 1, 25), date(2027, 2, 23))
+
+
+class ChainKite:
+    """NIFTY's weeklies and monthlies around December 2026, priced at Black-Scholes, two-sided, and India VIX."""
+
+    def __init__(self, empty=False, spot=REC_SPOT):
+        self.empty, self.spot, self.dump, self.by_symbol = empty, spot, [], {}
+        for e in REC_EXPIRIES:
+            for k in range(18000, 34001, 100):
+                for t in ("CE", "PE"):
+                    row = {"instrument_token": len(self.dump) + 1, "tradingsymbol": f"NIFTY{e:%y%m%d}{k}{t}",
+                           "name": "NIFTY", "expiry": e, "strike": float(k), "tick_size": 0.05, "lot_size": LOT,
+                           "instrument_type": t, "segment": "NFO-OPT", "exchange": "NFO"}
+                    self.dump.append(row)
+                    self.by_symbol[row["tradingsymbol"]] = row
+
+    def instruments(self, exchange):
+        return self.dump
+
+    def quote(self, keys):
+        out = {}
+        for key in keys:
+            if key in ("NSE:NIFTY 50", "NSE:INDIA VIX"):
+                if self.spot:
+                    out[key] = {"last_price": self.spot if key == "NSE:NIFTY 50" else REC_VIX}
+                continue
+            if self.empty:
+                continue
+            i = self.by_symbol[key.split(":", 1)[1]]
+            px = black_scholes(i["instrument_type"], REC_SPOT, i["strike"], days_to_expiry(i["expiry"], REC_NOW),
+                               RATE, 0.13).price
+            out[key] = {"last_price": px, "oi": 5000.0, "volume": 10.0,
+                        "depth": {"buy": [{"price": round(px * 0.98, 2), "quantity": 650, "orders": 3},
+                                          {"price": 0, "quantity": 0, "orders": 0}],
+                                  "sell": [{"price": round(px * 1.02 + 0.05, 2), "quantity": 1300, "orders": 2}]}}
+        return out
+
+
+class StateBook:
+    """A Neon book's key-value state."""
+
+    def __init__(self, state=None):
+        self.state = dict(state or {})
+
+    def sync_state(self, values):
+        self.state.update(values)
+        return True
+
+    def read_state(self):
+        return dict(self.state)
+
+
+def _closes(last, n=300, a=0.01):
+    """NIFTY 50 closes to ``last`` whose daily log returns alternate -a, +a: A1's sigma a sqrt(252 / 251), mu 0."""
+    days = pd.bdate_range(end=pd.Timestamp(last), periods=n)
+    return pd.Series(REC_SPOT * np.exp(np.cumsum([a if i % 2 else -a for i in range(n)])), index=days)
+
+
+def _q(bid, ask, bid_qty=650, ask_qty=1300, oi=5000.0):
+    return {"b": [[bid, bid_qty]] if bid else [], "a": [[ask, ask_qty]] if ask else [], "l": ask, "oi": oi, "v": 10.0}
+
+
+def _a1_snap(at, nearer, calls, target=None, target_side=None):
+    e = {nearer: {"lot": LOT, "CE": calls, "PE": {}}}
+    if target:
+        e[target] = target_side
+    return {"at": at, "spot": REC_SPOT, "vix": REC_VIX, "monthly": [nearer, "2027-01-25"], "target": target, "e": e}
+
+
+def test_the_recorder_keeps_out_of_the_money_strikes_inside_its_bands_on_three_expiries(tmp_path):
+    from kite_connect.options import chain_recorder as cr
+
+    book = StateBook()
+    out = cr.snapshot(now=REC_NOW, book=book, broker=_broker(tmp_path, ChainKite()))
+    assert out["stored"] == "option_chain_2026-12-10T1100"
+    snap = json.loads(book.state[out["stored"]])
+    # the next two monthly expiries (each month's latest, not the 22 Dec weekly) and the scan's target, the expiry
+    # nearest 30 days inside 21-56 (12 Jan at 33 days, against 5 Jan at 26)
+    assert snap["monthly"] == ["2026-12-29", "2027-01-25"] and snap["target"] == "2027-01-12"
+    assert sorted(snap["e"]) == ["2026-12-29", "2027-01-12", "2027-01-25"]
+    for expiry, calls_sd in (("2026-12-29", 7.0), ("2027-01-12", 4.0), ("2027-01-25", 4.0)):
+        sd = REC_SPOT * REC_VIX / 100 * math.sqrt(days_to_expiry(date.fromisoformat(expiry), REC_NOW) / 365)
+        calls = sorted(float(k) for k in snap["e"][expiry]["CE"])
+        puts = sorted(float(k) for k in snap["e"][expiry]["PE"])
+        assert calls[0] == REC_SPOT and puts[-1] == REC_SPOT                 # out of the money only, spot both sides
+        assert calls[-1] == math.floor((REC_SPOT + calls_sd * sd) / 100) * 100   # the nearer monthly's calls to 7 SD
+        assert puts[0] == math.ceil((REC_SPOT - 4.0 * sd) / 100) * 100
+    q = snap["e"]["2026-12-29"]["CE"]["27000"]
+    assert len(q["b"]) == 1 and q["b"][0][1] == 650 and q["a"][0][1] == 1300   # the empty level dropped
+    assert snap["e"]["2026-12-29"]["lot"] == LOT and snap["vix"] == REC_VIX
+
+
+def test_the_recorder_stores_nothing_out_of_hours_or_without_a_login_and_refuses_a_chain_without_prices(
+        tmp_path, monkeypatch):
+    from kite_connect.auth import daily_login
+    from kite_connect.options import chain_recorder as cr
+
+    def no_neon():
+        raise AssertionError("Neon touched")
+
+    monkeypatch.setattr(cr, "_book", no_neon)
+    for at in (datetime(2026, 12, 10, 15, 29, tzinfo=IST), datetime(2026, 12, 10, 9, 19, tzinfo=IST),
+               datetime(2026, 12, 12, 11, 0, tzinfo=IST), datetime(2026, 12, 25, 11, 0, tzinfo=IST)):   # Sat, holiday
+        assert "outside market hours" in cr.snapshot(now=at)["skipped"]
+    monkeypatch.setattr(daily_login, "kite_from_stored_token", lambda book=None: None)
+    assert cr.snapshot(now=REC_NOW) == {"skipped": "no Kite login today"}
+    with pytest.raises(RuntimeError, match="no quotes"):
+        cr.snapshot(now=REC_NOW, book=StateBook(), broker=_broker(tmp_path, ChainKite(empty=True)))
+    with pytest.raises(RuntimeError, match="India VIX"):
+        cr.snapshot(now=REC_NOW, book=StateBook(), broker=_broker(tmp_path, ChainKite(spot=None)))
+
+
+def test_a1_sells_and_buys_the_first_quoted_calls_above_its_levels_and_costs_the_excess_over_one_tick():
+    from kite_connect.options import chain_recorder as cr
+
+    sigma = 0.01 * math.sqrt(252 / 251)
+    short_level = REC_SPOT * (1 + 2 * sigma * math.sqrt(15))       # 28,018: 28,100 has no bid, so A1 sells 28,200
+    wing_level = REC_SPOT * (1 + 3 * sigma * math.sqrt(15))        # 29,027: it buys 29,100
+    assert 28000 < short_level < 28100 and 29000 < wing_level < 29100
+    calls = {str(k): _q(1.0, 1.6) for k in range(26000, 30001, 100)}
+    calls["28100"] = _q(0, 1.5)
+    calls["29100"] = _q(0.20, 0.40, ask_qty=195)
+    rows = cr.a1_rows([_a1_snap("2026-12-14T15:10:00+05:30", "2026-12-29", calls)],
+                      _closes(date(2026, 12, 11))).set_index("leg")
+    assert rows.loc["short", "strike"] == 28200 and rows.loc["short", "unquoted_passed"] == 1
+    assert rows.loc["wing", "strike"] == 29100 and rows.loc["wing", "unquoted_passed"] == 0
+    assert rows.loc["short", "excess"] == approx(0.30 - 0.05) and rows.loc["wing", "excess"] == approx(0.10 - 0.05)
+    assert rows.loc["short", "lots_best"] == approx(650 / LOT) and rows.loc["wing", "lots_best"] == approx(195 / LOT)
+    with pytest.raises(ValueError, match="refresh the F&O store"):                # stale closes would move sigma
+        cr.a1_rows([_a1_snap("2026-12-14T15:10:00+05:30", "2026-12-29", calls)], _closes(date(2026, 12, 4)))
+
+
+def test_the_rule_waits_for_ten_sessions_then_sets_the_median_excess_against_037():
+    from kite_connect.options import chain_recorder as cr
+
+    def state(bid, ask, sessions):
+        calls = {str(k): _q(bid, ask) for k in range(26000, 34001, 100)}
+        days = list(pd.bdate_range("2026-12-07", periods=sessions)) + [pd.Timestamp("2026-12-02"),
+                                                                       pd.Timestamp("2026-12-21")]
+        return {f"option_chain_{d:%Y-%m-%d}T1500": json.dumps(_a1_snap(f"{d:%Y-%m-%d}T15:00:00+05:30", "2026-12-27",
+                                                                         calls)) for d in days}
+
+    closes = _closes(date(2026, 12, 18))
+    early = cr.a1_spread(state=state(1.0, 2.0, 9), closes=closes)
+    assert early["sessions"] == 9 and early["rule"].startswith("not yet decidable")   # 2 and 21 Dec: 25 and 6 days
+    wide = cr.a1_spread(state=state(1.0, 2.0, 10), closes=closes)
+    assert wide["median_excess_points"] == 0.45 and wide["rule"].startswith("above 0.37: A1 does not go live")
+    edge = cr.a1_spread(state=state(1.0, 1.84, 10), closes=closes)            # exactly 0.37: not above it
+    assert edge["median_excess_points"] == 0.37 and edge["rule"].startswith("0.37 or below")
+    assert cr.a1_spread(state=state(1.0, 2.0, 10), closes=closes, until="2026-12-17")["sessions"] == 9
+
+
+def test_the_condor_columns_are_the_scans_own_legs_from_the_recorded_mid():
+    from kite_connect.options import chain_recorder as cr
+
+    expiry = date(2027, 1, 12)
+    dte = days_to_expiry(expiry, REC_NOW)
+    side, deltas = {"lot": LOT, "CE": {}, "PE": {}}, {"CE": {}, "PE": {}}
+    for k in range(20000, 32001, 100):
+        for t in ("CE", "PE"):
+            if (t == "CE" and k < REC_SPOT) or (t == "PE" and k > REC_SPOT):
+                continue
+            g = black_scholes(t, REC_SPOT, float(k), dte, RATE, 0.13)
+            half = max(0.05, 0.02 * g.price)
+            side[t][str(k)] = _q(round(g.price - half, 6), round(g.price + half, 6))
+            if k != REC_SPOT and g.price - half > 0:
+                deltas[t][float(k)] = abs(g.delta)
+    snap = _a1_snap(REC_NOW.isoformat(), "2026-12-29", {}, target=expiry.isoformat(), target_side=side)
+    rows = cr.condor_rows([snap]).set_index("leg")
+    for t in ("CE", "PE"):
+        for leg, d in (("short", 0.15), ("wing", 0.05)):
+            want = min(deltas[t], key=lambda k: abs(deltas[t][k] - d))
+            assert rows.loc[f"{t} {leg}", "strike"] == want
+            assert rows.loc[f"{t} {leg}", "half_spread"] == approx(max(0.05, 0.02 * black_scholes(
+                t, REC_SPOT, want, dte, RATE, 0.13).price))
+
+
+def test_the_record_status_counts_sessions_and_stops_at_its_cap(monkeypatch):
+    from kite_connect.options import chain_recorder as cr
+
+    state = {"option_chain_2026-12-10T1100": "x" * 40, "option_chain_2026-12-10T1500": "x" * 40,
+             "option_chain_2026-12-11T1100": "x" * 40, "unrelated": "y" * 1000}
+    out = cr.status(state=state)
+    assert (out["snapshots"], out["sessions"], out["first"], out["last"]) == (3, 2, "2026-12-10T1100", "2026-12-11T1100")
+    assert not out["cap_reached"]
+    monkeypatch.setattr(cr, "CAP_BYTES", 120)
+    assert cr.status(state=state)["cap_reached"] and "stop the recorder" in cr.status(state=state)["action"]

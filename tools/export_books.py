@@ -8,7 +8,7 @@ schema to ``data/nse_engine/book_exports/<book>/<table>.csv.gz``, which the priv
 (``runners.refresh_data``); GitHub Actions cannot, because this repository's logs and artifacts are public.
 
 - Books: every ``config/nse_engine_*.json`` (the deployed book in the default schema), the live book, the US
-  advisory journal and the ETF order-book snapshots (BD2).  A schema that does not exist yet is listed as such.
+  advisory journal, the ETF order-book snapshots (BD2) and the NIFTY option-chain record (OX1).  A schema that does not exist yet is listed as such.
 - Tables: the seven paper tables, those present.  ``paper_cloud_state`` is copied key by key, except any key
   naming a token, secret, password or API key (the stored Kite login is one), and the registry of users' Zerodha
   accounts (``kite_accounts``, in the live book's state): a user who deletes their account (MU2) must not live on
@@ -37,8 +37,8 @@ OUT = Path(__file__).resolve().parent.parent / "data" / "nse_engine" / "book_exp
 TABLES = ("paper_positions", "paper_daily_snapshots", "paper_signal_log", "paper_weekly_checkpoints",
           "paper_fills", "paper_sessions", "paper_cloud_state")
 SECRET_KEY = re.compile(r"token|secret|passw|api_key|kite_accounts", re.IGNORECASE)   # accounts.REGISTRY_KEY
-#: Schemas that are not config books: the live book's default, the US advisory journal, BD2's snapshots.
-EXTRA = {"live": "live", "us_advisory": "us_advisory", "etf_depth": "etf_depth"}
+#: Schemas that are not config books: the live book's default, the US advisory journal, BD2's and OX1's snapshots.
+EXTRA = {"live": "live", "us_advisory": "us_advisory", "etf_depth": "etf_depth", "option_chain": "option_chain"}
 
 
 def schemas() -> Dict[str, str]:

@@ -109,6 +109,58 @@ def combine(book: pd.Series, stream: pd.Series, w, kind: str) -> pd.Series:
     return book + w * stream if kind == "overlay" else (1 - w) * book + w * stream
 
 
+#: When Genius Failed (Lowenstein's LTCM, as summarised in research_inbox): trades that looked unrelated over years
+#: lost together in the 1998 crash (pp. 47, 101, 111).  Reported beside the gate, never a condition (GT13).
+TAIL_SHARE, MIN_TAIL_MONTHS = 0.10, 6
+
+
+def _finite_or_none(x: float) -> Optional[float]:
+    return float(x) if np.isfinite(x) else None
+
+
+def crisis_record(book: pd.Series, stream: pd.Series, comb: pd.Series, index_level: pd.Series,
+                  min_fall: Optional[float] = None, tail_share: float = TAIL_SHARE) -> Dict:
+    """How a stream behaved when the book was hurt, beside the whole-sample correlation the gate reports.
+
+    ``episodes``: every fall of ``index_level`` of at least ``min_fall`` (the scorecard's CRASH_MIN_FALL by
+    default) that the record spans, peak close to trough close, with the book's, the stream's and the
+    combination's returns over it.  ``tail``: the book's worst ``tail_share`` of calendar months, with the
+    stream's mean return there, the share of those months it also lost, and the monthly correlation there (read
+    it beside the sign: selecting on the book narrows its range).  Below MIN_TAIL_MONTHS such months the tail
+    figures are None.  Raises on series that do not share one index or hold a missing or infinite value.
+    """
+    from nse_engine.scorecard import CRASH_MIN_FALL, crash_episodes
+
+    if not 0.0 < tail_share <= 0.5:
+        raise ValueError(f"tail_share must be in (0, 0.5], got {tail_share}")
+    if not (book.index.equals(stream.index) and book.index.equals(comb.index)):
+        raise ValueError("book, stream and combination must share one index")
+    for name, s in (("book", book), ("stream", stream), ("combination", comb)):
+        if not np.isfinite(s.to_numpy(dtype="float64")).all():
+            raise ValueError(f"{name} returns hold a missing or infinite value")
+    fall = CRASH_MIN_FALL if min_fall is None else min_fall
+    episodes = []
+    for ep in crash_episodes(index_level, fall):
+        peak, trough = pd.Timestamp(ep["peak"]), pd.Timestamp(ep["trough"])
+        if not len(book) or book.index[0] > peak or book.index[-1] < trough:
+            continue
+        seg = (book.index > peak) & (book.index <= trough)
+        episodes.append({**ep, **{k: float((1 + s[seg]).prod() - 1) for k, s in
+                                  (("book", book), ("stream", stream), ("combination", comb))}})
+    monthly = (1 + pd.DataFrame({"book": book, "stream": stream})).resample("ME").prod() - 1
+    worst = monthly.nsmallest(int(np.floor(len(monthly) * tail_share)), "book")
+    enough = len(worst) >= MIN_TAIL_MONTHS
+    return {"min_fall": float(fall), "episodes": episodes,
+            "stream_lost_in": int(sum(e["stream"] < 0 for e in episodes)),
+            "combination_beat_book_in": int(sum(e["combination"] > e["book"] for e in episodes)),
+            "tail": {"share": float(tail_share), "months": int(len(worst)), "of_months": int(len(monthly)),
+                     "book_mean": _finite_or_none(worst["book"].mean()) if enough else None,
+                     "stream_mean": _finite_or_none(worst["stream"].mean()) if enough else None,
+                     "stream_lost_share": float((worst["stream"] < 0).mean()) if enough else None,
+                     "correlation": _finite_or_none(worst["book"].corr(worst["stream"])) if enough else None},
+            "correlation_all": _finite_or_none(monthly["book"].corr(monthly["stream"]))}
+
+
 def _boot_indices(T: int) -> np.ndarray:
     """Paired stationary-bootstrap resamples of T sessions (geometric blocks, mean BOOT_BLOCK, fixed seed)."""
     rng = np.random.default_rng(BOOT_SEED)
@@ -191,7 +243,8 @@ def evaluate(name: str, kind: str, raw: pd.Series, base: bs.Base, tri: pd.Series
                                                          rf_annual=RF if kind == "sleeve" else 0.0)["dsr"])},
            "years": {int(y): [round(float((1 + book[book.index.year == y]).prod() - 1), 4),
                               round(float((1 + comb[comb.index.year == y]).prod() - 1), 4)]
-                     for y in sorted(set(sessions.year))}}
+                     for y in sorted(set(sessions.year))},
+           "crisis": crisis_record(book, stream, comb, (1 + tri.reindex(sessions).fillna(0.0)).cumprod())}
     if name in OUT_OF_SAMPLE_2008_12:
         early = sessions[(sessions.year >= 2008) & (sessions.year <= 2012)]
         out["oos_2008_12"] = {"book": excess_sharpe(book[early]), "combined": excess_sharpe(comb[early]),
@@ -421,12 +474,14 @@ def drawdown_lever(sleeves: Dict[str, pd.Series], weights: Dict[str, float], bas
     for name, w in weights.items():
         comb = comb + w * sleeves[name].reindex(sessions).fillna(0.0)
     b, c = _card(book, tri), _card(comb, tri)
+    mix = sum(w * sleeves[name].reindex(sessions).fillna(0.0) for name, w in weights.items()) / sum(weights.values())
+    crisis = crisis_record(book, mix, comb, (1 + tri.reindex(sessions).fillna(0.0)).cumprod())
     share = bootstrap_dd_share(book, comb)
     checks = {"maxdd_3pts": bool(c["max_drawdown"] >= b["max_drawdown"] + DD_GAIN),
               "sharpe_within_0.02": bool(c["excess_sharpe"] >= b["excess_sharpe"] - DD_SHARPE_SLACK),
               "bootstrap_80pct": bool(share >= DD_BOOT_SHARE)}
     return {"book": b, "combined": c, "bootstrap_share_3pts": share, "checks": checks, "pass": all(checks.values()),
-            "years": {int(y): [round(float((1 + book[book.index.year == y]).prod() - 1), 4),
+            "crisis": crisis, "years": {int(y): [round(float((1 + book[book.index.year == y]).prod() - 1), 4),
                                round(float((1 + comb[comb.index.year == y]).prod() - 1), 4)]
                       for y in sorted(set(sessions.year))}}
 

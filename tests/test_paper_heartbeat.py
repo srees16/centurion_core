@@ -690,7 +690,8 @@ def test_the_book_export_lists_every_book_and_its_schema(monkeypatch):
                                                           SimpleNamespace(name="e4", schema="e4"),
                                                           SimpleNamespace(name="live", schema="live_cfg")])
     assert export_books.schemas() == {"deployed": "public", "e4": "e4", "live": "live_cfg",   # a config book wins
-                                      "us_advisory": "us_advisory", "etf_depth": "etf_depth"}
+                                      "us_advisory": "us_advisory", "etf_depth": "etf_depth",
+                                      "option_chain": "option_chain"}
 
 
 def test_the_book_export_needs_the_database_and_writes_under_the_repository(monkeypatch, capsys):
@@ -735,6 +736,10 @@ def _backup_tree(tmp_path, monkeypatch):
         (data / f).write_text(text)
     memory = tmp_path / "memory"
     memory.mkdir()
+    books = tmp_path / "ingest_docs"
+    books.mkdir()
+    (books / "a.pdf").write_text("%PDF book")
+    monkeypatch.setattr(backup, "BOOKS", books)
     monkeypatch.setattr(backup, "machine_files", lambda: {})
     monkeypatch.setattr(backup, "memory_dir", lambda root=None: memory)
     monkeypatch.setattr(backup, "STATE_FILE", data / "backup_state.json")
@@ -749,6 +754,7 @@ def test_the_backup_puts_each_kind_of_file_in_its_own_dataset(tmp_path, monkeypa
     assert out["centurion-backup-archive-2025"] == ["archive/equity/2025", "archive/filings/docs/2025"]
     assert out["centurion-backup-archive-2026"] == ["archive/fo/2026", "archive/filings/lists/ann/2026"]
     assert out["centurion-backup-store"] == ["store"] and out["centurion-backup-mcx-store"] == ["mcx_store"]
+    assert out["centurion-backup-books"] == ["machine/rag_books"]                   # CPY1: off git, so backed up
     assert out["centurion-backup-state"] == [
         "runs_options", "wf_core.json", "x_results.csv", "refresh_status.json", "holdout.lock",
         "runs/runtime_index.json", "scorecard", "book_exports", "archive/reference", "archive/manifest",
@@ -766,12 +772,27 @@ def test_the_backup_skips_hidden_and_live_task_files_and_uploads_only_what_chang
     todo = backup.plan()
     assert set(todo) == {"centurion-backup-runs-2026w45", "centurion-backup-archive-2025",   # nothing pushed yet:
                          "centurion-backup-store", "centurion-backup-mcx-store",            # every piece with files;
-                         "centurion-backup-state"}                                          # empty ones wait
+                         "centurion-backup-books", "centurion-backup-state"}                # empty ones wait
     backup.STATE_FILE.write_text(__import__("json").dumps({s: {"fingerprint": fp} for s, fp in todo.items()}))
     assert set(backup.plan()) == {"centurion-backup-state"}                         # unchanged: the state only
     (data / "store" / "prices.parquet").write_text("1234")                           # a size change
     assert set(backup.plan()) == {"centurion-backup-state", "centurion-backup-store"}
     assert set(backup.plan(push_all=True)) == set(todo)
+
+
+def test_the_books_come_back_beside_the_rag_engine_not_into_data(tmp_path, monkeypatch):
+    """CPY1: the books left git, so a new laptop gets them only from the backup, back in rag_pipeline/ingest_docs."""
+    import shutil
+
+    backup, data = _backup_tree(tmp_path, monkeypatch)
+    monkeypatch.setattr(backup, "STAGE", tmp_path / "stage")
+    stage = backup._stage("centurion-backup-books", backup.pieces(data)["centurion-backup-books"])
+    shutil.rmtree(backup.BOOKS)                                                      # a new laptop: no books yet
+    monkeypatch.setattr(backup, "backup_refs", lambda: ["me/centurion-backup-books"])
+    monkeypatch.setattr(backup, "_download", lambda ref, into: shutil.copytree(stage, into, dirs_exist_ok=True))
+    dest = tmp_path / "restored"
+    assert backup.restore(dest) == {"me/centurion-backup-books": "restored"}
+    assert (backup.BOOKS / "a.pdf").read_text() == "%PDF book" and not (dest / "machine" / "rag_books").exists()
 
 
 # ── the Space's scheduler (scheduler.py): the GitHub dispatches and the newsletter, at their times ──

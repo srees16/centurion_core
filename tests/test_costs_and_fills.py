@@ -240,6 +240,116 @@ def test_trading_costs_reduce_returns(store_path):
     assert dear.metrics["cost_drag"] > cheap.metrics["cost_drag"]
 
 
+@pytest.mark.slow
+def test_every_book_reproduces_its_recorded_backtest(store_path):
+    """The nightly canary (LN-T13) on this machine, before a merge: every paper book's 2013-25 backtest against
+    config/canary_expected.json, to the last trade.  A refactor step must leave it identical (owner, 26 Nov).  A store
+    whose 2013-25 data changed, or a book configured since the record, is re-recorded with ``run_nse_engine canary
+    --record-registry`` (part of every re-baseline), never waved through here."""
+    from pathlib import Path
+
+    from nse_engine.books import discover_books
+    from runners.run_nse_engine import CANARY_EXPECTED, CANARY_WINDOW, _load_data, canary_compare, canary_stats
+
+    books = {b.name: b.deployment.engine.replace(start=CANARY_WINDOW[0], end=CANARY_WINDOW[1])
+             for b in discover_books()}
+    data = _load_data(next(iter(books.values())), data_start="2012-01-02")   # as the nightly canary loads it
+    now = {name: canary_stats(data, cfg) for name, cfg in books.items()}
+    status, moved, fresh = canary_compare(now, json.loads(Path(CANARY_EXPECTED).read_text())["registry"])
+    assert "deployed" in now and (status, moved, fresh) == ("ok", [], []), (status, moved, fresh)
+
+
+# ---- the book's weights under name and sector caps (portfolio.capped_weights; tracker CVX1)
+def _fill(r: np.ndarray, cap: float, total: float) -> np.ndarray:
+    """min(cap, t r_i) summing to ``total`` (at most len(r) x cap): the k largest at the cap, the rest t r_i."""
+    order = np.argsort(-r)
+    rest = np.cumsum(r[order][::-1])[::-1]
+    for k in range(len(r)):
+        t = (total - k * cap) / rest[k]
+        if t * r[order][k] <= cap + 1e-15:
+            out = np.where(np.arange(len(r)) < k, cap, t * r[order])
+            return out[np.argsort(order)]
+    return np.full(len(r), cap)
+
+
+def _water_filled(raw: pd.Series, cap: float, sector_cap: float, sectors) -> pd.Series:
+    """The KKT solution (Boyd & Vandenberghe 2004, examples 5.2 and 5.4) of: weights nearest raw / sum(raw) in
+    relative entropy, each at most ``cap``, each known sector at most ``sector_cap``, summing to 1 where the caps
+    allow.  It is w_i = min(cap, c theta_s raw_i): one c for the book, theta_s < 1 only in a sector at its cap."""
+    groups = {}
+    for name in raw.index:
+        s = sectors.get(name)
+        groups.setdefault(("solo", name) if s is None else s, []).append(name)
+
+    def at(c):
+        w = {}
+        for g, names in groups.items():
+            r = raw[names].to_numpy(dtype=float)
+            base = np.minimum(cap, c * r)
+            if not isinstance(g, tuple) and base.sum() > sector_cap:
+                base = _fill(r, cap, sector_cap)
+            w.update(zip(names, base, strict=True))
+        return pd.Series(w)[raw.index]
+
+    lo, hi = 0.0, 1.0
+    while at(hi).sum() < 1.0:
+        hi *= 2.0
+    for _ in range(200):
+        lo, hi = ((lo + hi) / 2, hi) if at((lo + hi) / 2).sum() < 1.0 else (lo, (lo + hi) / 2)
+    return at(hi)
+
+
+def test_with_name_caps_alone_the_weights_are_water_filling():
+    """The KKT conditions of the capped proportional book: uncapped names share one weight-to-score ratio, a
+    capped name's score would have carried it past the cap, and the weights sum to 1 (or to every cap, when 1 is
+    out of reach).  400 seeded books of 5 to 30 names."""
+    from nse_engine.portfolio import capped_weights
+
+    rng = np.random.default_rng(7)
+    for _ in range(400):
+        n = int(rng.integers(5, 31))
+        raw = pd.Series(rng.lognormal(0.0, 1.0, n), index=[f"S{i}" for i in range(n)])
+        cap = float(rng.uniform(0.6 / n, 0.5))
+        w = capped_weights(raw, cap)
+        assert np.allclose(w.to_numpy(), _fill(raw.to_numpy(), cap, min(1.0, n * cap)), atol=1e-12)
+        free = w < cap - 1e-12
+        ratio = (w[free] / raw[free]).to_numpy()
+        assert np.ptp(ratio) <= 1e-9 * ratio.max() if free.any() else True
+        assert (raw[~free] * (ratio[0] if free.any() else np.inf) >= cap - 1e-12).all()
+        assert abs(w.sum() - min(1.0, n * cap)) <= 1e-12
+
+
+def test_a_sector_over_its_cap_is_scaled_whole_not_water_filled():
+    """One worked book: A1 (score 4) and A2-A4 (score 1) in one sector capped at 25%, twelve names of score 1
+    with no sector, every name capped at 10%.  Today: A1 is capped at 10%, the sector then holds 10% + 3/19 and is
+    scaled to 25% whole, so A1 = 25% x 1.9/4.9 and A2-A4 = 25%/4.9 each.  Water-filling keeps A1 at 10% and gives
+    A2-A4 5% each.  The twelve others hold 6.25% either way.  Switching method moves real weights (tracker CVX1)."""
+    from nse_engine.portfolio import capped_weights
+
+    raw = pd.Series({"A1": 4.0, "A2": 1.0, "A3": 1.0, "A4": 1.0, **{f"B{i}": 1.0 for i in range(12)}})
+    sectors = {"A1": "A", "A2": "A", "A3": "A", "A4": "A"}
+    today = capped_weights(raw, 0.10, 0.25, sectors)
+    assert today["A1"] == pytest.approx(0.25 * 1.9 / 4.9, abs=1e-12)
+    assert today[["A2", "A3", "A4"]].to_numpy() == pytest.approx([0.25 / 4.9] * 3, abs=1e-12)
+    filled = _water_filled(raw, 0.10, 0.25, sectors)
+    assert filled["A1"] == pytest.approx(0.10, abs=1e-12) and filled[["A2", "A3", "A4"]].to_numpy() == \
+        pytest.approx([0.05] * 3, abs=1e-12)
+    for w in (today, filled):
+        assert w.filter(like="B").to_numpy() == pytest.approx([0.0625] * 12, abs=1e-12)
+        assert w.sum() == pytest.approx(1.0, abs=1e-12) and w[list(sectors)].sum() == pytest.approx(0.25, abs=1e-12)
+
+
+def test_caps_that_do_not_settle_are_refused_not_clipped(monkeypatch):
+    """A book that needs two rounds, given one, stops with an error rather than returning a half-capped book."""
+    from nse_engine import portfolio as pf
+
+    raw = pd.Series({"A": 10.0, "B": 3.0, "C": 1.0, "D": 1.0})
+    assert pf.capped_weights(raw, 0.40).to_numpy() == pytest.approx([0.40, 0.36, 0.12, 0.12])
+    monkeypatch.setattr(pf, "WEIGHT_CAP_MAX_ITER", 1)
+    with pytest.raises(RuntimeError, match="did not settle in 1 rounds"):
+        pf.capped_weights(raw, 0.40)
+
+
 def test_circuit_locks_known_answers():
     """No range and a moved close is a lock; a flat day, a ranging day or a missing bar is not (RB8)."""
     from nse_engine.costs import circuit_locks

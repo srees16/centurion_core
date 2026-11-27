@@ -394,3 +394,172 @@ def test_gk1_zero_volatility_is_the_formulas_limit():
             assert getattr(zero, name) == approx(getattr(tiny, name), abs=1e-9), (name, option_type, s, days, r, q)
         checked += 1
     assert checked > 350
+
+
+# ---- Shreve, "Stochastic Calculus and Finance" (Chalasani & Jha notes, 1997; research_inbox/stochastic.pdf)
+#      An independent binomial pricer reproduces the notes' worked examples, then converges to black_scholes.
+
+def _risk_neutral(u: float, d: float, growth: float) -> float:
+    """p~ = (1 + r - d) / (u - d), eq. (1.8); the model needs d < 1 + r < u, eq. (1.2), or it admits arbitrage."""
+    if not 0 < d < growth < u:
+        raise ValueError(f"no-arbitrage condition d < 1 + r < u fails: d={d}, 1+r={growth}, u={u}")
+    return (growth - d) / (u - d)
+
+
+def _tree(s0, u, d, r, n, payoff, american=False):
+    """Recombining tree, backward induction (ch. 4.1); American: the larger of holding and exercising (ch. 5.1)."""
+    p = _risk_neutral(u, d, 1 + r)
+    v = payoff(s0 * u ** np.arange(n, -1, -1) * d ** np.arange(0, n + 1))
+    for k in range(n - 1, -1, -1):
+        v = (p * v[:-1] + (1 - p) * v[1:]) / (1 + r)
+        if american:
+            v = np.maximum(v, payoff(s0 * u ** np.arange(k, -1, -1) * d ** np.arange(0, k + 1)))
+    return float(v[0])
+
+
+def _paths(s0, u, d, r, n, payoff_of_path, p_market=None):
+    """Every coin-toss path (ch. 2): risk-neutral, or with market probabilities and the state price
+    zeta_n = (1 + r)^-n Z_n (ch. 9.3)."""
+    from itertools import product
+
+    p = _risk_neutral(u, d, 1 + r)
+    total = 0.0
+    for moves in product((u, d), repeat=n):
+        path = s0 * np.cumprod((1.0,) + moves)
+        heads = sum(m == u for m in moves)
+        q_tilde = p ** heads * (1 - p) ** (n - heads)
+        if p_market is None:
+            total += q_tilde * payoff_of_path(path) / (1 + r) ** n
+        else:
+            prob = p_market ** heads * (1 - p_market) ** (n - heads)
+            total += prob * (q_tilde / prob) / (1 + r) ** n * payoff_of_path(path)
+    return total
+
+
+def test_shreve_binomial_examples_are_reproduced():
+    call, put = (lambda k: (lambda s: np.maximum(s - k, 0.0))), (lambda k: (lambda s: np.maximum(k - s, 0.0)))
+    assert _tree(50, 2, 0.5, 0.25, 1, call(50)) == approx(20.0)                       # Ex. 3.1, p. 59
+    assert _tree(4, 2, 0.5, 0.25, 2, call(5)) == approx(1.76)                         # Ex. 4.2, p. 68
+    assert _tree(8, 2, 0.5, 0.25, 1, call(5)) == approx(4.40)                         # its V1(H)
+    assert _tree(4, 2, 0.5, 0.25, 2, put(5), american=True) == approx(1.36)           # Ex. 5.1, p. 78
+    assert _tree(2, 2, 0.5, 0.25, 1, put(5), american=True) == approx(3.00)           # v1(2): exercise
+    assert _tree(8, 2, 0.5, 0.25, 1, put(5), american=True) == approx(0.40)           # v1(8)
+    assert _tree(4, 2, 0.5, 0.25, 2, put(5)) == approx(0.96)                          # the European put, ch. 9.3
+    def lookback(path):                                                               # Ex. 4.1, p. 67
+        return max(float(np.max(path)) - 5.0, 0.0)
+    assert _paths(4, 2, 0.5, 0.25, 2, lookback) == approx(2.24)
+    assert _paths(4, 2, 0.5, 0.25, 2, lambda path: max(path[-1] - 5.0, 0.0), p_market=1 / 3) == approx(1.76)
+    with pytest.raises(ValueError, match="no-arbitrage"):                             # eq. (1.2) is enforced
+        _tree(4, 2, 0.5, 1.5, 2, call(5))
+
+
+def _crr(option_type, s, k, days, r, sigma, q, n, days_per_year=365):
+    """u = e^(sigma sqrt dt), d = 1/u: the binomial model whose limit is the lognormal (ch. 13.10, Thm 10.42)."""
+    dt = days / days_per_year / n
+    u = np.exp(sigma * np.sqrt(dt))
+    p, disc = _risk_neutral(u, 1 / u, np.exp((r - q) * dt)), np.exp(-r * dt)
+    st = s * u ** np.arange(n, -n - 1, -2.0)
+    v = np.maximum(st - k, 0.0) if option_type == CALL else np.maximum(k - st, 0.0)
+    for _ in range(n):
+        v = disc * (p * v[:-1] + (1 - p) * v[1:])
+    return float(v[0])
+
+
+@pytest.mark.parametrize("option_type, s, k, days, r, sigma, q", [
+    (CALL, 100, 100, 30, 0.065, 0.18, 0.012), (PUT, 100, 110, 90, 0.05, 0.25, 0.0),
+    (CALL, 7485, 7400, 16, 0.0725, 0.20, 0.012), (PUT, 272.7, 280, 45, 0.07, 0.35, 0.0)])
+def test_the_binomial_limit_is_black_scholes(option_type, s, k, days, r, sigma, q):
+    """Thm 10.42: the binomial price converges to the Black-Scholes one; averaging n and n + 1 steps removes
+    the odd-even oscillation."""
+    bs = t.black_scholes(option_type, s, k, days, r, sigma, q).price
+    err = {n: 0.5 * (_crr(option_type, s, k, days, r, sigma, q, n) + _crr(option_type, s, k, days, r, sigma, q, n + 1))
+           - bs for n in (50, 2000)}
+    assert abs(err[2000]) <= 1e-5 * s
+    assert abs(err[2000]) < abs(err[50])
+
+
+def test_black_scholes_solves_its_pde():
+    """Ch. 15.6 / 16.6 with a dividend yield: theta + (r - q) S delta + 1/2 sigma^2 S^2 gamma = r V, from the
+    module's own Greeks (theta is per calendar day), on a seeded grid of calls and puts."""
+    rng = np.random.default_rng(15)
+    for _ in range(500):
+        option_type = CALL if rng.random() < 0.5 else PUT
+        s, k, days = rng.uniform(50, 150), rng.uniform(60, 140), int(rng.integers(1, 366))
+        r, q, sigma = rng.uniform(0.0, 0.10), rng.uniform(0.0, 0.04), rng.uniform(0.05, 0.8)
+        g = t.black_scholes(option_type, s, k, days, r, sigma, q)
+        residual = g.theta * 365 + (r - q) * s * g.delta + 0.5 * sigma ** 2 * s ** 2 * g.gamma - r * g.price
+        assert residual == approx(0.0, abs=1e-9 * max(1.0, s)), (option_type, s, k, days, r, q, sigma)
+
+
+def test_touch_is_twice_the_finish_without_drift():
+    """Reflection principle (ch. 13.14, ch. 25.2): with no drift in the log price (r - q = sigma^2 / 2), the
+    chance of touching a level is exactly twice the chance of finishing beyond it."""
+    s, sigma, r, q, days = 100.0, 0.2, 0.05, 0.03, 90
+    assert t.probability_touch(s, 112, days, r, sigma, q) == approx(
+        2 * t.probability_itm(CALL, s, 112, days, r, sigma, q)["n_d2"], rel=1e-12)
+    assert t.probability_touch(s, 88, days, r, sigma, q) == approx(
+        2 * t.probability_itm(PUT, s, 88, days, r, sigma, q)["n_d2"], rel=1e-12)
+
+
+@pytest.mark.parametrize("s, barrier, days, r, sigma, q", [
+    (100.0, 110.0, 60, 0.065, 0.25, 0.0), (100.0, 90.0, 60, 0.065, 0.25, 0.0),
+    (100.0, 105.0, 30, 0.30, 0.15, 0.0), (7400.0, 7000.0, 30, 0.065, 0.14, 0.012)])
+def test_touch_with_drift_matches_simulated_daily_closes(s, barrier, days, r, sigma, q):
+    """Ch. 25.3's first passage with drift, watched at each daily close (Broadie-Glasserman-Kou), against
+    100,000 simulated paths of daily closes; the continuous barrier is touched more often."""
+    rng = np.random.default_rng(25)
+    dt = 1.0 / 365
+    x = np.cumsum((r - q - 0.5 * sigma ** 2) * dt + sigma * np.sqrt(dt) * rng.standard_normal((100_000, days)), axis=1)
+    level = np.log(barrier / s)
+    simulated = float(((x.max(axis=1) >= level) if barrier > s else (x.min(axis=1) <= level)).mean())
+    daily = t.probability_touch(s, barrier, days, r, sigma, q, monitor_every_days=1.0)
+    assert daily == approx(simulated, abs=0.006)
+    assert t.probability_touch(s, barrier, days, r, sigma, q) > daily
+
+
+def test_touch_limits_and_order():
+    rng = np.random.default_rng(13)
+    for _ in range(300):
+        s, days = 100 * rng.uniform(0.7, 1.3), int(rng.integers(1, 366))
+        r, q, sigma = rng.uniform(0.0, 0.10), rng.uniform(0.0, 0.04), rng.uniform(0.05, 0.8)
+        for barrier, option_type in ((s * rng.uniform(1.01, 1.5), CALL), (s * rng.uniform(0.5, 0.99), PUT)):
+            touch = t.probability_touch(s, barrier, days, r, sigma, q)
+            assert 0.0 <= touch <= 1.0
+            assert touch >= t.probability_itm(option_type, s, barrier, days, r, sigma, q)["n_d2"] - 1e-12
+            assert t.probability_touch(s, barrier, days + 30, r, sigma, q) >= touch          # a distribution in T
+    assert t.probability_touch(100, 100, 30, 0.065, 0.2) == 1.0                       # already there
+    assert t.probability_touch(100, 110, 0, 0.065, 0.2) == 0.0                        # no time left
+    assert t.probability_touch(100, 101, 365, 0.065, 0.0) == 1.0                      # the forward gets there
+    assert t.probability_touch(100, 99, 365, 0.065, 0.0) == 0.0                       # and never comes down
+
+
+@pytest.mark.parametrize("call", [
+    lambda: t.black_scholes(CALL, float("nan"), 100, 30, 0.065, 0.2),
+    lambda: t.black_scholes(CALL, 100, 100, 30, 0.065, float("nan")),
+    lambda: t.black_scholes(CALL, 100, 100, float("nan"), 0.065, 0.2),
+    lambda: t.black_scholes(CALL, 100, 100, 30, float("nan"), 0.2),
+    lambda: t.black_scholes(CALL, 100, 100, 30, 0.065, float("inf")),
+    lambda: t.black_scholes(CALL, float("inf"), 100, 30, 0.065, 0.2),
+    lambda: t.black_scholes(CALL, 100, 100, 30, 0.065, -0.2),                           # was priced as sigma 0
+    lambda: t.black_scholes(CALL, 100, 100, 30, 6.5, 0.2),                              # a percent for a decimal
+    lambda: t.black_scholes(CALL, 100, 100, 30, 0.065, 0.2, dividend=1.2),
+    lambda: t.black_scholes(CALL, 100, 100, 30, 0.065, 0.2, days_per_year=0),
+    lambda: t.probability_itm(CALL, 100, 100, 30, 0.065, float("nan")),
+    lambda: t.implied_volatility(CALL, float("nan"), 100, 100, 30, 0.065),             # was a solver error
+    lambda: t.implied_volatility(CALL, float("inf"), 100, 100, 30, 0.065),             # was None
+    lambda: t.implied_volatility(CALL, 5.0, float("nan"), 100, 30, 0.065),
+    lambda: t.parity_residual(float("nan"), 1.0, 100, 100, 30, 0.065),
+    lambda: t.probability_touch(100, float("nan"), 30, 0.065, 0.2),
+    lambda: t.probability_touch(100, 110, 30, 0.065, 0.2, monitor_every_days=0.0)])
+def test_bad_numbers_are_refused_not_priced(call):
+    """Fail loudly: a NaN, an infinity, a negative volatility or a rate as a percent no longer comes back as a
+    NaN price or Greek that the next sum spreads."""
+    with pytest.raises(ValueError):
+        call()
+
+
+def test_valid_edges_are_still_priced():
+    assert t.black_scholes(CALL, 100, 90, 0, 0.065, 0.2).price == 10.0                  # expiry: intrinsic
+    assert t.black_scholes(PUT, 100, 120, 30, -0.005, 0.0).price > 0                   # a negative rate, no volatility
+    assert t.implied_volatility(CALL, 0.0, 100, 100, 30, 0.065) is None                 # no price: no IV, as before
+    assert t.implied_volatility(CALL, 5.0, 100, 100, 0, 0.065) is None                  # no time: no IV, as before

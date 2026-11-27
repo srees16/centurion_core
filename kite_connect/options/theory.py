@@ -4,6 +4,9 @@ Options theory engine: Zerodha Varsity Module 5 (see docs/options/CONCEPTS.md).
 Payoffs and moneyness (ch. 3 to 8), Black-Scholes price and Greeks with an
 implied-volatility solver and put-call parity (ch. 9 to 14, 19 to 21),
 volatility, expected ranges and the ch. 18 applications (15 to 18, 20).
+Inputs are checked against the model's own conditions (Shreve, "Stochastic Calculus and Finance", 1997:
+positive prices, a non-negative volatility, finite numbers); the chance a barrier is touched before expiry
+comes from the same notes' first-passage results (ch. 13.14, 20.1, 25.3).
 
 Conventions (CONCEPTS.md § Conventions): P&L per unit of underlying, + = money
 in; T = calendar days / 365; theta per calendar day, vega per volatility
@@ -39,6 +42,37 @@ def side_sign(side: str) -> int:
     if s not in (BUY, SELL):
         raise ValueError(f"side must be BUY or SELL, got {side!r}")
     return 1 if s == BUY else -1
+
+
+#: Rates and dividend yields are decimals (0.065 is 6.5%).  A magnitude of 1 (100%) or more is a percent passed
+#: by mistake: refused rather than priced.
+MAX_ABS_RATE = 1.0
+#: Broadie, Glasserman and Kou (1997): a barrier watched every dt behaves like a continuous one moved
+#: exp(+/- BGK_BETA sigma sqrt(dt)) away from the spot; BGK_BETA = -zeta(1/2) / sqrt(2 pi).
+BGK_BETA = 0.5826
+
+
+def _require_finite(**values: float) -> None:
+    bad = {k: v for k, v in values.items() if not math.isfinite(v)}
+    if bad:
+        raise ValueError(f"non-finite input: {bad}")
+
+
+def _check_inputs(spot: float, strike: float, days_to_expiry: float, rate: float, iv: float, dividend: float,
+                  days_per_year: int) -> None:
+    """Refuse what the model cannot price instead of returning NaN: prices must be finite and positive, the
+    volatility finite and non-negative (Shreve ch. 15: S > 0, sigma >= 0), the horizon finite, and the rate and
+    dividend yield decimals."""
+    _require_finite(spot=spot, strike=strike, days_to_expiry=days_to_expiry, rate=rate, iv=iv, dividend=dividend)
+    if spot <= 0 or strike <= 0:
+        raise ValueError("spot and strike must be positive")
+    if iv < 0:
+        raise ValueError(f"volatility must not be negative, got {iv}")
+    if abs(rate) >= MAX_ABS_RATE or abs(dividend) >= MAX_ABS_RATE:
+        raise ValueError(f"rate {rate} and dividend {dividend} are decimals (0.065 is 6.5%); |value| must be < "
+                         f"{MAX_ABS_RATE}")
+    if days_per_year <= 0:
+        raise ValueError(f"days_per_year must be positive, got {days_per_year}")
 
 
 # ---------------------------------------------------------------- ch. 3 to 8
@@ -139,9 +173,8 @@ def black_scholes(option_type: str, spot: float, strike: float, days_to_expiry: 
     forward is worth 0 and has these Greeks at 0.
     """
     t_type = _check_type(option_type)
+    _check_inputs(spot, strike, days_to_expiry, rate, iv, dividend, days_per_year)
     t = days_to_expiry / days_per_year
-    if spot <= 0 or strike <= 0:
-        raise ValueError("spot and strike must be positive")
     if t <= 0:
         iv_now = intrinsic_value(t_type, spot, strike)
         itm = iv_now > 0
@@ -190,6 +223,50 @@ def probability_itm(option_type: str, spot: float, strike: float, days_to_expiry
     return {"n_d2": float(p), "delta_approx": abs(g.delta)}
 
 
+def probability_touch(spot: float, barrier: float, days_to_expiry: float, rate: float, iv: float,
+                      dividend: float = 0.0, days_per_year: int = 365,
+                      monitor_every_days: Optional[float] = None) -> float:
+    """Risk-neutral chance the price touches ``barrier`` before expiry (a barrier above or below the spot).
+
+    The log price is a Brownian motion with drift nu = r - q - sigma^2/2.  With b = |ln(H/S)| / sigma and
+    theta = +/- nu / sigma (the drift towards the barrier), the first passage time tau satisfies
+    P(tau <= T) = N((theta T - b)/sqrt T) + exp(2 theta b) N((-theta T - b)/sqrt T)
+    (Shreve ch. 25.3, the first-passage density with drift; with theta = 0 this is the reflection principle's
+    2 P(S_T beyond H), ch. 13.14).  It is never below :func:`probability_itm`'s chance of finishing beyond the
+    barrier: every path that ends beyond it has touched it.
+
+    ``monitor_every_days``: None for a barrier watched continuously; a number of days (in ``days_per_year``
+    units) for one checked only at discrete times, such as a daily close, moved away from the spot by
+    Broadie, Glasserman and Kou's correction.  Like N(d2), it uses the risk-neutral drift, and it assumes
+    continuous paths: overnight gaps make a real down-barrier more likely to be hit than this says.
+    """
+    _require_finite(barrier=barrier)
+    _check_inputs(spot, barrier, days_to_expiry, rate, iv, dividend, days_per_year)
+    if monitor_every_days is not None:
+        _require_finite(monitor_every_days=monitor_every_days)
+        if monitor_every_days <= 0:
+            raise ValueError(f"monitor_every_days must be positive, got {monitor_every_days}")
+    if barrier == spot:
+        return 1.0
+    t = days_to_expiry / days_per_year
+    if t <= 0:
+        return 0.0
+    up = barrier > spot
+    if monitor_every_days is not None and iv > 0:
+        shift = math.exp(BGK_BETA * iv * math.sqrt(monitor_every_days / days_per_year))
+        barrier = barrier * shift if up else barrier / shift
+    distance = abs(math.log(barrier / spot))
+    if iv == 0:                                   # a certain path: the forward reaches the barrier or not
+        growth = (rate - dividend) * t
+        return 1.0 if (growth >= distance if up else -growth >= distance) else 0.0
+    nu = rate - dividend - 0.5 * iv * iv
+    theta = (nu if up else -nu) / iv
+    b, root = distance / iv, math.sqrt(t)
+    first = norm.cdf((theta * t - b) / root)
+    second = math.exp(2.0 * theta * b + norm.logcdf((-theta * t - b) / root))
+    return float(min(1.0, first + second))
+
+
 def implied_volatility(option_type: str, price: float, spot: float, strike: float, days_to_expiry: float,
                        rate: float, dividend: float = 0.0, days_per_year: int = 365,
                        lo: float = 1e-4, hi: float = 5.0, tol: float = 1e-8) -> Optional[float]:
@@ -199,6 +276,8 @@ def implied_volatility(option_type: str, price: float, spot: float, strike: floa
     bounds the model can reach between ``lo`` and ``hi``.
     """
     t_type = _check_type(option_type)
+    _require_finite(price=price)
+    _check_inputs(spot, strike, days_to_expiry, rate, 0.0, dividend, days_per_year)
     if days_to_expiry <= 0 or price <= 0:
         return None
 
@@ -214,6 +293,8 @@ def implied_volatility(option_type: str, price: float, spot: float, strike: floa
 def parity_residual(call: float, put: float, spot: float, strike: float, days_to_expiry: float,
                     rate: float, dividend: float = 0.0, days_per_year: int = 365) -> float:
     """(C - P) - (S e^-qT - K e^-rT); zero when put-call parity holds (ch. 21, any strike)."""
+    _require_finite(call=call, put=put)
+    _check_inputs(spot, strike, days_to_expiry, rate, 0.0, dividend, days_per_year)
     t = max(days_to_expiry, 0.0) / days_per_year
     return (call - put) - (spot * math.exp(-dividend * t) - strike * math.exp(-rate * t))
 
