@@ -32,7 +32,7 @@ trials never enter another family's PBO or deflated-Sharpe matrix.
 | US core (US5, the India rules on US stocks) | `data/nse_engine/runs_us` | At most 3 configurations. N = 3 after round 1 (17 Oct, plan 5ad: all FAIL against SPY, closed). The next US idea starts its own family. |
 | Bonds (BD1, gilts) | `data/nse_engine/runs_bonds` | At most 3 configurations. N = 3 after BD1 (17 Oct, plan 5ag: all FAIL, closed). The cost of trading debt ETFs was modelled, not measured; a low-churn round would need your call. |
 | Leverage (L7, real stock futures) | `data/nse_engine/runs_leverage` | At most 3 configurations. N = 3 after L7-C (17 Oct, plans 5ae and 5af: all FAIL against L6's synthetic, closed). Its 2026 holdout is used (own lock, `runs_leverage/holdout.lock`). |
-| Intraday (INT1, your amendment 31 Oct 2026) | `data/nse_engine/runs_intraday` | At most 3 configurations per source. N = 3 after GAM2 (25 Nov 2026, plan 5ce: FAIL; registered on its own source, outside INT1C's slots); no registry yet. INT1C has 2 of its 3 idea slots left. |
+| Intraday (INT1, your amendment 31 Oct 2026) | `data/nse_engine/runs_intraday` | At most 3 configurations per source. N = 4 after PEAD1 (27 Nov 2026, plan 5ch: FAIL; registered on its own source, Chan via ALG1, outside INT1C's slots; GAM2 made it 3, 25 Nov, plan 5ce: FAIL); no registry yet. INT1C has 2 of its 3 idea slots left. |
 | Event studies (e.g. GT13) | none; the verdict goes in the plan | The study's hypotheses count as its N (GT13: N = 2). A study that becomes a sleeve then starts a family. |
 
 The counts in this table are checked (tracker PL0, PL-03): `config/research_families.json`

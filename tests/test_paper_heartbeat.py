@@ -690,7 +690,8 @@ def test_the_book_export_lists_every_book_and_its_schema(monkeypatch):
                                                           SimpleNamespace(name="e4", schema="e4"),
                                                           SimpleNamespace(name="live", schema="live_cfg")])
     assert export_books.schemas() == {"deployed": "public", "e4": "e4", "live": "live_cfg",   # a config book wins
-                                      "us_advisory": "us_advisory", "etf_depth": "etf_depth"}
+                                      "us_advisory": "us_advisory", "etf_depth": "etf_depth",
+                                      "option_chain": "option_chain"}
 
 
 def test_the_book_export_needs_the_database_and_writes_under_the_repository(monkeypatch, capsys):

@@ -91,11 +91,11 @@
       "registry": null,
       "count": null,
       "protocol_row": "Intraday",
-      "n": 3,
+      "n": 4,
       "max_configurations": null,
       "max_per_source": 3,
-      "status": "declared: no registry yet (GF1 N = 2; GAM2, plan 5ce, FAIL 25 Nov: N = 3)",
-      "as_of": "2026-11-25"
+      "status": "declared: no registry yet (GF1 N = 2; GAM2, plan 5ce, FAIL 25 Nov: N = 3; PEAD1, plan 5ch, FAIL 27 Nov: N = 4)",
+      "as_of": "2026-11-27"
     }
   }
 }

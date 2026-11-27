@@ -5,7 +5,9 @@ unchanged in substance:
 - ``utils.time_budget``: the per-question time budget, its thresholds, cut-off messages and environment factory;
 - ``core.query_classifier``: intent, pipeline stages, the code hint and the strict-code override that the fast
   path and the retriever read;
-- ``core.retriever``'s two switches the query engine reads on every question: fast mode and simple-query mode.
+- ``core.retriever``'s two switches the query engine reads on every question: fast mode and simple-query mode;
+- ``core.fastpath`` (R5, 26 Nov 2026): the canned formula answers given before any retrieval, their triggers, the
+  length and intent gates, the generic code-snippet path, and what it leaves to retrieval.
 
 And one guard from the retirement of unused RAG modules (R4, 25 Nov 2026): every public name of the package
 still points at code that exists.
@@ -25,6 +27,7 @@ from rag_pipeline.core.query_classifier import (
     classify_query,
     needs_code,
 )
+from rag_pipeline.core.fastpath import _TEMPLATES, _TRIGGER_RULES, _match_trigger, try_fastpath
 from rag_pipeline.core.retriever import is_fast_mode, is_simple_query
 from rag_pipeline.utils.time_budget import (
     DEFAULT_LLM_BUDGET_S,
@@ -270,3 +273,89 @@ def test_every_public_name_points_at_code_that_exists():
         assert path.is_file(), f"{name}: {module} does not exist"
         assert name in _top_level_names(ast.parse(path.read_text(encoding="utf-8")).body), \
             f"{name} is not defined in {module}"
+
+
+# ---- core.fastpath: canned answers for common formula questions, before any retrieval (R5)
+@pytest.mark.parametrize("query, trigger", [
+    ("how to calculate volatility", "volatility"),
+    ("what is standard deviation", "volatility"),
+    ("daily vol estimate", "volatility"),
+    ("sharpe ratio formula", "sharpe"),
+    ("compute daily returns", "daily_returns"),
+    ("log returns calculation", "daily_returns"),
+    ("rolling mean of prices", "rolling"),
+    ("rolling std window", "rolling"),
+    ("ATR indicator", "atr"),
+    ("average true range", "atr"),
+    ("calculate beta", "beta"),
+    ("market beta coefficient", "beta"),
+    ("max drawdown formula", "max_drawdown"),
+    ("CAGR calculation", "cagr"),
+    ("sortino ratio", "sortino"),
+    ("sortino vs sharpe", "sharpe"),                                        # two rules match: the first wins
+    ("daily vol and beta", "volatility"),
+    ("what is machine learning", None),
+    ("explain the momentum strategy", None),
+])
+def test_fastpath_trigger(query, trigger):
+    assert _match_trigger(query) == trigger
+
+
+def test_fastpath_answers_only_short_questions_that_are_not_analysis():
+    assert try_fastpath("calculate volatility") is not None
+    long = ("I need to understand how to calculate the historical daily volatility of a portfolio of stocks using "
+            "rolling standard deviation over multiple time windows and compare them across different regimes")
+    assert try_fastpath(long) is None                                       # 25 words or more
+    short = "what is sharpe ratio " + " ".join(["please"] * 20)
+    assert len(short.split()) == 24 and try_fastpath(short) is not None      # the limit alone decides
+    assert try_fastpath(short + " please") is None
+    assert try_fastpath("") is None and try_fastpath(" ") is None
+    assert try_fastpath("how much max drawdown does this have") is None     # analysis intent
+    assert try_fastpath("what is sharpe ratio") is not None                 # conceptual intent
+
+
+@pytest.mark.parametrize("query, fragment", [
+    ("how to calculate daily volatility", "rolling"),                       # the topic templates
+    ("how to calculate daily volatility", "np.sqrt(252)"),
+    ("sharpe ratio formula", "excess_returns"),
+    ("what is ATR", "true_range"),
+    ("how to estimate beta", "np.cov"),
+    ("what is CAGR", "252"),
+    ("sortino vs sharpe", "downside"),
+    ("max drawdown", "cummax"),
+    ("daily returns", "pct_change"),
+    ("rolling std window size", ".rolling("),
+    ("is there a function for daily volatility", "pct_change"),             # the generic code-snippet path
+    ("how to calculate daily returns", "pct_change"),
+    ("formula for sharpe ratio", "excess"),
+    ("how to compute beta", "cov"),
+    ("is there a function for max drawdown", "cummax"),
+    ("formula for moving average", "rolling"),
+    ("code for correlation between two stocks", "corr"),
+    ("how to calculate CAGR", "252"),
+    ("function to calculate sortino ratio", "downside"),
+    ("snippet for ATR indicator", "rolling"),
+])
+def test_fastpath_answer(query, fragment):
+    answer = try_fastpath(query)
+    assert answer is not None and fragment in answer
+
+
+def test_fastpath_sends_a_generic_question_with_a_strategy_word_to_retrieval():
+    assert "pct_change" in (try_fastpath("how to calculate returns for a stock") or "")
+    assert try_fastpath("how to calculate returns for a momentum strategy") is None
+    assert try_fastpath("how to calculate returns for the backtest") is None
+
+
+@pytest.mark.parametrize("query", [
+    "how to calculate momentum crossover strategy",                         # a strategy word: retrieval answers
+    "is there a function for backtest signals",
+    "formula for pairs trading arbitrage",
+    "is there a function for something random",                             # a generic phrase, no known topic
+])
+def test_fastpath_leaves_strategies_and_unknown_topics_to_retrieval(query):
+    assert try_fastpath(query) is None
+
+
+def test_every_fastpath_trigger_has_a_template():
+    assert len(_TRIGGER_RULES) == 9 and [key for key, _ in _TRIGGER_RULES if key not in _TEMPLATES] == []

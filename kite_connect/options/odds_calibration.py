@@ -67,7 +67,7 @@ def _short_leg(day: pd.DataFrame, side: str, spot: float, dte: float, rate: floa
     otm = day[(day["option_type"] == side) & ((day["strike"] > spot) if side == CALL else (day["strike"] < spot))]
     best: Optional[Tuple[float, float]] = None
     gap = math.inf
-    for strike, close in zip(otm["strike"].to_numpy(dtype=float), otm["close"].to_numpy(dtype=float)):
+    for strike, close in zip(otm["strike"].to_numpy(dtype=float), otm["close"].to_numpy(dtype=float), strict=True):
         iv = implied_volatility(side, close, spot, strike, dte, rate)
         if iv is None:
             continue
@@ -83,7 +83,7 @@ def _pop(cycles: pd.DataFrame) -> Tuple[float, float]:
     return round(float((1.0 - cycles["call_p"] - cycles["put_p"]).mean()), 3), round(float(realised), 3)
 
 
-def condor_calibration(cfg: OptionsConfig = OptionsConfig(), start: str = "2008-01-01", end: str = "2025-12-31",
+def condor_calibration(cfg: Optional[OptionsConfig] = None, start: str = "2008-01-01", end: str = "2025-12-31",
                        symbol: str = "NIFTY", min_cycles: int = MIN_CYCLES) -> CondorOdds:
     """The page's condor odds against the index, one cycle per monthly expiry from ``start`` to ``end``.
 
@@ -92,6 +92,7 @@ def condor_calibration(cfg: OptionsConfig = OptionsConfig(), start: str = "2008-
     the ``lookback_sessions`` before it, from the cached IV history (read, never rebuilt here).  Raises when the store
     or the IV history is missing, or fewer than ``min_cycles`` cycles are found.
     """
+    cfg = cfg or OptionsConfig()
     o, rate = cfg.overlay, cfg.market.risk_free_rate
     iv_path = Path(cfg.data.fo_store) / "iv" / f"{symbol}_v{IV_VERSION}.parquet"
     if not iv_path.exists():
@@ -147,8 +148,9 @@ def condor_calibration(cfg: OptionsConfig = OptionsConfig(), start: str = "2008-
         rank_pop_realised=hit_pop[1])
 
 
-def measured_note(m: CondorOdds = MEASURED_CONDOR) -> str:
-    """What the Options page says under the condors: the odds it shows beside what happened."""
+def measured_note(m: CondorOdds = MEASURED_CONDOR, cfg: Optional[OptionsConfig] = None) -> str:
+    """What the Options page says under the condors: the odds it shows beside what happened.  With ``cfg``, a
+    condor setting that differs from the measured one is named, so the figures are never read as this config's."""
     note = (f"Measured on NIFTY's monthly expiries {m.span} ({m.cycles} cycles, {m.short_delta:.2f}-delta shorts "
             f"about {m.days_out} days out): PoP {m.pop_predicted:.0%} predicted, {m.pop_realised:.0%} realised; "
             f"Touch {m.touch_predicted:.0%} predicted, {m.touch_realised:.0%} realised.  Each side is off, the "
@@ -161,5 +163,11 @@ def measured_note(m: CondorOdds = MEASURED_CONDOR) -> str:
         note += (f"  At IV rank {m.min_rank:.0f} or more, which the scan requires, {m.rank_cycles} cycles: PoP "
                  f"{m.rank_pop_realised:.0%} realised against {p:.0%} predicted"
                  + (", within chance at that count." if abs(z) < 2.0 else f", beyond chance (z {z:+.1f})."))
-    return note + ("  The odds grow prices at the risk-free rate, not NIFTY's own drift, so the call side reads low "
-                   "in rising markets.")
+    note += ("  The odds grow prices at the risk-free rate, not NIFTY's own drift, so the call side reads low in "
+             "rising markets.")
+    o = cfg.overlay if cfg is not None else None
+    if o is not None and (o.condor_short_delta, o.target_dte, o.min_rank_condor) != (m.short_delta, m.days_out,
+                                                                                    m.min_rank):
+        note += (f"  This config's condor ({o.condor_short_delta:.2f} delta, {o.target_dte} days, IV rank "
+                 f"{o.min_rank_condor:.0f}) is not the one measured: re-measure with condor_calibration.")
+    return note

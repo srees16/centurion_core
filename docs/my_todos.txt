@@ -202,7 +202,7 @@ Rules:
 
 ~~~~~~~~~~~~
 
-DOC: ProjectX/centurion_core/research_inbox/convex_optimization
+DOC: ProjectX/centurion_core/research_inbox/Algorithmic Trading
 
 Read doc in full. Extract the ideas that fit centurion_core (Indian stocks module) and use them to make it more robust. Depending on the content, that means implementing a method, replicating a result, auditing existing code against it, or adding validation. Skip what doesn't fit, and say why.
 

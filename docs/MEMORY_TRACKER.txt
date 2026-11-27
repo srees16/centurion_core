@@ -362,6 +362,9 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
      losing quarter says little about the edge; rule D's bands, not the calendar, decide.
  >>> KLR1 (23 Nov): merge .github/workflows/space-keepalive.yml to main (scheduled runs start only from main);
      refresh HF_TOKEN in this Mac's .env (rejected, 401) so the Space's logs can be read next time.
+ >>> OX1 (27 Nov): merge .github/workflows/option-chain.yml and kite_connect/options/chain_recorder.py to main by
+     Tue 8 Dec (scheduled runs start only from main; December's A1 window is 9-21 Dec).  It uses your daily Kite
+     login, nothing else.  Claude runs the rule on Mon 18 Jan 2027 (plan 5cg).
  >>> TESTS: THREE AREAS NEED YOUR CALL (TS2, 15 Nov): test, leave, or retire
      1. Options research modules with no test (structures, backtest, signal_futures, book_rounds,
         option_chain, fo_anomalies, the three strategy files, options_monitor: about 2,750 statements).
@@ -1160,6 +1163,26 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
 [ ] P2  RDB1 After PF1 (Sat 19 Dec), your decision 24 Nov (U42): clearing rule D's step-down needs a clean paper record
              judged by G4, or a recorded data or plumbing fault, not a reason alone (live_session
              --clear-mc-step-down); the criteria and their test fixed before it is built.  Prompt: do RDB1
+[ ] P3  WGF2 After PF1 (Sat 19 Dec), your yes 25 Nov (WGF1b): a store guard, a slow test that re-runs
+             odds_calibration.condor_calibration() on the store and fails when it no longer equals MEASURED_CONDOR
+             (the Options page's condor note), run weekly by tools.guards.  A new check, so it waits for the PRV1
+             review.  Prompt: do WGF2
+[ ] P3  AT1  After PF1 (Sat 19 Dec), your yes 24 Nov and answers 26 Nov: the analysis terminal, a page that explains
+             a stock and never trades it.  Beside Verdict and Screener, not replacing them.  Per stock: the engine's
+             view as facts (held or not, its stop, the regime), the price and trend chart, fundamentals as first
+             published, recent NSE announcements, and news once an archive exists (not decided).  Facts only: no rank
+             number and no buy/sell label of its own.  For you only (no data-licence check; little load on the
+             Space).  Plan before 19 Dec, build after.   Prompt: do AT1
+[!] P3  RF0  ON HOLD (you, 26 Nov: "hold on refactoring for now, will continue later after a few weeks"): the
+             codebase refactor (docs/AUDIT.md) paused after phase 1 step 12 (RF0i).  When you resume: phase 1's A1 to
+             A3, N1 and the studies N7, R4, D3 and Q3; phase 2 waits for RA1 (15 Dec), phase 3 for PF1 (19 Dec),
+             phase 4 for TS2.  Each step still passes tools.refactor_check against the c90b906 baseline; the canary
+             slow test stays in the weekly store guards meanwhile.   Prompt: continue refactor
+[ ] P2  RFV1 After the refactor's last merge (your yes 26 Nov): a week of real runs before the refactor counts as
+             done: the deploy's health check, a nightly dry run on GitHub matching the local plan, the Saturday run,
+             the heartbeat and a backup push, one small Kaggle job, the web pages against the Space, and no new kind
+             of incident in the ops report.  Each refactor step meanwhile passes tools.refactor_check (RF0h).
+             Prompt: do RFV1
  NOT DOING  parameter grids (near-duplicate trials), core risk share up
             (measured: Sharpe 1.03, MaxDD -34%), a NIFTY sleeve (R5: +0.5
             pt at most), more ETF sleeves (R14: funded from the core),
@@ -1224,10 +1247,13 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              Not bridgeable under the current rules: market making / spread
              capture, intraday delta hedging, leverage finer than whole lots
              (one NIFTY lot ~Rs 15 lakh notional).  Steps, cheapest first:
-[ ] P1  OX1  Chain recorder: NIFTY (later SENSEX) option chain ~3 snapshots a
+[~] P1  OX1  Chain recorder: NIFTY (later SENSEX) option chain ~3 snapshots a
              day from Kite quotes (5-level bid/ask, OI, our IV) into our own
              store; records only, never trades; needs the daily login.  Its
              value grows with time, so start it first when OX resumes.
+             Built narrow 27 Nov (plan 5cg: A1's real spread, decided 18 Jan
+             2027): NIFTY only, next two monthlies and the scan's target
+             expiry, Neon schema option_chain.  Records once on main.
 [ ] P1  OX2  Expired-option minute data 2019-25 (ICICI Breeze, reported ~3
              years down to seconds; or Dhan HQ; Upstox reported unreliable;
              paid NSE vendors TrueData / Global Datafeeds for tick bid/ask).
@@ -1259,6 +1285,7 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              Also: refuse an adjustment the cash cannot pay for (O7-B's
              2007-25 equity went below zero).  Before any further calendar,
              diagonal or adjustment round; superseded at the root by OX2.
+             The sleeve engine (backtest.py, A1's) has it too: CVX1b.
 [ ] P3  MV1  Minervini's rules on the core (core family; after V3, Jan): VCP
              entry timing as a filter on the core's buys; a 10% max-loss
              cap; breakeven stop at +20%; progressive exposure after the
@@ -1610,6 +1637,211 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+27 Nov  PEAD1 Same-day drift after NSE results announcements, both sides (plan 5ch, pre-registered 27 Nov 15:05 IST,
+             clarified 15:12 and amended 15:43 before any return was read; your "trade both directions" with
+             exhaustive validation and cost-benefit): FAIL on all three gates, closed; intraday N 4.  NSE's
+             announcements feed mirrored 2007-25 in 31 min (945 weeks, 1.44 m announcements, 147 MB, no refusal):
+             102,356 results events, 8,167 trades 2008-25.  Break-even first: none, the trade loses before costs
+             (gross -41 bp a trade, statutory costs 8.2 bp).  Gate A: net -55 bp, t -12.0 clustered by session, both
+             halves negative (-59, -53).  Gate 1: Sharpe -2.74, DSR 0.00, -3.02 at 6 bp.  Gate 2: the book's Sharpe
+             0.70 becomes -1.37 beside it (p 1.0, both bases).  Every year 2008-25 negative, and every reported cut:
+             side, timing, liquidity tier, gap size, regime, thresholds, lookbacks, caps, costs 0-15 bp.  The control
+             settles it: the same rule on ordinary gaps of the same stocks loses 42 bp gross (523,641 trades),
+             results gaps 41: results add nothing to BT7's intraday reversal.  By side, up-gaps after results reverse
+             harder (long -81 bp gross, t -12.5) and down-gaps barely continue (short +11 bp gross, t 1.3; -3
+             net).  Cost-benefit at Rs 3, 10 and 30 lakh: -0.8, -2.5 and -6.4 lakh a year, 18 of 18 years losing, MIS
+             margin 0.6, 2 and 6 lakh, about 104 sessions a year.  Stop rule amended (your call): precision against
+             the results store, 65.6%, failed the 80% line because the store's stamps lag the announcement by days in
+             2012-19 (median 8; 5% matched in 2018), not GT1's 2.4 h; 94.2% on 2020-25.  So the GT1 store cannot time
+             an event; its available_from stays right for fundamentals (late, never early).  Bug fix: the first run
+             stopped in the controls step before writing; fixed, rerun unchanged.  Minute prices not done (no Kite
+             session here).  Earliest stop: Phase 0 could have run the rule on all gaps from the price store (no
+             download); -42 bp gross set a bar results could not plausibly clear.  Files: data/nse_engine/pead1 and
+             the study manifest deleted 27 Nov (approved); the announcements mirror kept (your call; 945 weekly files,
+             147 MB, data/nse_engine/archive/announcements; on this Mac only, cloud.backup does not carry it).  The
+             mirror trade (short results up-gaps) not pursued (your call).
+27 Nov  PEAD0 Same-day post-earnings drift, Phase 0 (your "yes" to ALG1's question; desk, no trial, nothing
+             pre-registered): GO on data; three decisions are yours.  The idea (Chan 2013, ch. 7, pp. 157-162):
+             results published after one session's close and before the next open; trade the stock at that open in
+             the gap's direction when the close-to-open move is at least half its 90-day standard deviation, and
+             close at that day's close.  Data: (1) the GT1 results store cannot time it.  Its stamp is the results
+             filing, which lags the first announcement (NSE's corporate-announcements feed, an_dt) by a median 2.4
+             hours on a 2013 sample, 76% by more than an hour (HDFCBANK announced at 14:15, in session; the store
+             says 16:44).  Price magnitudes agree: filings stamped 15:30-18:00 moved their stock that day as much as
+             in-session ones (median 2.0-2.1% against 1.4% on ordinary days); only stamps after 20:00 look overnight
+             (1.6% that day, next gap 1.4% against 0.7%).  The store's available_from stays right for fundamentals
+             (late, never early).  (2) The announcements feed answers the project's NSE session (GT1's client and
+             pace): two-day probes in Oct 2008, 2013 and 2019 returned 277, 261 and 605 announcements, results among
+             them, stamped to the minute or second; 2008-25, point in time, about 900 weekly requests to mirror.  (3)
+             Prices: the equity store's open and close, delisted names included, 2008-25.  The open is NSE's pre-open
+             auction, which an order placed by 09:07 on the indicative price receives; the close was a 30-minute
+             average until CAS1's closing auction.  Kite's minute history (from 2015) has no delisted names, so it
+             can only be reported (GF1).  Cost: GF1's pre-registered intraday formula (Zerodha intraday charges plus
+             3 bp of spread a side, 6 bp as the stress), not yet in code.  Against it: BT7 found NSE stock gaps
+             reverse intraday on average (-75 bp up, -92 bp down, gross); the results subset may differ, but the base
+             rate runs the other way.  Your calls: both sides (intraday shorts, MIS) or long only; the download; the
+             window (2008-25 on daily prices, 2026 sealed).
+27 Nov  ALG1 Chan, "Algorithmic Trading" (Wiley 2013; research_inbox, 225 pages, read in full; your brief;
+             uncommitted).  No trial run and none counted.  Audit against code and records, in place: look-ahead (one
+             engine for backtest, paper and live; decide at the close, fill the next open), data snooping (linear
+             rules, walk-forward, DSR, PBO, the holdout), splits and dividends in backtest and live (panel
+             back-adjustment; LN-T4 rebases stops and defers orders before ex-dates), survivorship (SB3), auction
+             prices (NSE's pre-open open, CAS1's close), futures (traded contract by contract, rolled with costs,
+             marked at settlement; MCX's continuous series is return-adjusted, so its trend signals and P&L are both
+             right, Chan pp. 12-15), his first significance test (HAC t, significance.py) and the timing form of his
+             third (timing.py's rotations, MIT1), the benchmark (the gate against the equal-weight universe and 12-1
+             momentum, alpha against NIFTY TRI), Kelly (funding_gate; CVX1's exact discrete leverage), fat tails
+             (bootstrap bands, Hill index), momentum stops with gap fills (stop_fill_price), risk indicators (the
+             regime, A1G's VIX guard, in sample).  The gap: his third test for stock selection.  Built:
+             nse_engine/validation/selection_skill.py, after Lo, Mamaysky and Wang (2000): a recorded run's holdings
+             keep their sessions and weights, each redrawn on a random free stock of the engine's universe at its
+             decision close (sleeves never), 1,000 draws, p = (1 + draws at or above the book) / 1,001.  Deployed
+             rules (679cbd0c), core gross a year: 2013-25 21.5% against random 6.9% (5th-95th percentile 4.4-9.3%), z
+             9.7, no draw at or above; 2013-16 23.4% against -0.5%, z 6.3; 2017-25 20.5% against 10.0%, z 6.4;
+             2008-12 (the 2007-25 run, a window not tuned on) 0.0% against -7.2% (95th percentile -4.5%), z 4.2.  The
+             names it picks carry the edge in every window, not only when it is invested.  Replicated: Table 1.1
+             (1.282, 1.645, 2.326; 3.090 where the book prints 3.091, a rounding slip) and Example 8.2 exactly (Kelly
+             4.44 and 4.90, g 2.135; pro rata under a gross cap of 2, 0.95 and 1.05, g 0.817; all on the second
+             strategy, g 0.955).  Skipped, with reasons: pairs, cointegration, ETF and index arbitrage, Khandani-Lo
+             (a short leg: U28, COINT1); buy-on-gap and gap momentum (GF1, BT7: NSE gaps reverse, long-only down-gaps
+             t -1.1); Bollinger and z-score reversion (BT7's H5); currencies, VX, leveraged ETFs, order-book trading
+             (no such market or data); fund fire sales and news sentiment (no quarterly holdings or sentiment feed);
+             CPPI (a drawdown cap, dropped as a target by GT13; the drawdown rule keeps a floor); his moment-matched
+             simulation test (Fama-MacBeth already tests cross-sectional momentum).  New, for your call: intraday
+             post-earnings drift (ch. 7: buy at the open after results announced since the last close, sell at the
+             close; BT7's 60-day drift was a near miss at t 2.39) needs result timestamps; under a gross cap far
+             below Kelly, growth is highest all in the highest-growth stream (Ex. 8.2), which the Sharpe-first
+             allocator (GTR9) deliberately does not do.  Tests (6, test_metrics.py): holdings, a planted edge and a
+             calibrated null (mean p 0.49 over 300 null books), free eligible picks, a draw limited to the book's own
+             names reproduces it, a sleeve never drawn, renames, every refusal; 10 deliberate breaks each fail one.
+             Checks: fast 1,392 passed; core-only 1,258 passed and 107 skipped; mypy clean; ruff nothing beyond the
+             typing style.
+27 Nov  OX1  Chain recorder, built narrow, and A1's spread rule pre-registered (your "build it narrow and
+             pre-register the 0.37 rule"; plan 5cg, 27 Nov 13:50 IST, amended 13:52 before any code; uncommitted).
+             Records only, no trial counted; it starts once the workflow is on main.
+             kite_connect/options/chain_recorder.py snapshot, run by .github/workflows/option-chain.yml at about
+             11:00, 13:30, 15:00 and 15:15 IST (skips outside 09:20-15:28, on holidays and without today's Kite
+             login; raises when Kite answers without prices): NIFTY 50, India VIX and every out-of-the-money NIFTY
+             option within 4 VIX standard deviations of spot on the next two monthly expiries and the overlay scan's
+             target expiry, five bid and ask levels, last price, OI and volume.  The amendment: the nearer monthly's
+             calls go to 7, because A1's wing lay beyond 4 on 29% of 2013-26 decision days (6.5 at the most).  Kept
+             in Neon, schema option_chain, one key a snapshot so the job never reads the record back; added to the
+             weekly book export (tools/export_books.py), so the Kaggle backup carries it.  a1-spread is the rule: on
+             snapshots whose nearer monthly is 8-20 days away, A1's own strikes (the first quoted calls above spot x
+             (1 + mu n + 2 and 3 sigma sqrt n), sigma from the store's last 252 closes, refused if they end over a
+             week before), each leg's half-spread less fno_costs' one tick, the median against 0.37 points (the extra
+             cost per leg that leaves A1's 2007-25 run no profit), on 18 Jan 2027 with --until, needing 10 sessions,
+             else 16 Feb.  Reported beside it: by leg and time, 75th and 90th percentiles, unquoted strikes passed,
+             lots on the traded side, and the condor scan's four legs (pick_leg on the recorded mids); status:
+             counts, size and the 50 MB stop.  Tests (6, test_options_kite.py): bands and expiries, skips and
+             refusals, A1's strike choice and cost, ten sessions and the 0.37 edge, the condor legs, the cap; 13
+             deliberate breaks each fail one.  Checks: fast 1,386 passed; core-only 1,252 passed and 107 skipped;
+             mypy clean on the module; ruff adds nothing beyond the typing style its siblings share.
+             tools.refactor_check will list the workflow as a new entry point: record a new baseline when the
+             refactor resumes.
+27 Nov  CVX1b Your calls on CVX1's two questions, and the options backtests checked for stale strike prices (your
+             "yes, record both and check the options backtests"; uncommitted, tracker only).  1. Sector cap: today's
+             rule stays, a sector over its cap scaled down whole; no setting for water-filling.  The difference (L1
+             median 0.9% on 18% of rebalances) cannot be measured before a dated sector history exists (SB2), and a
+             setting no gate can test would split the live book's sizing in two.  Revisit once the dated map (from
+             October 2026) covers a year or more.  2. The chain no-arbitrage check is dropped, not proposed for PRV1:
+             the overlay scan already trades only legs with a bid, an ask, OI above its floor and a spread under its
+             cap, sells at the bid and buys at the ask, and refuses a condor whose credit is nil or reaches the width
+             (overlay_scan.py); the negative butterflies were in the store's closes, not in live quotes.  Options
+             backtests that price legs from store closes, measured on the recorded window 2007-25 (no trial run and
+             none counted).  A1 (backtest.run_sleeve, also the paper overlay's simulator): the short leg traded at
+             every fill (median 3,860 contracts); the wing did not at 2 of 138 (settle price used) and traded below
+             its chain's median at 71 (median 596).  Re-priced with each thin leg at that session's smile (IV
+             interpolated from the traded top half of out-of-the-money calls): marks alone cut A1's daily volatility
+             by a third (2.95% to 1.96%), its Sharpe alone 0.19 to 0.28, P&L unchanged; fills alone, on the same
+             trades, -Rs 8,800 against Rs 77,919 of P&L (-11%), and 13 cycles skipped for no price or no credit would
+             trade.  Together: CAGR 0.52% to 0.49%, Sharpe 0.19 to 0.27, DSR 0.13 to 0.20.  On the book at A1C's 10%
+             cap (paper book a1): walk-forward dSharpe +0.014 (p 0.117) to +0.013 (p 0.130), backtest +0.012 (0.128)
+             to +0.011 (0.141), 2008-12 still not held, so A1C's verdict stands and a1 runs as your decision.  A2 and
+             B stay negative (Sharpe -0.10 to -0.02, -0.12 to -0.11).  Not re-run: Y2 (ATM legs and a far put; its
+             gap to the future alone, 0.34 against 0.48, dwarfs this), O3 (futures only), O5-O8 (stale marks recorded
+             as OP1).  The weakness: A1 collects a median 0.85 points a spread after modelled slippage, and thin-leg
+             prices move its credit by up to 0.54 points either way (5th and 95th percentiles), so its edge per cycle
+             is the size of a quote's error.  Its paper record uses the same simulator and dry runs send no orders,
+             so only real quotes (OX1) or live fills can test it.
+26 Nov  CVX1 Boyd & Vandenberghe, "Convex Optimization" (2004; research_inbox, 730 pages; your brief; uncommitted).
+             Read in full: chapters 4-7 (the finance and statistics, pp. 127-396), the log-optimal exercise (pp.
+             557-560) and appendices A.5 and B; the rest (convexity theory, geometry, solver internals) by heading
+             and keyword, your choice.  No trial run and none counted.  Audit, measured: (1) portfolio.capped_weights
+             says water-filling; with name caps alone it is exactly the KKT solution (979 of 979 rebalances 2013-25),
+             but a sector over its 25% cap is scaled down whole, name-capped members included, where water-filling
+             keeps them at the cap.  Backtests never cap a sector (no dated map before October 2026, SB2), so only
+             paper and live use that path: with today's map on 2013-25 inputs it binds on 53% of rebalances and the
+             weights differ on 18%, L1 median 0.9%, p90 4.0%, max 7.3%, one name by up to 2.7 points.  Docstring
+             corrected; three tests (water-filling on 400 books, both rules on one worked book, a refusal); caps that
+             do not settle now raise instead of being clipped (real books settle in 4 rounds of 100).  Which rule the
+             book should use was your call: today's (CVX1b).  (2) funding_gate's half-Kelly 0.5 SR/vol: the
+             exact discrete log-optimal leverage on the fat-tailed walk-forward returns (skew -1.6, kurtosis 13) is
+             5-8% lower (deployed 1.92x against 2.03x; futures 2.06x; A1 2.66x); the 1.5x cap and the deflated Sharpe
+             keep it from binding.  (3) allocator: the stand-alone risks add, the correlation-+1 bound, so the split
+             errs safe (docstring corrected).  (4) Gaussian loss risk (p. 158): already replaced by bootstrap bands,
+             empirical ES and the Hill index.  (5) Option chains (Farkas, p. 263; convex interpolation, p. 338): a
+             third of the store's NIFTY butterflies on traded closes are negative, 2.8% among the most traded fifth;
+             WGF1b's odds hold on liquid or arbitrage-free strikes only (PoP 69/68 and 70/68 against 69/67; call side
+             14/19 either way), so the page's note stands.  (6) Huber vs OLS alpha (p. 299): 9.6% against 4.2% a
+             year; the large residuals are real crash days, so OLS stays.  Replicated: figure 4.12 (endpoints exact;
+             low risk mixes the hedging pair, the aggressive end assets 1 and 2).  Proposed: a chain no-arbitrage
+             check on the overlay scan's quotes (dropped, CVX1b); strike-level research uses liquid strikes.
+             Skipped: Markowitz, robust and chance-constrained portfolio problems (Centurion sizes by rule, not by
+             optimiser), SDP risk bounds, experiment design, solvers.  Checks: fast 1,380 passed; core-only 1,246
+             passed and 107 skipped; the six books' backtests unchanged (canary test); five deliberate breaks each
+             failed a test; lint clean, mypy no worse.
+26 Nov  RF0i Codebase refactor, phase 1: R5 and R4b (your "continue refactor" and "approve removal of R4b";
+             uncommitted; AUDIT.md 0.8 steps 11 and 12).  Each step passed tools.refactor_check against the c90b906
+             baseline (659 s and 708 s: 40 entry points, 164 routes, the 29-session replay identical; fast 1,377
+             passed, core-only 1,243 passed and 107 skipped, store guards 10 of 10).  R5, re-scoped from the code:
+             none of rag_pipeline's 24 print calls was a log line.  4 are docstring examples; 9 are the report of
+             query_engine.verify_chapter_indexing, a hand-run diagnostic nothing calls, left as it is; 11 were
+             fastpath.py's __main__ self-test, whose 56 checks moved to tests/test_rag_units.py as 46 cases, the
+             harness deleted (772 to 582 lines).  Three rules the self-test never isolated now have cases: the
+             25-word limit (24 words answered, 25 not), the first matching trigger winning, and a strategy word
+             sending a generic question to retrieval; seven deliberate breaks each fail one.  R4b, studied, validated
+             on a copy, then removed on your approval: vector_store.py's DualIndexStore, upsert_chunks, query_index,
+             the get_embedding placeholder, EmbeddingFn and four helpers and constants, with the package's six lazy
+             names (1,169 to 329 lines, lint findings 4 to 0).  Their one caller was the Retriever class retired in
+             R4; they wrote two ChromaDB collections only when called and nothing reads them.  Kept unchanged:
+             VectorStoreManager, the lazy chromadb import and the PDF ingestion's normalisation.  Next in phase 1: A1
+             to A3 (API tests, then logic out of the largest routes), N1, the studies N7, R4, D3 and Q3.
+26 Nov  RF0h Refactor check, built (your answers 26 Nov to the 25 Nov questions: check after each step, the engine
+             reproduction as a slow test, a week of real runs at the end, the Settings page's carver call left alone;
+             uncommitted).  Its first run passed: nothing Centurion runs has changed since the refactor began.
+             python -m tools.refactor_check run, after every refactor step, against a baseline recorded on c90b906
+             (17 Nov, the last commit before 19f2167): every repository module, script and inline import the
+             workflows and the Space's start script run, every -m module and workflow file the code starts (40, all
+             resolve); the API's 164 routes; the frontend's 79 calls matched to them (only /config/carver reaches
+             none, before and now); the game day's fault replay, 2 May to 11 Jun 2024, 29 sessions through the live
+             session's own code, session for session; both fast suites; the store guards, now with
+             test_every_book_reproduces_its_recorded_backtest (the nightly canary, LN-T13, run here before a merge:
+             all six books' 2013-25 backtests against config/canary_expected.json, to the last trade; on Actions it
+             only runs from main).  All four run at once: 11 minutes.  surface: the static part in seconds.  An
+             approved change of behaviour is accepted only by recording a new baseline on its commit.  Under PF1 the
+             slow test is the existing canary run earlier: no new alarm, report block or email.  Findings: the six
+             books match the 25 Oct record exactly; the full 52-session replay at HEAD matches 16 Nov's in every
+             session.  Tests: three on the tool (launchers, frontend matching, every kind of difference); 12
+             deliberate breaks each failed one, and one exposed a wrong filter, removed; the canary test failed on a
+             0.01% impact-cost change (31 trades moved).  Core-only venv now at ProjectX/corevenv.  Checks: the run
+             itself (fast 1,331 passed; core-only 1,197 passed, 107 skipped; store guards 10 of 10); lint and mypy
+             clean on the new code.  docs/AUDIT.md's rule names the check.  Queued: AT1 (the analysis terminal, after
+             PF1) and RFV1 (the week of real runs).
+26 Nov  WGF1c The Options page's condor note (your "1. yes" to WGF1b's proposals; uncommitted, backend and frontend).
+             Under the Iron Condors table the page now states how its odds did on NIFTY's monthly expiries 2008-25:
+             PoP 69% predicted, 67% realised; Touch 52% vs 42%; each side off the opposite way (call finished beyond
+             19% vs 14%, put 14% vs 17%); at the scan's IV rank 50+, 25 cycles, PoP 60% vs 70%, within chance at that
+             count; the odds use r, not NIFTY's drift.  Built: kite_connect/options/odds_calibration.py.
+             condor_calibration() reproduces WGF1b from the store (all 16 figures, 22 s; it replaces the deleted
+             script and stops at 2025, 2026 being the holdout), MEASURED_CONDOR holds the figures, measured_note()
+             the text.  overlay_scan.scan returns it as measured_odds; a config whose condor (delta, days, IV rank)
+             differs from the measured one is named in the note rather than shown figures that are not its own.
+             Page: one muted line under the table (types.ts measured_odds).  Test: a three-cycle store with known
+             outcomes (a rally through the call, a flat month, a dip through the put and back), a weekly expiry and
+             an untraded strike priced to look ideal; six deliberate breaks each failed it.  Checks: suite 1,328
+             passed (myenv); core-only 1,194 passed, 106 skipped; tsc clean; lint and mypy clean on the new module,
+             no worse elsewhere.  The weekly store check waits for PRV1 (WGF2).
 25 Nov  WGF1b The Options page's odds, each strike at its own implied volatility as the page prices it (your yes;
              a measurement, no code kept).  NIFTY monthly expiries 2008-25; IVs only from strikes that traded that day
              (90% of store rows did not); spot-based Black-Scholes at the page's 5.52%.  The page's condor (0.15-delta

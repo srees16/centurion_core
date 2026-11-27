@@ -305,4 +305,4 @@ def scan(broker, resolver: InstrumentResolver, held: Mapping[str, int], wanted: 
                         "monthly_yield_pct": round(monthly, 2), "annualized_yield_pct": round(monthly * 12.0, 2),
                         "covered_call_count": len(calls), "csp_count": len(puts),
                         "iron_condor_count": len(condors)},
-            "measured_odds": measured_note(), "log": log}
+            "measured_odds": measured_note(cfg=cfg), "log": log}

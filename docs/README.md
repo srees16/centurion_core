@@ -1810,7 +1810,7 @@ centurion_core/
 │   │   ├── retriever.py          # Fast-mode and simple-query switches
 │   │   └── fastpath.py           # Fast-path optimisations
 │   ├── storage/                  # Vector & embedding storage
-│   │   ├── vector_store.py       # ChromaDB HNSW cosine wrapper + DualIndexStore
+│   │   ├── vector_store.py       # ChromaDB HNSW cosine wrapper
 │   │   └── embeddings.py         # sentence-transformers (BGE-base-en-v1.5)
 │   ├── ingestion/                # Document ingestion
 │   │   ├── pdf_ingestion.py      # Structure-aware PDF chunking

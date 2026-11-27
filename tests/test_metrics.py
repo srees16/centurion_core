@@ -874,3 +874,118 @@ def test_the_gates_block_reports_changes_not_repeats():
     assert any(l.startswith("CHANGED e4:") for l in changed["lines"])
     monthly = gg.block(doc(True), {}, previous=previous, full=True)
     assert "<table" in monthly["html"] and monthly["changed"] == []
+
+
+# ---- stock selection against random picks with the same timing (Chan 2013, ch. 1 test 3; Lo, Mamaysky and Wang
+#      2000; tracker ALG1)
+
+def _selection_panels(n_rows=260, n_cols=40, hold=20, slots=4, edge=0.0, seed=0, book_random=False):
+    """A book of ``slots`` stocks at a time, each held ``hold`` sessions; its own picks earn ``edge`` a day more
+    than noise, or (``book_random``) are themselves drawn at random from the same names."""
+    rng = np.random.default_rng(seed)
+    idx = pd.bdate_range("2020-01-01", periods=n_rows)
+    cols = [f"S{i:02d}" for i in range(n_cols)]
+    rets = rng.normal(0.0, 0.01, (n_rows, n_cols))
+    w = np.zeros((n_rows, n_cols))
+    for start in range(1, n_rows - hold, hold):
+        names = rng.choice(n_cols, slots, replace=False)
+        w[start:start + hold, names] = 1.0 / slots
+        if not book_random:
+            rets[start + 1:start + hold + 1, names] += edge
+    frame = lambda a: pd.DataFrame(a, index=idx, columns=cols)
+    return frame(w), frame(rets), frame(np.ones((n_rows, n_cols), dtype=bool))
+
+
+def test_holdings_are_the_runs_of_positive_weight():
+    from nse_engine.validation.selection_skill import Holding, holdings
+
+    w = np.array([[0, 0.2], [0.1, 0.2], [0.1, 0], [0, 0], [0.2, 0.3], [0, 0.3]])
+    assert holdings(w, [0, 1]) == [Holding(1, 0, 1), Holding(0, 1, 2), Holding(0, 4, 4), Holding(1, 4, 5)]
+
+
+def test_a_planted_edge_leaves_random_picks_behind_and_random_picks_do_not():
+    from nse_engine.validation.selection_skill import selection_test
+
+    w, r, e = _selection_panels(edge=0.004)
+    out = selection_test(w, r, e, draws=200, seed=1)
+    assert out["p"] == 1 / 201 and out["book_core_gross_annual"] > out["random_core_gross_annual"]["p95"]
+    ps = np.array([selection_test(*_selection_panels(n_rows=220, seed=s, book_random=True), draws=100,
+                                  seed=1000 + s)["p"] for s in range(60)])
+    assert 0.4 < ps.mean() < 0.6 and (ps <= 0.05).mean() <= 0.15      # under the null p is about uniform
+
+
+def test_a_draw_picks_free_eligible_stocks_and_never_a_sleeve():
+    from nse_engine.validation.selection_skill import _draw, holdings
+
+    w, r, e = _selection_panels(slots=6, seed=3)
+    elig = e.to_numpy().copy()
+    elig[:, :10] = False                                            # only S10-S39 may be drawn
+    plan = holdings(w.to_numpy(), range(40))
+    _, picks = _draw(np.random.default_rng(5), w.to_numpy(), r.to_numpy(), elig, plan)
+    assert all(p >= 10 for p in picks)
+    for a in range(len(plan)):
+        for b in range(a + 1, len(plan)):
+            overlap = plan[a].start <= plan[b].end and plan[b].start <= plan[a].end
+            assert not (overlap and picks[a] == picks[b])               # one holding per stock at a time
+    from nse_engine.validation.selection_skill import selection_test
+
+    w2 = w.copy()
+    w2["S00"] = 0.5                                                 # a sleeve held all along
+    fixed = selection_test(w2, r, e, fixed=["S00"], draws=100, seed=2)
+    assert fixed == selection_test(w, r, e, fixed=["S00"], draws=100, seed=2)   # the sleeve is neither drawn nor counted
+    assert fixed != selection_test(w, r, e, fixed=["S00"], draws=100, seed=3)
+
+
+def test_the_selection_test_refuses_panels_it_cannot_test():
+    from nse_engine.validation.selection_skill import selection_test
+
+    w, r, e = _selection_panels()
+    with pytest.raises(ValueError, match="at least 100"):
+        selection_test(w, r, e, draws=99)
+    with pytest.raises(ValueError, match="same sessions"):
+        selection_test(w.iloc[1:], r, e)
+    bad = w.copy()
+    bad.iloc[5, 0] = -0.1
+    with pytest.raises(ValueError, match="not negative"):
+        selection_test(bad, r, e)
+    bad.iloc[5, 0] = np.nan
+    with pytest.raises(ValueError, match="finite"):
+        selection_test(bad, r, e)
+    with pytest.raises(ValueError, match="too few"):
+        selection_test(w.iloc[:60], r.iloc[:60], e.iloc[:60])
+    tiny = e.copy()
+    tiny.iloc[:, 3:] = False                                        # 3 names for a 4-stock book
+    with pytest.raises(RuntimeError, match="smaller than the book"):
+        selection_test(w, r, tiny, draws=100)
+
+
+def test_a_recorded_run_finds_renamed_stocks_under_their_new_name():
+    from nse_engine.validation.selection_skill import renamed
+
+    changes = pd.DataFrame({"old": ["ICICIPRULI", "A", "B"], "new": ["ICICILIFE", "B", "C"]})
+    assert renamed(["ICICIPRULI", "TCS", "A"], {"ICICILIFE", "TCS", "C"}, changes) == {"ICICIPRULI": "ICICILIFE",
+                                                                                        "A": "C"}
+    with pytest.raises(ValueError, match="one name"):
+        renamed(["A", "C"], {"C"}, changes)
+
+
+def test_a_draw_limited_to_the_books_own_stocks_reproduces_the_book_and_never_draws_a_sleeve():
+    from nse_engine.validation.selection_skill import selection_test
+
+    rng = np.random.default_rng(4)
+    idx = pd.bdate_range("2020-01-01", periods=241)
+    cols = [f"S{i:02d}" for i in range(40)]
+    r = pd.DataFrame(rng.normal(0.0, 0.01, (241, 40)), index=idx, columns=cols)
+    w = pd.DataFrame(0.0, index=idx, columns=cols)
+    e = pd.DataFrame(False, index=idx, columns=cols)
+    for k, start in enumerate(range(1, 221, 20)):                   # 11 blocks of 4 names, never repeated back to back
+        names = [cols[(4 * k + i) % 36 + 4] for i in range(4)]
+        w.iloc[start:start + 20, [cols.index(n) for n in names]] = 0.25
+        e.iloc[start - 1, [cols.index(n) for n in names]] = True    # only the book's own names are eligible
+    out = selection_test(w, r, e, draws=100, seed=1, min_holdings=30)
+    assert out["p"] == 1.0 and out["random_core_gross_annual"]["median"] == pytest.approx(out["book_core_gross_annual"])
+    edge = selection_test(*_selection_panels(edge=0.004), draws=200, seed=1)["p"]
+    pw, pr, pe = _selection_panels(edge=0.004)
+    pr["S00"] = 0.05                                                # a sleeve that gains 5% a day, never redrawn
+    pw.loc[:, "S00"] = 0.0
+    assert edge == selection_test(pw, pr, pe, fixed=["S00"], draws=200, seed=1)["p"] == 1 / 201
