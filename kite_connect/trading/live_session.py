@@ -39,7 +39,8 @@ A session, run after the NSE bhavcopy is in the store:
    GTT stop reconciliation, or with ``dry_run`` the same orders built and
    none sent;
 6. record the session (``paper_sessions``) and the orders just placed (state
-   ``live_orders``, read by step 2 tomorrow), and send the daily email.
+   ``live_orders``, read by step 2 tomorrow, with a copy kept for good under
+   ``live_orders_log:<date>``), and send the daily email.
 
 Real orders need ALL of: ``CENTURION_PAPER_TRADE=false``,
 ``CENTURION_NSE_ENGINE_LIVE=true``, an approved deployment (not a placeholder
@@ -85,6 +86,7 @@ DEFAULT_LIVE_SCHEMA = "live"
 LIVE_LEDGER_KEY = "live_ledger"            # {"capital", "cash", "positions": {sym: qty}, "entries", "stops", "stop_basis", "stops_prev", "symbols", "session"}
 LIVE_ORDERS_KEY = "live_orders"            # orders placed at the last live session (JSON)
 LIVE_ORDERS_PENDING_KEY = "live_orders_pending"   # placed orders the order book has not yet accounted for (LN-T6)
+LIVE_ORDERS_LOG_PREFIX = "live_orders_log:"       # + decision date: that session's orders, kept for good (LX1)
 CA_CREDIT_SESSIONS = 5                     # sessions to wait for split/bonus shares at the broker before an alert
 STOP_COOLDOWN_KEEP_DAYS = 30               # recent stop-outs kept in the ledger; the engine counts its 5 sessions
 LIVE_LAST_SESSION_KEY = "live_last_session"
@@ -452,6 +454,28 @@ def fills_from_outcomes(outcomes: List[dict], placed: Dict[str, dict], session, 
                      "note": (note + (f" ({spec['reason']})" if spec.get("reason") else ""))[:200],
                      "occurred_at": f"{day}T09:15:00+05:30"})
     return rows
+
+
+def orders_records(decision_date: str, orders: List[dict], refs: Dict[str, float],
+                   stops: Dict[str, float]) -> Tuple[dict, dict]:
+    """(``live_orders``, the session's log) for tonight's order results, one per planned order.
+
+    ``live_orders`` is replaced every session; tomorrow's step 2 reads it.  The
+    log, kept for good under ``LIVE_ORDERS_LOG_PREFIX`` + the decision date,
+    also keeps the executor's own status, Kite's order ID, the error and any
+    limit-price note.  LX1 compares each planned order with what was sent and
+    how it filled from it, because Kite shows an order book for one day only
+    and a fill row has no limit price.
+    """
+    doc = {"decision_date": decision_date, "orders": [
+        {"tag": r.get("tag"), "symbol": r.get("symbol"), "side": r.get("side"), "quantity": r.get("quantity"),
+         "reason": r.get("reason"),
+         "limit_price": r.get("limit_price"), "ref_price": refs.get(r.get("symbol"), 0.0),
+         "stop_price": stops.get(r.get("symbol")) if str(r.get("side")).upper() == "BUY" else None,
+         "status": "PLACED" if r.get("status") == "DUPLICATE" else r.get("status")} for r in orders]}
+    log = {**doc, "orders": [{**o, "status": r.get("status"), "order_id": r.get("order_id"), "error": r.get("error"),
+                              "limit_note": r.get("limit_note")} for o, r in zip(doc["orders"], orders)]}
+    return doc, log
 
 
 def external_sells(order_book: List[dict], symbols, session, dp_charge_inr: float) -> List[dict]:
@@ -1163,6 +1187,7 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
                  "stop_price": stops_planned.get(o.symbol) if o.side == "BUY" else None, "status": "INTENDED"}
                 for o in plan.orders]}
             _book_write(book.sync_state({LIVE_ORDERS_KEY: json.dumps(intended),
+                                         LIVE_ORDERS_LOG_PREFIX + session.date().isoformat(): json.dumps(intended),
                                          LIVE_ORDERS_PENDING_KEY: json.dumps(pending if book_unknown else [])}),
                         "intended orders (nothing sent)", strict)
         report["results"] = ex.dry_run_live(plan) if dry_run else ([] if stale else ex.execute(plan))
@@ -1203,12 +1228,9 @@ def run_live_session(kite, *, dry_run: bool = False, capital: Optional[float] = 
         if plan is not None and not dry_run:
             refs = {o.symbol: o.ref_price for o in plan.orders}
             planned = {s.symbol: s.trigger for s in plan.stop_instructions}
-            values[LIVE_ORDERS_KEY] = json.dumps({"decision_date": session.date().isoformat(), "orders": [
-                {"tag": r.get("tag"), "symbol": r.get("symbol"), "side": r.get("side"), "quantity": r.get("quantity"),
-                 "reason": r.get("reason"),
-                 "limit_price": r.get("limit_price"), "ref_price": refs.get(r.get("symbol"), 0.0),
-                 "stop_price": planned.get(r.get("symbol")) if str(r.get("side")).upper() == "BUY" else None,
-                 "status": "PLACED" if r.get("status") == "DUPLICATE" else r.get("status")} for r in orders]})
+            doc, log = orders_records(session.date().isoformat(), orders, refs, planned)
+            values[LIVE_ORDERS_KEY] = json.dumps(doc)
+            values[LIVE_ORDERS_LOG_PREFIX + session.date().isoformat()] = json.dumps(log)   # LX1: replaces the intended
             # tonight's stops become the book's last stops (LS1), kept if a GTT is later missing,
             # with tonight's close as their basis for later corporate-action adjustments
             held = {s: v for s, v in planned.items() if s in (ledger.get("positions") or {})}

@@ -1139,8 +1139,18 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              orders matched to the reference's; on a fail, hold at Rs 3L and fix, no step up, no return to dry
              runs.  TO BUILD after PF1 (Sat 19 Dec), run over the canary's stored fills from its first session: the
              fill test, the order match and the return test, with PL-14's contract notes.  After RA1: funding=live in
-             the live reference (it funds as the model today).
+             the live reference (it funds as the model today).  Records: each session's planned and sent orders, with
+             the limit sent and Kite's answer, are kept from the first live session (LX1A, 28 Nov); Claude reads
+             live_orders_log:<date> the morning after it.
                                                                                         Prompt: do LX1 (after 19 Dec)
+[ ] P1  DRY5 Go-live dry-run rule: the last 5 scheduled dry runs all clean, not any 5 of the 30 the log keeps (your
+             yes 28 Nov; build after PF1, Sat 19 Dec, before the canary's first live session).  Today: 25 clean of
+             30, all in a row since LN-T35 (16 Oct); the 5 not clean, 9-15 Oct, came before it (0 orders, 1 alert
+             each).  Why: capital_ladder.readiness counts clean runs anywhere in the log, so a login or broker-read
+             failure in go-live week would not block it; the first real session still stops on its own failures, so
+             a weaker signal, not a safety hole.  Decide at build: whether a session with no dry run (no login)
+             counts as not clean.  Test in tests/test_go_live.py.
+                                                                                       Prompt: do DRY5 (after 19 Dec)
 [x] P1  D3A  DECIDED 27 Nov (your call): the live book starts from cash, once G4 is cleared and the other criteria
              as planned (D3, GT2I) are met.  The live reference also starts from cash, so they match; the live book
              is judged only against its own same-period backtest at its own capital, never against the paper book or
@@ -1674,6 +1684,22 @@ PRIORITY    P0 urgent   P1 high   P2 medium   P3 low      OWNER  YOU | CLAUDE
              path sets market_protection, and MARKET orders go out from the app's manual order (default),
              options spread legs, trade_monitor exits and auto_executor (kiteconnect 5.1.0 takes the
              parameter); the engine book's LIMIT AMOs are unaffected.
+28 Nov  LX1A Each live session's orders kept for good (your "check the fill fields", then "now" and "keep for good";
+             RA1 plumbing).  Found (read-only): a live fill row (paper_fills, live schema) keeps the order ID,
+             decision and fill dates, side, requested and filled quantity, the decision close, Kite's average price,
+             the slip against the open, the model's charges and Kite's reason; but the limit price sent and the plan
+             itself sat only in state live_orders, replaced every session, and Kite shows an order book for one day,
+             so LX1's order match, and limits a circuit or fallback had set, could not have been checked
+             later.  Built: kite_connect/trading/live_session.py keeps each session's record under state key
+             live_orders_log:<decision date> (every planned order: the limit sent, the executor's own status, Kite's
+             order ID, the error, any limit note), written with the intended orders before anything is sent and
+             replaced by the result after; dry runs write nothing; live_orders itself byte-identical (checked);
+             about 230 bytes an order; tools.export_books backs it up with the rest of the state.  Not kept: the fill
+             time (fixed at 09:15; Console's tradebook and the contract notes have it).  Guard:
+             tests/test_live_session.py, one test (drill: the log without the executor's status fails it).  Checks:
+             config hash 679cbd0ceaf7c895 unchanged; fast suite on the core install 1,262 passed, 106 skipped, none
+             failed.  Not checked: a dry run writes nothing by design, so the first real check is the canary's first
+             live session; Claude reads its live_orders_log the morning after.  Uncommitted.
 27 Nov  PL-14 Contract notes against the cost model, first fixtures (your notes 27 Nov: two contract notes, 11 and
              16 Nov, and the ledger; in the gitignored research_inbox).  Every rate matches within the note's
              rounding: STT 0.1% a side, stamp 0.015% on the buy, exchange about 0.003%, SEBI Rs 10 a crore, GST

@@ -551,6 +551,32 @@ def test_the_sessions_row_says_what_was_done_and_what_would_have_been():
     assert idle["outcome"] == "[live] no plan" and idle["planned_buys"] == 0 and idle["shift_multiplier"] == 1.0
 
 
+def test_each_sessions_orders_are_kept_for_good_with_the_limit_sent_and_kites_answer():
+    """``live_orders`` is replaced every session and Kite's order book lasts a day; LX1 reads the log (28 Nov)."""
+    from kite_connect.trading.live_session import LIVE_ORDERS_LOG_PREFIX, orders_records
+
+    sent = [
+        {"tag": "NE261228BINFY", "symbol": "INFY", "side": "BUY", "quantity": 10, "reason": "entry",
+         "limit_price": 1010.0, "status": "PLACED", "success": True, "order_id": "261228000001", "limit_note": ""},
+        {"tag": "NE261228STCS", "symbol": "TCS", "side": "SELL", "quantity": 3, "reason": "exit",
+         "limit_price": 3402.5, "status": "NOT_SENT", "success": False, "error": "SESSION CAP: SELL above the holding",
+         "limit_note": "TCS sell limit set at the lower circuit"},
+        {"tag": "NE261228BITC", "symbol": "ITC", "side": "BUY", "quantity": 4, "reason": "entry", "limit_price": 404.0,
+         "status": "DUPLICATE", "success": False, "error": "duplicate (already placed today)"}]
+    doc, log = orders_records("2026-12-28", sent, {"INFY": 1000.0, "TCS": 3580.0, "ITC": 400.0},
+                              {"INFY": 920.0, "ITC": 370.0})
+    assert list(doc["orders"][0]) == ["tag", "symbol", "side", "quantity", "reason", "limit_price", "ref_price",
+                                      "stop_price", "status"]                      # what step 2 has always read
+    assert [(o["status"], o["ref_price"], o["stop_price"]) for o in doc["orders"]] == [
+        ("PLACED", 1000.0, 920.0), ("NOT_SENT", 3580.0, None), ("PLACED", 400.0, 370.0)]
+    assert log["decision_date"] == doc["decision_date"] == "2026-12-28"
+    assert [(o["limit_price"], o["status"], o["order_id"], o["error"]) for o in log["orders"]] == [
+        (1010.0, "PLACED", "261228000001", None), (3402.5, "NOT_SENT", None, "SESSION CAP: SELL above the holding"),
+        (404.0, "DUPLICATE", None, "duplicate (already placed today)")]
+    assert log["orders"][1]["limit_note"] == "TCS sell limit set at the lower circuit"
+    assert len(LIVE_ORDERS_LOG_PREFIX + "2026-12-28") <= 64                       # the state table's key column
+
+
 def test_the_ladder_decides_every_night_with_or_without_a_gate(panel, monkeypatch):
     """The live G4 needs a reference backtest; when it cannot be made the ladder still decides, and holds."""
     from types import SimpleNamespace
