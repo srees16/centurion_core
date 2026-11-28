@@ -1,4 +1,4 @@
-Golden target: Sharpe >= 2, PBO <= 30%, higher walk-forward OOS
+Golden target: Sharpe >= 2, PBO <= 30%, walk-forward OOS Sharpe >= 1.4, deflated Sharpe ≥ 1.2
 
 Realistically achievable target: Sharpe >= 1.2, CAGR >=35%, MaxDD<=35%, Calmar >= 1%, PBO <= 30%
 Goal is to have the best possible alpha, Sharpe and CAGR, lowest possible maxDD
